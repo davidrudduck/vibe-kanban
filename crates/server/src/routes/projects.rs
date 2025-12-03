@@ -168,6 +168,20 @@ pub async fn get_unified_projects(
         "unified projects: fetching remote projects"
     );
 
+    // Debug: show all cached projects before any exclusions
+    let all_cached = CachedNodeProjectWithNode::list_all(pool)
+        .await
+        .unwrap_or_default();
+    for p in &all_cached {
+        tracing::debug!(
+            node_id = %p.node_id,
+            node_name = %p.node_name,
+            project_id = %p.project_id,
+            project_name = %p.project_name,
+            "unified projects: cached project"
+        );
+    }
+
     // Get all remote projects from all organizations, excluding:
     // 1. Projects already linked locally
     // 2. Projects from the current node (they're shown as local projects)
