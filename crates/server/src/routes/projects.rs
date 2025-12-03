@@ -172,6 +172,25 @@ pub async fn get_unified_projects(
     let all_cached = CachedNodeProjectWithNode::list_all(pool)
         .await
         .unwrap_or_default();
+
+    // Also check cached_nodes table directly
+    let cached_nodes_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM cached_nodes")
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0);
+    let cached_projects_count =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM cached_node_projects")
+            .fetch_one(pool)
+            .await
+            .unwrap_or(0);
+
+    tracing::debug!(
+        all_cached_count = all_cached.len(),
+        cached_nodes_count = cached_nodes_count,
+        cached_projects_count = cached_projects_count,
+        "unified projects: total cached projects in database"
+    );
+
     for p in &all_cached {
         tracing::debug!(
             node_id = %p.node_id,
