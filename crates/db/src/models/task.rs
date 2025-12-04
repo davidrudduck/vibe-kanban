@@ -639,8 +639,8 @@ ORDER BY t.created_at DESC"#,
 
     /// Upsert a remote task from the Hive
     #[allow(clippy::too_many_arguments)]
-    pub async fn upsert_remote_task(
-        pool: &SqlitePool,
+    pub async fn upsert_remote_task<'e, E>(
+        executor: E,
         local_id: Uuid,
         project_id: Uuid,
         shared_task_id: Uuid,
@@ -651,7 +651,10 @@ ORDER BY t.created_at DESC"#,
         remote_assignee_name: Option<String>,
         remote_assignee_username: Option<String>,
         remote_version: i64,
-    ) -> Result<Self, sqlx::Error> {
+    ) -> Result<Self, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
         let now = Utc::now();
         sqlx::query_as!(
             Task,
@@ -702,7 +705,7 @@ ORDER BY t.created_at DESC"#,
             remote_version,
             now
         )
-        .fetch_one(pool)
+        .fetch_one(executor)
         .await
     }
 
@@ -757,12 +760,15 @@ ORDER BY t.created_at DESC"#,
     /// Delete a task by its shared_task_id
     ///
     /// Used when syncing remote tasks and a task has been deleted on the Hive.
-    pub async fn delete_by_shared_task_id(
-        pool: &SqlitePool,
+    pub async fn delete_by_shared_task_id<'e, E>(
+        executor: E,
         shared_task_id: Uuid,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<(), sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
         sqlx::query!("DELETE FROM tasks WHERE shared_task_id = ?", shared_task_id)
-            .execute(pool)
+            .execute(executor)
             .await?;
         Ok(())
     }
