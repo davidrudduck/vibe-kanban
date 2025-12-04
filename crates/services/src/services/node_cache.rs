@@ -142,10 +142,24 @@ impl<'a> NodeCacheSyncer<'a> {
 
             // Convert and upsert the node
             let input = self.node_to_input(&node);
-            CachedNode::upsert(self.pool, input)
-                .await
-                .map_err(NodeCacheSyncError::Database)?;
-            stats.nodes_synced += 1;
+            match CachedNode::upsert(self.pool, input).await {
+                Ok(cached) => {
+                    debug!(
+                        cached_node_id = %cached.id,
+                        cached_node_name = %cached.name,
+                        "successfully cached node"
+                    );
+                    stats.nodes_synced += 1;
+                }
+                Err(e) => {
+                    tracing::error!(
+                        node_id = %node_id,
+                        error = %e,
+                        "failed to upsert cached node"
+                    );
+                    return Err(NodeCacheSyncError::Database(e));
+                }
+            }
 
             // Fetch and sync projects for this node
             match self.sync_node_projects(node_id).await {
@@ -190,10 +204,26 @@ impl<'a> NodeCacheSyncer<'a> {
             synced_ids.push(project.id);
 
             let input = self.project_to_input(node_id, &project);
-            CachedNodeProject::upsert(self.pool, input)
-                .await
-                .map_err(NodeCacheSyncError::Database)?;
-            synced_count += 1;
+            match CachedNodeProject::upsert(self.pool, input).await {
+                Ok(cached) => {
+                    debug!(
+                        cached_id = %cached.id,
+                        node_id = %cached.node_id,
+                        project_name = %cached.project_name,
+                        "successfully cached node project"
+                    );
+                    synced_count += 1;
+                }
+                Err(e) => {
+                    tracing::error!(
+                        node_id = %node_id,
+                        project_id = %project.id,
+                        error = %e,
+                        "failed to upsert cached node project"
+                    );
+                    return Err(NodeCacheSyncError::Database(e));
+                }
+            }
         }
 
         // Remove stale projects for this node
