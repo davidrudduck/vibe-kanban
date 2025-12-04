@@ -147,25 +147,8 @@ pub async fn get_remote_project_tasks(
     State(deployment): State<DeploymentImpl>,
     Path(project_id): Path<Uuid>,
 ) -> Result<ResponseJson<ApiResponse<BulkSharedTasksResponse>>, ApiError> {
-    tracing::info!(%project_id, "Fetching tasks for remote project");
-
     let remote_client = deployment.remote_client()?;
-
-    let tasks = match remote_client.fetch_bulk_snapshot(project_id).await {
-        Ok(tasks) => {
-            tracing::info!(
-                %project_id,
-                task_count = tasks.tasks.len(),
-                "Successfully fetched remote project tasks"
-            );
-            tasks
-        }
-        Err(e) => {
-            tracing::error!(%project_id, error = ?e, "Failed to fetch remote project tasks");
-            return Err(e.into());
-        }
-    };
-
+    let tasks = remote_client.fetch_bulk_snapshot(project_id).await?;
     Ok(ResponseJson(ApiResponse::success(tasks)))
 }
 

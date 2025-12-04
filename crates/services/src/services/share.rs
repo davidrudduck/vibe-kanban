@@ -170,6 +170,9 @@ impl RemoteSync {
         let mut refresh_interval = interval(Duration::from_secs(5));
         refresh_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
+        // On startup, sync all unshared tasks for Hive-linked projects
+        self.sync_unshared_tasks_on_startup().await;
+
         self.reconcile_watchers(&mut watchers, &event_tx).await?;
 
         loop {
@@ -242,6 +245,41 @@ impl RemoteSync {
         }
 
         Ok(())
+    }
+
+    /// Sync all unshared tasks for all Hive-linked projects on startup.
+    /// This ensures that any tasks created while disconnected are automatically shared.
+    async fn sync_unshared_tasks_on_startup(&self) {
+        // Get user profile for sharing
+        let Some(profile) = self.auth_ctx.cached_profile().await else {
+            tracing::debug!("No cached profile available for startup sync, skipping");
+            return;
+        };
+
+        let remote_client = RemoteClient::new(self.config.api_base.as_str(), self.auth_ctx.clone());
+        let Ok(remote_client) = remote_client else {
+            tracing::warn!("Failed to create remote client for startup sync");
+            return;
+        };
+
+        let publisher = SharePublisher::new(self.db.clone(), remote_client);
+
+        match sync_all_hive_linked_projects(&self.db.pool, &publisher, profile.user_id).await {
+            Ok((projects, tasks)) => {
+                if tasks > 0 {
+                    tracing::info!(
+                        projects_synced = projects,
+                        tasks_shared = tasks,
+                        "Startup sync: shared unshared tasks to Hive"
+                    );
+                } else {
+                    tracing::debug!("Startup sync: no unshared tasks to sync");
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = ?e, "Startup sync failed");
+            }
+        }
     }
 
     async fn linked_remote_projects(&self) -> Result<Vec<Uuid>, ShareError> {
@@ -704,6 +742,64 @@ pub async fn link_shared_tasks_to_project(
     }
 
     Ok(())
+}
+
+/// Sync all unshared tasks for all Hive-linked projects on startup.
+/// This ensures that any tasks created while disconnected from the Hive
+/// are automatically shared when the node comes back online.
+pub async fn sync_all_hive_linked_projects(
+    pool: &SqlitePool,
+    publisher: &SharePublisher,
+    user_id: Uuid,
+) -> Result<(usize, usize), ShareError> {
+    use db::models::project::Project;
+
+    // Find all projects that are linked to the Hive (have remote_project_id)
+    let all_projects = Project::find_all(pool).await?;
+    let linked_projects: Vec<_> = all_projects
+        .into_iter()
+        .filter(|p| p.remote_project_id.is_some())
+        .collect();
+
+    if linked_projects.is_empty() {
+        tracing::debug!("No Hive-linked projects to sync");
+        return Ok((0, 0));
+    }
+
+    tracing::info!(
+        project_count = linked_projects.len(),
+        "Starting startup sync for Hive-linked projects"
+    );
+
+    let mut total_projects_synced = 0;
+    let mut total_tasks_shared = 0;
+
+    for project in linked_projects {
+        match share_existing_tasks_to_hive(pool, publisher, project.id, user_id).await {
+            Ok(count) => {
+                if count > 0 {
+                    total_projects_synced += 1;
+                    total_tasks_shared += count;
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    project_id = %project.id,
+                    project_name = %project.name,
+                    error = ?e,
+                    "Failed to sync project tasks to Hive on startup"
+                );
+            }
+        }
+    }
+
+    tracing::info!(
+        total_projects_synced,
+        total_tasks_shared,
+        "Completed startup sync for Hive-linked projects"
+    );
+
+    Ok((total_projects_synced, total_tasks_shared))
 }
 
 /// Share all existing local tasks for a project to the Hive.

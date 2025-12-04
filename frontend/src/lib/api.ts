@@ -1175,13 +1175,10 @@ export const remoteProjectsApi = {
   },
 
   getTasks: async (projectId: string): Promise<BulkSharedTasksResponse> => {
-    console.log('[remoteProjectsApi.getTasks] Fetching tasks for:', projectId);
     const response = await makeRequest(
       `/api/remote-projects/${projectId}/tasks`
     );
-    const result = await handleApiResponse<BulkSharedTasksResponse>(response);
-    console.log('[remoteProjectsApi.getTasks] Response:', result);
-    return result;
+    return handleApiResponse<BulkSharedTasksResponse>(response);
   },
 
   createTask: async (

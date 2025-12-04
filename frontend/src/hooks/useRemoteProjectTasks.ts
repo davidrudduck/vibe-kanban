@@ -30,12 +30,7 @@ export function useRemoteProjectTasks(projectId: string | undefined) {
   // Fetch tasks
   const tasksQuery = useQuery<BulkSharedTasksResponse>({
     queryKey: ['remote-project-tasks', projectId],
-    queryFn: async () => {
-      console.log('[useRemoteProjectTasks] Fetching tasks for project:', projectId);
-      const result = await remoteProjectsApi.getTasks(projectId!);
-      console.log('[useRemoteProjectTasks] Tasks result:', result);
-      return result;
-    },
+    queryFn: () => remoteProjectsApi.getTasks(projectId!),
     enabled: !!projectId,
     staleTime: 10000, // Refetch after 10 seconds
   });
