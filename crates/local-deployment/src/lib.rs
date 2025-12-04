@@ -430,21 +430,27 @@ impl LocalDeployment {
         // Only start once
         let mut started = self.node_cache_sync_started.lock().await;
         if *started {
+            tracing::debug!("node cache sync already started, skipping");
             return;
         }
 
         // Need remote client and credentials
         let Ok(client) = self.remote_client() else {
-            tracing::debug!("remote client not configured, skipping node cache sync");
+            tracing::warn!("remote client not configured, skipping node cache sync");
             return;
         };
 
         if self.auth_context.get_credentials().await.is_none() {
-            tracing::debug!("not logged in, skipping node cache sync");
+            tracing::warn!("not logged in, skipping node cache sync");
             return;
         }
 
-        tracing::info!("starting background node cache sync");
+        // Log which database we're using
+        let db_path = utils::assets::asset_dir().join("db.sqlite");
+        tracing::info!(
+            db_path = %db_path.display(),
+            "starting background node cache sync"
+        );
         *started = true;
 
         let pool = self.db.pool.clone();
