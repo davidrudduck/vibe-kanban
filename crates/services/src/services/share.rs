@@ -249,13 +249,8 @@ impl RemoteSync {
 
     /// Sync all unshared tasks for all Hive-linked projects on startup.
     /// This ensures that any tasks created while disconnected are automatically shared.
+    /// Does not require a logged-in user - tasks will be shared without an assignee if needed.
     async fn sync_unshared_tasks_on_startup(&self) {
-        // Get user profile for sharing
-        let Some(profile) = self.auth_ctx.cached_profile().await else {
-            tracing::debug!("No cached profile available for startup sync, skipping");
-            return;
-        };
-
         let remote_client = RemoteClient::new(self.config.api_base.as_str(), self.auth_ctx.clone());
         let Ok(remote_client) = remote_client else {
             tracing::warn!("Failed to create remote client for startup sync");
@@ -264,7 +259,10 @@ impl RemoteSync {
 
         let publisher = SharePublisher::new(self.db.clone(), remote_client);
 
-        match sync_all_hive_linked_projects(&self.db.pool, &publisher, profile.user_id).await {
+        // Get user_id if available, but don't require it
+        let user_id = self.auth_ctx.cached_profile().await.map(|p| p.user_id);
+
+        match sync_all_hive_linked_projects(&self.db.pool, &publisher, user_id).await {
             Ok((projects, tasks)) => {
                 if tasks > 0 {
                     tracing::info!(
@@ -744,13 +742,14 @@ pub async fn link_shared_tasks_to_project(
     Ok(())
 }
 
-/// Sync all unshared tasks for all Hive-linked projects on startup.
-/// This ensures that any tasks created while disconnected from the Hive
-/// are automatically shared when the node comes back online.
+/// Sync all unshared tasks for all Hive-linked projects.
+///
+/// The `user_id` is optional - if not provided, tasks will be shared without an assignee.
+/// This allows the sync to run without requiring a logged-in user (e.g., on node startup).
 pub async fn sync_all_hive_linked_projects(
     pool: &SqlitePool,
     publisher: &SharePublisher,
-    user_id: Uuid,
+    user_id: Option<Uuid>,
 ) -> Result<(usize, usize), ShareError> {
     use db::models::project::Project;
 
@@ -768,7 +767,7 @@ pub async fn sync_all_hive_linked_projects(
 
     tracing::info!(
         project_count = linked_projects.len(),
-        "Starting startup sync for Hive-linked projects"
+        "Starting sync for Hive-linked projects"
     );
 
     let mut total_projects_synced = 0;
@@ -808,7 +807,7 @@ pub async fn share_existing_tasks_to_hive(
     pool: &SqlitePool,
     publisher: &SharePublisher,
     project_id: Uuid,
-    user_id: Uuid,
+    user_id: Option<Uuid>,
 ) -> Result<usize, ShareError> {
     // Get all tasks for this project that haven't been shared yet
     let tasks_with_status = Task::find_by_project_id_with_attempt_status(pool, project_id).await?;

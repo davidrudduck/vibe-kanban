@@ -105,6 +105,7 @@ pub async fn create_shared_task(
         project_id,
         title,
         description,
+        status,
         assignee_user_id,
     } = payload;
 
@@ -135,6 +136,7 @@ pub async fn create_shared_task(
         project_id,
         title: title.clone(),
         description: description.clone(),
+        status,
         creator_user_id: ctx.user.id,
         assignee_user_id,
     };
@@ -377,6 +379,7 @@ pub struct CreateSharedTaskRequest {
     pub project_id: Uuid,
     pub title: String,
     pub description: Option<String>,
+    pub status: Option<TaskStatus>,
     pub assignee_user_id: Option<Uuid>,
 }
 

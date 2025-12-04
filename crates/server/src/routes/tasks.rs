@@ -128,33 +128,31 @@ pub async fn create_task(
     if let Some(project) = Project::find_by_id(pool, payload.project_id).await? {
         if project.remote_project_id.is_some() {
             if let Ok(publisher) = deployment.share_publisher() {
-                // Get user_id for sharing - use cached profile if available
+                // Get user_id for sharing - use cached profile if available (optional)
                 let user_id = deployment
                     .auth_context()
                     .cached_profile()
                     .await
                     .map(|p| p.user_id);
 
-                if let Some(user_id) = user_id {
-                    match publisher.share_task(task.id, user_id).await {
-                        Ok(shared_task_id) => {
-                            tracing::info!(
-                                task_id = %task.id,
-                                shared_task_id = %shared_task_id,
-                                "Auto-shared task to Hive"
-                            );
-                            // Update local task with shared_task_id for consistency
-                            if let Some(updated) = Task::find_by_id(pool, task.id).await? {
-                                task = updated;
-                            }
+                match publisher.share_task(task.id, user_id).await {
+                    Ok(shared_task_id) => {
+                        tracing::info!(
+                            task_id = %task.id,
+                            shared_task_id = %shared_task_id,
+                            "Auto-shared task to Hive"
+                        );
+                        // Update local task with shared_task_id for consistency
+                        if let Some(updated) = Task::find_by_id(pool, task.id).await? {
+                            task = updated;
                         }
-                        Err(e) => {
-                            tracing::warn!(
-                                task_id = %task.id,
-                                error = ?e,
-                                "Failed to auto-share task to Hive"
-                            );
-                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            task_id = %task.id,
+                            error = ?e,
+                            "Failed to auto-share task to Hive"
+                        );
                     }
                 }
             }
@@ -199,28 +197,27 @@ pub async fn create_task_and_start(
     if let Some(project) = Project::find_by_id(pool, task.project_id).await? {
         if project.remote_project_id.is_some() {
             if let Ok(publisher) = deployment.share_publisher() {
+                // Get user_id for sharing - use cached profile if available (optional)
                 let user_id = deployment
                     .auth_context()
                     .cached_profile()
                     .await
                     .map(|p| p.user_id);
 
-                if let Some(user_id) = user_id {
-                    match publisher.share_task(task.id, user_id).await {
-                        Ok(shared_task_id) => {
-                            tracing::info!(
-                                task_id = %task.id,
-                                shared_task_id = %shared_task_id,
-                                "Auto-shared task to Hive"
-                            );
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                task_id = %task.id,
-                                error = ?e,
-                                "Failed to auto-share task to Hive"
-                            );
-                        }
+                match publisher.share_task(task.id, user_id).await {
+                    Ok(shared_task_id) => {
+                        tracing::info!(
+                            task_id = %task.id,
+                            shared_task_id = %shared_task_id,
+                            "Auto-shared task to Hive"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            task_id = %task.id,
+                            error = ?e,
+                            "Failed to auto-share task to Hive"
+                        );
                     }
                 }
             }
@@ -485,7 +482,7 @@ pub async fn share_task(
         .cached_profile()
         .await
         .ok_or(ShareError::MissingAuth)?;
-    let shared_task_id = publisher.share_task(task.id, profile.user_id).await?;
+    let shared_task_id = publisher.share_task(task.id, Some(profile.user_id)).await?;
 
     let props = serde_json::json!({
         "task_id": task.id,
