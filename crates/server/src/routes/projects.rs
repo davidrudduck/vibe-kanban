@@ -1029,8 +1029,4 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     Router::new()
         .nest("/projects", projects_router)
         .route("/unified-projects", get(get_unified_projects))
-        .route(
-            "/remote-projects/{remote_project_id}",
-            get(get_remote_project_by_id),
-        )
 }

@@ -13,6 +13,7 @@ use deployment::Deployment;
 use remote::routes::tasks::{
     BulkSharedTasksResponse, CreateSharedTaskRequest, SharedTaskResponse, UpdateSharedTaskRequest,
 };
+use utils::api::projects::RemoteProject;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use utils::response::ApiResponse;
@@ -63,7 +64,14 @@ pub struct AssignRemoteTaskRequest {
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let _ = deployment; // Mark as used
     Router::new()
-        .route("/remote-projects/{project_id}", get(get_remote_project_info))
+        .route(
+            "/remote-projects/{project_id}",
+            get(get_remote_project_info),
+        )
+        .route(
+            "/remote-projects/{project_id}/hive-details",
+            get(get_remote_project_from_hive),
+        )
         .route(
             "/remote-projects/{project_id}/tasks",
             get(get_remote_project_tasks),
@@ -115,6 +123,21 @@ pub async fn get_remote_project_info(
         git_repo_path: cached_project.git_repo_path,
         default_branch: cached_project.default_branch,
     })))
+}
+
+/// Get remote project details directly from the Hive
+///
+/// This fetches project details from the Hive API, not from the local cache.
+/// Use this when you need the most up-to-date information from the source.
+pub async fn get_remote_project_from_hive(
+    State(deployment): State<DeploymentImpl>,
+    Path(project_id): Path<Uuid>,
+) -> Result<ResponseJson<ApiResponse<RemoteProject>>, ApiError> {
+    let client = deployment.remote_client()?;
+
+    let remote_project = client.get_project(project_id).await?;
+
+    Ok(ResponseJson(ApiResponse::success(remote_project)))
 }
 
 /// Get all tasks for a remote project
