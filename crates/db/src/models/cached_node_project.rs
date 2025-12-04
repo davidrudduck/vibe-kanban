@@ -254,23 +254,25 @@ impl CachedNodeProjectWithNode {
             format!(" AND cnp.project_id NOT IN ({})", placeholders.join(", "))
         };
 
+        // Note: Using plain column aliases (not the "col!: Type" syntax) because
+        // sqlx::query_as() with dynamic SQL doesn't support the macro syntax
         let query = format!(
             r#"
             SELECT
-                cnp.id                  AS "id!: Uuid",
-                cnp.node_id             AS "node_id!: Uuid",
-                cnp.project_id          AS "project_id!: Uuid",
-                cnp.local_project_id    AS "local_project_id!: Uuid",
-                cnp.project_name        AS "project_name!",
-                cnp.git_repo_path       AS "git_repo_path!",
-                cnp.default_branch      AS "default_branch!",
-                cnp.sync_status         AS "sync_status!",
-                cnp.last_synced_at      AS "last_synced_at?: DateTime<Utc>",
-                cnp.created_at          AS "created_at!: DateTime<Utc>",
-                cnp.cached_at           AS "cached_at!: DateTime<Utc>",
-                cn.name                 AS "node_name!",
-                cn.status               AS "node_status!: String",
-                cn.public_url           AS "node_public_url?"
+                cnp.id                  AS id,
+                cnp.node_id             AS node_id,
+                cnp.project_id          AS project_id,
+                cnp.local_project_id    AS local_project_id,
+                cnp.project_name        AS project_name,
+                cnp.git_repo_path       AS git_repo_path,
+                cnp.default_branch      AS default_branch,
+                cnp.sync_status         AS sync_status,
+                cnp.last_synced_at      AS last_synced_at,
+                cnp.created_at          AS created_at,
+                cnp.cached_at           AS cached_at,
+                cn.name                 AS node_name,
+                cn.status               AS node_status,
+                cn.public_url           AS node_public_url
             FROM cached_node_projects cnp
             JOIN cached_nodes cn ON cnp.node_id = cn.id
             WHERE cn.organization_id = ?{}
@@ -348,23 +350,25 @@ impl CachedNodeProjectWithNode {
             "find_remote_projects: building query"
         );
 
+        // Note: Using plain column aliases (not the "col!: Type" syntax) because
+        // sqlx::query_as() with dynamic SQL doesn't support the macro syntax
         let query = format!(
             r#"
             SELECT
-                cnp.id                  AS "id!: Uuid",
-                cnp.node_id             AS "node_id!: Uuid",
-                cnp.project_id          AS "project_id!: Uuid",
-                cnp.local_project_id    AS "local_project_id!: Uuid",
-                cnp.project_name        AS "project_name!",
-                cnp.git_repo_path       AS "git_repo_path!",
-                cnp.default_branch      AS "default_branch!",
-                cnp.sync_status         AS "sync_status!",
-                cnp.last_synced_at      AS "last_synced_at?: DateTime<Utc>",
-                cnp.created_at          AS "created_at!: DateTime<Utc>",
-                cnp.cached_at           AS "cached_at!: DateTime<Utc>",
-                cn.name                 AS "node_name!",
-                cn.status               AS "node_status!: String",
-                cn.public_url           AS "node_public_url?"
+                cnp.id                  AS id,
+                cnp.node_id             AS node_id,
+                cnp.project_id          AS project_id,
+                cnp.local_project_id    AS local_project_id,
+                cnp.project_name        AS project_name,
+                cnp.git_repo_path       AS git_repo_path,
+                cnp.default_branch      AS default_branch,
+                cnp.sync_status         AS sync_status,
+                cnp.last_synced_at      AS last_synced_at,
+                cnp.created_at          AS created_at,
+                cnp.cached_at           AS cached_at,
+                cn.name                 AS node_name,
+                cn.status               AS node_status,
+                cn.public_url           AS node_public_url
             FROM cached_node_projects cnp
             JOIN cached_nodes cn ON cnp.node_id = cn.id
             {}
