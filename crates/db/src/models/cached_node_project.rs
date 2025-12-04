@@ -230,19 +230,26 @@ impl CachedNodeProject {
 }
 
 impl CachedNodeProjectWithNode {
+    /// Helper to convert UUID to SQLite BLOB hex literal
+    fn uuid_to_blob_literal(id: &Uuid) -> String {
+        let bytes = id.as_bytes();
+        let hex: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+        format!("X'{}'", hex)
+    }
+
     /// List all cached projects with node info, excluding those linked to local projects
     pub async fn find_all_excluding(
         pool: &SqlitePool,
         organization_id: Uuid,
         exclude_project_ids: &[Uuid],
     ) -> Result<Vec<Self>, sqlx::Error> {
-        // Build exclusion clause
+        // Build exclusion clause using BLOB hex literals for UUID comparison
         let exclude_clause = if exclude_project_ids.is_empty() {
             String::new()
         } else {
             let placeholders: Vec<String> = exclude_project_ids
                 .iter()
-                .map(|id| format!("'{}'", id))
+                .map(Self::uuid_to_blob_literal)
                 .collect();
             format!(" AND cnp.project_id NOT IN ({})", placeholders.join(", "))
         };
@@ -314,14 +321,17 @@ impl CachedNodeProjectWithNode {
         if !exclude_project_ids.is_empty() {
             let placeholders: Vec<String> = exclude_project_ids
                 .iter()
-                .map(|id| format!("'{}'", id))
+                .map(Self::uuid_to_blob_literal)
                 .collect();
             conditions.push(format!("cnp.project_id NOT IN ({})", placeholders.join(", ")));
         }
 
         // Exclude current node's projects
         if let Some(node_id) = exclude_node_id {
-            conditions.push(format!("cnp.node_id != '{}'", node_id));
+            conditions.push(format!(
+                "cnp.node_id != {}",
+                Self::uuid_to_blob_literal(&node_id)
+            ));
         }
 
         let where_clause = if conditions.is_empty() {
