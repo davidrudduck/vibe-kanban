@@ -205,8 +205,7 @@ export function RemoteProjectTasks() {
           <AlertTitle>Remote Project</AlertTitle>
           <AlertDescription>
             This project is hosted on <strong>{projectInfo?.node_name}</strong>.
-            Only <strong>shared tasks</strong> are visible here. Local tasks on the remote node
-            must be shared to the Hive before they appear.
+            Tasks are managed through the Hive and executed on the remote node.
           </AlertDescription>
         </Alert>
 
@@ -218,15 +217,14 @@ export function RemoteProjectTasks() {
                 <Plus className="h-6 w-6" />
               </div>
               <h3 className="mt-4 text-lg font-semibold">
-                No shared tasks
+                {t('tasks:empty.title', 'No tasks yet')}
               </h3>
-              <p className="mt-2 text-sm text-muted-foreground max-w-md mx-auto">
-                Tasks from the remote node must be shared to the Hive before they appear here.
-                You can create a new shared task below, or share existing tasks from the source node.
+              <p className="mt-2 text-sm text-muted-foreground">
+                {t('tasks:empty.description', 'Create your first task to get started.')}
               </p>
               <Button className="mt-4" onClick={handleCreateTask}>
                 <Plus className="mr-2 h-4 w-4" />
-                Create Shared Task
+                {t('tasks:empty.createFirst', 'Create First Task')}
               </Button>
             </CardContent>
           </Card>

@@ -28,7 +28,7 @@ use services::services::{
     git::GitBranch,
     project_detector::ProjectDetector,
     remote_client::CreateRemoteProjectPayload,
-    share::link_shared_tasks_to_project,
+    share::{link_shared_tasks_to_project, share_existing_tasks_to_hive},
 };
 use ts_rs::TS;
 use utils::{
@@ -365,7 +365,31 @@ async fn apply_remote_project_link(
 
     let current_profile = deployment.auth_context().cached_profile().await;
     let current_user_id = current_profile.as_ref().map(|p| p.user_id);
+
+    // Pull shared tasks from Hive to local
     link_shared_tasks_to_project(pool, current_user_id, project_id, remote_project.id).await?;
+
+    // Push existing local tasks to the Hive
+    if let Some(user_id) = current_user_id {
+        if let Ok(publisher) = deployment.share_publisher() {
+            match share_existing_tasks_to_hive(pool, &publisher, project_id, user_id).await {
+                Ok(count) => {
+                    tracing::info!(
+                        project_id = %project_id,
+                        shared_count = count,
+                        "Shared existing tasks to Hive during project linking"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        project_id = %project_id,
+                        error = ?e,
+                        "Failed to share existing tasks to Hive during project linking"
+                    );
+                }
+            }
+        }
+    }
 
     // Notify the hive about the link if we're connected as a node
     if let Some(ctx) = deployment.node_runner_context() {

@@ -706,6 +706,54 @@ pub async fn link_shared_tasks_to_project(
     Ok(())
 }
 
+/// Share all existing local tasks for a project to the Hive.
+/// Called when a project is first linked to the Hive to push all existing tasks.
+pub async fn share_existing_tasks_to_hive(
+    pool: &SqlitePool,
+    publisher: &SharePublisher,
+    project_id: Uuid,
+    user_id: Uuid,
+) -> Result<usize, ShareError> {
+    // Get all tasks for this project that haven't been shared yet
+    let tasks_with_status = Task::find_by_project_id_with_attempt_status(pool, project_id).await?;
+
+    let mut shared_count = 0;
+    for task_with_status in tasks_with_status {
+        let task = task_with_status.task;
+
+        // Skip tasks that are already shared
+        if task.shared_task_id.is_some() {
+            continue;
+        }
+
+        match publisher.share_task(task.id, user_id).await {
+            Ok(shared_task_id) => {
+                tracing::info!(
+                    task_id = %task.id,
+                    shared_task_id = %shared_task_id,
+                    "Shared existing task to Hive during project linking"
+                );
+                shared_count += 1;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    task_id = %task.id,
+                    error = ?e,
+                    "Failed to share existing task to Hive during project linking"
+                );
+            }
+        }
+    }
+
+    tracing::info!(
+        project_id = %project_id,
+        shared_count,
+        "Finished sharing existing tasks to Hive"
+    );
+
+    Ok(shared_count)
+}
+
 // Prevent duplicate local tasks from being created during task sharing.
 // The activity event handler can create a duplicate local task when it receives a shared task assigned to the current user.
 lazy_static::lazy_static! {

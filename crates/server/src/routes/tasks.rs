@@ -14,6 +14,7 @@ use axum::{
 };
 use db::models::{
     image::TaskImage,
+    project::Project,
     task::{CreateTask, Task, TaskWithAttemptStatus, UpdateTask},
     task_attempt::{CreateTaskAttempt, TaskAttempt},
 };
@@ -115,10 +116,49 @@ pub async fn create_task(
         payload.project_id
     );
 
-    let task = Task::create(&deployment.db().pool, &payload, id).await?;
+    let pool = &deployment.db().pool;
+    let task = Task::create(pool, &payload, id).await?;
 
     if let Some(image_ids) = &payload.image_ids {
-        TaskImage::associate_many_dedup(&deployment.db().pool, task.id, image_ids).await?;
+        TaskImage::associate_many_dedup(pool, task.id, image_ids).await?;
+    }
+
+    // Auto-share task if project is linked to the Hive
+    let mut task = task;
+    if let Some(project) = Project::find_by_id(pool, payload.project_id).await? {
+        if project.remote_project_id.is_some() {
+            if let Ok(publisher) = deployment.share_publisher() {
+                // Get user_id for sharing - use cached profile if available
+                let user_id = deployment
+                    .auth_context()
+                    .cached_profile()
+                    .await
+                    .map(|p| p.user_id);
+
+                if let Some(user_id) = user_id {
+                    match publisher.share_task(task.id, user_id).await {
+                        Ok(shared_task_id) => {
+                            tracing::info!(
+                                task_id = %task.id,
+                                shared_task_id = %shared_task_id,
+                                "Auto-shared task to Hive"
+                            );
+                            // Update local task with shared_task_id for consistency
+                            if let Some(updated) = Task::find_by_id(pool, task.id).await? {
+                                task = updated;
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                task_id = %task.id,
+                                error = ?e,
+                                "Failed to auto-share task to Hive"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     deployment
@@ -148,10 +188,43 @@ pub async fn create_task_and_start(
     Json(payload): Json<CreateAndStartTaskRequest>,
 ) -> Result<ResponseJson<ApiResponse<TaskWithAttemptStatus>>, ApiError> {
     let task_id = Uuid::new_v4();
-    let task = Task::create(&deployment.db().pool, &payload.task, task_id).await?;
+    let pool = &deployment.db().pool;
+    let task = Task::create(pool, &payload.task, task_id).await?;
 
     if let Some(image_ids) = &payload.task.image_ids {
-        TaskImage::associate_many(&deployment.db().pool, task.id, image_ids).await?;
+        TaskImage::associate_many(pool, task.id, image_ids).await?;
+    }
+
+    // Auto-share task if project is linked to the Hive
+    if let Some(project) = Project::find_by_id(pool, task.project_id).await? {
+        if project.remote_project_id.is_some() {
+            if let Ok(publisher) = deployment.share_publisher() {
+                let user_id = deployment
+                    .auth_context()
+                    .cached_profile()
+                    .await
+                    .map(|p| p.user_id);
+
+                if let Some(user_id) = user_id {
+                    match publisher.share_task(task.id, user_id).await {
+                        Ok(shared_task_id) => {
+                            tracing::info!(
+                                task_id = %task.id,
+                                shared_task_id = %shared_task_id,
+                                "Auto-shared task to Hive"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                task_id = %task.id,
+                                error = ?e,
+                                "Failed to auto-share task to Hive"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     deployment
@@ -172,7 +245,7 @@ pub async fn create_task_and_start(
         .await;
 
     let task_attempt = TaskAttempt::create(
-        &deployment.db().pool,
+        pool,
         &CreateTaskAttempt {
             executor: payload.executor_profile_id.executor,
             base_branch: payload.base_branch,
@@ -200,7 +273,7 @@ pub async fn create_task_and_start(
         )
         .await;
 
-    let task = Task::find_by_id(&deployment.db().pool, task.id)
+    let task = Task::find_by_id(pool, task.id)
         .await?
         .ok_or(ApiError::Database(SqlxError::RowNotFound))?;
 
