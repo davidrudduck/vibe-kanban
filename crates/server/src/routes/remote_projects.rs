@@ -166,6 +166,7 @@ pub async fn create_remote_project_task(
         project_id,
         title: payload.title,
         description: payload.description,
+        status: None, // Default to Todo on the Hive
         assignee_user_id: payload.assignee_user_id,
     };
 
