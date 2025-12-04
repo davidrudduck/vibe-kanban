@@ -160,11 +160,14 @@ pub async fn get_unified_projects(
         None
     };
 
+    // Log which database we're using
+    let api_db_path = utils::assets::asset_dir().join("db.sqlite");
     tracing::debug!(
         local_count = local_projects.len(),
         linked_remote_ids_count = linked_remote_ids.len(),
         linked_remote_ids = ?linked_remote_ids,
         current_node_id = ?current_node_id,
+        db_path = %api_db_path.display(),
         "unified projects: fetching remote projects"
     );
 
