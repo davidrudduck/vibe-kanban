@@ -269,7 +269,6 @@ impl<'a> NodeCacheSyncer<'a> {
             remote::nodes::NodeStatus::Draining => CachedNodeStatus::Draining,
         }
     }
-
 }
 
 /// Background sync service that periodically syncs all organizations.
