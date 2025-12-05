@@ -162,7 +162,9 @@ pub async fn get_unified_projects(
 
     // Get all remote projects from the unified table (is_remote = true)
     // Exclude projects from the current node since they're shown as local
-    let all_remote = Project::find_remote_projects(pool).await.unwrap_or_default();
+    let all_remote = Project::find_remote_projects(pool)
+        .await
+        .unwrap_or_default();
 
     // Filter out projects from current node
     let all_remote: Vec<_> = all_remote
