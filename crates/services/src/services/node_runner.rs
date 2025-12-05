@@ -8,9 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use db::DBService;
-use db::models::{
-    cached_node_project::CachedNodeProjectWithNode, project::Project, task::Task, task::TaskStatus,
-};
+use db::models::{project::Project, task::Task, task::TaskStatus};
 use remote::db::tasks::TaskStatus as RemoteTaskStatus;
 use sqlx::SqlitePool;
 use tokio::sync::{RwLock, mpsc};
@@ -518,53 +516,31 @@ async fn sync_remote_projects(
     organization_id: Uuid,
     current_node_id: Uuid,
 ) -> Result<(), NodeRunnerError> {
-    // 1. Refresh node cache first to get latest remote projects
+    // 1. Sync organization from hive - this directly upserts remote projects into unified Project table
     if let Err(e) = node_cache::sync_organization(pool, remote_client, organization_id).await {
-        tracing::warn!(error = ?e, "Failed to refresh node cache, using existing cache");
+        tracing::warn!(error = ?e, "Failed to sync organization from hive");
     }
 
-    // 2. Get remote projects (excluding current node and already-linked local projects)
-    let local_remote_ids = Project::find_local_project_remote_ids(pool).await?;
-    let remote_projects = CachedNodeProjectWithNode::find_remote_projects(
-        pool,
-        &local_remote_ids,
-        Some(current_node_id),
-    )
-    .await?;
+    // 2. Get remote projects from unified table (excluding current node)
+    let remote_projects: Vec<_> = Project::find_remote_projects(pool)
+        .await?
+        .into_iter()
+        .filter(|p| p.source_node_id != Some(current_node_id))
+        .collect();
 
-    // 3. Upsert each remote project and its tasks into the unified schema
-    let mut active_remote_ids = Vec::new();
-    for rp in &remote_projects {
-        let project = Project::upsert_remote_project(
-            pool,
-            Uuid::new_v4(),
-            rp.project_id,
-            rp.project_name.clone(),
-            rp.git_repo_path.clone(),
-            rp.node_id,
-            rp.node_name.clone(),
-            rp.node_public_url.clone(),
-            Some(rp.node_status.to_string()),
-        )
-        .await?;
-
-        active_remote_ids.push(rp.project_id);
-
-        // Sync tasks for this remote project
-        if let Err(e) =
-            sync_remote_project_tasks(pool, remote_client, project.id, rp.project_id).await
-        {
-            tracing::warn!(
-                error = ?e,
-                project_id = %rp.project_id,
-                "Failed to sync tasks for remote project"
-            );
+    // 3. Sync tasks for each remote project
+    for project in &remote_projects {
+        if let Some(remote_project_id) = project.remote_project_id {
+            if let Err(e) =
+                sync_remote_project_tasks(pool, remote_client, project.id, remote_project_id).await
+            {
+                tracing::warn!(
+                    error = ?e,
+                    project_id = %remote_project_id,
+                    "Failed to sync tasks for remote project"
+                );
+            }
         }
-    }
-
-    // 4. Clean up stale remote projects that no longer exist
-    if !active_remote_ids.is_empty() {
-        Project::delete_stale_remote_projects(pool, &active_remote_ids).await?;
     }
 
     tracing::info!(

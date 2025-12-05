@@ -11,7 +11,6 @@ use axum::{
 use chrono::{DateTime, Utc};
 use db::models::{
     cached_node::CachedNodeStatus,
-    cached_node_project::CachedNodeProjectWithNode,
     project::{
         CreateProject, Project, ProjectError, ScanConfigRequest, ScanConfigResponse,
         SearchMatchType, SearchResult, UpdateProject,
@@ -63,46 +62,47 @@ pub enum UnifiedProject {
     Remote(RemoteNodeProject),
 }
 
-/// A project from another node in the organization
+/// A project from another node in the organization (from unified projects table)
 #[derive(Debug, Clone, Serialize, TS)]
 pub struct RemoteNodeProject {
+    /// Local ID in the unified projects table
     pub id: Uuid,
+    /// ID of the node this project belongs to
     pub node_id: Uuid,
+    /// Remote project ID from the Hive
     pub project_id: Uuid,
-    pub local_project_id: Uuid,
     pub project_name: String,
     pub git_repo_path: String,
-    pub default_branch: String,
-    pub sync_status: String,
     #[ts(type = "Date | null")]
     pub last_synced_at: Option<DateTime<Utc>>,
     #[ts(type = "Date")]
     pub created_at: DateTime<Utc>,
-    #[ts(type = "Date")]
-    pub cached_at: DateTime<Utc>,
     // Node info
     pub node_name: String,
     pub node_status: CachedNodeStatus,
     pub node_public_url: Option<String>,
 }
 
-impl From<CachedNodeProjectWithNode> for RemoteNodeProject {
-    fn from(p: CachedNodeProjectWithNode) -> Self {
+impl From<Project> for RemoteNodeProject {
+    fn from(p: Project) -> Self {
+        // Parse node status from the stored string
+        let node_status = p
+            .source_node_status
+            .as_deref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(CachedNodeStatus::Pending);
+
         Self {
             id: p.id,
-            node_id: p.node_id,
-            project_id: p.project_id,
-            local_project_id: p.local_project_id,
-            project_name: p.project_name,
-            git_repo_path: p.git_repo_path,
-            default_branch: p.default_branch,
-            sync_status: p.sync_status,
-            last_synced_at: p.last_synced_at,
+            node_id: p.source_node_id.unwrap_or_default(),
+            project_id: p.remote_project_id.unwrap_or_default(),
+            project_name: p.name,
+            git_repo_path: p.git_repo_path.to_string_lossy().to_string(),
+            last_synced_at: p.remote_last_synced_at,
             created_at: p.created_at,
-            cached_at: p.cached_at,
-            node_name: p.node_name,
-            node_status: p.node_status,
-            node_public_url: p.node_public_url,
+            node_name: p.source_node_name.unwrap_or_default(),
+            node_status,
+            node_public_url: p.source_node_public_url,
         }
     }
 }
@@ -135,8 +135,8 @@ pub async fn get_projects(
 
 /// Get a unified view of all projects: local projects first, then remote projects grouped by node.
 ///
-/// Remote projects that are already linked to a local project (via remote_project_id) are excluded
-/// to avoid duplicates. Projects from the current node are also excluded since they're shown as local.
+/// Remote projects are now stored in the unified projects table with is_remote=true.
+/// Projects from the current node are excluded since they're shown as local.
 pub async fn get_unified_projects(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<UnifiedProjectsResponse>>, ApiError> {
@@ -144,14 +144,8 @@ pub async fn get_unified_projects(
 
     let pool = &deployment.db().pool;
 
-    // Get local projects
-    let local_projects = Project::find_all(pool).await?;
-
-    // Collect remote_project_ids to exclude from remote list
-    let linked_remote_ids: Vec<Uuid> = local_projects
-        .iter()
-        .filter_map(|p| p.remote_project_id)
-        .collect();
+    // Get local projects (is_remote = false)
+    let local_projects = Project::find_local_projects(pool).await?;
 
     // Get current node_id to exclude from remote list (if connected to hive)
     let current_node_id = if let Some(ctx) = deployment.node_runner_context() {
@@ -162,18 +156,25 @@ pub async fn get_unified_projects(
 
     // Debug: log what we're excluding
     tracing::debug!(
-        linked_remote_ids = ?linked_remote_ids,
         current_node_id = ?current_node_id,
         "unified projects: exclusion parameters"
     );
 
-    // Get all remote projects from all organizations, excluding:
-    // 1. Projects already linked locally
-    // 2. Projects from the current node (they're shown as local projects)
-    let all_remote =
-        CachedNodeProjectWithNode::find_remote_projects(pool, &linked_remote_ids, current_node_id)
-            .await
-            .unwrap_or_default();
+    // Get all remote projects from the unified table (is_remote = true)
+    // Exclude projects from the current node since they're shown as local
+    let all_remote = Project::find_remote_projects(pool).await.unwrap_or_default();
+
+    // Filter out projects from current node
+    let all_remote: Vec<_> = all_remote
+        .into_iter()
+        .filter(|p| {
+            if let Some(current_id) = current_node_id {
+                p.source_node_id != Some(current_id)
+            } else {
+                true
+            }
+        })
+        .collect();
 
     tracing::debug!(
         all_remote_count = all_remote.len(),
@@ -182,8 +183,9 @@ pub async fn get_unified_projects(
 
     // Group remote projects by node
     let mut by_node: HashMap<Uuid, RemoteNodeGroup> = HashMap::new();
-    for remote_project in all_remote {
-        let node_id = remote_project.node_id;
+    for project in all_remote {
+        let node_id = project.source_node_id.unwrap_or_default();
+        let remote_project = RemoteNodeProject::from(project);
         let group = by_node.entry(node_id).or_insert_with(|| RemoteNodeGroup {
             node_id,
             node_name: remote_project.node_name.clone(),
@@ -191,7 +193,7 @@ pub async fn get_unified_projects(
             node_public_url: remote_project.node_public_url.clone(),
             projects: Vec::new(),
         });
-        group.projects.push(RemoteNodeProject::from(remote_project));
+        group.projects.push(remote_project);
     }
 
     // Convert to sorted list of node groups

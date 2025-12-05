@@ -56,7 +56,19 @@ export type LinkToExistingRequest = { remote_project_id: string, };
 
 export type UnifiedProject = { "type": "local" } & Project | { "type": "remote" } & RemoteNodeProject;
 
-export type RemoteNodeProject = { id: string, node_id: string, project_id: string, local_project_id: string, project_name: string, git_repo_path: string, default_branch: string, sync_status: string, last_synced_at: Date | null, created_at: Date, cached_at: Date, node_name: string, node_status: CachedNodeStatus, node_public_url: string | null, };
+export type RemoteNodeProject = { 
+/**
+ * Local ID in the unified projects table
+ */
+id: string, 
+/**
+ * ID of the node this project belongs to
+ */
+node_id: string, 
+/**
+ * Remote project ID from the Hive
+ */
+project_id: string, project_name: string, git_repo_path: string, last_synced_at: Date | null, created_at: Date, node_name: string, node_status: CachedNodeStatus, node_public_url: string | null, };
 
 export type UnifiedProjectsResponse = { 
 /**
@@ -245,14 +257,6 @@ export type OpenEditorResponse = { url: string | null, };
 export type AssignSharedTaskRequest = { new_assignee_user_id: string | null, version: bigint | null, };
 
 export type AssignSharedTaskResponse = { shared_task: SharedTask, };
-
-export type RemoteProjectInfo = { project_id: string, project_name: string, node_id: string, node_name: string, node_status: string, git_repo_path: string, default_branch: string, };
-
-export type CreateRemoteTaskRequest = { title: string, description: string | null, assignee_user_id: string | null, };
-
-export type UpdateRemoteTaskRequest = { title: string | null, description: string | null, status: string | null, version: bigint | null, };
-
-export type AssignRemoteTaskRequest = { new_assignee_user_id: string | null, version: bigint | null, };
 
 export type ShareTaskResponse = { shared_task_id: string, };
 
