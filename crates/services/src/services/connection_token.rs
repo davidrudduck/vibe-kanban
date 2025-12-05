@@ -134,10 +134,10 @@ impl ConnectionTokenValidator {
         let connection_token = self.validate(token)?;
 
         // If the token specifies an execution process ID, it must match
-        if let Some(token_exec_id) = connection_token.execution_process_id {
-            if token_exec_id != expected_execution_id {
-                return Err(ConnectionTokenError::ExecutionMismatch);
-            }
+        if let Some(token_exec_id) = connection_token.execution_process_id
+            && token_exec_id != expected_execution_id
+        {
+            return Err(ConnectionTokenError::ExecutionMismatch);
         }
 
         Ok(connection_token)

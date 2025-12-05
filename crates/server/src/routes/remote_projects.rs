@@ -13,9 +13,9 @@ use deployment::Deployment;
 use remote::routes::tasks::{
     BulkSharedTasksResponse, CreateSharedTaskRequest, SharedTaskResponse, UpdateSharedTaskRequest,
 };
-use utils::api::projects::RemoteProject;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+use utils::api::projects::RemoteProject;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 

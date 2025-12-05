@@ -15,7 +15,9 @@ use remote::{
 use sqlx::{Sqlite, Transaction};
 use uuid::Uuid;
 
-use super::{ShareConfig, ShareError, convert_remote_task, status, sync_local_task_for_shared_task};
+use super::{
+    ShareConfig, ShareError, convert_remote_task, status, sync_local_task_for_shared_task,
+};
 use crate::services::{auth::AuthContext, remote_client::RemoteClient};
 
 struct PreparedBulkTask {
@@ -196,14 +198,15 @@ impl ActivityProcessor {
                 if let Some(ref project) = project
                     && project.is_remote
                 {
-                    let assignee_name = user.as_ref().map(|u| {
-                        match (&u.first_name, &u.last_name) {
+                    let assignee_name = user
+                        .as_ref()
+                        .map(|u| match (&u.first_name, &u.last_name) {
                             (Some(f), Some(l)) => format!("{} {}", f, l),
                             (Some(f), None) => f.clone(),
                             (None, Some(l)) => l.clone(),
                             (None, None) => String::new(),
-                        }
-                    }).filter(|s| !s.is_empty());
+                        })
+                        .filter(|s| !s.is_empty());
 
                     Task::upsert_remote_task(
                         tx.as_mut(),
@@ -217,7 +220,8 @@ impl ActivityProcessor {
                         assignee_name,
                         user.as_ref().and_then(|u| u.username.clone()),
                         task.version,
-                    ).await?;
+                    )
+                    .await?;
                 }
             }
             Err(error) => {
@@ -384,7 +388,8 @@ impl ActivityProcessor {
                     assignee_name,
                     remote_user_username,
                     remote_task_version,
-                ).await?;
+                )
+                .await?;
             }
         }
 

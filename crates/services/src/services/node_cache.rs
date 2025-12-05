@@ -188,7 +188,10 @@ impl<'a> NodeCacheSyncer<'a> {
     }
 
     /// Sync projects for a specific node
-    async fn sync_node_projects(&self, node_id: Uuid) -> Result<(usize, usize), NodeCacheSyncError> {
+    async fn sync_node_projects(
+        &self,
+        node_id: Uuid,
+    ) -> Result<(usize, usize), NodeCacheSyncError> {
         let projects = self
             .remote_client
             .list_node_projects(node_id)
