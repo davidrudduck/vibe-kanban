@@ -21,10 +21,13 @@ use db::models::{
 use deployment::Deployment;
 use executors::profile::ExecutorProfileId;
 use futures_util::{SinkExt, StreamExt, TryStreamExt};
+use remote::routes::tasks::{
+    CreateSharedTaskRequest, DeleteSharedTaskRequest, UpdateSharedTaskRequest,
+};
 use serde::{Deserialize, Serialize};
 use services::services::{
     container::ContainerService,
-    share::ShareError,
+    share::{ShareError, status as task_status},
     worktree_manager::{WorktreeCleanup, WorktreeManager},
 };
 use sqlx::Error as SqlxError;
@@ -108,6 +111,19 @@ pub async fn create_task(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<CreateTask>,
 ) -> Result<ResponseJson<ApiResponse<Task>>, ApiError> {
+    let pool = &deployment.db().pool;
+
+    // Check if project is remote
+    let project = Project::find_by_id(pool, payload.project_id)
+        .await?
+        .ok_or(ApiError::Database(SqlxError::RowNotFound))?;
+
+    if project.is_remote {
+        // Remote project: proxy to Hive and sync locally
+        return create_remote_task(&deployment, &project, &payload).await;
+    }
+
+    // Local project: existing logic
     let id = Uuid::new_v4();
 
     tracing::debug!(
@@ -116,7 +132,6 @@ pub async fn create_task(
         payload.project_id
     );
 
-    let pool = &deployment.db().pool;
     let task = Task::create(pool, &payload, id).await?;
 
     if let Some(image_ids) = &payload.image_ids {
@@ -125,36 +140,34 @@ pub async fn create_task(
 
     // Auto-share task if project is linked to the Hive
     let mut task = task;
-    if let Some(project) = Project::find_by_id(pool, payload.project_id).await? {
-        if project.remote_project_id.is_some() {
-            if let Ok(publisher) = deployment.share_publisher() {
-                // Get user_id for sharing - use cached profile if available (optional)
-                let user_id = deployment
-                    .auth_context()
-                    .cached_profile()
-                    .await
-                    .map(|p| p.user_id);
+    if project.remote_project_id.is_some()
+        && let Ok(publisher) = deployment.share_publisher()
+    {
+        // Get user_id for sharing - use cached profile if available (optional)
+        let user_id = deployment
+            .auth_context()
+            .cached_profile()
+            .await
+            .map(|p| p.user_id);
 
-                match publisher.share_task(task.id, user_id).await {
-                    Ok(shared_task_id) => {
-                        tracing::info!(
-                            task_id = %task.id,
-                            shared_task_id = %shared_task_id,
-                            "Auto-shared task to Hive"
-                        );
-                        // Update local task with shared_task_id for consistency
-                        if let Some(updated) = Task::find_by_id(pool, task.id).await? {
-                            task = updated;
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            task_id = %task.id,
-                            error = ?e,
-                            "Failed to auto-share task to Hive"
-                        );
-                    }
+        match publisher.share_task(task.id, user_id).await {
+            Ok(shared_task_id) => {
+                tracing::info!(
+                    task_id = %task.id,
+                    shared_task_id = %shared_task_id,
+                    "Auto-shared task to Hive"
+                );
+                // Update local task with shared_task_id for consistency
+                if let Some(updated) = Task::find_by_id(pool, task.id).await? {
+                    task = updated;
                 }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    task_id = %task.id,
+                    error = ?e,
+                    "Failed to auto-share task to Hive"
+                );
             }
         }
     }
@@ -174,6 +187,76 @@ pub async fn create_task(
     Ok(ResponseJson(ApiResponse::success(task)))
 }
 
+/// Create a task on a remote project by proxying to the Hive
+async fn create_remote_task(
+    deployment: &DeploymentImpl,
+    project: &Project,
+    payload: &CreateTask,
+) -> Result<ResponseJson<ApiResponse<Task>>, ApiError> {
+    // Remote tasks don't support images
+    if payload
+        .image_ids
+        .as_ref()
+        .is_some_and(|ids| !ids.is_empty())
+    {
+        return Err(ApiError::BadRequest(
+            "Image attachments are not supported for remote project tasks".to_string(),
+        ));
+    }
+
+    let remote_client = deployment.remote_client()?;
+    let remote_project_id = project.remote_project_id.ok_or_else(|| {
+        ApiError::BadRequest("Remote project missing remote_project_id".to_string())
+    })?;
+
+    let request = CreateSharedTaskRequest {
+        project_id: remote_project_id,
+        title: payload.title.clone(),
+        description: payload.description.clone(),
+        status: None, // Default to Todo on the Hive
+        assignee_user_id: None,
+    };
+
+    let response = remote_client.create_shared_task(&request).await?;
+
+    // Build display name from user data
+    let assignee_name = response
+        .user
+        .as_ref()
+        .map(|u| match (&u.first_name, &u.last_name) {
+            (Some(f), Some(l)) => format!("{} {}", f, l),
+            (Some(f), None) => f.clone(),
+            (None, Some(l)) => l.clone(),
+            (None, None) => String::new(),
+        });
+
+    // Upsert as remote task locally
+    let pool = &deployment.db().pool;
+    let task = Task::upsert_remote_task(
+        pool,
+        Uuid::new_v4(),
+        project.id,
+        response.task.id,
+        response.task.title,
+        response.task.description,
+        task_status::from_remote(&response.task.status),
+        response.task.assignee_user_id,
+        assignee_name,
+        response.user.as_ref().and_then(|u| u.username.clone()),
+        response.task.version,
+    )
+    .await?;
+
+    tracing::info!(
+        task_id = %task.id,
+        shared_task_id = ?task.shared_task_id,
+        project_id = %project.id,
+        "Created remote task via Hive"
+    );
+
+    Ok(ResponseJson(ApiResponse::success(task)))
+}
+
 #[derive(Debug, Deserialize, TS)]
 pub struct CreateAndStartTaskRequest {
     pub task: CreateTask,
@@ -185,8 +268,21 @@ pub async fn create_task_and_start(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<CreateAndStartTaskRequest>,
 ) -> Result<ResponseJson<ApiResponse<TaskWithAttemptStatus>>, ApiError> {
-    let task_id = Uuid::new_v4();
     let pool = &deployment.db().pool;
+
+    // Check if project is remote - cannot start task attempts on remote projects
+    let project = Project::find_by_id(pool, payload.task.project_id)
+        .await?
+        .ok_or(ApiError::Database(SqlxError::RowNotFound))?;
+
+    if project.is_remote {
+        return Err(ApiError::BadRequest(
+            "Cannot start task attempts on remote projects. Tasks execute on their origin node."
+                .to_string(),
+        ));
+    }
+
+    let task_id = Uuid::new_v4();
     let task = Task::create(pool, &payload.task, task_id).await?;
 
     if let Some(image_ids) = &payload.task.image_ids {
@@ -194,32 +290,31 @@ pub async fn create_task_and_start(
     }
 
     // Auto-share task if project is linked to the Hive
-    if let Some(project) = Project::find_by_id(pool, task.project_id).await? {
-        if project.remote_project_id.is_some() {
-            if let Ok(publisher) = deployment.share_publisher() {
-                // Get user_id for sharing - use cached profile if available (optional)
-                let user_id = deployment
-                    .auth_context()
-                    .cached_profile()
-                    .await
-                    .map(|p| p.user_id);
+    if let Some(project) = Project::find_by_id(pool, task.project_id).await?
+        && project.remote_project_id.is_some()
+        && let Ok(publisher) = deployment.share_publisher()
+    {
+        // Get user_id for sharing - use cached profile if available (optional)
+        let user_id = deployment
+            .auth_context()
+            .cached_profile()
+            .await
+            .map(|p| p.user_id);
 
-                match publisher.share_task(task.id, user_id).await {
-                    Ok(shared_task_id) => {
-                        tracing::info!(
-                            task_id = %task.id,
-                            shared_task_id = %shared_task_id,
-                            "Auto-shared task to Hive"
-                        );
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            task_id = %task.id,
-                            error = ?e,
-                            "Failed to auto-share task to Hive"
-                        );
-                    }
-                }
+        match publisher.share_task(task.id, user_id).await {
+            Ok(shared_task_id) => {
+                tracing::info!(
+                    task_id = %task.id,
+                    shared_task_id = %shared_task_id,
+                    "Auto-shared task to Hive"
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    task_id = %task.id,
+                    error = ?e,
+                    "Failed to auto-share task to Hive"
+                );
             }
         }
     }
@@ -290,6 +385,12 @@ pub async fn update_task(
 
     Json(payload): Json<UpdateTask>,
 ) -> Result<ResponseJson<ApiResponse<Task>>, ApiError> {
+    // Check if this is a remote task
+    if existing_task.is_remote {
+        return update_remote_task(&deployment, &existing_task, &payload).await;
+    }
+
+    // Local task: existing logic
     // Use existing values if not provided in update
     let title = payload.title.unwrap_or(existing_task.title);
     let description = match payload.description {
@@ -319,23 +420,98 @@ pub async fn update_task(
     }
 
     // If task has been shared, broadcast update (fire-and-forget to avoid blocking)
-    if task.shared_task_id.is_some() {
-        if let Ok(publisher) = deployment.share_publisher() {
-            let task_clone = task.clone();
-            tokio::spawn(async move {
-                match tokio::time::timeout(
-                    std::time::Duration::from_secs(5),
-                    publisher.update_shared_task(&task_clone),
-                )
-                .await
-                {
-                    Ok(Ok(())) => {}
-                    Ok(Err(e)) => tracing::warn!(?e, "failed to sync shared task update"),
-                    Err(_) => tracing::warn!("shared task sync timed out"),
-                }
-            });
-        }
+    if task.shared_task_id.is_some()
+        && let Ok(publisher) = deployment.share_publisher()
+    {
+        let task_clone = task.clone();
+        tokio::spawn(async move {
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                publisher.update_shared_task(&task_clone),
+            )
+            .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => tracing::warn!(?e, "failed to sync shared task update"),
+                Err(_) => tracing::warn!("shared task sync timed out"),
+            }
+        });
     }
+
+    Ok(ResponseJson(ApiResponse::success(task)))
+}
+
+/// Update a remote task by proxying to the Hive
+async fn update_remote_task(
+    deployment: &DeploymentImpl,
+    existing_task: &Task,
+    payload: &UpdateTask,
+) -> Result<ResponseJson<ApiResponse<Task>>, ApiError> {
+    // Remote tasks don't support images or parent_task_attempt
+    if payload
+        .image_ids
+        .as_ref()
+        .is_some_and(|ids| !ids.is_empty())
+    {
+        return Err(ApiError::BadRequest(
+            "Image attachments are not supported for remote project tasks".to_string(),
+        ));
+    }
+    if payload.parent_task_attempt.is_some() {
+        return Err(ApiError::BadRequest(
+            "Parent task attempt is not supported for remote project tasks".to_string(),
+        ));
+    }
+
+    let remote_client = deployment.remote_client()?;
+    let shared_task_id = existing_task
+        .shared_task_id
+        .ok_or_else(|| ApiError::BadRequest("Remote task missing shared_task_id".to_string()))?;
+
+    let request = UpdateSharedTaskRequest {
+        title: payload.title.clone(),
+        description: payload.description.clone(),
+        status: payload.status.as_ref().map(task_status::to_remote),
+        version: Some(existing_task.remote_version),
+    };
+
+    let response = remote_client
+        .update_shared_task(shared_task_id, &request)
+        .await?;
+
+    // Build display name from user data
+    let assignee_name = response
+        .user
+        .as_ref()
+        .map(|u| match (&u.first_name, &u.last_name) {
+            (Some(f), Some(l)) => format!("{} {}", f, l),
+            (Some(f), None) => f.clone(),
+            (None, Some(l)) => l.clone(),
+            (None, None) => String::new(),
+        });
+
+    // Upsert updated remote task locally
+    let pool = &deployment.db().pool;
+    let task = Task::upsert_remote_task(
+        pool,
+        existing_task.id,
+        existing_task.project_id,
+        response.task.id,
+        response.task.title,
+        response.task.description,
+        task_status::from_remote(&response.task.status),
+        response.task.assignee_user_id,
+        assignee_name,
+        response.user.as_ref().and_then(|u| u.username.clone()),
+        response.task.version,
+    )
+    .await?;
+
+    tracing::info!(
+        task_id = %task.id,
+        shared_task_id = ?task.shared_task_id,
+        "Updated remote task via Hive"
+    );
 
     Ok(ResponseJson(ApiResponse::success(task)))
 }
@@ -344,6 +520,12 @@ pub async fn delete_task(
     Extension(task): Extension<Task>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<(StatusCode, ResponseJson<ApiResponse<()>>), ApiError> {
+    // Check if this is a remote task
+    if task.is_remote {
+        return delete_remote_task(&deployment, &task).await;
+    }
+
+    // Local task: existing logic
     // Validate no running execution processes
     if deployment
         .container()
@@ -381,21 +563,21 @@ pub async fn delete_task(
         .collect();
 
     // Fire-and-forget remote deletion to avoid blocking local operation
-    if let Some(shared_task_id) = task.shared_task_id {
-        if let Ok(publisher) = deployment.share_publisher() {
-            tokio::spawn(async move {
-                match tokio::time::timeout(
-                    std::time::Duration::from_secs(5),
-                    publisher.delete_shared_task(shared_task_id),
-                )
-                .await
-                {
-                    Ok(Ok(())) => {}
-                    Ok(Err(e)) => tracing::warn!(?e, "failed to sync shared task deletion"),
-                    Err(_) => tracing::warn!("shared task deletion sync timed out"),
-                }
-            });
-        }
+    if let Some(shared_task_id) = task.shared_task_id
+        && let Ok(publisher) = deployment.share_publisher()
+    {
+        tokio::spawn(async move {
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                publisher.delete_shared_task(shared_task_id),
+            )
+            .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => tracing::warn!(?e, "failed to sync shared task deletion"),
+                Err(_) => tracing::warn!("shared task deletion sync timed out"),
+            }
+        });
     }
 
     // Use a transaction to ensure atomicity: either all operations succeed or all are rolled back
@@ -462,6 +644,36 @@ pub async fn delete_task(
     });
 
     // Return 202 Accepted to indicate deletion was scheduled
+    Ok((StatusCode::ACCEPTED, ResponseJson(ApiResponse::success(()))))
+}
+
+/// Delete a remote task by proxying to the Hive
+async fn delete_remote_task(
+    deployment: &DeploymentImpl,
+    task: &Task,
+) -> Result<(StatusCode, ResponseJson<ApiResponse<()>>), ApiError> {
+    let remote_client = deployment.remote_client()?;
+    let shared_task_id = task
+        .shared_task_id
+        .ok_or_else(|| ApiError::BadRequest("Remote task missing shared_task_id".to_string()))?;
+
+    // Delete from Hive first
+    let request = DeleteSharedTaskRequest { version: None };
+    remote_client
+        .delete_shared_task(shared_task_id, &request)
+        .await?;
+
+    // Delete local cache entry
+    let pool = &deployment.db().pool;
+    Task::delete(pool, task.id).await?;
+
+    tracing::info!(
+        task_id = %task.id,
+        shared_task_id = %shared_task_id,
+        "Deleted remote task via Hive"
+    );
+
+    // Return 202 Accepted to match local delete behavior
     Ok((StatusCode::ACCEPTED, ResponseJson(ApiResponse::success(()))))
 }
 

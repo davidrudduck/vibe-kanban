@@ -71,10 +71,7 @@ pub struct CachedNodeProjectInput {
 
 impl CachedNodeProject {
     /// List all cached projects for a node
-    pub async fn list_by_node(
-        pool: &SqlitePool,
-        node_id: Uuid,
-    ) -> Result<Vec<Self>, sqlx::Error> {
+    pub async fn list_by_node(pool: &SqlitePool, node_id: Uuid) -> Result<Vec<Self>, sqlx::Error> {
         sqlx::query_as!(
             CachedNodeProject,
             r#"
@@ -325,7 +322,10 @@ impl CachedNodeProjectWithNode {
                 .iter()
                 .map(Self::uuid_to_blob_literal)
                 .collect();
-            conditions.push(format!("cnp.project_id NOT IN ({})", placeholders.join(", ")));
+            conditions.push(format!(
+                "cnp.project_id NOT IN ({})",
+                placeholders.join(", ")
+            ));
         }
 
         // Exclude current node's projects

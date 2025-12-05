@@ -628,7 +628,9 @@ impl Project {
     ///
     /// This returns the set of project IDs that are already linked to local projects,
     /// so they should be excluded from the remote project list.
-    pub async fn find_local_project_remote_ids(pool: &SqlitePool) -> Result<Vec<Uuid>, sqlx::Error> {
+    pub async fn find_local_project_remote_ids(
+        pool: &SqlitePool,
+    ) -> Result<Vec<Uuid>, sqlx::Error> {
         let rows = sqlx::query_scalar!(
             r#"SELECT remote_project_id as "remote_project_id: Uuid"
                FROM projects

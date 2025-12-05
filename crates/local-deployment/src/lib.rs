@@ -200,49 +200,54 @@ impl Deployment for LocalDeployment {
         let file_search_cache = Arc::new(FileSearchCache::new());
 
         // Initialize node runner and connection token validator if hive connection is configured
-        let (node_runner_context, connection_token_validator) =
-            if let Some(node_config) = NodeRunnerConfig::from_env() {
-                tracing::info!(
-                    hive_url = %node_config.hive_url,
-                    node_name = %node_config.node_name,
-                    "starting node runner to connect to hive"
-                );
+        let (node_runner_context, connection_token_validator) = if let Some(node_config) =
+            NodeRunnerConfig::from_env()
+        {
+            tracing::info!(
+                hive_url = %node_config.hive_url,
+                node_name = %node_config.node_name,
+                "starting node runner to connect to hive"
+            );
 
-                // Create connection token validator if secret is configured
-                let validator = if let Some(secret) = node_config.connection_token_secret.clone() {
-                    tracing::info!("connection token validation enabled for direct log streaming");
-                    ConnectionTokenValidator::new(secret)
-                } else {
-                    tracing::debug!(
-                        "VK_CONNECTION_TOKEN_SECRET not set; direct log streaming auth disabled"
-                    );
-                    ConnectionTokenValidator::disabled()
-                };
-
-                // Pass the container and remote_client to spawn_node_runner to enable
-                // task execution and remote project sync
-                (
-                    spawn_node_runner(
-                        node_config,
-                        db.clone(),
-                        Some(container.clone()),
-                        remote_client.clone().ok(),
-                    ),
-                    validator,
-                )
+            // Create connection token validator if secret is configured
+            let validator = if let Some(secret) = node_config.connection_token_secret.clone() {
+                tracing::info!("connection token validation enabled for direct log streaming");
+                ConnectionTokenValidator::new(secret)
             } else {
-                // Log which env vars are missing to help with debugging
-                let has_hive_url = std::env::var("VK_HIVE_URL").is_ok();
-                let has_api_key = std::env::var("VK_NODE_API_KEY").is_ok();
-                if !has_hive_url && !has_api_key {
-                    tracing::debug!("VK_HIVE_URL and VK_NODE_API_KEY not set; node runner disabled");
-                } else if !has_hive_url {
-                    tracing::debug!("VK_HIVE_URL not set; node runner disabled (VK_NODE_API_KEY is set)");
-                } else {
-                    tracing::debug!("VK_NODE_API_KEY not set; node runner disabled (VK_HIVE_URL is set)");
-                }
-                (None, ConnectionTokenValidator::disabled())
+                tracing::debug!(
+                    "VK_CONNECTION_TOKEN_SECRET not set; direct log streaming auth disabled"
+                );
+                ConnectionTokenValidator::disabled()
             };
+
+            // Pass the container and remote_client to spawn_node_runner to enable
+            // task execution and remote project sync
+            (
+                spawn_node_runner(
+                    node_config,
+                    db.clone(),
+                    Some(container.clone()),
+                    remote_client.clone().ok(),
+                ),
+                validator,
+            )
+        } else {
+            // Log which env vars are missing to help with debugging
+            let has_hive_url = std::env::var("VK_HIVE_URL").is_ok();
+            let has_api_key = std::env::var("VK_NODE_API_KEY").is_ok();
+            if !has_hive_url && !has_api_key {
+                tracing::debug!("VK_HIVE_URL and VK_NODE_API_KEY not set; node runner disabled");
+            } else if !has_hive_url {
+                tracing::debug!(
+                    "VK_HIVE_URL not set; node runner disabled (VK_NODE_API_KEY is set)"
+                );
+            } else {
+                tracing::debug!(
+                    "VK_NODE_API_KEY not set; node runner disabled (VK_HIVE_URL is set)"
+                );
+            }
+            (None, ConnectionTokenValidator::disabled())
+        };
 
         let deployment = Self {
             config,

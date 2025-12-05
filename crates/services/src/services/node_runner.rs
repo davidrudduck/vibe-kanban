@@ -7,11 +7,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use db::models::{
-    cached_node_project::CachedNodeProjectWithNode, project::Project, task::Task,
-    task::TaskStatus,
-};
 use db::DBService;
+use db::models::{
+    cached_node_project::CachedNodeProjectWithNode, project::Project, task::Task, task::TaskStatus,
+};
 use remote::db::tasks::TaskStatus as RemoteTaskStatus;
 use sqlx::SqlitePool;
 use tokio::sync::{RwLock, mpsc};
@@ -334,10 +333,7 @@ impl NodeRunnerHandle {
     ///
     /// This notifies the hive that a local project is now linked to a remote project,
     /// allowing the hive to track which projects are available on which nodes.
-    pub async fn send_link_project(
-        &self,
-        link: LinkProjectMessage,
-    ) -> Result<(), HiveClientError> {
+    pub async fn send_link_project(&self, link: LinkProjectMessage) -> Result<(), HiveClientError> {
         self.command_tx
             .send(NodeMessage::LinkProject(link))
             .await
@@ -455,13 +451,8 @@ pub fn spawn_node_runner<C: ContainerService + Sync + Send + 'static>(
                 }) => {
                     // Sync remote projects into unified schema on connect
                     if let Some(ref client) = remote_client
-                        && let Err(e) = sync_remote_projects(
-                            &db.pool,
-                            client,
-                            organization_id,
-                            node_id,
-                        )
-                        .await
+                        && let Err(e) =
+                            sync_remote_projects(&db.pool, client, organization_id, node_id).await
                     {
                         tracing::warn!(error = ?e, "Failed to sync remote projects on connect");
                     }
@@ -604,13 +595,11 @@ async fn sync_remote_project_tasks(
         let user = &task_payload.user;
 
         // Combine first_name and last_name into a display name
-        let user_display_name = user.as_ref().map(|u| {
-            match (&u.first_name, &u.last_name) {
-                (Some(first), Some(last)) => format!("{} {}", first, last),
-                (Some(first), None) => first.clone(),
-                (None, Some(last)) => last.clone(),
-                (None, None) => String::new(),
-            }
+        let user_display_name = user.as_ref().map(|u| match (&u.first_name, &u.last_name) {
+            (Some(first), Some(last)) => format!("{} {}", first, last),
+            (Some(first), None) => first.clone(),
+            (None, Some(last)) => last.clone(),
+            (None, None) => String::new(),
         });
 
         Task::upsert_remote_task(

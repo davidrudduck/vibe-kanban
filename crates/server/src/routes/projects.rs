@@ -198,10 +198,12 @@ pub async fn get_unified_projects(
     let mut remote_by_node: Vec<RemoteNodeGroup> = by_node.into_values().collect();
     remote_by_node.sort_by(|a, b| a.node_name.cmp(&b.node_name));
 
-    Ok(ResponseJson(ApiResponse::success(UnifiedProjectsResponse {
-        local: local_projects,
-        remote_by_node,
-    })))
+    Ok(ResponseJson(ApiResponse::success(
+        UnifiedProjectsResponse {
+            local: local_projects,
+            remote_by_node,
+        },
+    )))
 }
 
 pub async fn get_project(

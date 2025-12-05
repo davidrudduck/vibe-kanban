@@ -679,10 +679,7 @@ impl HiveClient {
     }
 
     /// Link a project to the hive.
-    pub async fn send_link_project(
-        &self,
-        link: LinkProjectMessage,
-    ) -> Result<(), HiveClientError> {
+    pub async fn send_link_project(&self, link: LinkProjectMessage) -> Result<(), HiveClientError> {
         self.command_tx
             .send(NodeMessage::LinkProject(link))
             .await

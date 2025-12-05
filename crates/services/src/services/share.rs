@@ -1,7 +1,7 @@
 mod config;
 mod processor;
 mod publisher;
-mod status;
+pub mod status;
 
 use std::{
     collections::{HashMap, HashSet},
