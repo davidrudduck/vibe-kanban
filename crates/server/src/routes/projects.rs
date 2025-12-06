@@ -37,7 +37,43 @@ use utils::{
 };
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError, middleware::load_project_middleware};
+use crate::{
+    DeploymentImpl,
+    error::ApiError,
+    middleware::{
+        RemoteProjectContext, load_project_by_remote_id_middleware, load_project_middleware,
+    },
+};
+
+/// Helper to check if a remote project context is available and online.
+/// Returns Some((node_url, node_id, remote_project_id)) if we should proxy,
+/// or an Err if the remote node is offline.
+fn check_remote_proxy(
+    remote_ctx: Option<&RemoteProjectContext>,
+) -> Result<Option<(String, Uuid, Uuid)>, ApiError> {
+    match remote_ctx {
+        Some(ctx) => {
+            // Check if the node is online
+            if ctx.node_status.as_deref() != Some("online") {
+                return Err(ApiError::BadGateway(format!(
+                    "Remote node '{}' is offline",
+                    ctx.node_id
+                )));
+            }
+
+            // Check if we have a URL to proxy to
+            let node_url = ctx.node_url.as_ref().ok_or_else(|| {
+                ApiError::BadGateway(format!(
+                    "Remote node '{}' has no public URL configured",
+                    ctx.node_id
+                ))
+            })?;
+
+            Ok(Some((node_url.clone(), ctx.node_id, ctx.remote_project_id)))
+        }
+        None => Ok(None),
+    }
+}
 
 #[derive(Deserialize, TS)]
 pub struct LinkToExistingRequest {
@@ -218,8 +254,29 @@ pub async fn get_project(
 
 pub async fn get_project_branches(
     Extension(project): Extension<Project>,
+    remote_ctx: Option<Extension<RemoteProjectContext>>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<Vec<GitBranch>>>, ApiError> {
+    // Check if this is a remote project that should be proxied
+    if let Some((node_url, node_id, remote_project_id)) =
+        check_remote_proxy(remote_ctx.as_ref().map(|e| &e.0))?
+    {
+        tracing::debug!(
+            node_id = %node_id,
+            remote_project_id = %remote_project_id,
+            "Proxying get_project_branches to remote node"
+        );
+
+        let path = format!("/projects/by-remote-id/{}/branches", remote_project_id);
+        let response: ApiResponse<Vec<GitBranch>> = deployment
+            .node_proxy_client()
+            .proxy_get(&node_url, &path, node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
+    // Local project - execute directly
     let branches = deployment.git().get_all_branches(&project.git_repo_path)?;
     Ok(ResponseJson(ApiResponse::success(branches)))
 }
@@ -714,10 +771,11 @@ pub async fn open_project_in_editor(
 pub async fn search_project_files(
     State(deployment): State<DeploymentImpl>,
     Extension(project): Extension<Project>,
+    remote_ctx: Option<Extension<RemoteProjectContext>>,
     Query(search_query): Query<SearchQuery>,
-) -> Result<ResponseJson<ApiResponse<Vec<SearchResult>>>, StatusCode> {
+) -> Result<ResponseJson<ApiResponse<Vec<SearchResult>>>, ApiError> {
     let query = search_query.q.trim();
-    let mode = search_query.mode;
+    let mode = search_query.mode.clone();
 
     if query.is_empty() {
         return Ok(ResponseJson(ApiResponse::error(
@@ -725,6 +783,37 @@ pub async fn search_project_files(
         )));
     }
 
+    // Check if this is a remote project that should be proxied
+    if let Some((node_url, node_id, remote_project_id)) =
+        check_remote_proxy(remote_ctx.as_ref().map(|e| &e.0))?
+    {
+        tracing::debug!(
+            node_id = %node_id,
+            remote_project_id = %remote_project_id,
+            query = %query,
+            "Proxying search_project_files to remote node"
+        );
+
+        // Build query string
+        let mode_str = match &search_query.mode {
+            SearchMode::Settings => "settings",
+            SearchMode::TaskForm => "task_form",
+        };
+        let path = format!(
+            "/projects/by-remote-id/{}/search?q={}&mode={}",
+            remote_project_id,
+            urlencoding::encode(query),
+            mode_str
+        );
+        let response: ApiResponse<Vec<SearchResult>> = deployment
+            .node_proxy_client()
+            .proxy_get(&node_url, &path, node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
+    // Local project - execute directly
     let repo_path = &project.git_repo_path;
     let file_search_cache = deployment.file_search_cache();
 
@@ -755,7 +844,10 @@ pub async fn search_project_files(
                 Ok(results) => Ok(ResponseJson(ApiResponse::success(results))),
                 Err(e) => {
                     tracing::error!("Failed to search files: {}", e);
-                    Err(StatusCode::INTERNAL_SERVER_ERROR)
+                    Ok(ResponseJson(ApiResponse::error(&format!(
+                        "Failed to search files: {}",
+                        e
+                    ))))
                 }
             }
         }
@@ -767,7 +859,10 @@ pub async fn search_project_files(
                 Ok(results) => Ok(ResponseJson(ApiResponse::success(results))),
                 Err(e) => {
                     tracing::error!("Failed to search files: {}", e);
-                    Err(StatusCode::INTERNAL_SERVER_ERROR)
+                    Ok(ResponseJson(ApiResponse::error(&format!(
+                        "Failed to search files: {}",
+                        e
+                    ))))
                 }
             }
         }
@@ -940,9 +1035,38 @@ pub struct ListProjectFilesQuery {
 /// List files and directories within a project's git repository
 pub async fn list_project_files(
     Extension(project): Extension<Project>,
+    remote_ctx: Option<Extension<RemoteProjectContext>>,
     State(deployment): State<DeploymentImpl>,
     Query(query): Query<ListProjectFilesQuery>,
 ) -> Result<ResponseJson<ApiResponse<DirectoryListResponse>>, ApiError> {
+    // Check if this is a remote project that should be proxied
+    if let Some((node_url, node_id, remote_project_id)) =
+        check_remote_proxy(remote_ctx.as_ref().map(|e| &e.0))?
+    {
+        tracing::debug!(
+            node_id = %node_id,
+            remote_project_id = %remote_project_id,
+            path = ?query.path,
+            "Proxying list_project_files to remote node"
+        );
+
+        let path = match &query.path {
+            Some(p) => format!(
+                "/projects/by-remote-id/{}/files?path={}",
+                remote_project_id,
+                urlencoding::encode(p)
+            ),
+            None => format!("/projects/by-remote-id/{}/files", remote_project_id),
+        };
+        let response: ApiResponse<DirectoryListResponse> = deployment
+            .node_proxy_client()
+            .proxy_get(&node_url, &path, node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
+    // Local project - execute directly
     match deployment
         .filesystem()
         .list_directory_within(&project.git_repo_path, query.path.as_deref())
@@ -975,9 +1099,34 @@ pub async fn list_project_files(
 /// Read file content from a project's git repository
 pub async fn read_project_file(
     Extension(project): Extension<Project>,
+    remote_ctx: Option<Extension<RemoteProjectContext>>,
     State(deployment): State<DeploymentImpl>,
     Path((_project_id, file_path)): Path<(Uuid, String)>,
 ) -> Result<ResponseJson<ApiResponse<FileContentResponse>>, ApiError> {
+    // Check if this is a remote project that should be proxied
+    if let Some((node_url, node_id, remote_project_id)) =
+        check_remote_proxy(remote_ctx.as_ref().map(|e| &e.0))?
+    {
+        tracing::debug!(
+            node_id = %node_id,
+            remote_project_id = %remote_project_id,
+            file_path = %file_path,
+            "Proxying read_project_file to remote node"
+        );
+
+        let path = format!(
+            "/projects/by-remote-id/{}/files/{}",
+            remote_project_id, file_path
+        );
+        let response: ApiResponse<FileContentResponse> = deployment
+            .node_proxy_client()
+            .proxy_get(&node_url, &path, node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
+    // Local project - execute directly
     match deployment
         .filesystem()
         .read_file_within(&project.git_repo_path, &file_path, None)
@@ -1017,6 +1166,52 @@ pub async fn read_project_file(
     }
 }
 
+/// Read a file from a project looked up by remote_project_id.
+/// This is the by-remote-id variant of read_project_file.
+pub async fn read_project_file_by_remote_id(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+    Path((_remote_project_id, file_path)): Path<(Uuid, String)>,
+) -> Result<ResponseJson<ApiResponse<FileContentResponse>>, ApiError> {
+    match deployment
+        .filesystem()
+        .read_file_within(&project.git_repo_path, &file_path, None)
+        .await
+    {
+        Ok(response) => Ok(ResponseJson(ApiResponse::success(response))),
+        Err(FilesystemError::FileDoesNotExist) => {
+            Ok(ResponseJson(ApiResponse::error("File does not exist")))
+        }
+        Err(FilesystemError::PathIsNotFile) => {
+            Ok(ResponseJson(ApiResponse::error("Path is not a file")))
+        }
+        Err(FilesystemError::PathTraversalNotAllowed) => Ok(ResponseJson(ApiResponse::error(
+            "Path traversal not allowed",
+        ))),
+        Err(FilesystemError::FileIsBinary) => Ok(ResponseJson(ApiResponse::error(
+            "Cannot display binary file",
+        ))),
+        Err(FilesystemError::FileTooLarge {
+            max_bytes,
+            actual_bytes,
+        }) => Ok(ResponseJson(ApiResponse::error(&format!(
+            "File too large ({} bytes, max {} bytes)",
+            actual_bytes, max_bytes
+        )))),
+        Err(FilesystemError::Io(e)) => {
+            tracing::error!("Failed to read project file: {}", e);
+            Ok(ResponseJson(ApiResponse::error(&format!(
+                "Failed to read file: {}",
+                e
+            ))))
+        }
+        Err(e) => {
+            tracing::error!("Unexpected error reading file: {}", e);
+            Ok(ResponseJson(ApiResponse::error(&e.to_string())))
+        }
+    }
+}
+
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let project_id_router = Router::new()
         .route(
@@ -1048,11 +1243,35 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             load_project_middleware,
         ));
 
+    // Routes for accessing projects by remote_project_id (used for node-to-node proxying)
+    // These routes allow a proxying node to request data using the Hive project ID
+    let by_remote_id_router = Router::new()
+        .route("/branches", get(get_project_branches))
+        .route("/search", get(search_project_files))
+        .route("/files", get(list_project_files))
+        .layer(from_fn_with_state(
+            deployment.clone(),
+            load_project_by_remote_id_middleware,
+        ));
+
+    // File content route for by-remote-id (wildcard path parameter)
+    let by_remote_id_files_router = Router::new()
+        .route(
+            "/by-remote-id/{remote_project_id}/files/{*file_path}",
+            get(read_project_file_by_remote_id),
+        )
+        .layer(from_fn_with_state(
+            deployment.clone(),
+            load_project_by_remote_id_middleware,
+        ));
+
     let projects_router = Router::new()
         .route("/", get(get_projects).post(create_project))
         .route("/scan-config", post(scan_project_config))
         .nest("/{id}", project_id_router)
-        .merge(project_files_router);
+        .merge(project_files_router)
+        .nest("/by-remote-id/{remote_project_id}", by_remote_id_router)
+        .merge(by_remote_id_files_router);
 
     Router::new()
         .nest("/projects", projects_router)

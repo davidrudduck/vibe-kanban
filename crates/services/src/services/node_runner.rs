@@ -530,16 +530,15 @@ async fn sync_remote_projects(
 
     // 3. Sync tasks for each remote project
     for project in &remote_projects {
-        if let Some(remote_project_id) = project.remote_project_id {
-            if let Err(e) =
+        if let Some(remote_project_id) = project.remote_project_id
+            && let Err(e) =
                 sync_remote_project_tasks(pool, remote_client, project.id, remote_project_id).await
-            {
-                tracing::warn!(
-                    error = ?e,
-                    project_id = %remote_project_id,
-                    "Failed to sync tasks for remote project"
-                );
-            }
+        {
+            tracing::warn!(
+                error = ?e,
+                project_id = %remote_project_id,
+                "Failed to sync tasks for remote project"
+            );
         }
     }
 

@@ -66,14 +66,14 @@ pub struct UpdateProject {
     pub copy_files: Option<String>,
 }
 
-#[derive(Debug, Serialize, TS)]
+#[derive(Debug, Serialize, Deserialize, TS)]
 pub struct SearchResult {
     pub path: String,
     pub is_file: bool,
     pub match_type: SearchMatchType,
 }
 
-#[derive(Debug, Clone, Serialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub enum SearchMatchType {
     FileName,
     DirectoryName,
