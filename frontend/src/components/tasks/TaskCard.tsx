@@ -105,7 +105,14 @@ export function TaskCard({
                   lastName: sharedTask.assignee_last_name ?? undefined,
                   username: sharedTask.assignee_username ?? undefined,
                 }
-              : undefined
+              : task.is_remote && task.remote_assignee_name
+                ? {
+                    // Parse from remote_assignee_name (e.g., "John Doe")
+                    firstName: task.remote_assignee_name.split(' ')[0] ?? undefined,
+                    lastName: task.remote_assignee_name.split(' ').slice(1).join(' ') || undefined,
+                    username: task.remote_assignee_username ?? undefined,
+                  }
+                : undefined
           }
           right={
             <>

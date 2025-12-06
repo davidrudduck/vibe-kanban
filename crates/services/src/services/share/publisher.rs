@@ -52,6 +52,7 @@ impl SharePublisher {
             description: task.description.clone(),
             status: Some(status::to_remote(&task.status)),
             assignee_user_id,
+            start_attempt: false, // Never auto-dispatch when sharing from local node
         };
 
         let remote_task = self.client.create_shared_task(&payload).await?;
