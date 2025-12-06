@@ -76,13 +76,29 @@ impl NodeRunnerConfig {
     }
 }
 
+/// Info about a remote project from another node in the organization.
+#[derive(Debug, Clone)]
+pub struct RemoteProjectInfo {
+    pub link_id: Uuid,
+    pub project_id: Uuid,
+    pub project_name: String,
+    pub local_project_id: Uuid,
+    pub git_repo_path: String,
+    pub default_branch: String,
+    pub source_node_id: Uuid,
+    pub source_node_name: String,
+    pub source_node_public_url: Option<String>,
+}
+
 /// Mapping from hive project links to local project IDs.
 #[derive(Debug, Clone, Default)]
 pub struct ProjectMapping {
-    /// Maps link_id -> local project info
+    /// Maps link_id -> local project info (this node's projects)
     links: HashMap<Uuid, LinkedProjectInfo>,
     /// Maps local_project_id -> link_id
     local_to_link: HashMap<Uuid, Uuid>,
+    /// Remote projects from other nodes in the organization
+    remote_projects: HashMap<Uuid, RemoteProjectInfo>,
 }
 
 impl ProjectMapping {
@@ -105,6 +121,28 @@ impl ProjectMapping {
         self.local_to_link
             .insert(link.local_project_id, link.link_id);
         self.links.insert(link.link_id, link);
+    }
+
+    /// Add a remote project from another node.
+    pub fn add_remote_project(&mut self, project: RemoteProjectInfo) {
+        self.remote_projects.insert(project.link_id, project);
+    }
+
+    /// Remove a remote project by link_id.
+    pub fn remove_remote_project(&mut self, link_id: Uuid) {
+        self.remote_projects.remove(&link_id);
+    }
+
+    /// Remove all projects from a specific node.
+    pub fn remove_projects_from_node(&mut self, node_id: Uuid) {
+        self.remote_projects
+            .retain(|_, p| p.source_node_id != node_id);
+    }
+
+    /// Get all remote projects.
+    #[allow(dead_code)]
+    pub fn remote_projects(&self) -> impl Iterator<Item = &RemoteProjectInfo> {
+        self.remote_projects.values()
     }
 
     #[allow(dead_code)]
@@ -246,18 +284,46 @@ impl NodeRunnerHandle {
             }
             HiveEvent::ProjectSync(sync) => {
                 let mut state = self.state.write().await;
-                state.project_mapping.add_link(LinkedProjectInfo {
-                    link_id: sync.link_id,
-                    project_id: sync.project_id,
-                    local_project_id: sync.local_project_id,
-                    git_repo_path: sync.git_repo_path.clone(),
-                    default_branch: sync.default_branch.clone(),
-                });
+                if sync.is_new {
+                    // Add the remote project link
+                    state.project_mapping.add_remote_project(RemoteProjectInfo {
+                        link_id: sync.link_id,
+                        project_id: sync.project_id,
+                        project_name: sync.project_name.clone(),
+                        local_project_id: sync.local_project_id,
+                        git_repo_path: sync.git_repo_path.clone(),
+                        default_branch: sync.default_branch.clone(),
+                        source_node_id: sync.source_node_id,
+                        source_node_name: sync.source_node_name.clone(),
+                        source_node_public_url: sync.source_node_public_url.clone(),
+                    });
+                    tracing::info!(
+                        link_id = %sync.link_id,
+                        project_id = %sync.project_id,
+                        project_name = %sync.project_name,
+                        source_node = %sync.source_node_name,
+                        "remote project added"
+                    );
+                } else {
+                    // Remove the remote project link
+                    state.project_mapping.remove_remote_project(sync.link_id);
+                    tracing::info!(
+                        link_id = %sync.link_id,
+                        project_id = %sync.project_id,
+                        project_name = %sync.project_name,
+                        source_node = %sync.source_node_name,
+                        "remote project removed"
+                    );
+                }
+            }
+            HiveEvent::NodeRemoved(removed) => {
+                let mut state = self.state.write().await;
+                // Remove all projects from the removed node
+                state.project_mapping.remove_projects_from_node(removed.node_id);
                 tracing::info!(
-                    link_id = %sync.link_id,
-                    project_id = %sync.project_id,
-                    is_new = sync.is_new,
-                    "project sync received"
+                    node_id = %removed.node_id,
+                    reason = %removed.reason,
+                    "node removed from organization, cleaned up its projects"
                 );
             }
             HiveEvent::TaskAssigned(assignment) => {
