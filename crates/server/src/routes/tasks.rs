@@ -215,6 +215,7 @@ async fn create_remote_task(
         description: payload.description.clone(),
         status: None, // Default to Todo on the Hive
         assignee_user_id: None,
+        start_attempt: false, // Do not auto-dispatch for remote projects created from local node
     };
 
     let response = remote_client.create_shared_task(&request).await?;
