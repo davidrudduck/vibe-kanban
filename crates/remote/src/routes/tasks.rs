@@ -331,7 +331,7 @@ pub async fn assign_task(
 
     let data = AssignTaskData {
         new_assignee_user_id: payload.new_assignee_user_id,
-        previous_assignee_user_id: Some(ctx.user.id),
+        previous_assignee_user_id: existing.assignee_user_id,
         version: payload.version,
     };
 
