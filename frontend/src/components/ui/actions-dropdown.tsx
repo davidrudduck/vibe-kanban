@@ -151,7 +151,7 @@ export function ActionsDropdown({
   const handleReassign = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!sharedTask) return;
-    ReassignDialog.show({ sharedTask });
+    ReassignDialog.show({ sharedTask, isOrgAdmin });
   };
 
   const handleStopShare = (e: React.MouseEvent) => {

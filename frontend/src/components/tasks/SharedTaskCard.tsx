@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { KanbanCard } from '@/components/ui/shadcn-io/kanban';
+import { Server } from 'lucide-react';
 import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
 import { TaskCardHeader } from './TaskCardHeader';
 import { ActionsDropdown } from '@/components/ui/actions-dropdown';
+import { useTranslation } from 'react-i18next';
 
 interface SharedTaskCardProps {
   task: SharedTaskRecord;
@@ -21,6 +23,7 @@ export function SharedTaskCard({
   isSelected,
   isOrgAdmin = false,
 }: SharedTaskCardProps) {
+  const { t } = useTranslation('tasks');
   const localRef = useRef<HTMLDivElement>(null);
 
   const handleClick = useCallback(() => {
@@ -72,6 +75,18 @@ export function SharedTaskCard({
               : task.description}
           </p>
         )}
+        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+          <Server className="h-3 w-3" />
+          {task.assignee_first_name || task.assignee_last_name ? (
+            <span>
+              {[task.assignee_first_name, task.assignee_last_name]
+                .filter(Boolean)
+                .join(' ')}
+            </span>
+          ) : (
+            <span>{t('remoteTask')}</span>
+          )}
+        </div>
       </div>
     </KanbanCard>
   );
