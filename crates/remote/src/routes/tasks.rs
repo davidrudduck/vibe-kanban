@@ -332,7 +332,7 @@ pub async fn assign_task(
     let data = AssignTaskData {
         new_assignee_user_id: payload.new_assignee_user_id,
         previous_assignee_user_id: existing.assignee_user_id,
-        version: payload.version,
+        version: Some(existing.version),
     };
 
     match repo.assign_task(task_id, data).await {
