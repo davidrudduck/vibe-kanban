@@ -676,7 +676,8 @@ pub trait ContainerService {
                 .as_ref()
                 .ok_or_else(|| ContainerError::Other(anyhow!("Container ref not found")))?,
         );
-        let prompt = ImageService::canonicalise_image_paths(&task.to_prompt(), &worktree_path);
+        // Use enhanced prompt to include validation steps (Anthropic Harness pattern)
+        let prompt = ImageService::canonicalise_image_paths(&task.to_enhanced_prompt(), &worktree_path);
 
         let cleanup_action = self.cleanup_action(project.cleanup_script);
 
