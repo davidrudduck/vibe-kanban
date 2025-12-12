@@ -3,7 +3,8 @@
     "CLAUDE_CODE": {
       "DEFAULT": {
         "CLAUDE_CODE": {
-          "dangerously_skip_permissions": true
+          "dangerously_skip_permissions": true,
+          "append_prompt": "\n\n=== TASK COMPLETION REQUIREMENTS ===\n1. Work on ONE feature at a time - do not attempt to complete everything at once\n2. For web apps: TEST IN BROWSER using Playwright, not just API calls\n3. Create/update .vk_progress.md in worktree root with:\n   - Current status (in-progress, blocked, needs-review)\n   - Completed items checklist\n   - Remaining work\n   - Next session recommendations\n4. Commit working code with descriptive message before ending session\n5. Do NOT mark task complete until E2E verified in browser\n6. If incomplete, clearly document what remains in progress file\n7. Leave code in merge-ready state (no broken builds, no lint errors)"
         }
       },
       "PLAN": {
@@ -20,14 +21,16 @@
     "AMP": {
       "DEFAULT": {
         "AMP": {
-          "dangerously_allow_all": true
+          "dangerously_allow_all": true,
+          "append_prompt": "\n\n=== TASK COMPLETION REQUIREMENTS ===\n1. Work on ONE feature at a time\n2. For web apps: TEST IN BROWSER, not just API\n3. Create/update .vk_progress.md with status and remaining work\n4. Commit working code before ending session\n5. Do NOT mark complete until E2E verified\n6. Document incomplete work in progress file"
         }
       }
     },
     "GEMINI": {
       "DEFAULT": {
         "GEMINI": {
-          "yolo": true
+          "yolo": true,
+          "append_prompt": "\n\n=== TASK COMPLETION REQUIREMENTS ===\n1. Work on ONE feature at a time - do not attempt to complete everything at once\n2. For web apps: TEST IN BROWSER, not just API calls\n3. Create/update .vk_progress.md with status, completed items, remaining work\n4. Commit working code with descriptive message before ending session\n5. Do NOT mark task complete until E2E verified\n6. If incomplete, document what remains in progress file\n7. Leave code in merge-ready state"
         }
       },
       "FLASH": {
@@ -47,7 +50,8 @@
       "DEFAULT": {
         "CODEX": {
           "model": "gpt-5.1-codex",
-          "sandbox": "danger-full-access"
+          "sandbox": "danger-full-access",
+          "append_prompt": "\n\n=== TASK COMPLETION REQUIREMENTS ===\n1. Work on ONE feature at a time\n2. For web apps: TEST IN BROWSER, not just API\n3. Create/update .vk_progress.md with status and remaining work\n4. Commit working code before ending session\n5. Do NOT mark complete until E2E verified\n6. Document incomplete work in progress file"
         }
       },
       "HIGH": {
@@ -73,13 +77,16 @@
     },
     "OPENCODE": {
       "DEFAULT": {
-        "OPENCODE": {}
+        "OPENCODE": {
+          "append_prompt": "\n\n=== TASK COMPLETION REQUIREMENTS ===\n1. Work on ONE feature at a time\n2. For web apps: TEST IN BROWSER\n3. Create/update .vk_progress.md with status\n4. Commit before ending, document incomplete work"
+        }
       }
     },
     "QWEN_CODE": {
       "DEFAULT": {
         "QWEN_CODE": {
-          "yolo": true
+          "yolo": true,
+          "append_prompt": "\n\n=== TASK COMPLETION REQUIREMENTS ===\n1. Work on ONE feature at a time\n2. For web apps: TEST IN BROWSER\n3. Create/update .vk_progress.md with status\n4. Commit before ending, document incomplete work"
         }
       }
     },
@@ -87,7 +94,8 @@
       "DEFAULT": {
         "CURSOR_AGENT": {
           "force": true,
-          "model": "auto"
+          "model": "auto",
+          "append_prompt": "\n\n=== TASK COMPLETION REQUIREMENTS ===\n1. Work on ONE feature at a time\n2. For web apps: TEST IN BROWSER, not just API\n3. Create/update .vk_progress.md with status and remaining work\n4. Commit working code before ending session\n5. Do NOT mark complete until E2E verified\n6. Document incomplete work in progress file"
         }
       },
       "SONNET_4_5": {
@@ -124,7 +132,8 @@
     "COPILOT": {
       "DEFAULT": {
         "COPILOT": {
-          "allow_all_tools": true
+          "allow_all_tools": true,
+          "append_prompt": "\n\n=== TASK COMPLETION REQUIREMENTS ===\n1. Work on ONE feature at a time\n2. For web apps: TEST IN BROWSER, not just API\n3. Create/update .vk_progress.md with status and remaining work\n4. Commit working code before ending session\n5. Do NOT mark complete until E2E verified\n6. Document incomplete work in progress file"
         }
       },
       "GPT_5": {
@@ -149,7 +158,8 @@
     "DROID": {
       "DEFAULT": {
         "DROID": {
-          "autonomy": "skip-permissions-unsafe"
+          "autonomy": "skip-permissions-unsafe",
+          "append_prompt": "\n\n=== TASK COMPLETION REQUIREMENTS ===\n1. Work on ONE feature at a time\n2. For web apps: TEST IN BROWSER, not just API\n3. Create/update .vk_progress.md with status and remaining work\n4. Commit working code before ending session\n5. Do NOT mark complete until E2E verified\n6. Document incomplete work in progress file"
         }
       },
       "GPT_5_1_CODEX": {

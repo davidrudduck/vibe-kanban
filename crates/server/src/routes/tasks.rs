@@ -389,6 +389,12 @@ pub async fn update_task(
     let parent_task_attempt = payload
         .parent_task_attempt
         .or(existing_task.parent_task_attempt);
+    // Handle validation_steps: if provided use it, otherwise keep existing
+    let validation_steps = match &payload.validation_steps {
+        Some(s) if s.trim().is_empty() => None, // Empty string = clear validation steps
+        Some(s) => Some(s.clone()),             // Non-empty string = update
+        None => existing_task.validation_steps, // Field omitted = keep existing
+    };
 
     let task = Task::update(
         &deployment.db().pool,
@@ -398,6 +404,7 @@ pub async fn update_task(
         description,
         status,
         parent_task_attempt,
+        validation_steps,
     )
     .await?;
 

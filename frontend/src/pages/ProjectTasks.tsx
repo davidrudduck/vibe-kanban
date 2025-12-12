@@ -800,6 +800,7 @@ export function ProjectTasks() {
           status: newStatus,
           parent_task_attempt: task.parent_task_attempt,
           image_ids: null,
+          validation_steps: task.validation_steps,
         });
       } catch (err) {
         console.error('Failed to update task status:', err);
