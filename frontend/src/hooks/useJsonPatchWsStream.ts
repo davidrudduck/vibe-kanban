@@ -2,6 +2,23 @@ import { useEffect, useState, useRef } from 'react';
 import { applyPatch } from 'rfc6902';
 import type { Operation } from 'rfc6902';
 
+// Debug object for WebSocket observability (dev mode only)
+declare global {
+  interface Window {
+    __WS_DEBUG__?: {
+      connections: Record<string, string>;
+      reconnectAttempts: number;
+    };
+  }
+}
+
+if (typeof window !== 'undefined' && import.meta.env.DEV) {
+  window.__WS_DEBUG__ = window.__WS_DEBUG__ || {
+    connections: {},
+    reconnectAttempts: 0,
+  };
+}
+
 type WsJsonPatchMsg = { JsonPatch: Operation[] };
 type WsFinishedMsg = { finished: boolean };
 type WsRefreshRequiredMsg = { refresh_required: { reason: string } };
@@ -59,6 +76,7 @@ export const useJsonPatchWsStream = <T extends object>(
   const pingIntervalRef = useRef<number | null>(null);
   const lastMessageTimeRef = useRef<number>(Date.now());
   const connectingRef = useRef<boolean>(false); // Guard against race conditions
+  const mountedRef = useRef<boolean>(true); // Track component mount state
 
   const injectInitialEntry = options?.injectInitialEntry;
   const deduplicatePatches = options?.deduplicatePatches;
@@ -98,11 +116,17 @@ export const useJsonPatchWsStream = <T extends object>(
 
     retryTimerRef.current = window.setTimeout(() => {
       retryTimerRef.current = null;
-      setRetryNonce((n) => n + 1);
+      // Only trigger reconnect if component is still mounted
+      if (mountedRef.current) {
+        setRetryNonce((n) => n + 1);
+      }
     }, delay);
   }
 
   useEffect(() => {
+    // Mark as mounted at effect start
+    mountedRef.current = true;
+
     if (!enabled || !endpoint) {
       // Close connection and reset state
       if (wsRef.current) {
@@ -143,6 +167,10 @@ export const useJsonPatchWsStream = <T extends object>(
       // Reset finished flag for new connection
       finishedRef.current = false;
 
+      // Clear error state at start of each connection attempt
+      // This prevents showing stale "Connection failed" during active reconnection
+      setError(null);
+
       // Convert HTTP endpoint to WebSocket endpoint
       const wsEndpoint = endpoint.replace(/^http/, 'ws');
       const ws = new WebSocket(wsEndpoint);
@@ -153,6 +181,11 @@ export const useJsonPatchWsStream = <T extends object>(
       ws.onopen = () => {
         // Clear connecting guard - connection established
         connectingRef.current = false;
+
+        // Track connection state for debugging
+        if (window.__WS_DEBUG__) {
+          window.__WS_DEBUG__.connections[endpoint] = 'open';
+        }
 
         setError(null);
         setIsConnected(true);
@@ -221,7 +254,13 @@ export const useJsonPatchWsStream = <T extends object>(
             } else {
               // Default behavior: reset data and reconnect to get fresh state
               dataRef.current = undefined;
-              ws.close(4001, 'refresh required');
+              // Defensive check: only close if WebSocket is in a state that can be closed
+              if (
+                ws.readyState === WebSocket.OPEN ||
+                ws.readyState === WebSocket.CONNECTING
+              ) {
+                ws.close(4001, 'refresh required');
+              }
             }
             return;
           }
@@ -244,7 +283,11 @@ export const useJsonPatchWsStream = <T extends object>(
       ws.onerror = () => {
         // Clear connecting guard on error
         connectingRef.current = false;
-        setError('Connection failed');
+        // Only set visible error if retries exhausted - transient failures shouldn't show errors
+        // This prevents flashing "Connection failed" during normal reconnection flow
+        if (retryAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS - 1) {
+          setError('Connection failed after multiple attempts');
+        }
       };
 
       ws.onclose = (evt) => {
@@ -252,6 +295,12 @@ export const useJsonPatchWsStream = <T extends object>(
         // This ensures the next connection attempt isn't blocked
         connectingRef.current = false;
         wsRef.current = null;
+
+        // Track connection state for debugging
+        if (window.__WS_DEBUG__) {
+          window.__WS_DEBUG__.connections[endpoint] = `closed (code=${evt?.code})`;
+          window.__WS_DEBUG__.reconnectAttempts++;
+        }
 
         setIsConnected(false);
         clearKeepAliveTimers();
@@ -268,6 +317,8 @@ export const useJsonPatchWsStream = <T extends object>(
     }
 
     return () => {
+      // Mark as unmounted to prevent state updates from timers
+      mountedRef.current = false;
       // Clear connecting guard on cleanup
       connectingRef.current = false;
 
