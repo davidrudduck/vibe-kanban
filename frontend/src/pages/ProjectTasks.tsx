@@ -28,6 +28,7 @@ import {
   GitOperationsProvider,
   useGitOperationsError,
 } from '@/contexts/GitOperationsContext';
+import { TaskOptimisticProvider } from '@/contexts/TaskOptimisticContext';
 import {
   useKeyCreate,
   useKeyExit,
@@ -180,6 +181,7 @@ export function ProjectTasks() {
     sharedOnlyByStatus,
     isLoading,
     error: streamError,
+    addTaskOptimistically,
   } = useProjectTasks(projectId || '');
 
   const selectedTask = useMemo(
@@ -1103,18 +1105,20 @@ export function ProjectTasks() {
   );
 
   return (
-    <div className="min-h-full h-full flex flex-col">
-      {streamError && (
-        <Alert className="w-full z-30 xl:sticky xl:top-0">
-          <AlertTitle className="flex items-center gap-2">
-            <AlertTriangle size="16" />
-            {t('common:states.reconnecting')}
-          </AlertTitle>
-          <AlertDescription>{streamError}</AlertDescription>
-        </Alert>
-      )}
+    <TaskOptimisticProvider addTaskOptimistically={addTaskOptimistically}>
+      <div className="min-h-full h-full flex flex-col">
+        {streamError && (
+          <Alert className="w-full z-30 xl:sticky xl:top-0">
+            <AlertTitle className="flex items-center gap-2">
+              <AlertTriangle size="16" />
+              {t('common:states.reconnecting')}
+            </AlertTitle>
+            <AlertDescription>{streamError}</AlertDescription>
+          </Alert>
+        )}
 
-      <div className="flex-1 min-h-0">{attemptArea}</div>
-    </div>
+        <div className="flex-1 min-h-0">{attemptArea}</div>
+      </div>
+    </TaskOptimisticProvider>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { applyPatch } from 'rfc6902';
 import type { Operation } from 'rfc6902';
 
@@ -53,6 +53,11 @@ interface UseJsonPatchStreamResult<T> {
   data: T | undefined;
   isConnected: boolean;
   error: string | null;
+  /**
+   * Apply a JSON patch to the data optimistically (e.g., after REST API success).
+   * This allows immediate UI updates while waiting for WebSocket broadcast.
+   */
+  patchData: (patches: Operation[]) => void;
 }
 
 /**
@@ -81,6 +86,19 @@ export const useJsonPatchWsStream = <T extends object>(
   const injectInitialEntry = options?.injectInitialEntry;
   const deduplicatePatches = options?.deduplicatePatches;
   const onRefreshRequired = options?.onRefreshRequired;
+
+  // Allow consumers to optimistically patch data (e.g., after REST API success)
+  const patchData = useCallback((patches: Operation[]) => {
+    const current = dataRef.current;
+    if (!patches.length || !current) return;
+
+    // Deep clone and apply patch
+    const next = structuredClone(current);
+    applyPatch(next, patches);
+
+    dataRef.current = next;
+    setData(next);
+  }, []);
 
   // Record message time - used for debugging keep-alive status
   function recordMessageTime() {
@@ -354,5 +372,5 @@ export const useJsonPatchWsStream = <T extends object>(
     retryNonce,
   ]);
 
-  return { data, isConnected, error };
+  return { data, isConnected, error, patchData };
 };
