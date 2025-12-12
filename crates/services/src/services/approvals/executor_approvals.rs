@@ -98,10 +98,20 @@ impl ExecutorApprovalService for ExecutorApprovalBridge {
         plan_text: &str,
         tool_call_id: &str,
     ) -> Result<(), ExecutorApprovalError> {
-        let attempt_id = self.execution_process_id;
+        // Look up the task_attempt_id from the execution_process
+        // IMPORTANT: self.execution_process_id is an execution_processes.id, NOT a task_attempts.id
+        // The plan_steps.parent_attempt_id foreign key references task_attempts.id
+        let execution_process =
+            db::models::execution_process::ExecutionProcess::find_by_id(&self.db.pool, self.execution_process_id)
+                .await
+                .map_err(|e| ExecutorApprovalError::request_failed(format!("database error: {}", e)))?
+                .ok_or_else(|| ExecutorApprovalError::request_failed("execution process not found"))?;
+
+        let attempt_id = execution_process.task_attempt_id;
 
         debug!(
             attempt_id = %attempt_id,
+            execution_process_id = %self.execution_process_id,
             plan_length = plan_text.len(),
             tool_call_id = %tool_call_id,
             "Processing ExitPlanMode approval - parsing plan"
