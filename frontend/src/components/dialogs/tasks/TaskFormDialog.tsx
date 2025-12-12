@@ -60,6 +60,7 @@ interface Task {
   status: TaskStatus;
   created_at: string;
   updated_at: string;
+  validation_steps: string | null;
 }
 
 export type TaskFormDialogProps =
@@ -80,6 +81,7 @@ type TaskFormValues = {
   executorProfileId: ExecutorProfileId | null;
   branch: string;
   autoStart: boolean;
+  validationSteps: string;
 };
 
 const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
@@ -109,6 +111,17 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
     editMode ? props.task.id : undefined
   );
 
+  // Convert JSON array string to line-separated text for display
+  const jsonToValidationSteps = (json: string | null): string => {
+    if (!json) return '';
+    try {
+      const steps = JSON.parse(json);
+      return Array.isArray(steps) ? steps.join('\n') : '';
+    } catch {
+      return '';
+    }
+  };
+
   // Get default form values based on mode
   const defaultValues = useMemo((): TaskFormValues => {
     const baseProfile = system.config?.executor_profile || null;
@@ -135,6 +148,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
           executorProfileId: baseProfile,
           branch: defaultBranch || '',
           autoStart: false,
+          validationSteps: jsonToValidationSteps(props.task.validation_steps),
         };
 
       case 'duplicate':
@@ -145,6 +159,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
           executorProfileId: baseProfile,
           branch: defaultBranch || '',
           autoStart: true,
+          validationSteps: '',
         };
 
       case 'subtask':
@@ -157,12 +172,24 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
           executorProfileId: baseProfile,
           branch: defaultBranch || '',
           autoStart: true,
+          validationSteps: '',
         };
     }
   }, [mode, props, system.config?.executor_profile, branches]);
 
+  // Convert line-separated validation steps to JSON array string
+  const validationStepsToJson = (text: string): string | null => {
+    const steps = text
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    return steps.length > 0 ? JSON.stringify(steps) : null;
+  };
+
   // Form submission handler
   const handleSubmit = async ({ value }: { value: TaskFormValues }) => {
+    const validationStepsJson = validationStepsToJson(value.validationSteps);
+
     if (editMode) {
       await updateTask.mutateAsync(
         {
@@ -173,6 +200,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
             status: value.status,
             parent_task_attempt: null,
             image_ids: images.length > 0 ? images.map((img) => img.id) : null,
+            validation_steps: validationStepsJson,
           },
         },
         { onSuccess: () => modal.remove() }
@@ -189,6 +217,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
           mode === 'subtask' ? props.parentTaskAttemptId : null,
         image_ids: imageIds,
         shared_task_id: null,
+        validation_steps: validationStepsJson,
       };
       const shouldAutoStart = value.autoStart && !forceCreateOnlyRef.current;
       if (shouldAutoStart) {
@@ -501,6 +530,32 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                 )}
               </form.Field>
             )}
+
+            {/* Validation Steps */}
+            <form.Field name="validationSteps">
+              {(field) => (
+                <div className="space-y-2 pt-4">
+                  <Label
+                    htmlFor="validation-steps"
+                    className="text-sm font-medium text-muted-foreground"
+                  >
+                    Validation Steps (one per line)
+                  </Label>
+                  <textarea
+                    id="validation-steps"
+                    value={field.state.value}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    placeholder="Run tests&#10;Check E2E in browser&#10;Verify no console errors"
+                    className="w-full min-h-[80px] px-3 py-2 text-sm border rounded-md bg-background placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-y"
+                    disabled={isSubmitting}
+                    rows={3}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    These steps will be added to the agent prompt as validation requirements.
+                  </p>
+                </div>
+              )}
+            </form.Field>
           </div>
 
           {/* Create mode dropdowns */}

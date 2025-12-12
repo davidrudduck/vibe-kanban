@@ -42,6 +42,9 @@ pub struct Task {
     pub remote_last_synced_at: Option<DateTime<Utc>>,
     pub remote_stream_node_id: Option<Uuid>,
     pub remote_stream_url: Option<String>,
+    // Validation steps for enhanced prompt (Anthropic Harness pattern)
+    /// JSON array of validation step strings, e.g. ["Run tests", "Check E2E in browser"]
+    pub validation_steps: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -84,6 +87,7 @@ pub struct CreateTask {
     pub parent_task_attempt: Option<Uuid>,
     pub image_ids: Option<Vec<Uuid>>,
     pub shared_task_id: Option<Uuid>,
+    pub validation_steps: Option<String>,
 }
 
 impl CreateTask {
@@ -100,6 +104,7 @@ impl CreateTask {
             parent_task_attempt: None,
             image_ids: None,
             shared_task_id: None,
+            validation_steps: None,
         }
     }
 
@@ -118,6 +123,7 @@ impl CreateTask {
             parent_task_attempt: None,
             image_ids: None,
             shared_task_id: Some(shared_task_id),
+            validation_steps: None,
         }
     }
 }
@@ -138,6 +144,7 @@ pub struct UpdateTask {
     pub status: Option<TaskStatus>,
     pub parent_task_attempt: Option<Uuid>,
     pub image_ids: Option<Vec<Uuid>>,
+    pub validation_steps: Option<String>,
 }
 
 impl Task {
@@ -146,6 +153,65 @@ impl Task {
             format!("{}\n\n{}", &self.title, description)
         } else {
             self.title.clone()
+        }
+    }
+
+    /// Generate an enhanced prompt that includes validation steps.
+    /// This follows the Anthropic Harness pattern for quality-focused agent work.
+    ///
+    /// Format:
+    /// ```
+    /// <task_title>
+    ///
+    /// <task_description>
+    ///
+    /// === VALIDATION REQUIREMENTS ===
+    /// Before marking this task complete, verify:
+    /// 1. <step 1>
+    /// 2. <step 2>
+    /// ...
+    /// ```
+    pub fn to_enhanced_prompt(&self) -> String {
+        let base_prompt = self.to_prompt();
+
+        // Parse validation_steps JSON (array of strings)
+        let steps: Vec<String> = self
+            .validation_steps
+            .as_ref()
+            .and_then(|json| serde_json::from_str(json).ok())
+            .unwrap_or_default();
+
+        if steps.is_empty() {
+            return base_prompt;
+        }
+
+        let numbered_steps: String = steps
+            .iter()
+            .enumerate()
+            .map(|(i, step)| format!("{}. {}", i + 1, step))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        format!(
+            "{}\n\n=== VALIDATION REQUIREMENTS ===\nBefore marking this task complete, verify:\n{}",
+            base_prompt, numbered_steps
+        )
+    }
+
+    /// Get the validation steps as a Vec<String>
+    pub fn get_validation_steps(&self) -> Vec<String> {
+        self.validation_steps
+            .as_ref()
+            .and_then(|json| serde_json::from_str(json).ok())
+            .unwrap_or_default()
+    }
+
+    /// Set validation steps from a Vec<String>, serializing to JSON
+    pub fn validation_steps_to_json(steps: &[String]) -> Option<String> {
+        if steps.is_empty() {
+            None
+        } else {
+            serde_json::to_string(steps).ok()
         }
     }
 
@@ -176,6 +242,7 @@ impl Task {
   t.remote_last_synced_at         AS "remote_last_synced_at: DateTime<Utc>",
   t.remote_stream_node_id         AS "remote_stream_node_id: Uuid",
   t.remote_stream_url,
+  t.validation_steps,
 
   CASE WHEN EXISTS (
     SELECT 1
@@ -236,6 +303,7 @@ ORDER BY t.created_at DESC"#,
                     remote_last_synced_at: rec.remote_last_synced_at,
                     remote_stream_node_id: rec.remote_stream_node_id,
                     remote_stream_url: rec.remote_stream_url,
+                    validation_steps: rec.validation_steps,
                 },
                 has_in_progress_attempt: rec.has_in_progress_attempt != 0,
                 has_merged_attempt: false, // TODO use merges table
@@ -258,7 +326,8 @@ ORDER BY t.created_at DESC"#,
                       remote_version as "remote_version!: i64",
                       remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                       remote_stream_node_id as "remote_stream_node_id: Uuid",
-                      remote_stream_url
+                      remote_stream_url,
+                      validation_steps
                FROM tasks
                WHERE id = $1"#,
             id
@@ -278,7 +347,8 @@ ORDER BY t.created_at DESC"#,
                       remote_version as "remote_version!: i64",
                       remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                       remote_stream_node_id as "remote_stream_node_id: Uuid",
-                      remote_stream_url
+                      remote_stream_url,
+                      validation_steps
                FROM tasks
                WHERE rowid = $1"#,
             rowid
@@ -302,7 +372,8 @@ ORDER BY t.created_at DESC"#,
                       remote_version as "remote_version!: i64",
                       remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                       remote_stream_node_id as "remote_stream_node_id: Uuid",
-                      remote_stream_url
+                      remote_stream_url,
+                      validation_steps
                FROM tasks
                WHERE id = $1 AND project_id = $2"#,
             id,
@@ -329,7 +400,8 @@ ORDER BY t.created_at DESC"#,
                       remote_version as "remote_version!: i64",
                       remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                       remote_stream_node_id as "remote_stream_node_id: Uuid",
-                      remote_stream_url
+                      remote_stream_url,
+                      validation_steps
                FROM tasks
                WHERE shared_task_id = $1
                LIMIT 1"#,
@@ -347,8 +419,8 @@ ORDER BY t.created_at DESC"#,
         let status = data.status.clone().unwrap_or_default();
         sqlx::query_as!(
             Task,
-            r#"INSERT INTO tasks (id, project_id, title, description, status, parent_task_attempt, shared_task_id)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)
+            r#"INSERT INTO tasks (id, project_id, title, description, status, parent_task_attempt, shared_task_id, validation_steps)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_attempt as "parent_task_attempt: Uuid", shared_task_id as "shared_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
                          is_remote as "is_remote!: bool",
                          remote_assignee_user_id as "remote_assignee_user_id: Uuid",
@@ -357,19 +429,22 @@ ORDER BY t.created_at DESC"#,
                          remote_version as "remote_version!: i64",
                          remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                          remote_stream_node_id as "remote_stream_node_id: Uuid",
-                         remote_stream_url"#,
+                         remote_stream_url,
+                         validation_steps"#,
             task_id,
             data.project_id,
             data.title,
             data.description,
             status,
             data.parent_task_attempt,
-            data.shared_task_id
+            data.shared_task_id,
+            data.validation_steps
         )
         .fetch_one(pool)
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn update(
         pool: &SqlitePool,
         id: Uuid,
@@ -378,11 +453,12 @@ ORDER BY t.created_at DESC"#,
         description: Option<String>,
         status: TaskStatus,
         parent_task_attempt: Option<Uuid>,
+        validation_steps: Option<String>,
     ) -> Result<Self, sqlx::Error> {
         sqlx::query_as!(
             Task,
             r#"UPDATE tasks
-               SET title = $3, description = $4, status = $5, parent_task_attempt = $6
+               SET title = $3, description = $4, status = $5, parent_task_attempt = $6, validation_steps = $7
                WHERE id = $1 AND project_id = $2
                RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_attempt as "parent_task_attempt: Uuid", shared_task_id as "shared_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
                          is_remote as "is_remote!: bool",
@@ -392,13 +468,15 @@ ORDER BY t.created_at DESC"#,
                          remote_version as "remote_version!: i64",
                          remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                          remote_stream_node_id as "remote_stream_node_id: Uuid",
-                         remote_stream_url"#,
+                         remote_stream_url,
+                         validation_steps"#,
             id,
             project_id,
             title,
             description,
             status,
-            parent_task_attempt
+            parent_task_attempt,
+            validation_steps
         )
         .fetch_one(pool)
         .await
@@ -569,7 +647,8 @@ ORDER BY t.created_at DESC"#,
                       remote_version as "remote_version!: i64",
                       remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                       remote_stream_node_id as "remote_stream_node_id: Uuid",
-                      remote_stream_url
+                      remote_stream_url,
+                      validation_steps
                FROM tasks
                WHERE parent_task_attempt = $1
                ORDER BY created_at DESC"#,
@@ -627,7 +706,8 @@ ORDER BY t.created_at DESC"#,
                       remote_version as "remote_version!: i64",
                       remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                       remote_stream_node_id as "remote_stream_node_id: Uuid",
-                      remote_stream_url
+                      remote_stream_url,
+                      validation_steps
                FROM tasks
                WHERE project_id = $1 AND is_remote = 1
                ORDER BY created_at DESC"#,
@@ -693,7 +773,8 @@ ORDER BY t.created_at DESC"#,
                           remote_version as "remote_version!: i64",
                           remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                           remote_stream_node_id as "remote_stream_node_id: Uuid",
-                          remote_stream_url"#,
+                          remote_stream_url,
+                          validation_steps"#,
             local_id,
             project_id,
             title,

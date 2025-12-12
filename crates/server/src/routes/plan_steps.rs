@@ -261,6 +261,7 @@ pub async fn create_subtasks_from_steps(
             parent_task_attempt: Some(attempt_id),
             image_ids: None,
             shared_task_id: None,
+            validation_steps: None,
         };
 
         let task = Task::create(pool, &create_task, task_id).await?;

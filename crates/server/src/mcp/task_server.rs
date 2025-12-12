@@ -480,6 +480,7 @@ impl TaskServer {
             parent_task_attempt: resolved_parent_attempt,
             image_ids: None,
             shared_task_id: None,
+            validation_steps: None,
         };
 
         let task: Task = match self.send_json(self.client.post(&url).json(&create_payload)).await {
@@ -671,6 +672,7 @@ impl TaskServer {
             status,
             parent_task_attempt: None,
             image_ids: None,
+            validation_steps: None,
         };
         let url = self.url(&format!("/api/tasks/{}", task_id));
         let updated_task: Task = match self.send_json(self.client.put(&url).json(&payload)).await {
