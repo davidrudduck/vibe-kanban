@@ -66,6 +66,40 @@ Click any image thumbnail to open it in a full-screen lightbox where you can:
 Coding agents can access attached images via their file paths, making them useful for tasks that require visual understanding like UI implementation or bug reproduction.
 </Tip>
 
+## Adding Validation Steps
+
+Validation steps are criteria that coding agents must verify before marking a task complete. This helps ensure quality by explicitly defining what "done" means for each task.
+
+### How to Add Validation Steps
+
+1. When creating or editing a task, find the **Validation Steps** textarea below the description
+2. Enter each validation criterion on its own line:
+   ```bash
+   Run npm run check
+   Verify no TypeScript errors
+   Test the feature in browser
+   ```
+
+### How Agents Use Validation Steps
+
+When a coding agent starts working on your task, the validation steps are automatically appended to the task prompt:
+
+```bash
+=== VALIDATION REQUIREMENTS ===
+Before marking this task complete, verify:
+1. Run npm run check
+2. Verify no TypeScript errors
+3. Test the feature in browser
+```
+
+<Tip>
+Use validation steps for tasks that have specific acceptance criteria, such as:
+- Running tests or lint checks
+- Verifying specific behavior in the browser
+- Checking for console errors
+- Confirming API responses
+</Tip>
+
 ## Starting an Existing Task
 
 <Frame>
@@ -106,7 +140,7 @@ For detailed setup instructions and examples, see the [Vibe Kanban MCP Server](/
 
 Once configured with an MCP client, you can create multiple tasks from a project description:
 
-```
+```bash
 I need to implement user authentication with:
 - Email/password registration
 - Login with session management  
