@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { useJsonPatchWsStream } from './useJsonPatchWsStream';
+import { useRegisterOptimisticCallback } from '@/contexts/TaskOptimisticContext';
 import type {
   SharedTask,
   TaskStatus,
@@ -33,6 +34,11 @@ export interface UseProjectTasksResult {
   isLoading: boolean;
   isConnected: boolean;
   error: string | null;
+  /**
+   * Optimistically add a task to the local state.
+   * Call this after successful REST API creation for instant UI feedback.
+   */
+  addTaskOptimistically: (task: TaskWithAttemptStatus) => void;
 }
 
 /**
@@ -54,11 +60,28 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     []
   );
 
-  const { data, isConnected, error } = useJsonPatchWsStream(
+  const { data, isConnected, error, patchData } = useJsonPatchWsStream(
     endpoint,
     !!endpoint,
     initialData
   );
+
+  // Optimistically add a task to local state via JSON Patch
+  const addTaskOptimistically = useCallback(
+    (task: TaskWithAttemptStatus) => {
+      patchData([
+        {
+          op: 'add',
+          path: `/tasks/${task.id}`,
+          value: task,
+        },
+      ]);
+    },
+    [patchData]
+  );
+
+  // Register the callback globally so modals can access it
+  useRegisterOptimisticCallback(projectId, addTaskOptimistically);
 
   const localTasksById = useMemo(() => data?.tasks ?? {}, [data?.tasks]);
   const sharedTasksById = useMemo(
@@ -146,5 +169,6 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     isLoading,
     isConnected,
     error,
+    addTaskOptimistically,
   };
 };
