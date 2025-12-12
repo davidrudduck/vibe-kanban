@@ -2,9 +2,28 @@
 //!
 //! This service parses various text formats that Claude may use when presenting
 //! implementation plans, including numbered lists, markdown headers, and bullet points.
+//!
+//! When parsing large plan files (like full Claude plan mode documents), the parser
+//! looks for a specific "Subtasks" section to extract only the relevant steps,
+//! avoiding parsing the entire document as steps.
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use tracing::warn;
+
+/// Markers that indicate the start of a subtasks section in plan text.
+/// The parser will look for these headers and only parse content within that section.
+const SUBTASK_MARKERS: &[&str] = &[
+    "## Subtasks",
+    "## Implementation Steps",
+    "## Steps",
+    "## Plan Steps",
+    "## Tasks",
+];
+
+/// Maximum reasonable size for a subtasks section (in bytes).
+/// If the extracted section exceeds this, it's likely the wrong content.
+const MAX_SUBTASKS_SECTION_SIZE: usize = 10000;
 
 /// A parsed step from a plan.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -39,7 +58,48 @@ impl PlanParser {
         Self
     }
 
+    /// Extract the subtasks section from a plan document.
+    ///
+    /// Looks for known section headers (like "## Subtasks", "## Implementation Steps")
+    /// and extracts only the content within that section, stopping at the next
+    /// level-2 header or end of document.
+    ///
+    /// Returns `None` if no subtasks section is found.
+    pub fn extract_subtasks_section(plan_text: &str) -> Option<&str> {
+        for marker in SUBTASK_MARKERS {
+            if let Some(start_idx) = plan_text.find(marker) {
+                // Start after the marker line
+                let section_start = start_idx + marker.len();
+                let section_text = &plan_text[section_start..];
+
+                // Find the next ## header (same level or higher) or end of document
+                let end_idx = section_text
+                    .find("\n## ")
+                    .or_else(|| section_text.find("\n# "))
+                    .unwrap_or(section_text.len());
+
+                let extracted = &section_text[..end_idx];
+
+                // Sanity check: if section is too large, something is wrong
+                if extracted.len() > MAX_SUBTASKS_SECTION_SIZE {
+                    warn!(
+                        marker = %marker,
+                        section_length = extracted.len(),
+                        max_size = MAX_SUBTASKS_SECTION_SIZE,
+                        "Subtasks section is very large, this may indicate incorrect parsing"
+                    );
+                }
+
+                return Some(extracted);
+            }
+        }
+        None
+    }
+
     /// Parse plan text into structured steps.
+    ///
+    /// If the plan text contains a recognized subtasks section (like "## Subtasks"),
+    /// only that section will be parsed. Otherwise, the entire text is parsed.
     ///
     /// Supports multiple formats:
     /// - Numbered lists: "1. ", "2. ", etc.
@@ -52,6 +112,23 @@ impl PlanParser {
             return Vec::new();
         }
 
+        // Try to extract just the subtasks section first
+        let text_to_parse = Self::extract_subtasks_section(plan_text).unwrap_or(plan_text);
+
+        // If the section is still very large, skip parsing to avoid creating too many steps
+        if text_to_parse.len() > MAX_SUBTASKS_SECTION_SIZE {
+            warn!(
+                text_length = text_to_parse.len(),
+                "Plan text too large to parse, skipping to avoid creating excessive steps"
+            );
+            return Vec::new();
+        }
+
+        Self::parse_content(text_to_parse)
+    }
+
+    /// Parse content into steps (internal implementation).
+    fn parse_content(plan_text: &str) -> Vec<ParsedPlanStep> {
         let format = Self::detect_format(plan_text);
         match format {
             PlanFormat::NumberedList => Self::parse_numbered_list(plan_text),
@@ -363,5 +440,159 @@ Add UI components to display plan steps."#;
     fn test_detect_format_unknown() {
         let plan = "Just some text\nWith multiple lines\nBut no structure";
         assert_eq!(PlanParser::detect_format(plan), PlanFormat::Unknown);
+    }
+
+    // Tests for subtasks section extraction
+
+    #[test]
+    fn test_extract_subtasks_section_basic() {
+        let plan = r#"# My Plan
+
+Some introduction text here.
+
+## Subtasks
+
+1. First task
+   Description of first task
+
+2. Second task
+   Description of second task
+
+## Notes
+
+Some notes here.
+"#;
+        let section = PlanParser::extract_subtasks_section(plan);
+        assert!(section.is_some());
+        let section = section.unwrap();
+        assert!(section.contains("First task"));
+        assert!(section.contains("Second task"));
+        assert!(!section.contains("Some notes here"));
+        assert!(!section.contains("introduction"));
+    }
+
+    #[test]
+    fn test_extract_subtasks_section_implementation_steps() {
+        let plan = r#"# Plan
+
+## Implementation Steps
+
+1. Step one
+2. Step two
+
+## Other Section
+"#;
+        let section = PlanParser::extract_subtasks_section(plan);
+        assert!(section.is_some());
+        assert!(section.unwrap().contains("Step one"));
+    }
+
+    #[test]
+    fn test_extract_subtasks_section_not_found() {
+        let plan = r#"# Plan
+
+## Introduction
+
+Some text here.
+
+## Conclusion
+
+More text.
+"#;
+        let section = PlanParser::extract_subtasks_section(plan);
+        assert!(section.is_none());
+    }
+
+    #[test]
+    fn test_parse_with_subtasks_section() {
+        let plan = r#"# Large Plan Document
+
+This is a very long introduction with lots of text.
+It contains many paragraphs and sections.
+
+## Background
+
+- Point one about the background
+- Point two about the background
+- Point three about the background
+
+## Requirements
+
+1. Requirement one that looks like a step
+2. Requirement two that looks like a step
+3. Requirement three that looks like a step
+
+## Subtasks
+
+1. Create database migration
+   Add the schema for the new feature.
+
+2. Implement API endpoints
+   Create REST endpoints for CRUD operations.
+
+3. Add frontend components
+   Build React components for the UI.
+
+## Notes
+
+- Note one
+- Note two
+"#;
+        // Should only parse the 3 subtasks, not the requirements or notes
+        let steps = PlanParser::parse(plan);
+        assert_eq!(steps.len(), 3);
+        assert_eq!(steps[0].title, "Create database migration");
+        assert_eq!(steps[1].title, "Implement API endpoints");
+        assert_eq!(steps[2].title, "Add frontend components");
+    }
+
+    #[test]
+    fn test_parse_falls_back_to_full_text() {
+        // When no subtasks section exists, parse the whole document
+        let plan = r#"1. First task
+Description
+
+2. Second task
+Description
+"#;
+        let steps = PlanParser::parse(plan);
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0].title, "First task");
+        assert_eq!(steps[1].title, "Second task");
+    }
+
+    #[test]
+    fn test_extract_subtasks_section_at_end_of_document() {
+        let plan = r#"# Plan
+
+## Introduction
+
+Some text.
+
+## Subtasks
+
+1. Only task
+   Description here.
+"#;
+        let section = PlanParser::extract_subtasks_section(plan);
+        assert!(section.is_some());
+        assert!(section.unwrap().contains("Only task"));
+    }
+
+    #[test]
+    fn test_extract_subtasks_section_stops_at_h1() {
+        let plan = r#"## Subtasks
+
+1. First task
+
+# New Top-Level Section
+
+This should not be included.
+"#;
+        let section = PlanParser::extract_subtasks_section(plan);
+        assert!(section.is_some());
+        let section = section.unwrap();
+        assert!(section.contains("First task"));
+        assert!(!section.contains("New Top-Level Section"));
     }
 }
