@@ -24,17 +24,21 @@ export const useDiffStream = (
   enabled: boolean,
   options?: UseDiffStreamOptions
 ): UseDiffStreamResult => {
-  const endpoint = (() => {
+  // Memoize endpoint to prevent unnecessary WebSocket reconnections
+  // Without useMemo, the endpoint string is recreated on every render,
+  // causing useJsonPatchWsStream to see a "new" endpoint and reconnect
+  const statsOnly = options?.statsOnly;
+  const endpoint = useMemo(() => {
     if (!attemptId) return undefined;
     const query = `/api/task-attempts/${attemptId}/diff/ws`;
-    if (typeof options?.statsOnly === 'boolean') {
+    if (typeof statsOnly === 'boolean') {
       const params = new URLSearchParams();
-      params.set('stats_only', String(options.statsOnly));
+      params.set('stats_only', String(statsOnly));
       return `${query}?${params.toString()}`;
     } else {
       return query;
     }
-  })();
+  }, [attemptId, statsOnly]);
 
   const initialData = useCallback(
     (): DiffStreamEvent => ({

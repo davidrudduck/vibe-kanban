@@ -206,6 +206,8 @@ export function TaskFollowUpSection({
   const { isSendingFollowUp, followUpError, setFollowUpError, onSendFollowUp } =
     useFollowUpSend({
       attemptId: selectedAttemptId,
+      taskId: task.id,
+      projectId: task.project_id,
       message: followUpMessage,
       conflictMarkdown: conflictResolutionInstructions,
       reviewMarkdown,

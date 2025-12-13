@@ -25,11 +25,8 @@ type WsRefreshRequiredMsg = { refresh_required: { reason: string } };
 type WsMsg = WsJsonPatchMsg | WsFinishedMsg | WsRefreshRequiredMsg;
 
 // Keep-alive constants
-// Note: We only log idle connections, we don't force reconnection because:
-// 1. Browser WebSocket API doesn't expose ping frames (can't see server keepalives)
-// 2. Connections may be legitimately idle (e.g., waiting for Claude agent response)
-// 3. Backend has proper ping/pong keepalive (90s timeout) to detect dead connections
-const PING_INTERVAL_MS = 25000; // Log connection status every 25 seconds
+const PING_INTERVAL_MS = 25000; // Check connection status every 25 seconds
+const IDLE_TIMEOUT_MS = 60000; // Force reconnection after 60s of no messages
 const MAX_RECONNECT_ATTEMPTS = 10; // Give up after 10 failed reconnection attempts
 
 interface UseJsonPatchStreamOptions<T> {
@@ -82,6 +79,7 @@ export const useJsonPatchWsStream = <T extends object>(
   const lastMessageTimeRef = useRef<number>(Date.now());
   const connectingRef = useRef<boolean>(false); // Guard against race conditions
   const mountedRef = useRef<boolean>(true); // Track component mount state
+  const abortControllerRef = useRef<AbortController | null>(null); // Cancel pending connections
 
   const injectInitialEntry = options?.injectInitialEntry;
   const deduplicatePatches = options?.deduplicatePatches;
@@ -182,6 +180,12 @@ export const useJsonPatchWsStream = <T extends object>(
       // Set guard immediately to prevent concurrent connection attempts
       connectingRef.current = true;
 
+      // Abort any previous pending connection before starting new one
+      // This prevents "closed before established" errors when endpoint changes rapidly
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = new AbortController();
+      const abortSignal = abortControllerRef.current.signal;
+
       // Reset finished flag for new connection
       finishedRef.current = false;
 
@@ -197,6 +201,14 @@ export const useJsonPatchWsStream = <T extends object>(
       wsRef.current = ws;
 
       ws.onopen = () => {
+        // Check if this connection was aborted while connecting
+        // This happens when component unmounts or endpoint changes during CONNECTING state
+        if (abortSignal.aborted) {
+          ws.close();
+          wsRef.current = null;
+          connectingRef.current = false;
+          return;
+        }
         // Clear connecting guard - connection established
         connectingRef.current = false;
 
@@ -217,17 +229,21 @@ export const useJsonPatchWsStream = <T extends object>(
         // Record initial connection time
         recordMessageTime();
 
-        // Start connection monitoring interval (logging only)
-        // Note: We don't force reconnection on idle connections because:
-        // 1. Browser WebSocket API doesn't expose ping frames, so we can't see server keepalives
-        // 2. Connections may be legitimately idle (e.g., waiting for Claude agent response)
-        // 3. The backend has proper ping/pong keepalive (90s timeout) to detect dead connections
-        // 4. Race conditions in useConversationHistory (the real cause of zombie connections) are now fixed
+        // Start connection monitoring interval with active heartbeat
+        // Force reconnection after IDLE_TIMEOUT_MS of no messages to recover from stale connections
         pingIntervalRef.current = window.setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
             const idleTime = Date.now() - lastMessageTimeRef.current;
-            if (idleTime > PING_INTERVAL_MS * 2) {
-              // Log for debugging, but don't force reconnect - connection may be legitimately idle
+            if (idleTime > IDLE_TIMEOUT_MS) {
+              // Connection has been idle too long - force reconnection
+              console.warn(
+                '[WS] Connection idle for',
+                Math.round(idleTime / 1000),
+                's, forcing reconnection'
+              );
+              ws.close(4002, 'idle timeout');
+            } else if (idleTime > PING_INTERVAL_MS * 2) {
+              // Log for debugging
               console.debug('[WS] No message for', Math.round(idleTime / 1000), 's');
             }
           }
@@ -339,6 +355,8 @@ export const useJsonPatchWsStream = <T extends object>(
       mountedRef.current = false;
       // Clear connecting guard on cleanup
       connectingRef.current = false;
+      // Abort any pending connection to prevent "closed before established" errors
+      abortControllerRef.current?.abort();
 
       if (wsRef.current) {
         const ws = wsRef.current;
