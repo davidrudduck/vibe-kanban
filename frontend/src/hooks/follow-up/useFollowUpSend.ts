@@ -1,9 +1,12 @@
 import { useCallback, useState } from 'react';
 import { attemptsApi } from '@/lib/api';
+import { getStatusCallback } from '@/contexts/TaskOptimisticContext';
 import type { ImageResponse, CreateFollowUpAttempt } from 'shared/types';
 
 type Args = {
   attemptId?: string;
+  taskId?: string;
+  projectId?: string;
   message: string;
   conflictMarkdown: string | null;
   reviewMarkdown: string;
@@ -20,6 +23,8 @@ type Args = {
 
 export function useFollowUpSend({
   attemptId,
+  taskId,
+  projectId,
   message,
   conflictMarkdown,
   reviewMarkdown,
@@ -66,6 +71,14 @@ export function useFollowUpSend({
         perform_git_reset: null,
       };
       await attemptsApi.followUp(attemptId, body);
+
+      // Optimistically update task status to inprogress for immediate UI feedback
+      // This avoids waiting for the WebSocket broadcast which may be delayed
+      if (taskId && projectId) {
+        const updateStatus = getStatusCallback(projectId);
+        updateStatus?.(taskId, 'inprogress');
+      }
+
       setMessage('');
       clearComments();
       clearClickedElements?.();
@@ -81,6 +94,8 @@ export function useFollowUpSend({
     }
   }, [
     attemptId,
+    taskId,
+    projectId,
     message,
     conflictMarkdown,
     reviewMarkdown,
