@@ -1012,19 +1012,10 @@ export function ProjectTasks() {
           }}
           tasksById={tasksById}
         >
-          {({ logs, followUp, planSteps, relationships }) => (
+          {({ logs, followUp, relationships }) => (
             <>
               <GitErrorBanner />
               <div className="flex-1 min-h-0 flex flex-col">
-                {/* Plan Steps Panel - shown when plan steps exist */}
-                {planSteps && (
-                  <div className="shrink-0 border-b">
-                    <div className="mx-auto w-full max-w-[50rem]">
-                      {planSteps}
-                    </div>
-                  </div>
-                )}
-
                 {/* Task Relationships - shown when parent/child tasks exist */}
                 {relationships && (
                   <div className="shrink-0 border-b">

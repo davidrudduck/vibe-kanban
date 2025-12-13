@@ -1,14 +1,13 @@
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use db::{self, models::plan_step::{CreatePlanStep, PlanStep}, DBService};
+use db::DBService;
 use executors::approvals::{ExecutorApprovalError, ExecutorApprovalService};
 use serde_json::Value;
-use tracing::{debug, error, info, warn};
 use utils::approvals::{ApprovalRequest, ApprovalStatus, CreateApprovalRequest, Question};
 use uuid::Uuid;
 
-use crate::services::{approvals::Approvals, plan_parser::PlanParser};
+use crate::services::approvals::Approvals;
 
 pub struct ExecutorApprovalBridge {
     approvals: Approvals,
@@ -91,94 +90,5 @@ impl ExecutorApprovalService for ExecutorApprovalBridge {
         }
 
         Ok((response_data.status, response_data.answers))
-    }
-
-    async fn on_exit_plan_mode(
-        &self,
-        plan_text: &str,
-        tool_call_id: &str,
-    ) -> Result<(), ExecutorApprovalError> {
-        // Look up the task_attempt_id from the execution_process
-        // IMPORTANT: self.execution_process_id is an execution_processes.id, NOT a task_attempts.id
-        // The plan_steps.parent_attempt_id foreign key references task_attempts.id
-        let execution_process =
-            db::models::execution_process::ExecutionProcess::find_by_id(&self.db.pool, self.execution_process_id)
-                .await
-                .map_err(|e| ExecutorApprovalError::request_failed(format!("database error: {}", e)))?
-                .ok_or_else(|| ExecutorApprovalError::request_failed("execution process not found"))?;
-
-        let attempt_id = execution_process.task_attempt_id;
-
-        debug!(
-            attempt_id = %attempt_id,
-            execution_process_id = %self.execution_process_id,
-            plan_length = plan_text.len(),
-            tool_call_id = %tool_call_id,
-            "Processing ExitPlanMode approval - parsing plan"
-        );
-
-        // Check for verbose debug mode
-        if std::env::var("VIBE_DEBUG_PLAN_STEPS").is_ok() {
-            debug!(plan_text = %plan_text, "Full plan text from ExitPlanMode");
-        }
-
-        // Parse plan into steps
-        let parsed_steps = PlanParser::parse(plan_text);
-
-        if parsed_steps.is_empty() {
-            warn!(
-                attempt_id = %attempt_id,
-                "No steps parsed from plan text"
-            );
-            return Ok(());
-        }
-
-        info!(
-            attempt_id = %attempt_id,
-            parsed_count = parsed_steps.len(),
-            "Parsed plan steps, creating in database"
-        );
-
-        // Create plan steps directly in database
-        let mut created_count = 0;
-        for step in parsed_steps {
-            let create_req = CreatePlanStep {
-                parent_attempt_id: attempt_id,
-                sequence_order: step.sequence_order,
-                title: step.title.clone(),
-                description: step.description.clone(),
-                status: None,
-                child_task_id: None,
-                auto_start: None,
-            };
-
-            match PlanStep::create(&self.db.pool, &create_req).await {
-                Ok(created) => {
-                    debug!(
-                        step_id = %created.id,
-                        title = %created.title,
-                        "Created plan step"
-                    );
-                    created_count += 1;
-                }
-                Err(e) => {
-                    error!(
-                        attempt_id = %attempt_id,
-                        step_title = %step.title,
-                        error = %e,
-                        "Failed to create plan step"
-                    );
-                    // Continue with remaining steps
-                }
-            }
-        }
-
-        info!(
-            attempt_id = %attempt_id,
-            created_count = created_count,
-            "Finished creating plan steps from ExitPlanMode"
-        );
-
-        Ok(())
     }
 }
