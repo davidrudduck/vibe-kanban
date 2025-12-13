@@ -182,6 +182,7 @@ export function ProjectTasks() {
     isLoading,
     error: streamError,
     addTaskOptimistically,
+    updateTaskStatusOptimistically,
   } = useProjectTasks(projectId || '');
 
   const selectedTask = useMemo(
@@ -1106,7 +1107,10 @@ export function ProjectTasks() {
   );
 
   return (
-    <TaskOptimisticProvider addTaskOptimistically={addTaskOptimistically}>
+    <TaskOptimisticProvider
+      addTaskOptimistically={addTaskOptimistically}
+      updateTaskStatusOptimistically={updateTaskStatusOptimistically}
+    >
       <div className="min-h-full h-full flex flex-col">
         {streamError && (
           <Alert className="w-full z-30 xl:sticky xl:top-0">
