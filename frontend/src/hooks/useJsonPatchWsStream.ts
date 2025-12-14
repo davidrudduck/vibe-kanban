@@ -25,8 +25,11 @@ type WsRefreshRequiredMsg = { refresh_required: { reason: string } };
 type WsMsg = WsJsonPatchMsg | WsFinishedMsg | WsRefreshRequiredMsg;
 
 // Keep-alive constants
-const PING_INTERVAL_MS = 25000; // Check connection status every 25 seconds
-const IDLE_TIMEOUT_MS = 60000; // Force reconnection after 60s of no messages
+// Note: We only log idle connections, we don't force reconnection because:
+// 1. Browser WebSocket API doesn't expose ping frames (can't see server keepalives)
+// 2. Connections may be legitimately idle (e.g., waiting for Claude agent response, user typing)
+// 3. Backend has proper ping/pong keepalive (90s timeout) to detect dead connections
+const PING_INTERVAL_MS = 25000; // Log connection status every 25 seconds
 const MAX_RECONNECT_ATTEMPTS = 10; // Give up after 10 failed reconnection attempts
 
 interface UseJsonPatchStreamOptions<T> {
@@ -229,21 +232,16 @@ export const useJsonPatchWsStream = <T extends object>(
         // Record initial connection time
         recordMessageTime();
 
-        // Start connection monitoring interval with active heartbeat
-        // Force reconnection after IDLE_TIMEOUT_MS of no messages to recover from stale connections
+        // Start connection monitoring interval (logging only)
+        // Note: We don't force reconnection on idle connections because:
+        // 1. Browser WebSocket API doesn't expose ping frames, so we can't see server keepalives
+        // 2. Connections may be legitimately idle (e.g., waiting for Claude agent response)
+        // 3. The backend has proper ping/pong keepalive (90s timeout) to detect dead connections
         pingIntervalRef.current = window.setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
             const idleTime = Date.now() - lastMessageTimeRef.current;
-            if (idleTime > IDLE_TIMEOUT_MS) {
-              // Connection has been idle too long - force reconnection
-              console.warn(
-                '[WS] Connection idle for',
-                Math.round(idleTime / 1000),
-                's, forcing reconnection'
-              );
-              ws.close(4002, 'idle timeout');
-            } else if (idleTime > PING_INTERVAL_MS * 2) {
-              // Log for debugging
+            if (idleTime > PING_INTERVAL_MS * 3) {
+              // Log for debugging, but don't force reconnect - connection may be legitimately idle
               console.debug('[WS] No message for', Math.round(idleTime / 1000), 's');
             }
           }
