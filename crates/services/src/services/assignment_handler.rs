@@ -75,7 +75,7 @@ impl<C: ContainerService + Sync> AssignmentHandler<C> {
                 title: assignment.task.title.clone(),
                 description: assignment.task.description.clone(),
                 status: Some(TaskStatus::InProgress),
-                parent_task_attempt: None,
+                parent_task_id: None,
                 image_ids: None,
                 shared_task_id: Some(assignment.task_id), // Link to the shared task
                 validation_steps: None,

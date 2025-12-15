@@ -64,11 +64,13 @@ export function useTaskMutations(
         });
       }
       // Invalidate parent's relationships cache if this is a subtask
-      if (createdTask.parent_task_attempt) {
+      if (createdTask.parent_task_id) {
         queryClient.invalidateQueries({
-          queryKey: taskRelationshipsKeys.byAttempt(
-            createdTask.parent_task_attempt
-          ),
+          queryKey: taskRelationshipsKeys.byTask(createdTask.parent_task_id),
+        });
+        // Also invalidate all relationships to catch attempt-based lookups
+        queryClient.invalidateQueries({
+          queryKey: taskRelationshipsKeys.all,
         });
       }
       if (projectId) {
@@ -90,11 +92,13 @@ export function useTaskMutations(
         addTaskOptimistically(createdTask);
       }
       // Invalidate parent's relationships cache if this is a subtask
-      if (createdTask.parent_task_attempt) {
+      if (createdTask.parent_task_id) {
         queryClient.invalidateQueries({
-          queryKey: taskRelationshipsKeys.byAttempt(
-            createdTask.parent_task_attempt
-          ),
+          queryKey: taskRelationshipsKeys.byTask(createdTask.parent_task_id),
+        });
+        // Also invalidate all relationships to catch attempt-based lookups
+        queryClient.invalidateQueries({
+          queryKey: taskRelationshipsKeys.all,
         });
       }
       if (projectId) {

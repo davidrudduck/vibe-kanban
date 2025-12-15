@@ -70,7 +70,7 @@ export type TaskFormDialogProps =
   | {
       mode: 'subtask';
       projectId: string;
-      parentTaskAttemptId: string;
+      parentTaskId: string;
       initialBaseBranch: string;
     };
 
@@ -198,7 +198,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
             title: value.title,
             description: value.description,
             status: value.status,
-            parent_task_attempt: null,
+            parent_task_id: null,
             image_ids: images.length > 0 ? images.map((img) => img.id) : null,
             validation_steps: validationStepsJson,
           },
@@ -213,8 +213,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
         title: value.title,
         description: value.description,
         status: null,
-        parent_task_attempt:
-          mode === 'subtask' ? props.parentTaskAttemptId : null,
+        parent_task_id: mode === 'subtask' ? props.parentTaskId : null,
         image_ids: imageIds,
         shared_task_id: null,
         validation_steps: validationStepsJson,

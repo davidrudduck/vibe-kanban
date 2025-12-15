@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { KanbanCard } from '@/components/ui/shadcn-io/kanban';
 import { CheckCircle, Link, Loader2, Server, User, XCircle } from 'lucide-react';
 import type { TaskWithAttemptStatus } from 'shared/types';
@@ -6,7 +6,6 @@ import { ActionsDropdown } from '@/components/ui/actions-dropdown';
 import { Button } from '@/components/ui/button';
 import { useNavigateWithSearch, useIsOrgAdmin } from '@/hooks';
 import { paths } from '@/lib/paths';
-import { attemptsApi } from '@/lib/api';
 import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
 import { TaskCardHeader } from './TaskCardHeader';
 import { useTranslation } from 'react-i18next';
@@ -45,7 +44,6 @@ export function TaskCard({
   const { t } = useTranslation('tasks');
   const navigate = useNavigateWithSearch();
   const isOrgAdmin = useIsOrgAdmin();
-  const [isNavigatingToParent, setIsNavigatingToParent] = useState(false);
   const { project } = useProject();
 
   // Get owner name from shared task or remote task
@@ -64,26 +62,14 @@ export function TaskCard({
   }, [task, onViewDetails]);
 
   const handleParentClick = useCallback(
-    async (e: React.MouseEvent) => {
+    (e: React.MouseEvent) => {
       e.stopPropagation();
-      if (!task.parent_task_attempt || isNavigatingToParent) return;
+      if (!task.parent_task_id) return;
 
-      setIsNavigatingToParent(true);
-      try {
-        const parentAttempt = await attemptsApi.get(task.parent_task_attempt);
-        navigate(
-          paths.attempt(
-            projectId,
-            parentAttempt.task_id,
-            task.parent_task_attempt
-          )
-        );
-      } catch (error) {
-        console.error('Failed to navigate to parent task attempt:', error);
-        setIsNavigatingToParent(false);
-      }
+      // Direct navigation to parent task
+      navigate(paths.task(projectId, task.parent_task_id));
     },
-    [task.parent_task_attempt, projectId, navigate, isNavigatingToParent]
+    [task.parent_task_id, projectId, navigate]
   );
 
   const localRef = useRef<HTMLDivElement>(null);
@@ -148,13 +134,12 @@ export function TaskCard({
               {task.last_attempt_failed && !task.has_merged_attempt && (
                 <XCircle className="h-4 w-4 text-destructive" />
               )}
-              {task.parent_task_attempt && (
+              {task.parent_task_id && (
                 <Button
                   variant="icon"
                   onClick={handleParentClick}
                   onPointerDown={(e) => e.stopPropagation()}
                   onMouseDown={(e) => e.stopPropagation()}
-                  disabled={isNavigatingToParent}
                   title={t('navigateToParent')}
                 >
                   <Link className="h-4 w-4" />

@@ -420,9 +420,9 @@ impl TaskAttempt {
         Ok(())
     }
 
-    pub async fn update_target_branch_for_children_of_attempt(
+    pub async fn update_target_branch_for_children_of_task(
         pool: &SqlitePool,
-        parent_attempt_id: Uuid,
+        parent_task_id: Uuid,
         old_branch: &str,
         new_branch: &str,
     ) -> Result<u64, TaskAttemptError> {
@@ -431,10 +431,10 @@ impl TaskAttempt {
                SET target_branch = $3, updated_at = datetime('now')
                WHERE target_branch = $2
                  AND task_id IN (
-                   SELECT id FROM tasks 
-                   WHERE parent_task_attempt = $1
+                   SELECT id FROM tasks
+                   WHERE parent_task_id = $1
                  )"#,
-            parent_attempt_id,
+            parent_task_id,
             old_branch,
             new_branch
         )
