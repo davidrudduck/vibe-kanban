@@ -49,12 +49,45 @@ use uuid::Uuid;
 use crate::{
     DeploymentImpl,
     error::ApiError,
-    middleware::{load_task_attempt_middleware, load_task_attempt_middleware_with_wildcard},
+    middleware::{
+        RemoteTaskAttemptContext, load_task_attempt_middleware,
+        load_task_attempt_middleware_with_wildcard,
+    },
     routes::task_attempts::{
         gh_cli_setup::GhCliSetupError,
         util::{ensure_worktree_path, handle_images_for_prompt},
     },
 };
+
+/// Helper to check if a remote task attempt context is available and online.
+/// Returns Some((node_url, node_id, shared_task_id)) if we should proxy,
+/// or an Err if the remote node is offline.
+fn check_remote_task_attempt_proxy(
+    remote_ctx: Option<&RemoteTaskAttemptContext>,
+) -> Result<Option<(String, Uuid, Uuid)>, ApiError> {
+    match remote_ctx {
+        Some(ctx) => {
+            // Check if the node is online
+            if ctx.node_status.as_deref() != Some("online") {
+                return Err(ApiError::BadGateway(format!(
+                    "Remote node '{}' is offline",
+                    ctx.node_id
+                )));
+            }
+
+            // Check if we have a URL to proxy to
+            let node_url = ctx.node_url.as_ref().ok_or_else(|| {
+                ApiError::BadGateway(format!(
+                    "Remote node '{}' has no public URL configured",
+                    ctx.node_id
+                ))
+            })?;
+
+            Ok(Some((node_url.clone(), ctx.node_id, ctx.task_id)))
+        }
+        None => Ok(None),
+    }
+}
 
 #[derive(Debug, Deserialize, Serialize, TS)]
 pub struct RebaseTaskAttemptRequest {
@@ -1691,4 +1724,73 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .merge(task_attempt_files_router);
 
     Router::new().nest("/task-attempts", task_attempts_router)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::middleware::RemoteTaskAttemptContext;
+
+    #[test]
+    fn test_check_remote_proxy_returns_none_when_no_context() {
+        let result = check_remote_task_attempt_proxy(None);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn test_check_remote_proxy_returns_error_when_node_offline() {
+        let ctx = RemoteTaskAttemptContext {
+            node_id: Uuid::new_v4(),
+            node_url: Some("http://node:3000".to_string()),
+            node_status: Some("offline".to_string()),
+            task_id: Uuid::new_v4(),
+        };
+        let result = check_remote_task_attempt_proxy(Some(&ctx));
+        assert!(result.is_err());
+        match result {
+            Err(ApiError::BadGateway(msg)) => {
+                assert!(msg.contains("offline"));
+            }
+            _ => panic!("Expected BadGateway error"),
+        }
+    }
+
+    #[test]
+    fn test_check_remote_proxy_returns_error_when_no_node_url() {
+        let ctx = RemoteTaskAttemptContext {
+            node_id: Uuid::new_v4(),
+            node_url: None,
+            node_status: Some("online".to_string()),
+            task_id: Uuid::new_v4(),
+        };
+        let result = check_remote_task_attempt_proxy(Some(&ctx));
+        assert!(result.is_err());
+        match result {
+            Err(ApiError::BadGateway(msg)) => {
+                assert!(msg.contains("no public URL"));
+            }
+            _ => panic!("Expected BadGateway error"),
+        }
+    }
+
+    #[test]
+    fn test_check_remote_proxy_returns_info_when_node_online() {
+        let node_id = Uuid::new_v4();
+        let task_id = Uuid::new_v4();
+        let ctx = RemoteTaskAttemptContext {
+            node_id,
+            node_url: Some("http://node:3000".to_string()),
+            node_status: Some("online".to_string()),
+            task_id,
+        };
+        let result = check_remote_task_attempt_proxy(Some(&ctx));
+        assert!(result.is_ok());
+        let proxy_info = result.unwrap();
+        assert!(proxy_info.is_some());
+        let (url, returned_node_id, returned_task_id) = proxy_info.unwrap();
+        assert_eq!(url, "http://node:3000");
+        assert_eq!(returned_node_id, node_id);
+        assert_eq!(returned_task_id, task_id);
+    }
 }

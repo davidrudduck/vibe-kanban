@@ -65,6 +65,35 @@ impl RemoteProjectContext {
     }
 }
 
+/// Context for remote task attempt operations.
+///
+/// This is injected into request extensions when the task attempt belongs to a
+/// remote project (`project.is_remote == true`), enabling route handlers to proxy
+/// requests to the appropriate remote node where the attempt lives.
+#[derive(Debug, Clone)]
+pub struct RemoteTaskAttemptContext {
+    /// The UUID of the remote node that owns this task's project
+    pub node_id: Uuid,
+    /// The public URL of the remote node (e.g., "https://node.example.com")
+    pub node_url: Option<String>,
+    /// Current status of the remote node ("online", "offline", etc.)
+    pub node_status: Option<String>,
+    /// The shared_task_id used for cross-node routing
+    pub task_id: Uuid,
+}
+
+impl RemoteTaskAttemptContext {
+    /// Check if the remote node is available for proxying.
+    pub fn is_available(&self) -> bool {
+        self.node_url.is_some() && self.node_status.as_deref() == Some("online")
+    }
+
+    /// Get the node URL, returning None if not configured.
+    pub fn node_url(&self) -> Option<&str> {
+        self.node_url.as_deref()
+    }
+}
+
 pub async fn load_project_middleware(
     State(deployment): State<DeploymentImpl>,
     Path(project_id): Path<Uuid>,
@@ -301,6 +330,80 @@ async fn load_task_attempt_impl(
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     };
+
+    // Load the parent Task to check if it belongs to a remote project
+    let task = match Task::find_by_id(&deployment.db().pool, attempt.task_id).await {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            tracing::warn!(
+                "Task {} not found for TaskAttempt {}",
+                attempt.task_id,
+                task_attempt_id
+            );
+            return Err(StatusCode::NOT_FOUND);
+        }
+        Err(e) => {
+            tracing::error!(
+                "Failed to fetch Task {} for TaskAttempt {}: {}",
+                attempt.task_id,
+                task_attempt_id,
+                e
+            );
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+
+    // Load the Project to check if it's remote
+    let project = match Project::find_by_id(&deployment.db().pool, task.project_id).await {
+        Ok(Some(p)) => p,
+        Ok(None) => {
+            tracing::warn!(
+                "Project {} not found for Task {}",
+                task.project_id,
+                task.id
+            );
+            return Err(StatusCode::NOT_FOUND);
+        }
+        Err(e) => {
+            tracing::error!(
+                "Failed to fetch Project {} for Task {}: {}",
+                task.project_id,
+                task.id,
+                e
+            );
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+
+    // If project is remote, inject RemoteTaskAttemptContext for proxy routing
+    if project.is_remote {
+        if let (Some(node_id), Some(shared_task_id)) =
+            (project.source_node_id, task.shared_task_id)
+        {
+            let remote_ctx = RemoteTaskAttemptContext {
+                node_id,
+                node_url: project.source_node_public_url.clone(),
+                node_status: project.source_node_status.clone(),
+                task_id: shared_task_id,
+            };
+            tracing::debug!(
+                task_attempt_id = %task_attempt_id,
+                task_id = %task.id,
+                shared_task_id = %shared_task_id,
+                node_id = %node_id,
+                node_status = ?remote_ctx.node_status,
+                "Loaded remote task attempt context"
+            );
+            request.extensions_mut().insert(remote_ctx);
+        } else {
+            tracing::warn!(
+                task_attempt_id = %task_attempt_id,
+                task_id = %task.id,
+                project_id = %project.id,
+                "Remote project missing source_node_id or task missing shared_task_id"
+            );
+        }
+    }
 
     // Insert the attempt into extensions
     request.extensions_mut().insert(attempt);
