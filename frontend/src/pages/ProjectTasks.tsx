@@ -799,7 +799,7 @@ export function ProjectTasks() {
           title: task.title,
           description: task.description,
           status: newStatus,
-          parent_task_attempt: task.parent_task_attempt,
+          parent_task_id: task.parent_task_id,
           image_ids: null,
           validation_steps: task.validation_steps,
         });

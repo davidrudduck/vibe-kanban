@@ -16,7 +16,6 @@ import { useAttemptCreation } from '@/hooks/useAttemptCreation';
 import {
   useNavigateWithSearch,
   useTask,
-  useAttempt,
   useBranches,
   useTaskAttempts,
 } from '@/hooks';
@@ -69,11 +68,23 @@ const CreateAttemptDialogImpl = NiceModal.create<CreateAttemptDialogProps>(
       enabled: modal.visible,
     });
 
-    const parentAttemptId = task?.parent_task_attempt ?? undefined;
-    const { data: parentAttempt, isLoading: isLoadingParent } = useAttempt(
-      parentAttemptId,
-      { enabled: modal.visible && !!parentAttemptId }
-    );
+    // Fetch parent task's attempts if this task has a parent
+    const parentTaskId = task?.parent_task_id ?? undefined;
+
+    // Get parent task's latest attempt to determine default branch
+    const { data: parentAttempts = [], isLoading: isLoadingParentAttempts } =
+      useTaskAttempts(parentTaskId, {
+        enabled: modal.visible && !!parentTaskId,
+      });
+
+    const parentLatestAttempt = useMemo(() => {
+      if (parentAttempts.length === 0) return null;
+      return parentAttempts.reduce((latest, attempt) =>
+        new Date(attempt.created_at) > new Date(latest.created_at)
+          ? attempt
+          : latest
+      );
+    }, [parentAttempts]);
 
     const latestAttempt = useMemo(() => {
       if (attempts.length === 0) return null;
@@ -117,13 +128,13 @@ const CreateAttemptDialogImpl = NiceModal.create<CreateAttemptDialogProps>(
 
     const defaultBranch: string | null = useMemo(() => {
       return (
-        parentAttempt?.branch ??
+        parentLatestAttempt?.branch ??
         currentBranchName ??
         latestAttempt?.target_branch ??
         null
       );
     }, [
-      parentAttempt?.branch,
+      parentLatestAttempt?.branch,
       currentBranchName,
       latestAttempt?.target_branch,
     ]);
@@ -135,7 +146,7 @@ const CreateAttemptDialogImpl = NiceModal.create<CreateAttemptDialogProps>(
       isLoadingBranches ||
       isLoadingAttempts ||
       isLoadingTask ||
-      isLoadingParent;
+      isLoadingParentAttempts;
     const canCreate = Boolean(
       effectiveProfile && effectiveBranch && !isCreating && !isLoadingInitial
     );

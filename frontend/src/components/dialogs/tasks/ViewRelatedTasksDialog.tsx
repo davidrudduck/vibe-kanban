@@ -94,7 +94,7 @@ const ViewRelatedTasksDialogImpl =
           await openTaskForm({
             mode: 'subtask',
             projectId,
-            parentTaskAttemptId: attempt.id,
+            parentTaskId: attempt.task_id,
             initialBaseBranch: attempt.branch || attempt.target_branch,
           });
         } catch {

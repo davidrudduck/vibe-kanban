@@ -1132,9 +1132,9 @@ pub async fn rename_branch(
 
     TaskAttempt::update_branch_name(pool, task_attempt.id, new_branch_name).await?;
 
-    let updated_children_count = TaskAttempt::update_target_branch_for_children_of_attempt(
+    let updated_children_count = TaskAttempt::update_target_branch_for_children_of_task(
         pool,
-        task_attempt.id,
+        task_attempt.task_id,
         &old_branch,
         new_branch_name,
     )

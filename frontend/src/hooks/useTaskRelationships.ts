@@ -6,6 +6,8 @@ export const taskRelationshipsKeys = {
   all: ['taskRelationships'] as const,
   byAttempt: (attemptId: string | undefined) =>
     ['taskRelationships', attemptId] as const,
+  byTask: (taskId: string | undefined) =>
+    ['taskRelationships', 'task', taskId] as const,
 };
 
 type Options = {
