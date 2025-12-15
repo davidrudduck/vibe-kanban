@@ -11,7 +11,8 @@ use remote::{
         projects::ListProjectNodesResponse,
         tasks::{
             AssignSharedTaskRequest, BulkSharedTasksResponse, CreateSharedTaskRequest,
-            DeleteSharedTaskRequest, SharedTaskResponse, UpdateSharedTaskRequest,
+            DeleteSharedTaskRequest, SharedTaskResponse, TaskStreamConnectionInfoResponse,
+            UpdateSharedTaskRequest,
         },
     },
 };
@@ -688,6 +689,15 @@ impl RemoteClient {
     /// Revokes an API key.
     pub async fn revoke_node_api_key(&self, key_id: Uuid) -> Result<(), RemoteClientError> {
         self.delete_authed(&format!("/v1/nodes/api-keys/{key_id}"))
+            .await
+    }
+
+    /// Gets stream connection info for a task (to connect directly to the node).
+    pub async fn get_task_stream_connection_info(
+        &self,
+        task_id: Uuid,
+    ) -> Result<TaskStreamConnectionInfoResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/tasks/{task_id}/stream-connection-info"))
             .await
     }
 }

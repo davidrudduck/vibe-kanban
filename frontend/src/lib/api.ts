@@ -104,6 +104,18 @@ export interface ListProjectNodesResponse {
   nodes: ProjectNodeInfo[];
 }
 
+// Types for remote task stream connection info
+export interface TaskStreamConnectionInfoResponse {
+  task_id: string;
+  node_id: string;
+  /** The task attempt ID on the remote node (needed for streaming endpoint) */
+  attempt_id: string | null;
+  direct_url: string | null;
+  relay_url: string;
+  connection_token: string;
+  expires_at: string;
+}
+
 class ApiError<E = unknown> extends Error {
   public status?: number;
   public error_data?: E;
@@ -474,6 +486,16 @@ export const tasksApi = {
   availableNodes: async (taskId: string): Promise<ListProjectNodesResponse> => {
     const response = await makeRequest(`/api/tasks/${taskId}/available-nodes`);
     return handleApiResponse<ListProjectNodesResponse>(response);
+  },
+
+  /** Get stream connection info for a remote task (to connect directly to the node). */
+  streamConnectionInfo: async (
+    taskId: string
+  ): Promise<TaskStreamConnectionInfoResponse> => {
+    const response = await makeRequest(
+      `/api/tasks/${taskId}/stream-connection-info`
+    );
+    return handleApiResponse<TaskStreamConnectionInfoResponse>(response);
   },
 };
 

@@ -23,7 +23,10 @@ use executors::profile::ExecutorProfileId;
 use futures_util::TryStreamExt;
 use remote::routes::{
     projects::ListProjectNodesResponse,
-    tasks::{CreateSharedTaskRequest, DeleteSharedTaskRequest, UpdateSharedTaskRequest},
+    tasks::{
+        CreateSharedTaskRequest, DeleteSharedTaskRequest, TaskStreamConnectionInfoResponse,
+        UpdateSharedTaskRequest,
+    },
 };
 use serde::{Deserialize, Serialize};
 use services::services::{
@@ -735,12 +738,35 @@ pub async fn get_available_nodes(
     Ok(ResponseJson(ApiResponse::success(response)))
 }
 
+/// Get stream connection info for a remote task.
+///
+/// Returns connection URLs and token to stream diff/log data directly from
+/// the remote node where the task attempt is running.
+pub async fn get_stream_connection_info(
+    Extension(task): Extension<Task>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<TaskStreamConnectionInfoResponse>>, ApiError> {
+    // This endpoint is only valid for remote tasks
+    let shared_task_id = task.shared_task_id.ok_or_else(|| {
+        ApiError::BadRequest("Task is not a remote task or has no shared_task_id".to_string())
+    })?;
+
+    // Call the hive to get connection info
+    let client = deployment.remote_client()?;
+    let response = client
+        .get_task_stream_connection_info(shared_task_id)
+        .await?;
+
+    Ok(ResponseJson(ApiResponse::success(response)))
+}
+
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let task_actions_router = Router::new()
         .route("/", put(update_task))
         .route("/", delete(delete_task))
         .route("/share", post(share_task))
-        .route("/available-nodes", get(get_available_nodes));
+        .route("/available-nodes", get(get_available_nodes))
+        .route("/stream-connection-info", get(get_stream_connection_info));
 
     let task_id_router = Router::new()
         .route("/", get(get_task))
