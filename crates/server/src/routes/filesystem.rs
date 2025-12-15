@@ -6,7 +6,9 @@ use axum::{
 };
 use deployment::Deployment;
 use serde::Deserialize;
-use services::services::filesystem::{DirectoryEntry, DirectoryListResponse, FilesystemError};
+use services::services::filesystem::{
+    DirectoryEntry, DirectoryListResponse, FileContentResponse, FilesystemError,
+};
 use utils::response::ApiResponse;
 
 use crate::{DeploymentImpl, error::ApiError};
@@ -79,8 +81,43 @@ pub async fn list_git_repos(
     }
 }
 
+/// Query parameters for reading a file from ~/.claude/ directory
+#[derive(Debug, Deserialize)]
+pub struct ReadClaudeFileQuery {
+    /// Relative path within ~/.claude/ (e.g., "plans/my-plan.md")
+    path: String,
+}
+
+/// Read a file from ~/.claude/ directory
+///
+/// This endpoint is security-restricted to only allow reading files
+/// within the user's ~/.claude/ directory to prevent arbitrary file access.
+pub async fn read_claude_file(
+    State(deployment): State<DeploymentImpl>,
+    Query(query): Query<ReadClaudeFileQuery>,
+) -> Result<ResponseJson<ApiResponse<FileContentResponse>>, ApiError> {
+    match deployment
+        .filesystem()
+        .read_file_claude_dir(&query.path, None)
+        .await
+    {
+        Ok(response) => Ok(ResponseJson(ApiResponse::success(response))),
+        Err(FilesystemError::FileDoesNotExist) => {
+            Ok(ResponseJson(ApiResponse::error("File does not exist")))
+        }
+        Err(FilesystemError::PathTraversalNotAllowed) => Ok(ResponseJson(ApiResponse::error(
+            "Path must be within ~/.claude/",
+        ))),
+        Err(e) => {
+            tracing::error!("Failed to read claude file: {}", e);
+            Ok(ResponseJson(ApiResponse::error(&e.to_string())))
+        }
+    }
+}
+
 pub fn router() -> Router<DeploymentImpl> {
     Router::new()
         .route("/filesystem/directory", get(list_directory))
         .route("/filesystem/git-repos", get(list_git_repos))
+        .route("/filesystem/claude-file", get(read_claude_file))
 }

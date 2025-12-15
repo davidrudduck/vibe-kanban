@@ -551,4 +551,80 @@ impl FilesystemService {
         };
         lang.to_string()
     }
+
+    /// Read file content restricted to ~/.claude/ directory
+    /// This is used for viewing Claude plan files and other Claude-specific files
+    pub async fn read_file_claude_dir(
+        &self,
+        relative_path: &str,
+        max_bytes: Option<u64>,
+    ) -> Result<FileContentResponse, FilesystemError> {
+        let claude_dir = Self::get_home_directory().join(".claude");
+        self.read_file_within(&claude_dir, relative_path, max_bytes)
+            .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[tokio::test]
+    async fn test_read_file_claude_dir_valid_path() {
+        let service = FilesystemService::new();
+        let home = dirs::home_dir().expect("Home directory should exist");
+        let claude_dir = home.join(".claude");
+        let test_dir = claude_dir.join("test_plans");
+
+        // Create test directory and file
+        fs::create_dir_all(&test_dir).expect("Failed to create test directory");
+        let test_file = test_dir.join("test_plan.md");
+        fs::write(&test_file, "# Test Plan\n\nThis is a test.").expect("Failed to write test file");
+
+        // Test reading the file
+        let result = service
+            .read_file_claude_dir("test_plans/test_plan.md", None)
+            .await;
+
+        // Cleanup
+        let _ = fs::remove_file(&test_file);
+        let _ = fs::remove_dir(&test_dir);
+
+        // Assert
+        let response = result.expect("Should successfully read file");
+        assert_eq!(response.path, "test_plans/test_plan.md");
+        assert!(response.content.contains("# Test Plan"));
+        assert_eq!(response.language, Some("markdown".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_read_file_claude_dir_path_traversal_blocked() {
+        let service = FilesystemService::new();
+
+        // Attempt path traversal
+        let result = service
+            .read_file_claude_dir("../../../etc/passwd", None)
+            .await;
+
+        // Should fail with PathTraversalNotAllowed or FileDoesNotExist
+        // (depending on whether canonicalize succeeds before the check)
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, FilesystemError::PathTraversalNotAllowed)
+                || matches!(err, FilesystemError::Io(_))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_read_file_claude_dir_file_not_found() {
+        let service = FilesystemService::new();
+
+        let result = service
+            .read_file_claude_dir("nonexistent/file.md", None)
+            .await;
+
+        assert!(result.is_err());
+    }
 }
