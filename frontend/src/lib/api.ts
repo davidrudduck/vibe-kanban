@@ -1,6 +1,7 @@
 // Import all necessary types from shared types
 
 import {
+  ActivityFeed,
   AllTasksResponse,
   ApprovalStatus,
   ApiResponse,
@@ -1159,6 +1160,10 @@ export const dashboardApi = {
   getSummary: async (): Promise<DashboardSummary> => {
     const response = await makeRequest('/api/dashboard/summary');
     return handleApiResponse<DashboardSummary>(response);
+  },
+  getActivityFeed: async (): Promise<ActivityFeed> => {
+    const response = await makeRequest('/api/dashboard/activity');
+    return handleApiResponse<ActivityFeed>(response);
   },
 };
 

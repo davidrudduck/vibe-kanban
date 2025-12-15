@@ -386,9 +386,9 @@ pub async fn update_task(
         None => existing_task.description,      // Field omitted = keep existing
     };
     let status = payload.status.unwrap_or(existing_task.status);
-    let parent_task_attempt = payload
-        .parent_task_attempt
-        .or(existing_task.parent_task_attempt);
+    let parent_task_id = payload
+        .parent_task_id
+        .or(existing_task.parent_task_id);
     // Handle validation_steps: if provided use it, otherwise keep existing
     let validation_steps = match &payload.validation_steps {
         Some(s) if s.trim().is_empty() => None, // Empty string = clear validation steps
@@ -403,7 +403,7 @@ pub async fn update_task(
         title,
         description,
         status,
-        parent_task_attempt,
+        parent_task_id,
         validation_steps,
     )
     .await?;
@@ -441,7 +441,7 @@ async fn update_remote_task(
     existing_task: &Task,
     payload: &UpdateTask,
 ) -> Result<ResponseJson<ApiResponse<Task>>, ApiError> {
-    // Remote tasks don't support images or parent_task_attempt
+    // Remote tasks don't support images or parent_task_id
     if payload
         .image_ids
         .as_ref()
@@ -451,9 +451,9 @@ async fn update_remote_task(
             "Image attachments are not supported for remote project tasks".to_string(),
         ));
     }
-    if payload.parent_task_attempt.is_some() {
+    if payload.parent_task_id.is_some() {
         return Err(ApiError::BadRequest(
-            "Parent task attempt is not supported for remote project tasks".to_string(),
+            "Parent task is not supported for remote project tasks".to_string(),
         ));
     }
 
@@ -577,13 +577,9 @@ pub async fn delete_task(
     // Use a transaction to ensure atomicity: either all operations succeed or all are rolled back
     let mut tx = deployment.db().pool.begin().await?;
 
-    // Nullify parent_task_attempt for all child tasks before deletion
+    // Nullify parent_task_id for all child tasks before deletion
     // This breaks parent-child relationships to avoid foreign key constraint violations
-    let mut total_children_affected = 0u64;
-    for attempt in &attempts {
-        let children_affected = Task::nullify_children_by_attempt_id(&mut *tx, attempt.id).await?;
-        total_children_affected += children_affected;
-    }
+    let total_children_affected = Task::nullify_children_by_parent_id(&mut *tx, task.id).await?;
 
     // Delete task from database (FK CASCADE will handle task_attempts)
     let rows_affected = Task::delete(&mut *tx, task.id).await?;
