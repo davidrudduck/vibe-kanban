@@ -412,6 +412,136 @@ async fn load_task_attempt_impl(
     Ok(next.run(request).await)
 }
 
+/// Middleware to load a task attempt by the task's shared_task_id.
+///
+/// Used for the `/task-attempts/by-task-id/{task_id}` routes that receive
+/// proxied requests from other nodes. This finds the task by shared_task_id,
+/// then loads its most recent attempt.
+///
+/// This middleware also validates the proxy token if one is provided via
+/// the Authorization header. If no token is provided and the connection token
+/// validator is enabled, the request is rejected.
+pub async fn load_task_attempt_by_task_id_middleware(
+    State(deployment): State<DeploymentImpl>,
+    Path(shared_task_id): Path<Uuid>,
+    request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    load_task_attempt_by_task_id_impl(deployment, shared_task_id, request, next).await
+}
+
+/// Variant for routes with wildcard path params like `/{task_id}/files/{*file_path}`.
+pub async fn load_task_attempt_by_task_id_middleware_with_wildcard(
+    State(deployment): State<DeploymentImpl>,
+    Path((shared_task_id, _file_path)): Path<(Uuid, String)>,
+    request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    load_task_attempt_by_task_id_impl(deployment, shared_task_id, request, next).await
+}
+
+/// Internal implementation for loading task attempt by shared_task_id.
+async fn load_task_attempt_by_task_id_impl(
+    deployment: DeploymentImpl,
+    shared_task_id: Uuid,
+    mut request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    // Validate proxy token if connection token validation is enabled
+    let validator = deployment.connection_token_validator();
+    if validator.is_enabled() {
+        let token = extract_bearer_token(request.headers()).ok_or_else(|| {
+            tracing::warn!(
+                shared_task_id = %shared_task_id,
+                "Missing Authorization header for by-task-id route"
+            );
+            StatusCode::UNAUTHORIZED
+        })?;
+
+        match validator.validate_proxy_token(token) {
+            Ok(proxy_token) => {
+                tracing::debug!(
+                    source_node_id = %proxy_token.source_node_id,
+                    target_node_id = %proxy_token.target_node_id,
+                    shared_task_id = %shared_task_id,
+                    "Validated proxy token for by-task-id route"
+                );
+                request.extensions_mut().insert(ProxyRequestContext {
+                    source_node_id: proxy_token.source_node_id,
+                });
+            }
+            Err(e) => {
+                tracing::warn!(
+                    shared_task_id = %shared_task_id,
+                    error = ?e,
+                    "Invalid proxy token for by-task-id route"
+                );
+                return Err(StatusCode::UNAUTHORIZED);
+            }
+        }
+    }
+
+    // Find the task by shared_task_id
+    let task = match Task::find_by_shared_task_id(&deployment.db().pool, shared_task_id).await {
+        Ok(Some(task)) => task,
+        Ok(None) => {
+            tracing::warn!(
+                shared_task_id = %shared_task_id,
+                "Task not found by shared_task_id"
+            );
+            return Err(StatusCode::NOT_FOUND);
+        }
+        Err(e) => {
+            tracing::error!(
+                shared_task_id = %shared_task_id,
+                error = %e,
+                "Failed to fetch task by shared_task_id"
+            );
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+
+    // Find the most recent attempt for this task
+    let attempts =
+        match TaskAttempt::fetch_all(&deployment.db().pool, Some(task.id)).await {
+            Ok(attempts) => attempts,
+            Err(e) => {
+                tracing::error!(
+                    task_id = %task.id,
+                    shared_task_id = %shared_task_id,
+                    error = %e,
+                    "Failed to fetch task attempts"
+                );
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        };
+
+    let attempt = match attempts.into_iter().next() {
+        Some(attempt) => attempt,
+        None => {
+            tracing::warn!(
+                task_id = %task.id,
+                shared_task_id = %shared_task_id,
+                "No task attempts found for task"
+            );
+            return Err(StatusCode::NOT_FOUND);
+        }
+    };
+
+    tracing::debug!(
+        attempt_id = %attempt.id,
+        task_id = %task.id,
+        shared_task_id = %shared_task_id,
+        "Loaded task attempt by shared_task_id"
+    );
+
+    // Insert the attempt into extensions
+    request.extensions_mut().insert(attempt);
+
+    // Continue to the next middleware/handler
+    Ok(next.run(request).await)
+}
+
 pub async fn load_execution_process_middleware(
     State(deployment): State<DeploymentImpl>,
     Path(process_id): Path<Uuid>,
