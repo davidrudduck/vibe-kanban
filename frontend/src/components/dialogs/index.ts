@@ -119,3 +119,7 @@ export {
   ImageLightboxDialog,
   type ImageLightboxDialogProps,
 } from './shared/ImageLightboxDialog';
+export {
+  FileViewDialog,
+  type FileViewDialogProps,
+} from './shared/FileViewDialog';
