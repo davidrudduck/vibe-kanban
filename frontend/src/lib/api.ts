@@ -817,6 +817,14 @@ export const fileBrowserApi = {
     );
     return handleApiResponse<FileContentResponse>(response);
   },
+
+  // Read file content from ~/.claude/ directory (security-restricted)
+  readClaudeFile: async (relativePath: string): Promise<FileContentResponse> => {
+    const response = await makeRequest(
+      `/api/filesystem/claude-file?path=${encodeURIComponent(relativePath)}`
+    );
+    return handleApiResponse<FileContentResponse>(response);
+  },
 };
 
 // Config APIs (backwards compatible)

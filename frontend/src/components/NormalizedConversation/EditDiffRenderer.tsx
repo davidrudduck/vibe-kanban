@@ -5,13 +5,20 @@ import {
   DiffLineType,
   parseInstance,
 } from '@git-diff-view/react';
-import { SquarePen } from 'lucide-react';
+import { SquarePen, ExternalLink } from 'lucide-react';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { getHighLightLanguageFromPath } from '@/utils/extToLanguage';
 import { getActualTheme } from '@/utils/theme';
 import '@/styles/diff-style-overrides.css';
 import '@/styles/edit-diff-overrides.css';
 import { cn } from '@/lib/utils';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { FileViewDialog } from '@/components/dialogs';
 
 type Props = {
   path: string;
@@ -61,6 +68,19 @@ function processUnifiedDiff(unifiedDiff: string, hasLineNumbers: boolean) {
 
 import { useExpandable } from '@/stores/useExpandableStore';
 
+/**
+ * Extract relative path within ~/.claude/ directory from a full path.
+ * Returns null if path is not within ~/.claude/.
+ *
+ * Examples:
+ * - "/home/user/.claude/plans/foo.md" -> "plans/foo.md"
+ * - "/home/user/project/file.ts" -> null
+ */
+function getClaudeRelativePath(path: string): string | null {
+  const match = path.match(/\.claude\/(.+)$/);
+  return match ? match[1] : null;
+}
+
 function EditDiffRenderer({
   path,
   unifiedDiff,
@@ -75,6 +95,13 @@ function EditDiffRenderer({
   const effectiveExpanded = forceExpanded || expanded;
 
   const theme = getActualTheme(config?.theme);
+  const claudeRelativePath = getClaudeRelativePath(path);
+
+  const handleViewFile = () => {
+    if (claudeRelativePath) {
+      void FileViewDialog.show({ filePath: path, relativePath: claudeRelativePath });
+    }
+  };
   const { hunks, hideLineNumbers, additions, deletions, isValidDiff } = useMemo(
     () => processUnifiedDiff(unifiedDiff, hasLineNumbers),
     [unifiedDiff, hasLineNumbers]
@@ -100,7 +127,7 @@ function EditDiffRenderer({
   return (
     <div>
       <div className={headerClass}>
-        <SquarePen className="h-3 w-3" />
+        <SquarePen className="h-3 w-3 flex-shrink-0" />
         <p
           onClick={() => setExpanded()}
           className="text-sm font-mono overflow-x-auto flex-1 cursor-pointer"
@@ -113,6 +140,27 @@ function EditDiffRenderer({
             -{deletions}
           </span>
         </p>
+        {/* View file link - on RIGHT, after filename (only for ~/.claude/ paths) */}
+        {claudeRelativePath && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleViewFile();
+                  }}
+                  className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors p-0.5"
+                  aria-label="View file"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>View file</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
       </div>
 
       {effectiveExpanded && (
