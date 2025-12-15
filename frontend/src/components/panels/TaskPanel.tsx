@@ -1,14 +1,13 @@
 import { useTranslation } from 'react-i18next';
 import { useProject } from '@/contexts/ProjectContext';
 import { useTaskAttempts } from '@/hooks/useTaskAttempts';
-import { useTaskAttempt } from '@/hooks/useTaskAttempt';
 import { useTaskImages } from '@/hooks/useTaskImages';
 import { useNavigateWithSearch } from '@/hooks';
 import { paths } from '@/lib/paths';
 import type { TaskWithAttemptStatus, TaskAttempt } from 'shared/types';
 import { NewCardContent } from '../ui/new-card';
 import { Button } from '../ui/button';
-import { PlusIcon } from 'lucide-react';
+import { Link, PlusIcon } from 'lucide-react';
 import { CreateAttemptDialog } from '@/components/dialogs/tasks/CreateAttemptDialog';
 import MarkdownRenderer from '@/components/ui/markdown-renderer';
 import { ImageUploadSection } from '@/components/ui/image-upload-section';
@@ -28,10 +27,6 @@ const TaskPanel = ({ task }: TaskPanelProps) => {
     isLoading: isAttemptsLoading,
     isError: isAttemptsError,
   } = useTaskAttempts(task?.id);
-
-  const { data: parentAttempt, isLoading: isParentLoading } = useTaskAttempt(
-    task?.parent_task_attempt || undefined
-  );
 
   const { data: taskImages = [] } = useTaskImages(task?.id);
 
@@ -133,21 +128,18 @@ const TaskPanel = ({ task }: TaskPanelProps) => {
           </div>
 
           <div className="mt-6 flex-shrink-0 space-y-4">
-            {task.parent_task_attempt && (
-              <DataTable
-                data={parentAttempt ? [parentAttempt] : []}
-                columns={attemptColumns}
-                keyExtractor={(attempt) => attempt.id}
-                onRowClick={(attempt) => {
-                  if (projectId) {
-                    navigate(
-                      paths.attempt(projectId, attempt.task_id, attempt.id)
-                    );
-                  }
-                }}
-                isLoading={isParentLoading}
-                headerContent="Parent Attempt"
-              />
+            {task.parent_task_id && projectId && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Link className="h-4 w-4" />
+                <span>{t('taskPanel.parentTask')}:</span>
+                <Button
+                  variant="link"
+                  className="h-auto p-0"
+                  onClick={() => navigate(paths.task(projectId, task.parent_task_id!))}
+                >
+                  {t('taskPanel.viewParent')}
+                </Button>
+              </div>
             )}
 
             {isAttemptsLoading ? (

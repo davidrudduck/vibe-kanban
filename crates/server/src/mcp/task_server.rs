@@ -30,13 +30,13 @@ pub struct CreateTaskRequest {
     #[serde(default)]
     pub description: Option<String>,
     #[schemars(
-        description = "Link as subtask of a parent task attempt. If true and in context of an attempt, auto-links to current attempt."
+        description = "Link as subtask of a parent task. If true and in context of an attempt, auto-links to current task."
     )]
     #[serde(default)]
     pub link_to_parent: Option<bool>,
-    #[schemars(description = "Explicit parent task attempt ID. Overrides link_to_parent.")]
+    #[schemars(description = "Explicit parent task ID. Overrides link_to_parent.")]
     #[serde(default)]
-    pub parent_task_attempt: Option<Uuid>,
+    pub parent_task_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -417,16 +417,16 @@ impl TaskServer {
             title,
             description,
             link_to_parent,
-            parent_task_attempt,
+            parent_task_id,
         }): Parameters<CreateTaskRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        // Determine parent_task_attempt: explicit value takes precedence,
-        // otherwise use context if link_to_parent is true
-        let resolved_parent_attempt = if let Some(explicit) = parent_task_attempt {
+        // Determine parent_task_id: explicit value takes precedence,
+        // otherwise use context if link_to_parent is true (resolves attempt -> task)
+        let resolved_parent_task_id = if let Some(explicit) = parent_task_id {
             Some(explicit)
         } else if link_to_parent.unwrap_or(false) {
-            // Get from cached context
-            self.context.as_ref().map(|ctx| ctx.attempt_id)
+            // Get task_id from cached context (task that owns the current attempt)
+            self.context.as_ref().map(|ctx| ctx.task_id)
         } else {
             None
         };
@@ -437,7 +437,7 @@ impl TaskServer {
             title,
             description,
             status: Some(TaskStatus::Todo),
-            parent_task_attempt: resolved_parent_attempt,
+            parent_task_id: resolved_parent_task_id,
             image_ids: None,
             shared_task_id: None,
             validation_steps: None,
@@ -630,7 +630,7 @@ impl TaskServer {
             title,
             description,
             status,
-            parent_task_attempt: None,
+            parent_task_id: None,
             image_ids: None,
             validation_steps: None,
         };
