@@ -81,6 +81,7 @@ import {
   ScanConfigRequest,
   ScanConfigResponse,
   UnifiedProjectsResponse,
+  CachedNodeStatus,
 } from 'shared/types';
 
 // Re-export types for convenience
@@ -88,6 +89,20 @@ export type {
   UpdateFollowUpDraftRequest,
   UpdateRetryFollowUpDraftRequest,
 } from 'shared/types';
+
+// Types for available nodes (for remote task attempt start)
+export interface ProjectNodeInfo {
+  node_id: string;
+  node_name: string;
+  node_status: CachedNodeStatus;
+  node_public_url: string | null;
+  node_project_id: string;
+  local_project_id: string;
+}
+
+export interface ListProjectNodesResponse {
+  nodes: ProjectNodeInfo[];
+}
 
 class ApiError<E = unknown> extends Error {
   public status?: number;
@@ -453,6 +468,12 @@ export const tasksApi = {
       method: 'DELETE',
     });
     return handleApiResponse<void>(response);
+  },
+
+  /** Get list of nodes where this task's project exists (for remote attempt start). */
+  availableNodes: async (taskId: string): Promise<ListProjectNodesResponse> => {
+    const response = await makeRequest(`/api/tasks/${taskId}/available-nodes`);
+    return handleApiResponse<ListProjectNodesResponse>(response);
   },
 };
 

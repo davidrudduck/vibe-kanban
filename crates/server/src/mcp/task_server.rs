@@ -583,6 +583,7 @@ impl TaskServer {
             task_id,
             executor_profile_id,
             base_branch,
+            target_node_id: None,
         };
 
         let url = self.url("/api/task-attempts");
