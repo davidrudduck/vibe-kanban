@@ -7,9 +7,12 @@ use chrono::Duration as ChronoDuration;
 use remote::{
     activity::ActivityResponse,
     nodes::{Node, NodeApiKey, NodeProject},
-    routes::tasks::{
-        AssignSharedTaskRequest, BulkSharedTasksResponse, CreateSharedTaskRequest,
-        DeleteSharedTaskRequest, SharedTaskResponse, UpdateSharedTaskRequest,
+    routes::{
+        projects::ListProjectNodesResponse,
+        tasks::{
+            AssignSharedTaskRequest, BulkSharedTasksResponse, CreateSharedTaskRequest,
+            DeleteSharedTaskRequest, SharedTaskResponse, UpdateSharedTaskRequest,
+        },
     },
 };
 use reqwest::{Client, StatusCode};
@@ -427,6 +430,15 @@ impl RemoteClient {
 
     pub async fn get_project(&self, project_id: Uuid) -> Result<RemoteProject, RemoteClientError> {
         self.get_authed(&format!("/v1/projects/{project_id}")).await
+    }
+
+    /// Lists nodes that have this project linked.
+    pub async fn list_project_nodes(
+        &self,
+        project_id: Uuid,
+    ) -> Result<ListProjectNodesResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/projects/{project_id}/nodes"))
+            .await
     }
 
     pub async fn create_project(

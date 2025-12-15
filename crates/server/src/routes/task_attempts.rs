@@ -52,7 +52,7 @@ use crate::{
     middleware::{
         RemoteTaskAttemptContext, load_task_attempt_by_task_id_middleware,
         load_task_attempt_by_task_id_middleware_with_wildcard, load_task_attempt_middleware,
-        load_task_attempt_middleware_with_wildcard,
+        load_task_attempt_middleware_with_wildcard, load_task_by_task_id_middleware,
     },
     routes::task_attempts::{
         gh_cli_setup::GhCliSetupError,
@@ -144,6 +144,10 @@ pub struct CreateTaskAttemptBody {
     /// Executor profile specification
     pub executor_profile_id: ExecutorProfileId,
     pub base_branch: String,
+    /// Target node ID for remote execution (if project exists on multiple nodes).
+    /// When set, the request will be proxied to the specified node.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_node_id: Option<Uuid>,
 }
 
 impl CreateTaskAttemptBody {
@@ -151,6 +155,15 @@ impl CreateTaskAttemptBody {
     pub fn get_executor_profile_id(&self) -> ExecutorProfileId {
         self.executor_profile_id.clone()
     }
+}
+
+/// Request body for creating a task attempt via by-task-id route (cross-node proxying).
+/// Unlike CreateTaskAttemptBody, this doesn't need task_id since it's in the URL path.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateTaskAttemptByTaskIdBody {
+    /// Executor profile specification
+    pub executor_profile_id: ExecutorProfileId,
+    pub base_branch: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, TS)]
@@ -166,6 +179,80 @@ pub async fn create_task_attempt(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<CreateTaskAttemptBody>,
 ) -> Result<ResponseJson<ApiResponse<TaskAttempt>>, ApiError> {
+    // If target_node_id is specified, proxy to the target node
+    if let Some(target_node_id) = payload.target_node_id {
+        let task = Task::find_by_id(&deployment.db().pool, payload.task_id)
+            .await?
+            .ok_or(SqlxError::RowNotFound)?;
+
+        // Need shared_task_id to route to remote node
+        let shared_task_id = task.shared_task_id.ok_or_else(|| {
+            ApiError::BadRequest("Task is not shared (no shared_task_id)".to_string())
+        })?;
+
+        // Query the hive to get node info (URL and status)
+        let client = deployment.remote_client()?;
+        let project = Project::find_by_id(&deployment.db().pool, task.project_id)
+            .await?
+            .ok_or(SqlxError::RowNotFound)?;
+
+        let remote_project_id = project.remote_project_id.ok_or_else(|| {
+            ApiError::BadRequest("Project is not linked to hive".to_string())
+        })?;
+
+        let nodes_response = client.list_project_nodes(remote_project_id).await?;
+
+        // Find the target node in the response
+        let target_node = nodes_response
+            .nodes
+            .iter()
+            .find(|n| n.node_id == target_node_id)
+            .ok_or_else(|| {
+                ApiError::BadRequest(format!(
+                    "Target node {} does not have this project linked",
+                    target_node_id
+                ))
+            })?;
+
+        // Check if node is online
+        if target_node.node_status != remote::nodes::NodeStatus::Online {
+            return Err(ApiError::BadGateway(format!(
+                "Target node '{}' is not online (status: {:?})",
+                target_node.node_name,
+                target_node.node_status
+            )));
+        }
+
+        let node_url = target_node.node_public_url.clone().ok_or_else(|| {
+            ApiError::BadGateway(format!(
+                "Target node '{}' does not have a public URL configured",
+                target_node.node_name
+            ))
+        })?;
+
+        // Build the proxy request
+        let proxy_body = CreateTaskAttemptByTaskIdBody {
+            executor_profile_id: payload.executor_profile_id,
+            base_branch: payload.base_branch,
+        };
+
+        let path = format!("/task-attempts/by-task-id/{}/create", shared_task_id);
+        tracing::info!(
+            target_node_id = %target_node_id,
+            target_node_name = %target_node.node_name,
+            shared_task_id = %shared_task_id,
+            "Proxying create_task_attempt to remote node"
+        );
+
+        let response: ApiResponse<TaskAttempt> = deployment
+            .node_proxy_client()
+            .proxy_post(&node_url, &path, &proxy_body, target_node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
+    // Local execution path
     let executor_profile_id = payload.get_executor_profile_id();
     let task = Task::find_by_id(&deployment.db().pool, payload.task_id)
         .await?
@@ -210,6 +297,65 @@ pub async fn create_task_attempt(
         .await;
 
     tracing::info!("Created attempt for task {}", task.id);
+
+    Ok(ResponseJson(ApiResponse::success(task_attempt)))
+}
+
+/// Create a task attempt via by-task-id route (used for cross-node proxying).
+/// The task is loaded by shared_task_id from the URL path parameter.
+#[axum::debug_handler]
+pub async fn create_task_attempt_by_task_id(
+    Extension(task): Extension<Task>,
+    State(deployment): State<DeploymentImpl>,
+    Json(payload): Json<CreateTaskAttemptByTaskIdBody>,
+) -> Result<ResponseJson<ApiResponse<TaskAttempt>>, ApiError> {
+    let executor_profile_id = payload.executor_profile_id.clone();
+
+    let attempt_id = Uuid::new_v4();
+    let git_branch_name = deployment
+        .container()
+        .git_branch_from_task_attempt(&attempt_id, &task.title)
+        .await;
+
+    let task_attempt = TaskAttempt::create(
+        &deployment.db().pool,
+        &CreateTaskAttempt {
+            executor: executor_profile_id.executor,
+            base_branch: payload.base_branch.clone(),
+            branch: git_branch_name.clone(),
+        },
+        attempt_id,
+        task.id,
+    )
+    .await?;
+
+    if let Err(err) = deployment
+        .container()
+        .start_attempt(&task_attempt, executor_profile_id.clone())
+        .await
+    {
+        tracing::error!("Failed to start task attempt: {}", err);
+    }
+
+    deployment
+        .track_if_analytics_allowed(
+            "task_attempt_started",
+            serde_json::json!({
+                "task_id": task_attempt.task_id.to_string(),
+                "variant": &executor_profile_id.variant,
+                "executor": &executor_profile_id.executor,
+                "attempt_id": task_attempt.id.to_string(),
+                "via": "by_task_id",
+            }),
+        )
+        .await;
+
+    tracing::info!(
+        task_id = %task.id,
+        shared_task_id = ?task.shared_task_id,
+        attempt_id = %task_attempt.id,
+        "Created attempt via by-task-id route"
+    );
 
     Ok(ResponseJson(ApiResponse::success(task_attempt)))
 }
@@ -2057,12 +2203,25 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             load_task_attempt_by_task_id_middleware_with_wildcard,
         ));
 
+    // Route for creating task attempts via shared_task_id (cross-node proxying).
+    // Uses different middleware that only loads Task (not TaskAttempt).
+    let by_task_id_create_router = Router::new()
+        .route(
+            "/by-task-id/{task_id}/create",
+            post(create_task_attempt_by_task_id),
+        )
+        .layer(from_fn_with_state(
+            deployment.clone(),
+            load_task_by_task_id_middleware,
+        ));
+
     let task_attempts_router = Router::new()
         .route("/", get(get_task_attempts).post(create_task_attempt))
         .nest("/{id}", task_attempt_id_router)
         .merge(task_attempt_files_router)
         .nest("/by-task-id/{task_id}", by_task_id_router)
-        .merge(by_task_id_files_router);
+        .merge(by_task_id_files_router)
+        .merge(by_task_id_create_router);
 
     Router::new().nest("/task-attempts", task_attempts_router)
 }
