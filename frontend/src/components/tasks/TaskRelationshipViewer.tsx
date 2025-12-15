@@ -59,7 +59,7 @@ export function TaskRelationshipViewer({
     fetchRelationships();
   }, [selectedAttempt?.id]);
 
-  // Effect for parent task when child has no attempts (one request + tasksById lookup)
+  // Effect for parent task when child has no attempts (direct lookup via parent_task_id)
   useEffect(() => {
     if (selectedAttempt?.id) {
       // If we have an attempt, clear parent task since relationships will handle it
@@ -67,19 +67,14 @@ export function TaskRelationshipViewer({
       return;
     }
 
-    if (task?.parent_task_attempt && tasksById) {
-      attemptsApi
-        .get(task.parent_task_attempt)
-        .then((parentAttempt) => {
-          // Use existing tasksById instead of second API call
-          const parentTaskData = tasksById[parentAttempt.task_id];
-          setParentTask(parentTaskData || null);
-        })
-        .catch(() => setParentTask(null));
+    if (task?.parent_task_id && tasksById) {
+      // Direct lookup - parent_task_id points directly to the parent task
+      const parentTaskData = tasksById[task.parent_task_id];
+      setParentTask(parentTaskData || null);
     } else {
       setParentTask(null);
     }
-  }, [selectedAttempt?.id, task?.parent_task_attempt, tasksById]);
+  }, [selectedAttempt?.id, task?.parent_task_id, tasksById]);
 
   const displayParentTask = relationships?.parent_task || parentTask;
   const childTasks = relationships?.children || [];
