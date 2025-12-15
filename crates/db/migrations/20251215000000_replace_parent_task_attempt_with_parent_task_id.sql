@@ -1,8 +1,17 @@
 -- Migration: Replace parent_task_attempt with parent_task_id
 -- This changes the subtask relationship from task->attempt->task to task->task directly
 -- for simpler navigation and cleaner data model
+--
+-- Following the official SQLite "12-step generalized ALTER TABLE" procedure:
+-- https://www.sqlite.org/lang_altertable.html#otheralter
 
 PRAGMA foreign_keys = OFF;
+
+-- SQLx workaround: explicit transaction control to ensure PRAGMA persists
+-- https://github.com/launchbadge/sqlx/issues/2085#issuecomment-1499859906
+COMMIT TRANSACTION;
+
+BEGIN TRANSACTION;
 
 -- Step 1: Create new tasks table with parent_task_id instead of parent_task_attempt
 CREATE TABLE tasks_new (
@@ -57,4 +66,12 @@ CREATE INDEX idx_tasks_parent_task_id ON tasks(parent_task_id);
 CREATE INDEX idx_tasks_is_remote ON tasks(is_remote);
 CREATE UNIQUE INDEX idx_tasks_shared_task_unique ON tasks(shared_task_id) WHERE shared_task_id IS NOT NULL;
 
+-- Verify foreign key constraints before committing
+PRAGMA foreign_key_check;
+
+COMMIT;
+
 PRAGMA foreign_keys = ON;
+
+-- SQLx workaround: restore implicit transaction state
+BEGIN TRANSACTION;
