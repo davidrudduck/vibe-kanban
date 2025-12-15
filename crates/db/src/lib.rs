@@ -4,9 +4,13 @@ use sqlx::{
     Error, Pool, Sqlite, SqlitePool,
     sqlite::{SqliteConnectOptions, SqliteConnection, SqliteJournalMode, SqlitePoolOptions},
 };
+use tracing::warn;
 use utils::assets::asset_dir;
 
+mod backup;
 pub mod models;
+
+use backup::BackupService;
 
 #[derive(Clone)]
 pub struct DBService {
@@ -15,15 +19,24 @@ pub struct DBService {
 
 impl DBService {
     pub async fn new() -> Result<DBService, Error> {
-        let database_url = format!(
-            "sqlite://{}",
-            asset_dir().join("db.sqlite").to_string_lossy()
-        );
+        let db_path = asset_dir().join("db.sqlite");
+        let database_url = format!("sqlite://{}", db_path.to_string_lossy());
         let options = SqliteConnectOptions::from_str(&database_url)?
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
             .busy_timeout(std::time::Duration::from_secs(30));
         let pool = SqlitePool::connect_with(options).await?;
+
+        // Create pre-migration backup for safety
+        if let Err(e) = BackupService::backup_before_migration(&db_path) {
+            warn!(error = ?e, "Failed to create pre-migration backup");
+        }
+
+        // Clean up old backups (keep last 5)
+        if let Err(e) = BackupService::cleanup_old_backups(&db_path) {
+            warn!(error = ?e, "Failed to cleanup old backups");
+        }
+
         sqlx::migrate!("./migrations").run(&pool).await?;
         Ok(DBService { pool })
     }
@@ -52,10 +65,8 @@ impl DBService {
             + Sync
             + 'static,
     {
-        let database_url = format!(
-            "sqlite://{}",
-            asset_dir().join("db.sqlite").to_string_lossy()
-        );
+        let db_path = asset_dir().join("db.sqlite");
+        let database_url = format!("sqlite://{}", db_path.to_string_lossy());
         let options = SqliteConnectOptions::from_str(&database_url)?
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
@@ -75,6 +86,16 @@ impl DBService {
         } else {
             SqlitePool::connect_with(options).await?
         };
+
+        // Create pre-migration backup for safety
+        if let Err(e) = BackupService::backup_before_migration(&db_path) {
+            warn!(error = ?e, "Failed to create pre-migration backup");
+        }
+
+        // Clean up old backups (keep last 5)
+        if let Err(e) = BackupService::cleanup_old_backups(&db_path) {
+            warn!(error = ?e, "Failed to cleanup old backups");
+        }
 
         sqlx::migrate!("./migrations").run(&pool).await?;
         Ok(pool)

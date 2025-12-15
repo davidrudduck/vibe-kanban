@@ -80,6 +80,7 @@ vibe-kanban-*.tgz
 .dev-ports.json
 
 dev_assets
+dev_assets/backups
 /frontend/.env.sentry-build-plugin
 .ssh
 

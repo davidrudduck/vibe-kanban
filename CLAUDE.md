@@ -418,10 +418,28 @@ npm run generate-types:check        # Verify types are current
 ```
 
 ### Database
+
+**Location:**
+- **Development**: `<project_root>/dev_assets/db.sqlite`
+- **Production**: Platform-specific data directory (e.g., `~/.local/share/vibe-kanban/db.sqlite`)
+
+**Automatic Backups:**
+- Pre-migration backups are created automatically on server startup
+- Backups stored in `dev_assets/backups/` (dev) or alongside the database (prod)
+- Last 5 backups retained; older ones are automatically deleted
+- Backup format: `db_backup_YYYYMMDD_HHMMSS.sqlite`
+
+**Commands:**
 ```bash
 sqlx migrate run                     # Apply migrations
 sqlx database create                 # Create database
 # Note: Dev database auto-copied from dev_assets_seed/ on startup
+```
+
+**Recovery from Backup:**
+```bash
+# Stop the server first, then restore
+cp dev_assets/backups/db_backup_YYYYMMDD_HHMMSS.sqlite dev_assets/db.sqlite
 ```
 
 ### Build
