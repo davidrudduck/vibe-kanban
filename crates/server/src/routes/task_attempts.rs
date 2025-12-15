@@ -50,7 +50,8 @@ use crate::{
     DeploymentImpl,
     error::ApiError,
     middleware::{
-        RemoteTaskAttemptContext, load_task_attempt_middleware,
+        RemoteTaskAttemptContext, load_task_attempt_by_task_id_middleware,
+        load_task_attempt_by_task_id_middleware_with_wildcard, load_task_attempt_middleware,
         load_task_attempt_middleware_with_wildcard,
     },
     routes::task_attempts::{
@@ -1718,10 +1719,53 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             load_task_attempt_middleware_with_wildcard,
         ));
 
+    // Routes for accessing task attempts by shared_task_id (used for node-to-node proxying).
+    // These routes allow a proxying node to request data using the Hive shared task ID.
+    // The middleware finds the task by shared_task_id and loads its most recent attempt.
+    let by_task_id_router = Router::new()
+        .route("/follow-up", post(follow_up))
+        .route("/stop", post(stop_task_attempt_execution))
+        .route("/branch-status", get(get_task_attempt_branch_status))
+        .route("/push", post(push_task_attempt_branch))
+        .route("/push/force", post(force_push_task_attempt_branch))
+        .route("/merge", post(merge_task_attempt))
+        .route("/rebase", post(rebase_task_attempt))
+        .route("/conflicts/abort", post(abort_conflicts_task_attempt))
+        .route("/change-target-branch", post(change_target_branch))
+        .route("/rename-branch", post(rename_branch))
+        .route("/pr", post(create_github_pr))
+        .route("/pr/attach", post(attach_existing_pr))
+        .route(
+            "/draft",
+            get(drafts::get_draft)
+                .put(drafts::save_draft)
+                .delete(drafts::delete_draft),
+        )
+        .route("/draft/queue", post(drafts::set_draft_queue))
+        .route("/files", get(list_worktree_files))
+        .route("/diff/ws", get(stream_task_attempt_diff_ws))
+        .layer(from_fn_with_state(
+            deployment.clone(),
+            load_task_attempt_by_task_id_middleware,
+        ));
+
+    // Wildcard file path route for by-task-id (file content browsing)
+    let by_task_id_files_router = Router::new()
+        .route(
+            "/by-task-id/{task_id}/files/{*file_path}",
+            get(read_worktree_file),
+        )
+        .layer(from_fn_with_state(
+            deployment.clone(),
+            load_task_attempt_by_task_id_middleware_with_wildcard,
+        ));
+
     let task_attempts_router = Router::new()
         .route("/", get(get_task_attempts).post(create_task_attempt))
         .nest("/{id}", task_attempt_id_router)
-        .merge(task_attempt_files_router);
+        .merge(task_attempt_files_router)
+        .nest("/by-task-id/{task_id}", by_task_id_router)
+        .merge(by_task_id_files_router);
 
     Router::new().nest("/task-attempts", task_attempts_router)
 }
