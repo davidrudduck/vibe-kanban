@@ -11,6 +11,12 @@
       "format": "textarea",
       "default": null
     },
+    "no_context": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
     "claude_code_router": {
       "type": [
         "boolean",
@@ -49,7 +55,8 @@
     },
     "interactive_questions": {
       "description": "Enable interactive question UI for AskUserQuestion control requests.\nWhen enabled, questions are displayed as clickable options in the UI.\nWhen disabled, questions fall back to text-based prompts.\nDefaults to true.",
-      "type": "boolean"
+      "type": "boolean",
+      "default": true
     },
     "base_command_override": {
       "title": "Base Command Override",

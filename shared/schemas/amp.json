@@ -11,6 +11,12 @@
       "format": "textarea",
       "default": null
     },
+    "no_context": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
     "dangerously_allow_all": {
       "title": "Dangerously Allow All",
       "description": "Allow all commands to be executed, even if they are not safe.",

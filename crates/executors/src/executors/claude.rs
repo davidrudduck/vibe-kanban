@@ -50,6 +50,8 @@ pub struct ClaudeCode {
     #[serde(default)]
     pub append_prompt: AppendPrompt,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub no_context: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claude_code_router: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan: Option<bool>,
@@ -2060,6 +2062,7 @@ mod tests {
             append_prompt: AppendPrompt::default(),
             dangerously_skip_permissions: None,
             interactive_questions: true,
+            no_context: None,
             cmd: crate::command::CmdOverrides {
                 base_command_override: None,
                 additional_params: None,
@@ -2388,5 +2391,57 @@ mod tests {
         assert_eq!(entries[1].content, "I'll help you with that");
 
         // ToolResult entry is ignored - no third entry
+    }
+
+    #[test]
+    fn test_interactive_questions_serialization() {
+        // Test using JSON deserialization to create a valid ClaudeCode
+        // Default (true) should be skipped during serialization
+        let json = r#"{}"#;
+        let config: ClaudeCode = serde_json::from_str(json).unwrap();
+        assert!(config.interactive_questions, "Default should be true");
+
+        let serialized = serde_json::to_value(&config).unwrap();
+        assert!(
+            serialized.get("interactive_questions").is_none(),
+            "interactive_questions=true should be skipped during serialization"
+        );
+
+        // False should be serialized
+        let json_false = r#"{"interactive_questions": false}"#;
+        let config_false: ClaudeCode = serde_json::from_str(json_false).unwrap();
+        let serialized_false = serde_json::to_value(&config_false).unwrap();
+        assert_eq!(
+            serialized_false.get("interactive_questions"),
+            Some(&serde_json::json!(false)),
+            "interactive_questions=false should be serialized"
+        );
+    }
+
+    #[test]
+    fn test_interactive_questions_deserialization() {
+        // Missing field should default to true
+        let json = r#"{}"#;
+        let config: ClaudeCode = serde_json::from_str(json).unwrap();
+        assert!(
+            config.interactive_questions,
+            "Missing interactive_questions should default to true"
+        );
+
+        // Explicit false should deserialize correctly
+        let json_false = r#"{"interactive_questions": false}"#;
+        let config_false: ClaudeCode = serde_json::from_str(json_false).unwrap();
+        assert!(
+            !config_false.interactive_questions,
+            "interactive_questions: false should deserialize to false"
+        );
+
+        // Explicit true should deserialize correctly
+        let json_true = r#"{"interactive_questions": true}"#;
+        let config_true: ClaudeCode = serde_json::from_str(json_true).unwrap();
+        assert!(
+            config_true.interactive_questions,
+            "interactive_questions: true should deserialize to true"
+        );
     }
 }
