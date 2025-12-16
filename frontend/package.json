@@ -45,7 +45,6 @@
     "@rjsf/shadcn": "6.1.1",
     "@sentry/react": "^9.34.0",
     "@sentry/vite-plugin": "^3.5.0",
-    "@tailwindcss/typography": "^0.5.16",
     "@tanstack/react-devtools": "^0.8.0",
     "@tanstack/react-form": "^1.23.8",
     "@tanstack/react-form-devtools": "^0.1.8",
