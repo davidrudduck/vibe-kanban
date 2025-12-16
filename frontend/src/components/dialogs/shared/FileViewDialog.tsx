@@ -188,7 +188,7 @@ const FileViewDialogImpl = NiceModal.create<FileViewDialogProps>(
                 {viewMode === 'preview' && isMarkdown ? (
                   <MarkdownRenderer
                     content={data.content}
-                    className="prose prose-sm dark:prose-invert max-w-none"
+                    className="max-w-none"
                     enableCopyButton
                   />
                 ) : (
