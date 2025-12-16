@@ -1,5 +1,6 @@
 import Markdown from 'markdown-to-jsx';
 import { memo, useMemo, useState, useCallback } from 'react';
+import { preprocessMarkdown } from './markdown-preprocessor';
 import {
   Tooltip,
   TooltipContent,
@@ -201,6 +202,12 @@ function MarkdownRenderer({
   enableCopyButton = false,
   taskImages,
 }: MarkdownRendererProps) {
+  // Preprocess content to escape mid-word underscores (snake_case)
+  const processedContent = useMemo(
+    () => preprocessMarkdown(content),
+    [content]
+  );
+
   // Create image override dynamically to capture taskImages for lightbox
   const imageOverride = useMemo(
     () => createImageOverride(taskImages),
@@ -237,7 +244,7 @@ function MarkdownRenderer({
         component: ({ children, ...props }: React.ComponentProps<'h1'>) => (
           <h1
             {...props}
-            className="text-lg font-medium leading-tight mt-4 mb-2"
+            className="text-xl font-semibold leading-tight mt-4 mb-2"
           >
             {children}
           </h1>
@@ -247,7 +254,7 @@ function MarkdownRenderer({
         component: ({ children, ...props }: React.ComponentProps<'h2'>) => (
           <h2
             {...props}
-            className="text-base font-medium leading-tight mt-4 mb-2"
+            className="text-lg font-semibold leading-tight mt-4 mb-2"
           >
             {children}
           </h2>
@@ -255,9 +262,42 @@ function MarkdownRenderer({
       },
       h3: {
         component: ({ children, ...props }: React.ComponentProps<'h3'>) => (
-          <h3 {...props} className="text-sm leading-tight mt-3 mb-2">
+          <h3
+            {...props}
+            className="text-base font-semibold leading-tight mt-3 mb-2"
+          >
             {children}
           </h3>
+        ),
+      },
+      h4: {
+        component: ({ children, ...props }: React.ComponentProps<'h4'>) => (
+          <h4
+            {...props}
+            className="text-base font-medium leading-tight mt-3 mb-2"
+          >
+            {children}
+          </h4>
+        ),
+      },
+      h5: {
+        component: ({ children, ...props }: React.ComponentProps<'h5'>) => (
+          <h5
+            {...props}
+            className="text-sm font-semibold leading-tight mt-3 mb-2"
+          >
+            {children}
+          </h5>
+        ),
+      },
+      h6: {
+        component: ({ children, ...props }: React.ComponentProps<'h6'>) => (
+          <h6
+            {...props}
+            className="text-sm font-medium leading-tight mt-3 mb-2"
+          >
+            {children}
+          </h6>
         ),
       },
       ul: {
@@ -357,7 +397,7 @@ function MarkdownRenderer({
       )}
       <div className={className}>
         <Markdown options={{ overrides, disableParsingRawHTML: true }}>
-          {content}
+          {processedContent}
         </Markdown>
       </div>
     </div>
