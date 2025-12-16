@@ -49,12 +49,46 @@ use uuid::Uuid;
 use crate::{
     DeploymentImpl,
     error::ApiError,
-    middleware::{load_task_attempt_middleware, load_task_attempt_middleware_with_wildcard},
+    middleware::{
+        RemoteTaskAttemptContext, load_task_attempt_by_task_id_middleware,
+        load_task_attempt_by_task_id_middleware_with_wildcard, load_task_attempt_middleware,
+        load_task_attempt_middleware_with_wildcard, load_task_by_task_id_middleware,
+    },
     routes::task_attempts::{
         gh_cli_setup::GhCliSetupError,
         util::{ensure_worktree_path, handle_images_for_prompt},
     },
 };
+
+/// Helper to check if a remote task attempt context is available and online.
+/// Returns Some((node_url, node_id, shared_task_id)) if we should proxy,
+/// or an Err if the remote node is offline.
+fn check_remote_task_attempt_proxy(
+    remote_ctx: Option<&RemoteTaskAttemptContext>,
+) -> Result<Option<(String, Uuid, Uuid)>, ApiError> {
+    match remote_ctx {
+        Some(ctx) => {
+            // Check if the node is online
+            if ctx.node_status.as_deref() != Some("online") {
+                return Err(ApiError::BadGateway(format!(
+                    "Remote node '{}' is offline",
+                    ctx.node_id
+                )));
+            }
+
+            // Check if we have a URL to proxy to
+            let node_url = ctx.node_url.as_ref().ok_or_else(|| {
+                ApiError::BadGateway(format!(
+                    "Remote node '{}' has no public URL configured",
+                    ctx.node_id
+                ))
+            })?;
+
+            Ok(Some((node_url.clone(), ctx.node_id, ctx.task_id)))
+        }
+        None => Ok(None),
+    }
+}
 
 #[derive(Debug, Deserialize, Serialize, TS)]
 pub struct RebaseTaskAttemptRequest {
@@ -110,6 +144,10 @@ pub struct CreateTaskAttemptBody {
     /// Executor profile specification
     pub executor_profile_id: ExecutorProfileId,
     pub base_branch: String,
+    /// Target node ID for remote execution (if project exists on multiple nodes).
+    /// When set, the request will be proxied to the specified node.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_node_id: Option<Uuid>,
 }
 
 impl CreateTaskAttemptBody {
@@ -117,6 +155,15 @@ impl CreateTaskAttemptBody {
     pub fn get_executor_profile_id(&self) -> ExecutorProfileId {
         self.executor_profile_id.clone()
     }
+}
+
+/// Request body for creating a task attempt via by-task-id route (cross-node proxying).
+/// Unlike CreateTaskAttemptBody, this doesn't need task_id since it's in the URL path.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateTaskAttemptByTaskIdBody {
+    /// Executor profile specification
+    pub executor_profile_id: ExecutorProfileId,
+    pub base_branch: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, TS)]
@@ -132,6 +179,80 @@ pub async fn create_task_attempt(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<CreateTaskAttemptBody>,
 ) -> Result<ResponseJson<ApiResponse<TaskAttempt>>, ApiError> {
+    // If target_node_id is specified, proxy to the target node
+    if let Some(target_node_id) = payload.target_node_id {
+        let task = Task::find_by_id(&deployment.db().pool, payload.task_id)
+            .await?
+            .ok_or(SqlxError::RowNotFound)?;
+
+        // Need shared_task_id to route to remote node
+        let shared_task_id = task.shared_task_id.ok_or_else(|| {
+            ApiError::BadRequest("Task is not shared (no shared_task_id)".to_string())
+        })?;
+
+        // Query the hive to get node info (URL and status)
+        let client = deployment.remote_client()?;
+        let project = Project::find_by_id(&deployment.db().pool, task.project_id)
+            .await?
+            .ok_or(SqlxError::RowNotFound)?;
+
+        let remote_project_id = project.remote_project_id.ok_or_else(|| {
+            ApiError::BadRequest("Project is not linked to hive".to_string())
+        })?;
+
+        let nodes_response = client.list_project_nodes(remote_project_id).await?;
+
+        // Find the target node in the response
+        let target_node = nodes_response
+            .nodes
+            .iter()
+            .find(|n| n.node_id == target_node_id)
+            .ok_or_else(|| {
+                ApiError::BadRequest(format!(
+                    "Target node {} does not have this project linked",
+                    target_node_id
+                ))
+            })?;
+
+        // Check if node is online
+        if target_node.node_status != remote::nodes::NodeStatus::Online {
+            return Err(ApiError::BadGateway(format!(
+                "Target node '{}' is not online (status: {:?})",
+                target_node.node_name,
+                target_node.node_status
+            )));
+        }
+
+        let node_url = target_node.node_public_url.clone().ok_or_else(|| {
+            ApiError::BadGateway(format!(
+                "Target node '{}' does not have a public URL configured",
+                target_node.node_name
+            ))
+        })?;
+
+        // Build the proxy request
+        let proxy_body = CreateTaskAttemptByTaskIdBody {
+            executor_profile_id: payload.executor_profile_id,
+            base_branch: payload.base_branch,
+        };
+
+        let path = format!("/task-attempts/by-task-id/{}/create", shared_task_id);
+        tracing::info!(
+            target_node_id = %target_node_id,
+            target_node_name = %target_node.node_name,
+            shared_task_id = %shared_task_id,
+            "Proxying create_task_attempt to remote node"
+        );
+
+        let response: ApiResponse<TaskAttempt> = deployment
+            .node_proxy_client()
+            .proxy_post(&node_url, &path, &proxy_body, target_node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
+    // Local execution path
     let executor_profile_id = payload.get_executor_profile_id();
     let task = Task::find_by_id(&deployment.db().pool, payload.task_id)
         .await?
@@ -180,6 +301,65 @@ pub async fn create_task_attempt(
     Ok(ResponseJson(ApiResponse::success(task_attempt)))
 }
 
+/// Create a task attempt via by-task-id route (used for cross-node proxying).
+/// The task is loaded by shared_task_id from the URL path parameter.
+#[axum::debug_handler]
+pub async fn create_task_attempt_by_task_id(
+    Extension(task): Extension<Task>,
+    State(deployment): State<DeploymentImpl>,
+    Json(payload): Json<CreateTaskAttemptByTaskIdBody>,
+) -> Result<ResponseJson<ApiResponse<TaskAttempt>>, ApiError> {
+    let executor_profile_id = payload.executor_profile_id.clone();
+
+    let attempt_id = Uuid::new_v4();
+    let git_branch_name = deployment
+        .container()
+        .git_branch_from_task_attempt(&attempt_id, &task.title)
+        .await;
+
+    let task_attempt = TaskAttempt::create(
+        &deployment.db().pool,
+        &CreateTaskAttempt {
+            executor: executor_profile_id.executor,
+            base_branch: payload.base_branch.clone(),
+            branch: git_branch_name.clone(),
+        },
+        attempt_id,
+        task.id,
+    )
+    .await?;
+
+    if let Err(err) = deployment
+        .container()
+        .start_attempt(&task_attempt, executor_profile_id.clone())
+        .await
+    {
+        tracing::error!("Failed to start task attempt: {}", err);
+    }
+
+    deployment
+        .track_if_analytics_allowed(
+            "task_attempt_started",
+            serde_json::json!({
+                "task_id": task_attempt.task_id.to_string(),
+                "variant": &executor_profile_id.variant,
+                "executor": &executor_profile_id.executor,
+                "attempt_id": task_attempt.id.to_string(),
+                "via": "by_task_id",
+            }),
+        )
+        .await;
+
+    tracing::info!(
+        task_id = %task.id,
+        shared_task_id = ?task.shared_task_id,
+        attempt_id = %task_attempt.id,
+        "Created attempt via by-task-id route"
+    );
+
+    Ok(ResponseJson(ApiResponse::success(task_attempt)))
+}
+
 #[axum::debug_handler]
 pub async fn run_agent_setup(
     Extension(task_attempt): Extension<TaskAttempt>,
@@ -212,7 +392,7 @@ pub async fn run_agent_setup(
     Ok(ResponseJson(ApiResponse::success(RunAgentSetupResponse {})))
 }
 
-#[derive(Debug, Deserialize, TS)]
+#[derive(Debug, Deserialize, Serialize, TS)]
 pub struct CreateFollowUpAttempt {
     pub prompt: String,
     pub variant: Option<String>,
@@ -224,9 +404,29 @@ pub struct CreateFollowUpAttempt {
 
 pub async fn follow_up(
     Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<CreateFollowUpAttempt>,
 ) -> Result<ResponseJson<ApiResponse<ExecutionProcess>>, ApiError> {
+    // Check if this is a remote task attempt that should be proxied
+    if let Some((node_url, node_id, shared_task_id)) =
+        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
+    {
+        tracing::debug!(
+            node_id = %node_id,
+            shared_task_id = %shared_task_id,
+            "Proxying follow_up to remote node"
+        );
+
+        let path = format!("/task-attempts/by-task-id/{}/follow-up", shared_task_id);
+        let response: ApiResponse<ExecutionProcess> = deployment
+            .node_proxy_client()
+            .proxy_post(&node_url, &path, &payload, node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
     tracing::info!("{:?}", task_attempt);
 
     // Ensure worktree exists (recreate if needed for cold task support)
@@ -481,8 +681,28 @@ pub async fn compare_commit_to_head(
 #[axum::debug_handler]
 pub async fn merge_task_attempt(
     Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    // Check if this is a remote task attempt that should be proxied
+    if let Some((node_url, node_id, shared_task_id)) =
+        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
+    {
+        tracing::debug!(
+            node_id = %node_id,
+            shared_task_id = %shared_task_id,
+            "Proxying merge_task_attempt to remote node"
+        );
+
+        let path = format!("/task-attempts/by-task-id/{}/merge", shared_task_id);
+        let response: ApiResponse<()> = deployment
+            .node_proxy_client()
+            .proxy_post(&node_url, &path, &(), node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
     let pool = &deployment.db().pool;
 
     let task = task_attempt
@@ -582,8 +802,28 @@ pub async fn merge_task_attempt(
 
 pub async fn push_task_attempt_branch(
     Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<(), PushError>>, ApiError> {
+    // Check if this is a remote task attempt that should be proxied
+    if let Some((node_url, node_id, shared_task_id)) =
+        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
+    {
+        tracing::debug!(
+            node_id = %node_id,
+            shared_task_id = %shared_task_id,
+            "Proxying push_task_attempt_branch to remote node"
+        );
+
+        let path = format!("/task-attempts/by-task-id/{}/push", shared_task_id);
+        let response: ApiResponse<(), PushError> = deployment
+            .node_proxy_client()
+            .proxy_post(&node_url, &path, &(), node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
     let github_service = GitHubService::new()?;
     github_service.check_token().await?;
 
@@ -603,8 +843,28 @@ pub async fn push_task_attempt_branch(
 
 pub async fn force_push_task_attempt_branch(
     Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<(), PushError>>, ApiError> {
+    // Check if this is a remote task attempt that should be proxied
+    if let Some((node_url, node_id, shared_task_id)) =
+        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
+    {
+        tracing::debug!(
+            node_id = %node_id,
+            shared_task_id = %shared_task_id,
+            "Proxying force_push_task_attempt_branch to remote node"
+        );
+
+        let path = format!("/task-attempts/by-task-id/{}/push/force", shared_task_id);
+        let response: ApiResponse<(), PushError> = deployment
+            .node_proxy_client()
+            .proxy_post(&node_url, &path, &(), node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
     let github_service = GitHubService::new()?;
     github_service.check_token().await?;
 
@@ -636,9 +896,29 @@ pub enum CreatePrError {
 
 pub async fn create_github_pr(
     Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
     State(deployment): State<DeploymentImpl>,
     Json(request): Json<CreateGitHubPrRequest>,
 ) -> Result<ResponseJson<ApiResponse<String, CreatePrError>>, ApiError> {
+    // Check if this is a remote task attempt that should be proxied
+    if let Some((node_url, node_id, shared_task_id)) =
+        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
+    {
+        tracing::debug!(
+            node_id = %node_id,
+            shared_task_id = %shared_task_id,
+            "Proxying create_github_pr to remote node"
+        );
+
+        let path = format!("/task-attempts/by-task-id/{}/pr", shared_task_id);
+        let response: ApiResponse<String, CreatePrError> = deployment
+            .node_proxy_client()
+            .proxy_post(&node_url, &path, &request, node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
     let github_config = deployment.config().read().await.github.clone();
     // Get the task attempt to access the stored target branch
     let target_branch = request.target_branch.unwrap_or_else(|| {
@@ -885,8 +1165,28 @@ pub struct BranchStatus {
 
 pub async fn get_task_attempt_branch_status(
     Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<BranchStatus>>, ApiError> {
+    // Check if this is a remote task attempt that should be proxied
+    if let Some((node_url, node_id, shared_task_id)) =
+        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
+    {
+        tracing::debug!(
+            node_id = %node_id,
+            shared_task_id = %shared_task_id,
+            "Proxying get_task_attempt_branch_status to remote node"
+        );
+
+        let path = format!("/task-attempts/by-task-id/{}/branch-status", shared_task_id);
+        let response: ApiResponse<BranchStatus> = deployment
+            .node_proxy_client()
+            .proxy_get(&node_url, &path, node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
     let pool = &deployment.db().pool;
 
     let task = task_attempt
@@ -990,23 +1290,23 @@ pub async fn get_task_attempt_branch_status(
     Ok(ResponseJson(ApiResponse::success(branch_status)))
 }
 
-#[derive(serde::Deserialize, Debug, TS)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, TS)]
 pub struct ChangeTargetBranchRequest {
     pub new_target_branch: String,
 }
 
-#[derive(serde::Serialize, Debug, TS)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, TS)]
 pub struct ChangeTargetBranchResponse {
     pub new_target_branch: String,
     pub status: (usize, usize),
 }
 
-#[derive(serde::Deserialize, Debug, TS)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, TS)]
 pub struct RenameBranchRequest {
     pub new_branch_name: String,
 }
 
-#[derive(serde::Serialize, Debug, TS)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, TS)]
 pub struct RenameBranchResponse {
     pub branch: String,
 }
@@ -1014,9 +1314,32 @@ pub struct RenameBranchResponse {
 #[axum::debug_handler]
 pub async fn change_target_branch(
     Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<ChangeTargetBranchRequest>,
 ) -> Result<ResponseJson<ApiResponse<ChangeTargetBranchResponse>>, ApiError> {
+    // Check if this is a remote task attempt that should be proxied
+    if let Some((node_url, node_id, shared_task_id)) =
+        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
+    {
+        tracing::debug!(
+            node_id = %node_id,
+            shared_task_id = %shared_task_id,
+            "Proxying change_target_branch to remote node"
+        );
+
+        let path = format!(
+            "/task-attempts/by-task-id/{}/change-target-branch",
+            shared_task_id
+        );
+        let response: ApiResponse<ChangeTargetBranchResponse> = deployment
+            .node_proxy_client()
+            .proxy_post(&node_url, &path, &payload, node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
     // Extract new base branch from request body if provided
     let new_target_branch = payload.new_target_branch;
     let task = task_attempt
@@ -1074,9 +1397,29 @@ pub async fn change_target_branch(
 #[axum::debug_handler]
 pub async fn rename_branch(
     Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<RenameBranchRequest>,
 ) -> Result<ResponseJson<ApiResponse<RenameBranchResponse>>, ApiError> {
+    // Check if this is a remote task attempt that should be proxied
+    if let Some((node_url, node_id, shared_task_id)) =
+        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
+    {
+        tracing::debug!(
+            node_id = %node_id,
+            shared_task_id = %shared_task_id,
+            "Proxying rename_branch to remote node"
+        );
+
+        let path = format!("/task-attempts/by-task-id/{}/rename-branch", shared_task_id);
+        let response: ApiResponse<RenameBranchResponse> = deployment
+            .node_proxy_client()
+            .proxy_post(&node_url, &path, &payload, node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
     let new_branch_name = payload.new_branch_name.trim();
 
     if new_branch_name.is_empty() {
@@ -1175,9 +1518,29 @@ pub async fn rename_branch(
 #[axum::debug_handler]
 pub async fn rebase_task_attempt(
     Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<RebaseTaskAttemptRequest>,
 ) -> Result<ResponseJson<ApiResponse<(), GitOperationError>>, ApiError> {
+    // Check if this is a remote task attempt that should be proxied
+    if let Some((node_url, node_id, shared_task_id)) =
+        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
+    {
+        tracing::debug!(
+            node_id = %node_id,
+            shared_task_id = %shared_task_id,
+            "Proxying rebase_task_attempt to remote node"
+        );
+
+        let path = format!("/task-attempts/by-task-id/{}/rebase", shared_task_id);
+        let response: ApiResponse<(), GitOperationError> = deployment
+            .node_proxy_client()
+            .proxy_post(&node_url, &path, &payload, node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
     let old_base_branch = payload
         .old_base_branch
         .unwrap_or(task_attempt.target_branch.clone());
@@ -1264,8 +1627,31 @@ pub async fn rebase_task_attempt(
 #[axum::debug_handler]
 pub async fn abort_conflicts_task_attempt(
     Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    // Check if this is a remote task attempt that should be proxied
+    if let Some((node_url, node_id, shared_task_id)) =
+        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
+    {
+        tracing::debug!(
+            node_id = %node_id,
+            shared_task_id = %shared_task_id,
+            "Proxying abort_conflicts_task_attempt to remote node"
+        );
+
+        let path = format!(
+            "/task-attempts/by-task-id/{}/conflicts/abort",
+            shared_task_id
+        );
+        let response: ApiResponse<()> = deployment
+            .node_proxy_client()
+            .proxy_post(&node_url, &path, &(), node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
     // Resolve worktree path for this attempt
     let worktree_path_buf = ensure_worktree_path(&deployment, &task_attempt).await?;
     let worktree_path = worktree_path_buf.as_path();
@@ -1397,8 +1783,28 @@ pub async fn get_task_attempt_children(
 
 pub async fn stop_task_attempt_execution(
     Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    // Check if this is a remote task attempt that should be proxied
+    if let Some((node_url, node_id, shared_task_id)) =
+        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
+    {
+        tracing::debug!(
+            node_id = %node_id,
+            shared_task_id = %shared_task_id,
+            "Proxying stop_task_attempt_execution to remote node"
+        );
+
+        let path = format!("/task-attempts/by-task-id/{}/stop", shared_task_id);
+        let response: ApiResponse<()> = deployment
+            .node_proxy_client()
+            .proxy_post(&node_url, &path, &(), node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
     deployment.container().try_stop(&task_attempt).await;
 
     deployment
@@ -1413,7 +1819,7 @@ pub async fn stop_task_attempt_execution(
     Ok(ResponseJson(ApiResponse::success(())))
 }
 
-#[derive(Debug, Serialize, TS)]
+#[derive(Debug, Serialize, Deserialize, TS)]
 pub struct AttachPrResponse {
     pub pr_attached: bool,
     pub pr_url: Option<String>,
@@ -1423,8 +1829,28 @@ pub struct AttachPrResponse {
 
 pub async fn attach_existing_pr(
     Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<AttachPrResponse>>, ApiError> {
+    // Check if this is a remote task attempt that should be proxied
+    if let Some((node_url, node_id, shared_task_id)) =
+        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
+    {
+        tracing::debug!(
+            node_id = %node_id,
+            shared_task_id = %shared_task_id,
+            "Proxying attach_existing_pr to remote node"
+        );
+
+        let path = format!("/task-attempts/by-task-id/{}/pr/attach", shared_task_id);
+        let response: ApiResponse<AttachPrResponse> = deployment
+            .node_proxy_client()
+            .proxy_post(&node_url, &path, &(), node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
     let pool = &deployment.db().pool;
 
     // Check if PR already attached
@@ -1567,9 +1993,36 @@ pub struct ListFilesQuery {
 /// List files and directories within a task attempt's worktree
 pub async fn list_worktree_files(
     Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
     State(deployment): State<DeploymentImpl>,
     Query(query): Query<ListFilesQuery>,
 ) -> Result<ResponseJson<ApiResponse<DirectoryListResponse>>, ApiError> {
+    // Check if this is a remote task attempt that should be proxied
+    if let Some((node_url, node_id, shared_task_id)) =
+        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
+    {
+        tracing::debug!(
+            node_id = %node_id,
+            shared_task_id = %shared_task_id,
+            "Proxying list_worktree_files to remote node"
+        );
+
+        let path = match &query.path {
+            Some(p) => format!(
+                "/task-attempts/by-task-id/{}/files?path={}",
+                shared_task_id,
+                urlencoding::encode(p)
+            ),
+            None => format!("/task-attempts/by-task-id/{}/files", shared_task_id),
+        };
+        let response: ApiResponse<DirectoryListResponse> = deployment
+            .node_proxy_client()
+            .proxy_get(&node_url, &path, node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
     let worktree_path = ensure_worktree_path(&deployment, &task_attempt).await?;
 
     match deployment
@@ -1604,9 +2057,33 @@ pub async fn list_worktree_files(
 /// Read file content from a task attempt's worktree
 pub async fn read_worktree_file(
     Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
     State(deployment): State<DeploymentImpl>,
     Path((_, file_path)): Path<(String, String)>,
 ) -> Result<ResponseJson<ApiResponse<FileContentResponse>>, ApiError> {
+    // Check if this is a remote task attempt that should be proxied
+    if let Some((node_url, node_id, shared_task_id)) =
+        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
+    {
+        tracing::debug!(
+            node_id = %node_id,
+            shared_task_id = %shared_task_id,
+            file_path = %file_path,
+            "Proxying read_worktree_file to remote node"
+        );
+
+        let path = format!(
+            "/task-attempts/by-task-id/{}/files/{}",
+            shared_task_id, file_path
+        );
+        let response: ApiResponse<FileContentResponse> = deployment
+            .node_proxy_client()
+            .proxy_get(&node_url, &path, node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
     let worktree_path = ensure_worktree_path(&deployment, &task_attempt).await?;
 
     match deployment
@@ -1695,10 +2172,135 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             load_task_attempt_middleware_with_wildcard,
         ));
 
+    // Routes for accessing task attempts by shared_task_id (used for node-to-node proxying).
+    // These routes allow a proxying node to request data using the Hive shared task ID.
+    // The middleware finds the task by shared_task_id and loads its most recent attempt.
+    let by_task_id_router = Router::new()
+        .route("/follow-up", post(follow_up))
+        .route("/stop", post(stop_task_attempt_execution))
+        .route("/branch-status", get(get_task_attempt_branch_status))
+        .route("/push", post(push_task_attempt_branch))
+        .route("/push/force", post(force_push_task_attempt_branch))
+        .route("/merge", post(merge_task_attempt))
+        .route("/rebase", post(rebase_task_attempt))
+        .route("/conflicts/abort", post(abort_conflicts_task_attempt))
+        .route("/change-target-branch", post(change_target_branch))
+        .route("/rename-branch", post(rename_branch))
+        .route("/pr", post(create_github_pr))
+        .route("/pr/attach", post(attach_existing_pr))
+        .route(
+            "/draft",
+            get(drafts::get_draft)
+                .put(drafts::save_draft)
+                .delete(drafts::delete_draft),
+        )
+        .route("/draft/queue", post(drafts::set_draft_queue))
+        .route("/files", get(list_worktree_files))
+        .route("/diff/ws", get(stream_task_attempt_diff_ws))
+        .layer(from_fn_with_state(
+            deployment.clone(),
+            load_task_attempt_by_task_id_middleware,
+        ));
+
+    // Wildcard file path route for by-task-id (file content browsing)
+    let by_task_id_files_router = Router::new()
+        .route(
+            "/by-task-id/{task_id}/files/{*file_path}",
+            get(read_worktree_file),
+        )
+        .layer(from_fn_with_state(
+            deployment.clone(),
+            load_task_attempt_by_task_id_middleware_with_wildcard,
+        ));
+
+    // Route for creating task attempts via shared_task_id (cross-node proxying).
+    // Uses different middleware that only loads Task (not TaskAttempt).
+    let by_task_id_create_router = Router::new()
+        .route(
+            "/by-task-id/{task_id}/create",
+            post(create_task_attempt_by_task_id),
+        )
+        .layer(from_fn_with_state(
+            deployment.clone(),
+            load_task_by_task_id_middleware,
+        ));
+
     let task_attempts_router = Router::new()
         .route("/", get(get_task_attempts).post(create_task_attempt))
         .nest("/{id}", task_attempt_id_router)
-        .merge(task_attempt_files_router);
+        .merge(task_attempt_files_router)
+        .nest("/by-task-id/{task_id}", by_task_id_router)
+        .merge(by_task_id_files_router)
+        .merge(by_task_id_create_router);
 
     Router::new().nest("/task-attempts", task_attempts_router)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::middleware::RemoteTaskAttemptContext;
+
+    #[test]
+    fn test_check_remote_proxy_returns_none_when_no_context() {
+        let result = check_remote_task_attempt_proxy(None);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn test_check_remote_proxy_returns_error_when_node_offline() {
+        let ctx = RemoteTaskAttemptContext {
+            node_id: Uuid::new_v4(),
+            node_url: Some("http://node:3000".to_string()),
+            node_status: Some("offline".to_string()),
+            task_id: Uuid::new_v4(),
+        };
+        let result = check_remote_task_attempt_proxy(Some(&ctx));
+        assert!(result.is_err());
+        match result {
+            Err(ApiError::BadGateway(msg)) => {
+                assert!(msg.contains("offline"));
+            }
+            _ => panic!("Expected BadGateway error"),
+        }
+    }
+
+    #[test]
+    fn test_check_remote_proxy_returns_error_when_no_node_url() {
+        let ctx = RemoteTaskAttemptContext {
+            node_id: Uuid::new_v4(),
+            node_url: None,
+            node_status: Some("online".to_string()),
+            task_id: Uuid::new_v4(),
+        };
+        let result = check_remote_task_attempt_proxy(Some(&ctx));
+        assert!(result.is_err());
+        match result {
+            Err(ApiError::BadGateway(msg)) => {
+                assert!(msg.contains("no public URL"));
+            }
+            _ => panic!("Expected BadGateway error"),
+        }
+    }
+
+    #[test]
+    fn test_check_remote_proxy_returns_info_when_node_online() {
+        let node_id = Uuid::new_v4();
+        let task_id = Uuid::new_v4();
+        let ctx = RemoteTaskAttemptContext {
+            node_id,
+            node_url: Some("http://node:3000".to_string()),
+            node_status: Some("online".to_string()),
+            task_id,
+        };
+        let result = check_remote_task_attempt_proxy(Some(&ctx));
+        assert!(result.is_ok());
+        let proxy_info = result.unwrap();
+        assert!(proxy_info.is_some());
+        let (url, returned_node_id, returned_task_id) = proxy_info.unwrap();
+        assert_eq!(url, "http://node:3000");
+        assert_eq!(returned_node_id, node_id);
+        assert_eq!(returned_task_id, task_id);
+    }
 }

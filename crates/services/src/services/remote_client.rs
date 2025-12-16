@@ -7,9 +7,13 @@ use chrono::Duration as ChronoDuration;
 use remote::{
     activity::ActivityResponse,
     nodes::{Node, NodeApiKey, NodeProject},
-    routes::tasks::{
-        AssignSharedTaskRequest, BulkSharedTasksResponse, CreateSharedTaskRequest,
-        DeleteSharedTaskRequest, SharedTaskResponse, UpdateSharedTaskRequest,
+    routes::{
+        projects::ListProjectNodesResponse,
+        tasks::{
+            AssignSharedTaskRequest, BulkSharedTasksResponse, CreateSharedTaskRequest,
+            DeleteSharedTaskRequest, SharedTaskResponse, TaskStreamConnectionInfoResponse,
+            UpdateSharedTaskRequest,
+        },
     },
 };
 use reqwest::{Client, StatusCode};
@@ -429,6 +433,15 @@ impl RemoteClient {
         self.get_authed(&format!("/v1/projects/{project_id}")).await
     }
 
+    /// Lists nodes that have this project linked.
+    pub async fn list_project_nodes(
+        &self,
+        project_id: Uuid,
+    ) -> Result<ListProjectNodesResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/projects/{project_id}/nodes"))
+            .await
+    }
+
     pub async fn create_project(
         &self,
         request: &CreateRemoteProjectPayload,
@@ -676,6 +689,15 @@ impl RemoteClient {
     /// Revokes an API key.
     pub async fn revoke_node_api_key(&self, key_id: Uuid) -> Result<(), RemoteClientError> {
         self.delete_authed(&format!("/v1/nodes/api-keys/{key_id}"))
+            .await
+    }
+
+    /// Gets stream connection info for a task (to connect directly to the node).
+    pub async fn get_task_stream_connection_info(
+        &self,
+        task_id: Uuid,
+    ) -> Result<TaskStreamConnectionInfoResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/tasks/{task_id}/stream-connection-info"))
             .await
     }
 }

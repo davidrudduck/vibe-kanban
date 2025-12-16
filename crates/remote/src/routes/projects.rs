@@ -4,7 +4,7 @@ use axum::{
     http::StatusCode,
     routing::get,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::instrument;
 use utils::api::projects::{ListProjectsResponse, RemoteProject};
@@ -14,7 +14,12 @@ use super::{error::ErrorResponse, organization_members::ensure_member_access};
 use crate::{
     AppState,
     auth::RequestContext,
-    db::projects::{CreateProjectData, Project, ProjectError, ProjectRepository},
+    db::{
+        node_projects::NodeProjectRepository,
+        nodes::NodeRepository,
+        projects::{CreateProjectData, Project, ProjectError, ProjectRepository},
+    },
+    nodes::NodeStatus,
 };
 
 #[derive(Debug, Deserialize)]
@@ -34,6 +39,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/projects", get(list_projects).post(create_project))
         .route("/projects/{project_id}", get(get_project))
+        .route("/projects/{project_id}/nodes", get(list_project_nodes))
 }
 
 #[instrument(
@@ -169,4 +175,85 @@ fn normalize_metadata(value: Value) -> Option<Value> {
         Value::Object(_) => Some(value),
         _ => None,
     }
+}
+
+/// A node that has a project linked, with relevant connection info
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectNodeInfo {
+    pub node_id: Uuid,
+    pub node_name: String,
+    pub node_status: NodeStatus,
+    pub node_public_url: Option<String>,
+    pub node_project_id: Uuid,
+    pub local_project_id: Uuid,
+}
+
+/// Response for listing nodes that have a project linked
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListProjectNodesResponse {
+    pub nodes: Vec<ProjectNodeInfo>,
+}
+
+#[instrument(
+    name = "projects.list_project_nodes",
+    skip(state, ctx),
+    fields(project_id = %project_id, user_id = %ctx.user.id)
+)]
+async fn list_project_nodes(
+    State(state): State<AppState>,
+    Extension(ctx): Extension<RequestContext>,
+    Path(project_id): Path<Uuid>,
+) -> Result<Json<ListProjectNodesResponse>, ErrorResponse> {
+    // First get the project to verify it exists and get organization
+    let project = ProjectRepository::fetch_by_id(state.pool(), project_id)
+        .await
+        .map_err(|error| {
+            tracing::error!(?error, %project_id, "failed to load project");
+            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to load project")
+        })?
+        .ok_or_else(|| ErrorResponse::new(StatusCode::NOT_FOUND, "project not found"))?;
+
+    // Verify user has access to the organization
+    ensure_member_access(state.pool(), project.organization_id, ctx.user.id).await?;
+
+    // Find the node-project link for this project
+    let node_project_repo = NodeProjectRepository::new(state.pool());
+    let node_project = node_project_repo
+        .find_by_project(project_id)
+        .await
+        .map_err(|error| {
+            tracing::error!(?error, %project_id, "failed to find node project link");
+            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
+        })?;
+
+    // If no node has this project, return empty list
+    let Some(node_project) = node_project else {
+        return Ok(Json(ListProjectNodesResponse { nodes: vec![] }));
+    };
+
+    // Get the node info
+    let node_repo = NodeRepository::new(state.pool());
+    let node = node_repo
+        .find_by_id(node_project.node_id)
+        .await
+        .map_err(|error| {
+            tracing::error!(?error, node_id = %node_project.node_id, "failed to load node");
+            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
+        })?;
+
+    let Some(node) = node else {
+        // Node was deleted but link still exists - return empty
+        return Ok(Json(ListProjectNodesResponse { nodes: vec![] }));
+    };
+
+    Ok(Json(ListProjectNodesResponse {
+        nodes: vec![ProjectNodeInfo {
+            node_id: node.id,
+            node_name: node.name,
+            node_status: node.status,
+            node_public_url: node.public_url,
+            node_project_id: node_project.id,
+            local_project_id: node_project.local_project_id,
+        }],
+    }))
 }

@@ -119,6 +119,7 @@ function DiffsPanelContainer({
   return (
     <DiffsPanel
       selectedAttempt={attempt}
+      task={selectedTask}
       gitOps={
         attempt && selectedTask
           ? {

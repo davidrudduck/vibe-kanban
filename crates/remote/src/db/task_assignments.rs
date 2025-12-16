@@ -128,6 +128,39 @@ impl<'a> TaskAssignmentRepository<'a> {
         Ok(assignment)
     }
 
+    /// Find the most recent assignment for a task (active or completed).
+    /// Used for stream connection info to find which node handles the task.
+    pub async fn find_latest_by_task_id(
+        &self,
+        task_id: Uuid,
+    ) -> Result<Option<NodeTaskAssignment>, TaskAssignmentError> {
+        let assignment = sqlx::query_as::<_, NodeTaskAssignment>(
+            r#"
+            SELECT
+                id,
+                task_id,
+                node_id,
+                node_project_id,
+                local_task_id,
+                local_attempt_id,
+                execution_status,
+                assigned_at,
+                started_at,
+                completed_at,
+                created_at
+            FROM node_task_assignments
+            WHERE task_id = $1
+            ORDER BY assigned_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(task_id)
+        .fetch_optional(self.pool)
+        .await?;
+
+        Ok(assignment)
+    }
+
     /// List all assignments for a node
     pub async fn list_by_node(
         &self,

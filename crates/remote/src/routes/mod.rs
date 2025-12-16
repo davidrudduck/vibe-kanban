@@ -22,7 +22,7 @@ mod nodes;
 mod oauth;
 pub(crate) mod organization_members;
 mod organizations;
-mod projects;
+pub mod projects;
 mod relay;
 pub mod tasks;
 mod tokens;

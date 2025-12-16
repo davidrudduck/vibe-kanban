@@ -13,8 +13,9 @@ import type { TaskAttempt, TaskWithAttemptStatus } from 'shared/types';
 import { ActionsDropdown } from '../ui/actions-dropdown';
 import { usePostHog } from 'posthog-js/react';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
-import { useIsOrgAdmin } from '@/hooks';
+import { useIsOrgAdmin, useRemoteConnectionStatus } from '@/hooks';
 import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
+import { ConnectionStatusBadge } from '@/components/common/ConnectionStatusBadge';
 
 interface AttemptHeaderActionsProps {
   onClose: () => void;
@@ -37,9 +38,22 @@ export const AttemptHeaderActions = ({
   const posthog = usePostHog();
   const isXL = useMediaQuery('(min-width: 1280px)');
   const isOrgAdmin = useIsOrgAdmin();
+  const { status: connectionStatus } = useRemoteConnectionStatus(task, {
+    enabled: Boolean(attempt),
+  });
+
+  // Only show connection badge for remote tasks (not local)
+  const showConnectionBadge = task?.is_remote && connectionStatus !== 'local';
 
   return (
     <>
+      {/* Connection status badge for remote tasks */}
+      {showConnectionBadge && (
+        <>
+          <ConnectionStatusBadge status={connectionStatus} />
+          <div className="h-4 w-px bg-border" />
+        </>
+      )}
       {typeof mode !== 'undefined' && onModeChange && isXL && (
         <TooltipProvider>
           <ToggleGroup

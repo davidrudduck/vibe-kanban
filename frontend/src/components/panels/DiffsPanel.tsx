@@ -1,4 +1,7 @@
-import { useDiffStream } from '@/hooks/useDiffStream';
+import {
+  useDiffStream,
+  type RemoteStreamInfo,
+} from '@/hooks/useDiffStream';
 import { useMemo, useCallback, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader } from '@/components/ui/loader';
@@ -7,29 +10,49 @@ import DiffViewSwitch from '@/components/DiffViewSwitch';
 import DiffCard from '@/components/DiffCard';
 import { useDiffSummary } from '@/hooks/useDiffSummary';
 import { NewCardHeader } from '@/components/ui/new-card';
-import { ChevronsUp, ChevronsDown } from 'lucide-react';
+import { ChevronsUp, ChevronsDown, Wifi } from 'lucide-react';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import type { TaskAttempt, Diff } from 'shared/types';
+import type { TaskAttempt, Diff, TaskWithAttemptStatus } from 'shared/types';
 import GitOperations, {
   type GitOperationsInputs,
 } from '@/components/tasks/Toolbar/GitOperations.tsx';
 
 interface DiffsPanelProps {
   selectedAttempt: TaskAttempt | null;
+  /** The task, used to determine if streaming should be from a remote node */
+  task?: TaskWithAttemptStatus | null;
   gitOps?: GitOperationsInputs;
 }
 
-export function DiffsPanel({ selectedAttempt, gitOps }: DiffsPanelProps) {
+export function DiffsPanel({
+  selectedAttempt,
+  task,
+  gitOps,
+}: DiffsPanelProps) {
   const { t } = useTranslation('tasks');
   const [loading, setLoading] = useState(true);
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [hasInitialized, setHasInitialized] = useState(false);
-  const { diffs, error } = useDiffStream(selectedAttempt?.id ?? null, true);
+
+  // Build remote stream info if this is a remote task
+  const remoteStreamInfo: RemoteStreamInfo | undefined = useMemo(() => {
+    if (task?.is_remote && task?.shared_task_id) {
+      return { taskId: task.id };
+    }
+    return undefined;
+  }, [task?.is_remote, task?.shared_task_id, task?.id]);
+
+  const { diffs, error, connectionType } = useDiffStream(
+    selectedAttempt?.id ?? null,
+    true,
+    undefined,
+    remoteStreamInfo
+  );
   const { fileCount, added, deleted } = useDiffSummary(
     selectedAttempt?.id ?? null
   );
@@ -115,6 +138,7 @@ export function DiffsPanel({ selectedAttempt, gitOps }: DiffsPanelProps) {
       selectedAttempt={selectedAttempt}
       gitOps={gitOps}
       loading={loading}
+      connectionType={connectionType}
       t={t}
     />
   );
@@ -132,6 +156,8 @@ interface DiffsPanelContentProps {
   selectedAttempt: TaskAttempt | null;
   gitOps?: GitOperationsInputs;
   loading: boolean;
+  /** For remote streams: 'direct', 'relay', or null for local */
+  connectionType?: 'direct' | 'relay' | null;
   t: (key: string, params?: Record<string, unknown>) => string;
 }
 
@@ -147,6 +173,7 @@ function DiffsPanelContent({
   selectedAttempt,
   gitOps,
   loading,
+  connectionType,
   t,
 }: DiffsPanelContentProps) {
   return (
@@ -156,6 +183,27 @@ function DiffsPanelContent({
           className="sticky top-0 z-10"
           actions={
             <>
+              {/* Show connection indicator for remote streams */}
+              {connectionType && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Wifi className="h-3 w-3 text-green-500" />
+                        <span className="hidden sm:inline">
+                          {connectionType === 'direct' ? 'Direct' : 'Relay'}
+                        </span>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      {connectionType === 'direct'
+                        ? t('diff.remoteConnectionDirect')
+                        : t('diff.remoteConnectionRelay')}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+              {connectionType && <div className="h-4 w-px bg-border" />}
               <DiffViewSwitch />
               <div className="h-4 w-px bg-border" />
               <TooltipProvider>

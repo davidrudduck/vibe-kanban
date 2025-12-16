@@ -38,6 +38,10 @@ pub fn router() -> Router<AppState> {
         .route("/tasks/{task_id}", patch(update_shared_task))
         .route("/tasks/{task_id}", delete(delete_shared_task))
         .route("/tasks/{task_id}/assign", post(assign_task))
+        .route(
+            "/tasks/{task_id}/stream-connection-info",
+            get(get_stream_connection_info),
+        )
 }
 
 #[derive(Debug, Deserialize)]
@@ -456,4 +460,134 @@ impl From<SharedTaskWithUser> for SharedTaskResponse {
             user: v.user,
         }
     }
+}
+
+// ============================================================================
+// Stream Connection Info (for remote diff streaming)
+// ============================================================================
+
+/// Response containing connection information for streaming from a remote node.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskStreamConnectionInfoResponse {
+    /// The task ID (shared_task_id)
+    pub task_id: Uuid,
+    /// The node ID where the task attempt is running
+    pub node_id: Uuid,
+    /// The task attempt ID on the remote node (needed for streaming endpoint)
+    pub attempt_id: Option<Uuid>,
+    /// Direct URL to the node (if available)
+    pub direct_url: Option<String>,
+    /// Hive relay URL for streaming (fallback)
+    pub relay_url: String,
+    /// Short-lived token for authenticating with the node
+    pub connection_token: String,
+    /// Token expiration timestamp (ISO 8601)
+    pub expires_at: String,
+}
+
+#[instrument(
+    name = "tasks.get_stream_connection_info",
+    skip(state, ctx),
+    fields(user_id = %ctx.user.id, task_id = %task_id, org_id = tracing::field::Empty)
+)]
+pub async fn get_stream_connection_info(
+    State(state): State<AppState>,
+    Extension(ctx): Extension<RequestContext>,
+    Path(task_id): Path<Uuid>,
+) -> Response {
+    use crate::db::nodes::NodeRepository;
+    use crate::db::task_assignments::TaskAssignmentRepository;
+
+    let pool = state.pool();
+
+    // Verify user has access to the task
+    match ensure_task_access(pool, ctx.user.id, task_id).await {
+        Ok(org_id) => {
+            Span::current().record("org_id", format_args!("{org_id}"));
+        }
+        Err(error) => return error.into_response(),
+    };
+
+    // Find the task's current assignment (most recent)
+    let assignment_repo = TaskAssignmentRepository::new(pool);
+    let assignment = match assignment_repo.find_latest_by_task_id(task_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "no active assignment for this task" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!(?e, "failed to fetch assignment for task");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal server error" })),
+            )
+                .into_response();
+        }
+    };
+
+    // Get the node to get its public URL
+    let node_repo = NodeRepository::new(pool);
+    let node = match node_repo.find_by_id(assignment.node_id).await {
+        Ok(Some(n)) => n,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "node not found" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!(?e, "failed to fetch node");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal server error" })),
+            )
+                .into_response();
+        }
+    };
+
+    // Generate connection token
+    let connection_token_service = state.connection_token();
+    let token = match connection_token_service.generate(
+        ctx.user.id,
+        node.id,
+        assignment.id,
+        assignment.local_attempt_id,
+    ) {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!(?e, "failed to generate connection token");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal server error" })),
+            )
+                .into_response();
+        }
+    };
+
+    // Calculate expiration time (15 minutes from now)
+    let expires_at = chrono::Utc::now() + chrono::Duration::minutes(15);
+
+    // Build relay URL for diff streaming via hive (future use)
+    // For now, we only support direct connections
+    let relay_url = format!(
+        "{}/v1/tasks/{}/diff/relay",
+        state.server_public_base_url, task_id
+    );
+
+    let response = TaskStreamConnectionInfoResponse {
+        task_id,
+        node_id: node.id,
+        attempt_id: assignment.local_attempt_id,
+        direct_url: node.public_url,
+        relay_url,
+        connection_token: token,
+        expires_at: expires_at.to_rfc3339(),
+    };
+
+    (StatusCode::OK, Json(response)).into_response()
 }
