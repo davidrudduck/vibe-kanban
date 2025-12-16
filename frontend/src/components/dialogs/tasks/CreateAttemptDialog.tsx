@@ -10,6 +10,13 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import BranchSelector from '@/components/tasks/BranchSelector';
 import { ExecutorProfileSelector } from '@/components/settings';
 import { useAttemptCreation } from '@/hooks/useAttemptCreation';
@@ -18,6 +25,7 @@ import {
   useTask,
   useBranches,
   useTaskAttempts,
+  useAvailableNodes,
 } from '@/hooks';
 import { useProject } from '@/contexts/ProjectContext';
 import { useUserSystem } from '@/components/ConfigProvider';
@@ -26,6 +34,7 @@ import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal } from '@/lib/modals';
 import type { ExecutorProfileId, BaseCodingAgent } from 'shared/types';
 import { useKeySubmitTask, Scope } from '@/keyboard';
+import { Server } from 'lucide-react';
 
 export interface CreateAttemptDialogProps {
   taskId: string;
@@ -52,6 +61,18 @@ const CreateAttemptDialogImpl = NiceModal.create<CreateAttemptDialogProps>(
     const [userSelectedBranch, setUserSelectedBranch] = useState<string | null>(
       null
     );
+    const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+    // Fetch available nodes for remote execution
+    const { data: availableNodesData, isLoading: isLoadingNodes } =
+      useAvailableNodes(taskId, { enabled: modal.visible });
+
+    const availableNodes = useMemo(() => {
+      return availableNodesData?.nodes ?? [];
+    }, [availableNodesData]);
+
+    // Show node selector only when there are remote nodes available
+    const hasAvailableNodes = availableNodes.length > 0;
 
     const { data: branches = [], isLoading: isLoadingBranches } = useBranches(
       projectId,
@@ -99,6 +120,7 @@ const CreateAttemptDialogImpl = NiceModal.create<CreateAttemptDialogProps>(
       if (!modal.visible) {
         setUserSelectedProfile(null);
         setUserSelectedBranch(null);
+        setSelectedNodeId(null);
       }
     }, [modal.visible]);
 
@@ -146,7 +168,8 @@ const CreateAttemptDialogImpl = NiceModal.create<CreateAttemptDialogProps>(
       isLoadingBranches ||
       isLoadingAttempts ||
       isLoadingTask ||
-      isLoadingParentAttempts;
+      isLoadingParentAttempts ||
+      isLoadingNodes;
     const canCreate = Boolean(
       effectiveProfile && effectiveBranch && !isCreating && !isLoadingInitial
     );
@@ -157,6 +180,7 @@ const CreateAttemptDialogImpl = NiceModal.create<CreateAttemptDialogProps>(
         await createAttempt({
           profile: effectiveProfile,
           baseBranch: effectiveBranch,
+          targetNodeId: selectedNodeId,
         });
 
         modal.hide();
@@ -213,6 +237,56 @@ const CreateAttemptDialogImpl = NiceModal.create<CreateAttemptDialogProps>(
                 }
               />
             </div>
+
+            {/* Node selector - shown when there are available remote nodes */}
+            {hasAvailableNodes && (
+              <div className="space-y-2">
+                <Label className="text-sm font-medium flex items-center gap-2">
+                  <Server className="h-4 w-4" />
+                  {t('createAttemptDialog.targetNode', 'Target Node')}
+                </Label>
+                <Select
+                  value={selectedNodeId ?? 'local'}
+                  onValueChange={(value) =>
+                    setSelectedNodeId(value === 'local' ? null : value)
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue
+                      placeholder={t(
+                        'createAttemptDialog.selectNode',
+                        'Select node'
+                      )}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="local">
+                      {t('createAttemptDialog.localNode', 'Local (this node)')}
+                    </SelectItem>
+                    {availableNodes.map((node) => (
+                      <SelectItem key={node.node_id} value={node.node_id}>
+                        <span className="flex items-center gap-2">
+                          <span
+                            className={`h-2 w-2 rounded-full ${
+                              node.node_status === 'online'
+                                ? 'bg-green-500'
+                                : 'bg-gray-400'
+                            }`}
+                          />
+                          {node.node_name}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    'createAttemptDialog.nodeHelp',
+                    'Select where to run this task attempt'
+                  )}
+                </p>
+              </div>
+            )}
 
             {error && (
               <div className="text-sm text-destructive">

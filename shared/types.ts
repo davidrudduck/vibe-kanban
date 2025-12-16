@@ -429,7 +429,12 @@ export type CreateTaskAttemptBody = { task_id: string,
 /**
  * Executor profile specification
  */
-executor_profile_id: ExecutorProfileId, base_branch: string, };
+executor_profile_id: ExecutorProfileId, base_branch: string, 
+/**
+ * Target node ID for remote execution (if project exists on multiple nodes).
+ * When set, the request will be proxied to the specified node.
+ */
+target_node_id: string | null, };
 
 export type RunAgentSetupRequest = { executor_profile_id: ExecutorProfileId, };
 

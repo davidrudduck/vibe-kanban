@@ -5,6 +5,8 @@ import type { TaskAttempt, ExecutorProfileId } from 'shared/types';
 type CreateAttemptArgs = {
   profile: ExecutorProfileId;
   baseBranch: string;
+  /** Optional target node ID for remote execution */
+  targetNodeId?: string | null;
 };
 
 type UseAttemptCreationArgs = {
@@ -19,11 +21,12 @@ export function useAttemptCreation({
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
-    mutationFn: ({ profile, baseBranch }: CreateAttemptArgs) =>
+    mutationFn: ({ profile, baseBranch, targetNodeId }: CreateAttemptArgs) =>
       attemptsApi.create({
         task_id: taskId,
         executor_profile_id: profile,
         base_branch: baseBranch,
+        target_node_id: targetNodeId ?? null,
       }),
     onSuccess: (newAttempt: TaskAttempt) => {
       queryClient.setQueryData(

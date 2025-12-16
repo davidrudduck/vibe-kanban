@@ -33,3 +33,5 @@ export { useActivityFeed } from './useActivityFeed';
 export { useNodeLogStream } from './useNodeLogStream';
 export type { NodeLogEntry, ConnectionType } from './useNodeLogStream';
 export { useIsOrgAdmin } from './useIsOrgAdmin';
+export { useAvailableNodes } from './useAvailableNodes';
+export { useRemoteConnectionStatus } from './useRemoteConnectionStatus';

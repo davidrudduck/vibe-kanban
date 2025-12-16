@@ -81,6 +81,7 @@ import {
   ScanConfigRequest,
   ScanConfigResponse,
   UnifiedProjectsResponse,
+  CachedNodeStatus,
 } from 'shared/types';
 
 // Re-export types for convenience
@@ -88,6 +89,32 @@ export type {
   UpdateFollowUpDraftRequest,
   UpdateRetryFollowUpDraftRequest,
 } from 'shared/types';
+
+// Types for available nodes (for remote task attempt start)
+export interface ProjectNodeInfo {
+  node_id: string;
+  node_name: string;
+  node_status: CachedNodeStatus;
+  node_public_url: string | null;
+  node_project_id: string;
+  local_project_id: string;
+}
+
+export interface ListProjectNodesResponse {
+  nodes: ProjectNodeInfo[];
+}
+
+// Types for remote task stream connection info
+export interface TaskStreamConnectionInfoResponse {
+  task_id: string;
+  node_id: string;
+  /** The task attempt ID on the remote node (needed for streaming endpoint) */
+  attempt_id: string | null;
+  direct_url: string | null;
+  relay_url: string;
+  connection_token: string;
+  expires_at: string;
+}
 
 class ApiError<E = unknown> extends Error {
   public status?: number;
@@ -453,6 +480,22 @@ export const tasksApi = {
       method: 'DELETE',
     });
     return handleApiResponse<void>(response);
+  },
+
+  /** Get list of nodes where this task's project exists (for remote attempt start). */
+  availableNodes: async (taskId: string): Promise<ListProjectNodesResponse> => {
+    const response = await makeRequest(`/api/tasks/${taskId}/available-nodes`);
+    return handleApiResponse<ListProjectNodesResponse>(response);
+  },
+
+  /** Get stream connection info for a remote task (to connect directly to the node). */
+  streamConnectionInfo: async (
+    taskId: string
+  ): Promise<TaskStreamConnectionInfoResponse> => {
+    const response = await makeRequest(
+      `/api/tasks/${taskId}/stream-connection-info`
+    );
+    return handleApiResponse<TaskStreamConnectionInfoResponse>(response);
   },
 };
 
