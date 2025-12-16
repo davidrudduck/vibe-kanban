@@ -2,9 +2,17 @@ import { useMemo, useEffect, useState } from 'react';
 import Form from '@rjsf/core';
 import type { IChangeEvent } from '@rjsf/core';
 import { RJSFValidationError } from '@rjsf/utils';
-import validator from '@rjsf/validator-ajv8';
+import { customizeValidator } from '@rjsf/validator-ajv8';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
+
+// Create a custom validator that registers 'textarea' as a valid format
+// This suppresses the "unknown format 'textarea' ignored in schema" warning
+const validator = customizeValidator({
+  customFormats: {
+    textarea: () => true, // Always valid - textarea is a UI hint, not a validation constraint
+  },
+});
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
