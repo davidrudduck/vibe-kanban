@@ -1204,6 +1204,7 @@ mod tests {
             append_prompt: AppendPrompt::default(),
             force: None,
             model: None,
+            no_context: None,
             cmd: Default::default(),
         };
         let msg_store = Arc::new(MsgStore::new());
