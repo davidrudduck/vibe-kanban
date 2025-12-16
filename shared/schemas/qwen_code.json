@@ -11,6 +11,12 @@
       "format": "textarea",
       "default": null
     },
+    "no_context": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
     "yolo": {
       "type": [
         "boolean",
