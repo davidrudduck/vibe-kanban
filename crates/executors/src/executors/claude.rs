@@ -50,6 +50,8 @@ pub struct ClaudeCode {
     #[serde(default)]
     pub append_prompt: AppendPrompt,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub no_context: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claude_code_router: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan: Option<bool>,

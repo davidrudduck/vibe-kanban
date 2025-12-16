@@ -22,6 +22,8 @@ pub struct Amp {
     #[serde(default)]
     pub append_prompt: AppendPrompt,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub no_context: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         title = "Dangerously Allow All",
         description = "Allow all commands to be executed, even if they are not safe."

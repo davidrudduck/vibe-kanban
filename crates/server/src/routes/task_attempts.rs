@@ -315,11 +315,21 @@ pub async fn follow_up(
         let _ = Draft::clear_after_send(pool, task_attempt.id, DraftType::Retry).await;
     }
 
-    let latest_session_id = ExecutionProcess::find_latest_session_id_by_task_attempt(
-        &deployment.db().pool,
-        task_attempt.id,
-    )
-    .await?;
+    // Check if the selected executor profile has no_context enabled
+    let executor_configs = ExecutorConfigs::get_cached();
+    let coding_agent = executor_configs.get_coding_agent_or_default(&executor_profile_id);
+    let skip_context = coding_agent.no_context();
+
+    // If no_context is enabled, skip session lookup and start fresh
+    let latest_session_id = if skip_context {
+        None
+    } else {
+        ExecutionProcess::find_latest_session_id_by_task_attempt(
+            &deployment.db().pool,
+            task_attempt.id,
+        )
+        .await?
+    };
 
     let mut prompt = payload.prompt;
     if let Some(image_ids) = &payload.image_ids {
