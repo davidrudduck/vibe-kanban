@@ -47,21 +47,11 @@ import {
 import { useHotkeysContext } from 'react-hotkeys-hook';
 import { cn } from '@/lib/utils';
 import type {
+  Task,
   TaskStatus,
   ExecutorProfileId,
   ImageResponse,
 } from 'shared/types';
-
-interface Task {
-  id: string;
-  project_id: string;
-  title: string;
-  description: string | null;
-  status: TaskStatus;
-  created_at: string;
-  updated_at: string;
-  validation_steps: string | null;
-}
 
 export type TaskFormDialogProps =
   | { mode: 'create'; projectId: string }
