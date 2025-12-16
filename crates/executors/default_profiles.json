@@ -16,6 +16,12 @@
         "CLAUDE_CODE": {
           "approvals": true
         }
+      },
+      "NO_CONTEXT": {
+        "CLAUDE_CODE": {
+          "no_context": true,
+          "dangerously_skip_permissions": true
+        }
       }
     },
     "AMP": {
@@ -23,6 +29,12 @@
         "AMP": {
           "dangerously_allow_all": true,
           "append_prompt": "\n\n=== TASK COMPLETION REQUIREMENTS ===\n1. Work on ONE feature at a time\n2. For web apps: TEST IN BROWSER, not just API\n3. Create/update .vk_progress.md with status and remaining work\n4. Commit working code before ending session\n5. Do NOT mark complete until E2E verified\n6. Document incomplete work in progress file"
+        }
+      },
+      "NO_CONTEXT": {
+        "AMP": {
+          "no_context": true,
+          "dangerously_allow_all": true
         }
       }
     },
@@ -42,6 +54,12 @@
       "PRO": {
         "GEMINI": {
           "model": "gemini-3-pro-preview",
+          "yolo": true
+        }
+      },
+      "NO_CONTEXT": {
+        "GEMINI": {
+          "no_context": true,
           "yolo": true
         }
       }
@@ -73,12 +91,24 @@
           "model": "gpt-5.1-codex-max",
           "sandbox": "danger-full-access"
         }
+      },
+      "NO_CONTEXT": {
+        "CODEX": {
+          "no_context": true,
+          "model": "gpt-5.1-codex",
+          "sandbox": "danger-full-access"
+        }
       }
     },
     "OPENCODE": {
       "DEFAULT": {
         "OPENCODE": {
           "append_prompt": "\n\n=== TASK COMPLETION REQUIREMENTS ===\n1. Work on ONE feature at a time\n2. For web apps: TEST IN BROWSER\n3. Create/update .vk_progress.md with status\n4. Commit before ending, document incomplete work"
+        }
+      },
+      "NO_CONTEXT": {
+        "OPENCODE": {
+          "no_context": true
         }
       }
     },
@@ -87,6 +117,12 @@
         "QWEN_CODE": {
           "yolo": true,
           "append_prompt": "\n\n=== TASK COMPLETION REQUIREMENTS ===\n1. Work on ONE feature at a time\n2. For web apps: TEST IN BROWSER\n3. Create/update .vk_progress.md with status\n4. Commit before ending, document incomplete work"
+        }
+      },
+      "NO_CONTEXT": {
+        "QWEN_CODE": {
+          "no_context": true,
+          "yolo": true
         }
       }
     },
@@ -127,6 +163,13 @@
           "force": true,
           "model": "grok"
         }
+      },
+      "NO_CONTEXT": {
+        "CURSOR_AGENT": {
+          "no_context": true,
+          "force": true,
+          "model": "auto"
+        }
       }
     },
     "COPILOT": {
@@ -152,6 +195,12 @@
         "COPILOT": {
           "allow_all_tools": true,
           "model": "claude-sonnet-4"
+        }
+      },
+      "NO_CONTEXT": {
+        "COPILOT": {
+          "no_context": true,
+          "allow_all_tools": true
         }
       }
     },
@@ -202,6 +251,12 @@
         "DROID": {
           "autonomy": "skip-permissions-unsafe",
           "model": "glm-4.6"
+        }
+      },
+      "NO_CONTEXT": {
+        "DROID": {
+          "no_context": true,
+          "autonomy": "skip-permissions-unsafe"
         }
       }
     }

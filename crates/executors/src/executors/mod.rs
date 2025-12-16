@@ -167,6 +167,22 @@ impl CodingAgent {
             Self::Opencode(_) | Self::Copilot(_) => vec![],
         }
     }
+
+    /// Returns true if this executor should start fresh without context on each turn.
+    /// When true, follow-up requests will not carry conversation history from previous turns.
+    pub fn no_context(&self) -> bool {
+        match self {
+            Self::ClaudeCode(c) => c.no_context.unwrap_or(false),
+            Self::Amp(c) => c.no_context.unwrap_or(false),
+            Self::Gemini(c) => c.no_context.unwrap_or(false),
+            Self::Codex(c) => c.no_context.unwrap_or(false),
+            Self::Opencode(c) => c.no_context.unwrap_or(false),
+            Self::CursorAgent(c) => c.no_context.unwrap_or(false),
+            Self::QwenCode(c) => c.no_context.unwrap_or(false),
+            Self::Copilot(c) => c.no_context.unwrap_or(false),
+            Self::Droid(c) => c.no_context.unwrap_or(false),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
