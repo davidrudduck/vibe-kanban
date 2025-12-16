@@ -46,6 +46,19 @@ use crate::{
     ws_util::{WsKeepAlive, run_ws_stream},
 };
 
+/// Format display name from first/last name fields
+fn format_user_display_name(
+    first_name: Option<&String>,
+    last_name: Option<&String>,
+) -> Option<String> {
+    match (first_name, last_name) {
+        (Some(f), Some(l)) => Some(format!("{} {}", f, l)),
+        (Some(f), None) => Some(f.clone()),
+        (None, Some(l)) => Some(l.clone()),
+        (None, None) => None,
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TaskQuery {
     pub project_id: Uuid,
@@ -214,12 +227,7 @@ async fn create_remote_task(
     let assignee_name = response
         .user
         .as_ref()
-        .map(|u| match (&u.first_name, &u.last_name) {
-            (Some(f), Some(l)) => format!("{} {}", f, l),
-            (Some(f), None) => f.clone(),
-            (None, Some(l)) => l.clone(),
-            (None, None) => String::new(),
-        });
+        .and_then(|u| format_user_display_name(u.first_name.as_ref(), u.last_name.as_ref()));
 
     // Upsert as remote task locally
     let pool = &deployment.db().pool;
@@ -481,12 +489,7 @@ async fn update_remote_task(
     let assignee_name = response
         .user
         .as_ref()
-        .map(|u| match (&u.first_name, &u.last_name) {
-            (Some(f), Some(l)) => format!("{} {}", f, l),
-            (Some(f), None) => f.clone(),
-            (None, Some(l)) => l.clone(),
-            (None, None) => String::new(),
-        });
+        .and_then(|u| format_user_display_name(u.first_name.as_ref(), u.last_name.as_ref()));
 
     // Upsert updated remote task locally
     let pool = &deployment.db().pool;
