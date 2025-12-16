@@ -554,6 +554,7 @@ impl Project {
                 ON CONFLICT(remote_project_id) WHERE remote_project_id IS NOT NULL DO UPDATE SET
                     name = excluded.name,
                     git_repo_path = excluded.git_repo_path,
+                    source_node_id = excluded.source_node_id,
                     source_node_name = excluded.source_node_name,
                     source_node_public_url = excluded.source_node_public_url,
                     source_node_status = excluded.source_node_status,
