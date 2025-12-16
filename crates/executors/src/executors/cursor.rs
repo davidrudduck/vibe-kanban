@@ -36,6 +36,8 @@ pub struct CursorAgent {
     #[serde(default)]
     pub append_prompt: AppendPrompt,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub no_context: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Force allow commands unless explicitly denied")]
     pub force: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1202,6 +1204,7 @@ mod tests {
             append_prompt: AppendPrompt::default(),
             force: None,
             model: None,
+            no_context: None,
             cmd: Default::default(),
         };
         let msg_store = Arc::new(MsgStore::new());

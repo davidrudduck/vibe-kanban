@@ -11,6 +11,12 @@
       "format": "textarea",
       "default": null
     },
+    "no_context": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
     "autonomy": {
       "title": "Autonomy Level",
       "description": "Permission level for file and system operations",
