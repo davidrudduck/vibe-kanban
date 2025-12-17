@@ -24,6 +24,7 @@ import { Loader2, Folder } from 'lucide-react';
 import { useProjects } from '@/hooks/useProjects';
 import { useProjectMutations } from '@/hooks/useProjectMutations';
 import { useScriptPlaceholders } from '@/hooks/useScriptPlaceholders';
+import { useFeedback } from '@/hooks/useFeedback';
 import { CopyFilesField } from '@/components/projects/CopyFilesField';
 import { ConfigSuggestions } from '@/components/projects/ConfigSuggestions';
 import { AutoExpandingTextarea } from '@/components/ui/auto-expanding-textarea';
@@ -72,7 +73,7 @@ export function ProjectSettings() {
   const [draft, setDraft] = useState<ProjectFormState | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+  const { success, showSuccess, clearSuccess } = useFeedback();
 
   // Get OS-appropriate script placeholders
   const placeholders = useScriptPlaceholders();
@@ -99,7 +100,7 @@ export function ProjectSettings() {
         // Clear local state before switching
         setDraft(null);
         setSelectedProject(null);
-        setSuccess(false);
+        clearSuccess();
         setError(null);
       }
 
@@ -136,7 +137,7 @@ export function ProjectSettings() {
       // Clear local state before switching
       setDraft(null);
       setSelectedProject(null);
-      setSuccess(false);
+      clearSuccess();
       setError(null);
     }
 
@@ -188,8 +189,7 @@ export function ProjectSettings() {
       // Update local state with fresh data from server
       setSelectedProject(updatedProject);
       setDraft(projectToFormState(updatedProject));
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
+      showSuccess();
       setSaving(false);
     },
     onUpdateError: (err) => {
@@ -205,7 +205,7 @@ export function ProjectSettings() {
 
     setSaving(true);
     setError(null);
-    setSuccess(false);
+    clearSuccess();
 
     try {
       const updateData: UpdateProject = {

@@ -24,6 +24,7 @@ import { Loader2 } from 'lucide-react';
 import { ExecutorConfigForm } from '@/components/ExecutorConfigForm';
 import { useProfiles } from '@/hooks/useProfiles';
 import { useUserSystem } from '@/components/ConfigProvider';
+import { useFeedback } from '@/hooks/useFeedback';
 import { CreateConfigurationDialog } from '@/components/dialogs/settings/CreateConfigurationDialog';
 import { DeleteConfigurationDialog } from '@/components/dialogs/settings/DeleteConfigurationDialog';
 import type { BaseCodingAgent, ExecutorConfigs } from 'shared/types';
@@ -46,7 +47,8 @@ export function AgentSettings() {
 
   // Local editor state (draft that may differ from server)
   const [localProfilesContent, setLocalProfilesContent] = useState('');
-  const [profilesSuccess, setProfilesSuccess] = useState(false);
+  const { success: profilesSuccess, showSuccess: showProfilesSuccess } =
+    useFeedback();
   const [saveError, setSaveError] = useState<string | null>(null);
 
   // Form-based editor state
@@ -220,8 +222,7 @@ export function AgentSettings() {
         setSelectedConfiguration(nextSelected);
 
         // Show success
-        setProfilesSuccess(true);
-        setTimeout(() => setProfilesSuccess(false), 3000);
+        showProfilesSuccess();
 
         // Refresh global system so deleted configs are removed elsewhere
         reloadSystem();
@@ -261,9 +262,8 @@ export function AgentSettings() {
           : localProfilesContent;
 
       await saveProfiles(contentToSave);
-      setProfilesSuccess(true);
+      showProfilesSuccess();
       setIsDirty(false);
-      setTimeout(() => setProfilesSuccess(false), 3000);
 
       // Update the local content if using form editor
       if (useFormEditor && localParsedProfiles) {
@@ -332,9 +332,8 @@ export function AgentSettings() {
       const contentToSave = JSON.stringify(updatedProfiles, null, 2);
 
       await saveProfiles(contentToSave);
-      setProfilesSuccess(true);
+      showProfilesSuccess();
       setIsDirty(false);
-      setTimeout(() => setProfilesSuccess(false), 3000);
 
       // Update the local content as well
       setLocalProfilesContent(contentToSave);
