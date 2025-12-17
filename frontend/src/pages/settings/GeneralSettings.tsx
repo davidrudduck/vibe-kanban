@@ -44,6 +44,7 @@ import { useAgentAvailability } from '@/hooks/useAgentAvailability';
 import { AgentAvailabilityIndicator } from '@/components/AgentAvailabilityIndicator';
 import { useTheme } from '@/components/ThemeProvider';
 import { useUserSystem } from '@/components/ConfigProvider';
+import { useFeedback } from '@/hooks/useFeedback';
 import { TagManager } from '@/components/TagManager';
 
 export function GeneralSettings() {
@@ -69,7 +70,7 @@ export function GeneralSettings() {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+  const { success, showSuccess } = useFeedback();
   const [branchPrefixError, setBranchPrefixError] = useState<string | null>(
     null
   );
@@ -163,14 +164,12 @@ export function GeneralSettings() {
 
     setSaving(true);
     setError(null);
-    setSuccess(false);
 
     try {
       await updateAndSaveConfig(draft); // Atomically apply + persist
       setTheme(draft.theme);
       setDirty(false);
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
+      showSuccess();
     } catch (err) {
       setError(t('settings.general.save.error'));
       console.error('Error saving config:', err);

@@ -336,11 +336,7 @@ export function ProjectTasks() {
     [searchParams, setSearchParams]
   );
 
-  const handleCreateNewTask = useCallback(() => {
-    handleCreateTask();
-  }, [handleCreateTask]);
-
-  useKeyCreate(handleCreateNewTask, {
+  useKeyCreate(handleCreateTask, {
     scope: Scope.KANBAN,
     preventDefault: true,
   });
@@ -871,7 +867,7 @@ export function ProjectTasks() {
         <Card>
           <CardContent className="text-center py-8">
             <p className="text-muted-foreground">{t('empty.noTasks')}</p>
-            <Button className="mt-4" onClick={handleCreateNewTask}>
+            <Button className="mt-4" onClick={handleCreateTask}>
               <Plus className="h-4 w-4 mr-2" />
               {t('empty.createFirst')}
             </Button>
@@ -897,7 +893,7 @@ export function ProjectTasks() {
           onViewSharedTask={handleViewSharedTask}
           selectedTaskId={selectedTask?.id}
           selectedSharedTaskId={selectedSharedTaskId}
-          onCreateTask={handleCreateNewTask}
+          onCreateTask={handleCreateTask}
           projectId={projectId!}
         />
       </div>
