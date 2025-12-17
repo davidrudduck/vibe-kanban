@@ -57,6 +57,15 @@
     "error": "ダッシュボードの読み込みに失敗しました"
   },
   "sections": {
-    "local": "ローカルプロジェクト"
+    "local": "ローカルプロジェクト",
+    "allProjects": "すべてのプロジェクト"
+  },
+  "linkToLocalFolder": "ローカルフォルダにリンク",
+  "sort": {
+    "label": "並び替え",
+    "nameAsc": "A → Z",
+    "nameDesc": "Z → A",
+    "recentActivity": "最近のアクティビティ",
+    "oldestActivity": "古いアクティビティ"
   }
 }
