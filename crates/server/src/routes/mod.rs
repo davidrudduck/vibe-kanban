@@ -7,6 +7,7 @@ use crate::DeploymentImpl;
 
 pub mod all_tasks;
 pub mod approvals;
+pub mod backups;
 pub mod config;
 pub mod containers;
 pub mod dashboard;
@@ -48,6 +49,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(filesystem::router())
         .merge(events::router(&deployment))
         .merge(approvals::router())
+        .merge(backups::router())
         .nest("/images", images::routes())
         .with_state(deployment);
 

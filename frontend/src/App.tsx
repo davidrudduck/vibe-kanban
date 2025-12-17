@@ -13,6 +13,7 @@ import { useAuth } from '@/hooks';
 
 import {
   AgentSettings,
+  BackupSettings,
   GeneralSettings,
   McpSettings,
   OrganizationSettings,
@@ -159,6 +160,7 @@ function AppContent() {
                   />
                   <Route path="agents" element={<AgentSettings />} />
                   <Route path="mcp" element={<McpSettings />} />
+                  <Route path="backups" element={<BackupSettings />} />
                 </Route>
                 <Route
                   path="/mcp-servers"

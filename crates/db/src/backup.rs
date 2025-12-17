@@ -5,8 +5,23 @@
 
 use std::path::Path;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
+use ts_rs::TS;
+
+/// Information about a database backup file.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct BackupInfo {
+    /// Filename of the backup (e.g., "db_backup_20250101_100000.sqlite")
+    pub filename: String,
+    /// When the backup was created
+    #[ts(type = "Date")]
+    pub created_at: DateTime<Utc>,
+    /// Size of the backup file in bytes
+    pub size_bytes: u64,
+}
 
 /// Number of backups to retain (older ones are automatically deleted)
 const DEFAULT_BACKUP_RETENTION: usize = 5;
@@ -124,6 +139,46 @@ impl BackupService {
 
         Ok(())
     }
+
+    /// List all available backup files, sorted by modification time (newest first).
+    ///
+    /// Returns information about each backup including filename, creation time, and size.
+    pub fn list_backups(db_path: &Path) -> Result<Vec<BackupInfo>, std::io::Error> {
+        let backup_dir = db_path
+            .parent()
+            .ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid database path")
+            })?
+            .join("backups");
+
+        if !backup_dir.exists() {
+            return Ok(vec![]);
+        }
+
+        let mut backups: Vec<BackupInfo> = std::fs::read_dir(&backup_dir)?
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let path = e.path();
+                path.extension().is_some_and(|ext| ext == "sqlite")
+                    && path
+                        .file_name()
+                        .is_some_and(|n| n.to_string_lossy().starts_with("db_backup_"))
+            })
+            .filter_map(|e| {
+                let meta = e.metadata().ok()?;
+                Some(BackupInfo {
+                    filename: e.file_name().to_string_lossy().to_string(),
+                    created_at: DateTime::from(meta.modified().ok()?),
+                    size_bytes: meta.len(),
+                })
+            })
+            .collect();
+
+        // Sort by created_at descending (newest first)
+        backups.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+        Ok(backups)
+    }
 }
 
 #[cfg(test)]
@@ -181,5 +236,68 @@ mod tests {
             .collect();
 
         assert_eq!(remaining.len(), 3);
+    }
+
+    #[test]
+    fn test_list_backups_empty() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.sqlite");
+
+        // No backup directory exists yet
+        let result = BackupService::list_backups(&db_path).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_list_backups_sorted_newest_first() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.sqlite");
+        let backup_dir = temp_dir.path().join("backups");
+        std::fs::create_dir_all(&backup_dir).unwrap();
+
+        // Create backup files with different timestamps
+        std::fs::write(
+            backup_dir.join("db_backup_20250101_100000.sqlite"),
+            "old backup",
+        )
+        .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::fs::write(
+            backup_dir.join("db_backup_20250102_100000.sqlite"),
+            "new backup",
+        )
+        .unwrap();
+
+        let result = BackupService::list_backups(&db_path).unwrap();
+
+        assert_eq!(result.len(), 2);
+        // Newest first (sorted by modification time)
+        assert!(result[0].filename.contains("20250102"));
+        assert!(result[1].filename.contains("20250101"));
+    }
+
+    #[test]
+    fn test_list_backups_ignores_non_backup_files() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.sqlite");
+        let backup_dir = temp_dir.path().join("backups");
+        std::fs::create_dir_all(&backup_dir).unwrap();
+
+        // Create a valid backup file
+        std::fs::write(
+            backup_dir.join("db_backup_20250101_100000.sqlite"),
+            "valid backup",
+        )
+        .unwrap();
+
+        // Create files that should be ignored
+        std::fs::write(backup_dir.join("random_file.sqlite"), "random").unwrap();
+        std::fs::write(backup_dir.join("db_backup_20250101_100000.txt"), "wrong ext").unwrap();
+        std::fs::write(backup_dir.join("other.db"), "other").unwrap();
+
+        let result = BackupService::list_backups(&db_path).unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert!(result[0].filename.contains("db_backup_"));
     }
 }

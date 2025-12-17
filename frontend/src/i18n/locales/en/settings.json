@@ -12,8 +12,35 @@
         "mcp": "MCP Servers",
         "mcpDesc": "Model Context Protocol servers",
         "organizations": "Organization Settings",
-        "organizationsDesc": "Manage organization members and permissions"
+        "organizationsDesc": "Manage organization members and permissions",
+        "backups": "Backups",
+        "backupsDesc": "Database backup management"
       }
+    },
+    "backups": {
+      "title": "Database Backups",
+      "description": "Create, restore, and manage database backups",
+      "loading": "Loading backups...",
+      "loadError": "Failed to load backups.",
+      "noBackups": "No backups found",
+      "table": {
+        "filename": "Filename",
+        "created": "Created",
+        "size": "Size",
+        "actions": "Actions"
+      },
+      "actions": {
+        "create": "Create Backup",
+        "upload": "Upload",
+        "download": "Download",
+        "delete": "Delete",
+        "restore": "Restore"
+      },
+      "createSuccess": "Backup created",
+      "deleteSuccess": "Backup deleted",
+      "restoreSuccess": "You must restart the application for the database restore to finalise.",
+      "confirmDelete": "Delete this backup?",
+      "confirmRestore": "This will replace your database. A backup will be created first. Continue?"
     },
     "general": {
       "loading": "Loading settings...",

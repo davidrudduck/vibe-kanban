@@ -7,6 +7,7 @@ import {
   ApiResponse,
   ArchiveTaskRequest,
   ArchiveTaskResponse,
+  BackupInfo,
   BranchStatus,
   Config,
   CommitInfo,
@@ -1317,6 +1318,17 @@ export const nodesApi = {
       method: 'DELETE',
     });
     return handleApiResponse<void>(response);
+  },
+};
+
+// === Backups API ===
+export const backupsApi = {
+  /**
+   * List all available database backups, sorted newest first.
+   */
+  list: async (): Promise<BackupInfo[]> => {
+    const response = await makeRequest('/api/backups');
+    return handleApiResponse<BackupInfo[]>(response);
   },
 };
 

@@ -584,6 +584,20 @@ export type Draft = { id: string, task_attempt_id: string, draft_type: DraftType
 
 export type DraftType = "follow_up" | "retry";
 
+export type BackupInfo = { 
+/**
+ * Filename of the backup (e.g., "db_backup_20250101_100000.sqlite")
+ */
+filename: string, 
+/**
+ * When the backup was created
+ */
+created_at: Date, 
+/**
+ * Size of the backup file in bytes
+ */
+size_bytes: bigint, };
+
 export type CommandExitStatus = { "type": "exit_code", code: number, } | { "type": "success", success: boolean, };
 
 export type CommandRunResult = { exit_status: CommandExitStatus | null, output: string | null, };
