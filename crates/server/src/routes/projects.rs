@@ -87,6 +87,18 @@ pub struct CreateRemoteProjectRequest {
     pub name: String,
 }
 
+/// Request to link a local folder to a remote project
+/// This creates a new local project at the specified path and links it to the remote project
+#[derive(Deserialize, TS)]
+pub struct LinkToLocalFolderRequest {
+    /// The remote project ID to link to (from the Hive)
+    pub remote_project_id: Uuid,
+    /// The local folder path where the project will be created
+    pub local_folder_path: String,
+    /// Optional project name (defaults to folder name if not provided)
+    pub project_name: Option<String>,
+}
+
 /// A project in the unified view - can be local or from another node
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(tag = "type")]
@@ -514,6 +526,111 @@ pub async fn create_and_link_remote_project(
 
     let updated_project =
         apply_remote_project_link(&deployment, project_id, remote_project).await?;
+
+    Ok(ResponseJson(ApiResponse::success(updated_project)))
+}
+
+/// Create a new local project at a specified folder path and link it to a remote project.
+/// This is used when a user wants to link a remote-only project to a local folder.
+pub async fn link_to_local_folder(
+    State(deployment): State<DeploymentImpl>,
+    Json(payload): Json<LinkToLocalFolderRequest>,
+) -> Result<ResponseJson<ApiResponse<Project>>, ApiError> {
+    let pool = &deployment.db().pool;
+
+    // Validate and expand the path
+    let path = std::path::absolute(expand_tilde(&payload.local_folder_path))?;
+
+    // Check if a project with this path already exists
+    if let Some(existing) =
+        Project::find_by_git_repo_path(pool, path.to_string_lossy().as_ref()).await?
+    {
+        // Project already exists at this path - just link it to the remote project
+        let client = deployment.remote_client()?;
+        let remote_project = client.get_project(payload.remote_project_id).await?;
+        let updated_project =
+            apply_remote_project_link(&deployment, existing.id, remote_project).await?;
+        return Ok(ResponseJson(ApiResponse::success(updated_project)));
+    }
+
+    // Validate that the path exists and is a git repository
+    if !path.exists() {
+        return Ok(ResponseJson(ApiResponse::error(
+            "The specified path does not exist",
+        )));
+    }
+
+    if !path.is_dir() {
+        return Ok(ResponseJson(ApiResponse::error(
+            "The specified path is not a directory",
+        )));
+    }
+
+    if !path.join(".git").exists() {
+        return Ok(ResponseJson(ApiResponse::error(
+            "The specified directory is not a git repository",
+        )));
+    }
+
+    // Ensure existing repo has a main branch if it's empty
+    if let Err(e) = deployment.git().ensure_main_branch_exists(&path) {
+        tracing::error!("Failed to ensure main branch exists: {}", e);
+        return Ok(ResponseJson(ApiResponse::error(&format!(
+            "Failed to ensure main branch exists: {}",
+            e
+        ))));
+    }
+
+    // Get the project name - use provided name or derive from folder name
+    let project_name = payload.project_name.unwrap_or_else(|| {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("Untitled Project")
+            .to_string()
+    });
+
+    // Create the local project
+    let project_id = Uuid::new_v4();
+    let create_data = CreateProject {
+        name: project_name.clone(),
+        git_repo_path: path.to_string_lossy().to_string(),
+        use_existing_repo: true,
+        setup_script: None,
+        dev_script: None,
+        cleanup_script: None,
+        copy_files: None,
+    };
+
+    let project = match Project::create(pool, &create_data, project_id).await {
+        Ok(p) => p,
+        Err(e) => {
+            return Err(ProjectError::CreateFailed(e.to_string()).into());
+        }
+    };
+
+    // Now link it to the remote project
+    let client = deployment.remote_client()?;
+    let remote_project = client.get_project(payload.remote_project_id).await?;
+    let updated_project = apply_remote_project_link(&deployment, project.id, remote_project).await?;
+
+    // Track the event
+    deployment
+        .track_if_analytics_allowed(
+            "project_created_and_linked_to_remote",
+            serde_json::json!({
+                "project_id": updated_project.id.to_string(),
+                "remote_project_id": payload.remote_project_id.to_string(),
+                "trigger": "link_to_local_folder",
+            }),
+        )
+        .await;
+
+    tracing::info!(
+        project_id = %updated_project.id,
+        remote_project_id = %payload.remote_project_id,
+        path = %path.display(),
+        "Created local project and linked to remote"
+    );
 
     Ok(ResponseJson(ApiResponse::success(updated_project)))
 }
@@ -1463,6 +1580,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let projects_router = Router::new()
         .route("/", get(get_projects).post(create_project))
         .route("/scan-config", post(scan_project_config))
+        .route("/link-local", post(link_to_local_folder))
         .nest("/{id}", project_id_router)
         .merge(project_files_router)
         .nest("/by-remote-id/{remote_project_id}", by_remote_id_router)

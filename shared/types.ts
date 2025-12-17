@@ -58,6 +58,20 @@ export type CreateRemoteProjectRequest = { organization_id: string, name: string
 
 export type LinkToExistingRequest = { remote_project_id: string, };
 
+export type LinkToLocalFolderRequest = { 
+/**
+ * The remote project ID to link to (from the Hive)
+ */
+remote_project_id: string, 
+/**
+ * The local folder path where the project will be created
+ */
+local_folder_path: string, 
+/**
+ * Optional project name (defaults to folder name if not provided)
+ */
+project_name: string | null, };
+
 export type UnifiedProject = { "type": "local" } & Project | { "type": "remote" } & RemoteNodeProject;
 
 export type RemoteNodeProject = { 

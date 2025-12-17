@@ -30,6 +30,7 @@ import { useEffect, useRef } from 'react';
 import { useNavigateWithSearch } from '@/hooks';
 import { projectsApi } from '@/lib/api';
 import { LinkProjectDialog } from '@/components/dialogs/projects/LinkProjectDialog';
+import { LinkToLocalFolderDialog } from '@/components/dialogs/projects/LinkToLocalFolderDialog';
 import { useTranslation } from 'react-i18next';
 import { useProjectMutations } from '@/hooks/useProjectMutations';
 import { ProjectEditorSelectionDialog } from '@/components/dialogs/projects/ProjectEditorSelectionDialog';
@@ -271,12 +272,21 @@ function UnifiedProjectCard({ project, isFocused, onRefresh, onEdit }: Props) {
                 )}
 
                 {/* Remote-only project actions */}
-                {!project.has_local && (
+                {!project.has_local && project.remote_project_id && (
                   <DropdownMenuItem
-                    onClick={(e) => {
+                    onClick={async (e) => {
                       e.stopPropagation();
-                      // TODO: Session 4 - Link to Local Folder dialog
-                      console.log('Link to Local Folder - to be implemented');
+                      try {
+                        const result = await LinkToLocalFolderDialog.show({
+                          remoteProjectId: project.remote_project_id!,
+                          projectName: project.name,
+                        });
+                        if (result.action === 'linked') {
+                          onRefresh();
+                        }
+                      } catch (error) {
+                        console.error('Failed to link to local folder:', error);
+                      }
                     }}
                   >
                     <Link2 className="mr-2 h-4 w-4" />
