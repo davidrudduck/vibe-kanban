@@ -49,6 +49,10 @@ export interface UseProjectTasksResult {
   updateTaskStatusOptimistically: (taskId: string, status: TaskStatus) => void;
 }
 
+export interface UseProjectTasksOptions {
+  includeArchived?: boolean;
+}
+
 /**
  * Stream tasks for a project via WebSocket (JSON Patch) and expose as array + map.
  * Server sends initial snapshot: replace /tasks with an object keyed by id.
@@ -58,9 +62,13 @@ export interface UseProjectTasksResult {
  * from the database using project_id. This avoids a race condition where
  * ProjectContext loads late, causing endpoint changes and WebSocket reconnection.
  */
-export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
+export const useProjectTasks = (
+  projectId: string,
+  options: UseProjectTasksOptions = {}
+): UseProjectTasksResult => {
+  const { includeArchived = false } = options;
   const endpoint = projectId
-    ? `/api/tasks/stream/ws?project_id=${encodeURIComponent(projectId)}`
+    ? `/api/tasks/stream/ws?project_id=${encodeURIComponent(projectId)}&include_archived=${includeArchived}`
     : undefined;
 
   const initialData = useCallback(

@@ -4,7 +4,12 @@
   },
   "filters": {
     "sharedToggleAria": "共有タスクを切り替える",
-    "sharedToggleTooltip": "共有コンテンツを表示/非表示"
+    "sharedToggleTooltip": "共有コンテンツを表示/非表示",
+    "archivedToggleAria": "アーカイブタスクを切り替える",
+    "archivedToggleTooltip": "アーカイブタスクを表示/非表示"
+  },
+  "badges": {
+    "archived": "アーカイブ済み"
   },
   "actionsMenu": {
     "attempt": "Attempt",
@@ -13,6 +18,8 @@
     "share": "タスクを共有",
     "reassign": "再割り当て",
     "stopShare": "共有を停止",
+    "archive": "アーカイブ",
+    "unarchive": "アーカイブ解除",
     "duplicate": "Duplicate",
     "editBranchName": "ブランチ名を編集",
     "gitActions": "Gitアクション",
@@ -21,6 +28,15 @@
     "viewProcesses": "View processes",
     "viewRelatedTasks": "View related tasks",
     "remoteTaskCannotExecute": "リモートタスクは元のノードで実行されます"
+  },
+  "archiveDialog": {
+    "title": "タスクをアーカイブ",
+    "description": "「{{title}}」をアーカイブしますか？",
+    "info": "ワークツリーをクリーンアップしてディスク容量を解放します。タスクデータは保持され、後でアーカイブ解除できます。",
+    "includeSubtasks": "{{count}}個のサブタスクもアーカイブ",
+    "archiving": "アーカイブ中...",
+    "confirm": "タスクをアーカイブ",
+    "genericError": "タスクをアーカイブできませんでした。もう一度お試しください。"
   },
   "remoteTask": "リモートタスク",
   "editBranchName": {
