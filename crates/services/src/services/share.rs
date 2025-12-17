@@ -810,7 +810,9 @@ pub async fn share_existing_tasks_to_hive(
     user_id: Option<Uuid>,
 ) -> Result<usize, ShareError> {
     // Get all tasks for this project that haven't been shared yet
-    let tasks_with_status = Task::find_by_project_id_with_attempt_status(pool, project_id).await?;
+    // Don't share archived tasks to the Hive
+    let tasks_with_status =
+        Task::find_by_project_id_with_attempt_status(pool, project_id, false).await?;
 
     let mut shared_count = 0;
     for task_with_status in tasks_with_status {

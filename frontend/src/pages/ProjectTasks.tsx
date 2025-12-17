@@ -50,6 +50,7 @@ import type { DragEndEvent } from '@/components/ui/shadcn-io/kanban';
 import {
   useProjectTasks,
   type SharedTaskRecord,
+  type UseProjectTasksOptions,
 } from '@/hooks/useProjectTasks';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useHotkeysContext } from 'react-hotkeys-hook';
@@ -175,6 +176,13 @@ export function ProjectTasks() {
   }, [projectId]);
   const { query: searchQuery, focusInput } = useSearch();
 
+  // Filter state from URL params
+  const showArchived = searchParams.get('archived') === 'on';
+  const projectTasksOptions: UseProjectTasksOptions = useMemo(
+    () => ({ includeArchived: showArchived }),
+    [showArchived]
+  );
+
   const {
     tasks,
     tasksById,
@@ -184,7 +192,7 @@ export function ProjectTasks() {
     error: streamError,
     addTaskOptimistically,
     updateTaskStatusOptimistically,
-  } = useProjectTasks(projectId || '');
+  } = useProjectTasks(projectId || '', projectTasksOptions);
 
   const selectedTask = useMemo(
     () => (taskId ? (tasksById[taskId] ?? null) : null),

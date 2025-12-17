@@ -11,6 +11,7 @@ import {
 import { MoreHorizontal } from 'lucide-react';
 import type { TaskWithAttemptStatus, TaskAttempt } from 'shared/types';
 import { useOpenInEditor } from '@/hooks/useOpenInEditor';
+import { ArchiveTaskConfirmationDialog } from '@/components/dialogs/tasks/ArchiveTaskConfirmationDialog';
 import { DeleteTaskConfirmationDialog } from '@/components/dialogs/tasks/DeleteTaskConfirmationDialog';
 import { ViewProcessesDialog } from '@/components/dialogs/tasks/ViewProcessesDialog';
 import { ViewRelatedTasksDialog } from '@/components/dialogs/tasks/ViewRelatedTasksDialog';
@@ -26,6 +27,8 @@ import { openTaskForm } from '@/lib/openTaskForm';
 import { useNavigate } from 'react-router-dom';
 import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
 import { useAuth } from '@/hooks';
+import { tasksApi } from '@/lib/api';
+import { useState } from 'react';
 
 interface ActionsDropdownProps {
   task?: TaskWithAttemptStatus | null;
@@ -160,6 +163,34 @@ export function ActionsDropdown({
     StopShareTaskDialog.show({ sharedTask });
   };
 
+  const [isUnarchiving, setIsUnarchiving] = useState(false);
+
+  const handleArchive = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!projectId || !task) return;
+    try {
+      await ArchiveTaskConfirmationDialog.show({
+        task,
+        projectId,
+      });
+    } catch {
+      // User cancelled or error occurred
+    }
+  };
+
+  const handleUnarchive = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!task || isUnarchiving) return;
+    setIsUnarchiving(true);
+    try {
+      await tasksApi.unarchive(task.id);
+    } catch (err) {
+      console.error('Failed to unarchive task:', err);
+    } finally {
+      setIsUnarchiving(false);
+    }
+  };
+
   const isAssignee = sharedTask?.assignee_user_id === userId;
   const isRemoteAssignee = task?.remote_assignee_user_id === userId;
 
@@ -285,6 +316,32 @@ export function ActionsDropdown({
                 {t('actionsMenu.stopShare')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              {!task?.archived_at && (
+                <DropdownMenuItem
+                  disabled={!projectId || !canModifyTask || isRemote}
+                  onClick={handleArchive}
+                  title={
+                    isRemote
+                      ? t('actionsMenu.remoteTaskCannotExecute')
+                      : undefined
+                  }
+                >
+                  {t('actionsMenu.archive')}
+                </DropdownMenuItem>
+              )}
+              {task?.archived_at && (
+                <DropdownMenuItem
+                  disabled={!canModifyTask || isRemote || isUnarchiving}
+                  onClick={handleUnarchive}
+                  title={
+                    isRemote
+                      ? t('actionsMenu.remoteTaskCannotExecute')
+                      : undefined
+                  }
+                >
+                  {t('actionsMenu.unarchive')}
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 disabled={!projectId || !canModifyTask}
                 onClick={handleEdit}

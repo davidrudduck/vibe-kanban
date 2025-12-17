@@ -5,6 +5,8 @@ import {
   AllTasksResponse,
   ApprovalStatus,
   ApiResponse,
+  ArchiveTaskRequest,
+  ArchiveTaskResponse,
   BranchStatus,
   Config,
   CommitInfo,
@@ -496,6 +498,32 @@ export const tasksApi = {
       `/api/tasks/${taskId}/stream-connection-info`
     );
     return handleApiResponse<TaskStreamConnectionInfoResponse>(response);
+  },
+
+  /** Archive a task (and optionally its subtasks). Cleans up worktrees. */
+  archive: async (
+    taskId: string,
+    data: ArchiveTaskRequest
+  ): Promise<ArchiveTaskResponse> => {
+    const response = await makeRequest(`/api/tasks/${taskId}/archive`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    return handleApiResponse<ArchiveTaskResponse>(response);
+  },
+
+  /** Unarchive a previously archived task. */
+  unarchive: async (taskId: string): Promise<Task> => {
+    const response = await makeRequest(`/api/tasks/${taskId}/unarchive`, {
+      method: 'POST',
+    });
+    return handleApiResponse<Task>(response);
+  },
+
+  /** Get child tasks (subtasks) of a task. Used for archive confirmation dialog. */
+  getChildren: async (taskId: string): Promise<Task[]> => {
+    const response = await makeRequest(`/api/tasks/${taskId}/children`);
+    return handleApiResponse<Task[]>(response);
   },
 };
 
