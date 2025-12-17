@@ -1,15 +1,25 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { KanbanCard } from '@/components/ui/shadcn-io/kanban';
-import { CheckCircle, Link, Loader2, Server, User, XCircle } from 'lucide-react';
+import {
+  Archive,
+  CheckCircle,
+  Link,
+  Loader2,
+  Server,
+  User,
+  XCircle,
+} from 'lucide-react';
 import type { TaskWithAttemptStatus } from 'shared/types';
 import { ActionsDropdown } from '@/components/ui/actions-dropdown';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { useNavigateWithSearch, useIsOrgAdmin } from '@/hooks';
 import { paths } from '@/lib/paths';
 import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
 import { TaskCardHeader } from './TaskCardHeader';
 import { useTranslation } from 'react-i18next';
 import { useProject } from '@/contexts/ProjectContext';
+import { cn } from '@/lib/utils';
 
 /**
  * Get short node name from full hostname (e.g., "justX" from "justX.raverx.net")
@@ -52,7 +62,7 @@ export function TaskCard({
       ? [sharedTask.assignee_first_name, sharedTask.assignee_last_name]
           .filter(Boolean)
           .join(' ')
-      : task.remote_assignee_name ?? task.remote_assignee_username ?? null;
+      : (task.remote_assignee_name ?? task.remote_assignee_username ?? null);
 
   // Get short node name from project
   const shortNodeName = getShortNodeName(project?.source_node_name);
@@ -86,6 +96,8 @@ export function TaskCard({
     });
   }, [isOpen]);
 
+  const isArchived = task.archived_at !== null;
+
   return (
     <KanbanCard
       key={task.id}
@@ -96,13 +108,14 @@ export function TaskCard({
       onClick={handleClick}
       isOpen={isOpen}
       forwardedRef={localRef}
-      className={
+      className={cn(
         task.is_remote
           ? 'relative overflow-hidden pl-5 before:absolute before:left-0 before:top-0 before:bottom-0 before:w-[3px] before:bg-purple-400 before:content-[""]'
           : sharedTask
             ? 'relative overflow-hidden pl-5 before:absolute before:left-0 before:top-0 before:bottom-0 before:w-[3px] before:bg-card-foreground before:content-[""]'
-            : undefined
-      }
+            : undefined,
+        isArchived && 'opacity-60'
+      )}
     >
       <div className="flex flex-col gap-2">
         <TaskCardHeader
@@ -117,14 +130,26 @@ export function TaskCard({
               : task.is_remote && task.remote_assignee_name
                 ? {
                     // Parse from remote_assignee_name (e.g., "John Doe")
-                    firstName: task.remote_assignee_name.split(' ')[0] ?? undefined,
-                    lastName: task.remote_assignee_name.split(' ').slice(1).join(' ') || undefined,
+                    firstName:
+                      task.remote_assignee_name.split(' ')[0] ?? undefined,
+                    lastName:
+                      task.remote_assignee_name.split(' ').slice(1).join(' ') ||
+                      undefined,
                     username: task.remote_assignee_username ?? undefined,
                   }
                 : undefined
           }
           right={
             <>
+              {isArchived && (
+                <Badge
+                  variant="secondary"
+                  className="gap-1 px-1.5 py-0.5 text-xs"
+                >
+                  <Archive className="h-3 w-3" />
+                  {t('badges.archived')}
+                </Badge>
+              )}
               {task.has_in_progress_attempt && (
                 <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
               )}
@@ -145,7 +170,11 @@ export function TaskCard({
                   <Link className="h-4 w-4" />
                 </Button>
               )}
-              <ActionsDropdown task={task} sharedTask={sharedTask} isOrgAdmin={isOrgAdmin} />
+              <ActionsDropdown
+                task={task}
+                sharedTask={sharedTask}
+                isOrgAdmin={isOrgAdmin}
+              />
             </>
           }
         />

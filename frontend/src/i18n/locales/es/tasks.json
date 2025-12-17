@@ -4,7 +4,12 @@
   },
   "filters": {
     "sharedToggleAria": "Alternar tareas compartidas",
-    "sharedToggleTooltip": "Mostrar/ocultar contenido compartido"
+    "sharedToggleTooltip": "Mostrar/ocultar contenido compartido",
+    "archivedToggleAria": "Alternar tareas archivadas",
+    "archivedToggleTooltip": "Mostrar/ocultar tareas archivadas"
+  },
+  "badges": {
+    "archived": "Archivado"
   },
   "actionsMenu": {
     "attempt": "Attempt",
@@ -13,6 +18,8 @@
     "share": "Compartir tarea",
     "reassign": "Reasignar",
     "stopShare": "Dejar de compartir",
+    "archive": "Archivar",
+    "unarchive": "Desarchivar",
     "duplicate": "Duplicate",
     "editBranchName": "Editar nombre de rama",
     "gitActions": "Acciones de Git",
@@ -21,6 +28,15 @@
     "viewProcesses": "View processes",
     "viewRelatedTasks": "View related tasks",
     "remoteTaskCannotExecute": "Las tareas remotas se ejecutan en su nodo de origen"
+  },
+  "archiveDialog": {
+    "title": "Archivar Tarea",
+    "description": "¿Archivar \"{{title}}\"?",
+    "info": "Esto limpiará los worktrees para liberar espacio en disco. Los datos de la tarea se conservarán y se pueden desarchivar más tarde.",
+    "includeSubtasks": "También archivar {{count}} subtarea(s)",
+    "archiving": "Archivando...",
+    "confirm": "Archivar Tarea",
+    "genericError": "No se pudo archivar la tarea. Por favor, inténtalo de nuevo."
   },
   "remoteTask": "Tarea remota",
   "editBranchName": {
