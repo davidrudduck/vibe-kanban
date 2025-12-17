@@ -4,7 +4,12 @@
   },
   "filters": {
     "sharedToggleAria": "공유 작업 전환",
-    "sharedToggleTooltip": "공유 콘텐츠 표시/숨기기"
+    "sharedToggleTooltip": "공유 콘텐츠 표시/숨기기",
+    "archivedToggleAria": "아카이브된 작업 전환",
+    "archivedToggleTooltip": "아카이브된 작업 표시/숨기기"
+  },
+  "badges": {
+    "archived": "아카이브됨"
   },
   "actionsMenu": {
     "attempt": "Attempt",
@@ -13,6 +18,8 @@
     "share": "작업 공유",
     "reassign": "재할당",
     "stopShare": "공유 중지",
+    "archive": "아카이브",
+    "unarchive": "아카이브 해제",
     "duplicate": "Duplicate",
     "editBranchName": "브랜치 이름 편집",
     "gitActions": "Git 작업",
@@ -21,6 +28,15 @@
     "viewProcesses": "View processes",
     "viewRelatedTasks": "View related tasks",
     "remoteTaskCannotExecute": "원격 작업은 원본 노드에서 실행됩니다"
+  },
+  "archiveDialog": {
+    "title": "작업 아카이브",
+    "description": "\"{{title}}\"을(를) 아카이브하시겠습니까?",
+    "info": "워크트리를 정리하여 디스크 공간을 확보합니다. 작업 데이터는 보존되며 나중에 아카이브를 해제할 수 있습니다.",
+    "includeSubtasks": "{{count}}개의 하위 작업도 아카이브",
+    "archiving": "아카이브 중...",
+    "confirm": "작업 아카이브",
+    "genericError": "작업을 아카이브하지 못했습니다. 다시 시도해 주세요."
   },
   "remoteTask": "원격 작업",
   "editBranchName": {

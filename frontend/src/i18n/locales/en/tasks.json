@@ -10,7 +10,12 @@
   },
   "filters": {
     "sharedToggleAria": "Toggle shared tasks",
-    "sharedToggleTooltip": "Show/hide shared content"
+    "sharedToggleTooltip": "Show/hide shared content",
+    "archivedToggleAria": "Toggle archived tasks",
+    "archivedToggleTooltip": "Show/hide archived tasks"
+  },
+  "badges": {
+    "archived": "Archived"
   },
   "rebase": {
     "common": {
