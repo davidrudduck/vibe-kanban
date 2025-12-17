@@ -57,7 +57,15 @@
     "error": "대시보드 요약을 불러오지 못했습니다"
   },
   "sections": {
-    "local": "로컬 프로젝트"
+    "local": "로컬 프로젝트",
+    "allProjects": "모든 프로젝트"
   },
-  "linkToLocalFolder": "로컬 폴더에 연결"
+  "linkToLocalFolder": "로컬 폴더에 연결",
+  "sort": {
+    "label": "정렬",
+    "nameAsc": "A → Z",
+    "nameDesc": "Z → A",
+    "recentActivity": "최근 활동",
+    "oldestActivity": "오래된 활동"
+  }
 }
