@@ -57,7 +57,15 @@
     "error": "Failed to load dashboard summary"
   },
   "sections": {
-    "local": "Local Projects"
+    "local": "Local Projects",
+    "allProjects": "All Projects"
   },
-  "linkToLocalFolder": "Link to Local Folder"
+  "linkToLocalFolder": "Link to Local Folder",
+  "sort": {
+    "label": "Sort by",
+    "nameAsc": "A → Z",
+    "nameDesc": "Z → A",
+    "recentActivity": "Recent Activity",
+    "oldestActivity": "Oldest Activity"
+  }
 }
