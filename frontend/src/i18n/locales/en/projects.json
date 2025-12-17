@@ -58,5 +58,6 @@
   },
   "sections": {
     "local": "Local Projects"
-  }
+  },
+  "linkToLocalFolder": "Link to Local Folder"
 }

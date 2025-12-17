@@ -58,5 +58,6 @@
   },
   "sections": {
     "local": "로컬 프로젝트"
-  }
+  },
+  "linkToLocalFolder": "로컬 폴더에 연결"
 }

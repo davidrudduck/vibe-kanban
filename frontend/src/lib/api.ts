@@ -83,6 +83,7 @@ import {
   ScanConfigRequest,
   ScanConfigResponse,
   UnifiedProjectsResponse,
+  MergedProjectsResponse,
   CachedNodeStatus,
 } from 'shared/types';
 
@@ -402,6 +403,11 @@ export const projectsApi = {
   getUnified: async (): Promise<UnifiedProjectsResponse> => {
     const response = await makeRequest('/api/unified-projects');
     return handleApiResponse<UnifiedProjectsResponse>(response);
+  },
+
+  getMerged: async (): Promise<MergedProjectsResponse> => {
+    const response = await makeRequest('/api/merged-projects');
+    return handleApiResponse<MergedProjectsResponse>(response);
   },
 };
 

@@ -11,9 +11,11 @@ import { projectsApi } from '@/lib/api';
 import { AlertCircle, Loader2, Plus, Server, Circle } from 'lucide-react';
 import ProjectCard from '@/components/projects/ProjectCard.tsx';
 import RemoteProjectCard from '@/components/projects/RemoteProjectCard.tsx';
+import UnifiedProjectCard from '@/components/projects/UnifiedProjectCard.tsx';
 import { StatusSummaryBanner } from '@/components/dashboard/StatusSummaryBanner';
 import { useKeyCreate, Scope } from '@/keyboard';
 import { useUnifiedProjects } from '@/hooks/useUnifiedProjects';
+import { useMergedProjects } from '@/hooks/useMergedProjects';
 
 function getStatusColor(status: string): string {
   switch (status) {
@@ -45,6 +47,13 @@ export function ProjectList() {
     isLoading: unifiedLoading,
     refetch: refetchUnified,
   } = useUnifiedProjects();
+
+  // Fetch merged projects for Session 2 testing
+  const {
+    data: mergedData,
+    isLoading: mergedLoading,
+    refetch: refetchMerged,
+  } = useMergedProjects();
 
   const fetchProjects = useCallback(async () => {
     setLoading(true);
@@ -91,8 +100,10 @@ export function ProjectList() {
     fetchProjects();
   }, [fetchProjects]);
 
-  const isLoading = loading || unifiedLoading;
+  const isLoading = loading || unifiedLoading || mergedLoading;
   const hasLocalProjects = projects.length > 0;
+  const hasMergedProjects =
+    mergedData?.projects && mergedData.projects.length > 0;
   const hasRemoteProjects =
     unifiedData?.remote_by_node && unifiedData.remote_by_node.length > 0;
   const hasAnyProjects = hasLocalProjects || hasRemoteProjects;
@@ -194,6 +205,37 @@ export function ProjectList() {
                 </div>
               </section>
             ))}
+
+          {/* Session 2 Test: Merged Projects using UnifiedProjectCard */}
+          {hasMergedProjects && (
+            <section>
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                Unified View (Session 2 Test)
+                <span className="text-sm font-normal text-muted-foreground">
+                  ({mergedData?.projects.length})
+                </span>
+              </h2>
+              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                {mergedData?.projects.map((project) => (
+                  <UnifiedProjectCard
+                    key={project.id}
+                    project={project}
+                    isFocused={focusedProjectId === project.id}
+                    onRefresh={() => {
+                      fetchProjects();
+                      refetchUnified();
+                      refetchMerged();
+                    }}
+                    onEdit={(p) =>
+                      p.has_local && p.local_project_id
+                        ? navigate(`/settings/projects?projectId=${p.local_project_id}`)
+                        : undefined
+                    }
+                  />
+                ))}
+              </div>
+            </section>
+          )}
         </div>
       )}
     </div>

@@ -58,5 +58,6 @@
   },
   "sections": {
     "local": "ローカルプロジェクト"
-  }
+  },
+  "linkToLocalFolder": "ローカルフォルダにリンク"
 }

@@ -58,5 +58,6 @@
   },
   "sections": {
     "local": "Proyectos Locales"
-  }
+  },
+  "linkToLocalFolder": "Vincular a Carpeta Local"
 }
