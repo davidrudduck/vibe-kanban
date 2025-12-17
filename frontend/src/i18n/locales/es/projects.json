@@ -57,7 +57,15 @@
     "error": "Error al cargar el resumen del panel"
   },
   "sections": {
-    "local": "Proyectos Locales"
+    "local": "Proyectos Locales",
+    "allProjects": "Todos los Proyectos"
   },
-  "linkToLocalFolder": "Vincular a Carpeta Local"
+  "linkToLocalFolder": "Vincular a Carpeta Local",
+  "sort": {
+    "label": "Ordenar por",
+    "nameAsc": "A → Z",
+    "nameDesc": "Z → A",
+    "recentActivity": "Actividad Reciente",
+    "oldestActivity": "Actividad Antigua"
+  }
 }
