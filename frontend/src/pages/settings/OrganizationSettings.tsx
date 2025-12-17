@@ -24,6 +24,7 @@ import { useOrganizationInvitations } from '@/hooks/useOrganizationInvitations';
 import { useOrganizationMutations } from '@/hooks/useOrganizationMutations';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { useAuth } from '@/hooks/auth/useAuth';
+import { useFeedback } from '@/hooks/useFeedback';
 import { LoginRequiredPrompt } from '@/components/dialogs/shared/LoginRequiredPrompt';
 import { CreateOrganizationDialog } from '@/components/dialogs/org/CreateOrganizationDialog';
 import { InviteMemberDialog } from '@/components/dialogs/org/InviteMemberDialog';
@@ -47,7 +48,7 @@ export function OrganizationSettings() {
   const { loginStatus } = useUserSystem();
   const { isSignedIn, isLoaded } = useAuth();
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const { success, showSuccess, clearSuccess } = useFeedback();
 
   // Fetch all organizations
   const {
@@ -62,7 +63,7 @@ export function OrganizationSettings() {
     useOrganizationSelection({
       organizations: orgsResponse,
       onSelectionChange: () => {
-        setSuccess(null);
+        clearSuccess();
         setError(null);
       },
     });
@@ -94,8 +95,7 @@ export function OrganizationSettings() {
     deleteOrganization,
   } = useOrganizationMutations({
     onRevokeSuccess: () => {
-      setSuccess('Invitation revoked successfully');
-      setTimeout(() => setSuccess(null), 3000);
+      showSuccess('Invitation revoked successfully');
     },
     onRevokeError: (err) => {
       setError(
@@ -103,15 +103,13 @@ export function OrganizationSettings() {
       );
     },
     onRemoveSuccess: () => {
-      setSuccess('Member removed successfully');
-      setTimeout(() => setSuccess(null), 3000);
+      showSuccess('Member removed successfully');
     },
     onRemoveError: (err) => {
       setError(err instanceof Error ? err.message : 'Failed to remove member');
     },
     onRoleChangeSuccess: () => {
-      setSuccess('Member role updated successfully');
-      setTimeout(() => setSuccess(null), 3000);
+      showSuccess('Member role updated successfully');
     },
     onRoleChangeError: (err) => {
       setError(
@@ -119,8 +117,7 @@ export function OrganizationSettings() {
       );
     },
     onDeleteSuccess: async () => {
-      setSuccess(t('settings.deleteSuccess'));
-      setTimeout(() => setSuccess(null), 3000);
+      showSuccess(t('settings.deleteSuccess'));
       // Refetch organizations and switch to personal org
       await refetchOrgs();
       if (orgsResponse?.organizations) {
@@ -157,15 +154,13 @@ export function OrganizationSettings() {
   // Project mutations
   const { linkToExisting, unlinkProject } = useProjectMutations({
     onLinkSuccess: () => {
-      setSuccess('Project linked successfully');
-      setTimeout(() => setSuccess(null), 3000);
+      showSuccess('Project linked successfully');
     },
     onLinkError: (err) => {
       setError(err instanceof Error ? err.message : 'Failed to link project');
     },
     onUnlinkSuccess: () => {
-      setSuccess('Project unlinked successfully');
-      setTimeout(() => setSuccess(null), 3000);
+      showSuccess('Project unlinked successfully');
     },
     onUnlinkError: (err) => {
       setError(err instanceof Error ? err.message : 'Failed to unlink project');
@@ -180,8 +175,7 @@ export function OrganizationSettings() {
       if (result.action === 'created' && result.organizationId) {
         // No need to refetch - the mutation hook handles cache invalidation
         handleOrgSelect(result.organizationId ?? '');
-        setSuccess('Organization created successfully');
-        setTimeout(() => setSuccess(null), 3000);
+        showSuccess('Organization created successfully');
       }
     } catch (err) {
       // Dialog error
@@ -198,8 +192,7 @@ export function OrganizationSettings() {
 
       if (result.action === 'invited') {
         // No need to refetch - the mutation hook handles cache invalidation
-        setSuccess('Member invited successfully');
-        setTimeout(() => setSuccess(null), 3000);
+        showSuccess('Member invited successfully');
       }
     } catch (err) {
       // Dialog error

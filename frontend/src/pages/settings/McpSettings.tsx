@@ -29,6 +29,7 @@ import { Loader2 } from 'lucide-react';
 import type { BaseCodingAgent, ExecutorConfig } from 'shared/types';
 import { McpConfig } from 'shared/types';
 import { useUserSystem } from '@/components/ConfigProvider';
+import { useFeedback } from '@/hooks/useFeedback';
 import { mcpServersApi } from '@/lib/api';
 import { McpConfigStrategyGeneral } from '@/lib/mcpStrategies';
 
@@ -44,7 +45,7 @@ export function McpSettings() {
   );
   const [mcpApplying, setMcpApplying] = useState(false);
   const [mcpConfigPath, setMcpConfigPath] = useState<string>('');
-  const [success, setSuccess] = useState(false);
+  const { success, showSuccess } = useFeedback();
 
   // Initialize selected profile when config loads
   useEffect(() => {
@@ -171,8 +172,7 @@ export function McpSettings() {
           );
 
           // Show success feedback
-          setSuccess(true);
-          setTimeout(() => setSuccess(false), 3000);
+          showSuccess();
         } catch (mcpErr) {
           if (mcpErr instanceof SyntaxError) {
             setMcpError(t('settings.mcp.errors.invalidJson'));
@@ -444,7 +444,7 @@ export function McpSettings() {
         <div className="flex justify-end">
           <Button
             onClick={handleApplyMcpServers}
-            disabled={mcpApplying || mcpLoading || !!mcpError || success}
+            disabled={mcpApplying || mcpLoading || !!mcpError || !!success}
           >
             {mcpApplying && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {success && <span className="mr-2">✓</span>}
