@@ -52,7 +52,9 @@ impl EventService {
         task_id: Uuid,
     ) -> Result<(), SqlxError> {
         if let Some(task) = Task::find_by_id(pool, task_id).await? {
-            let tasks = Task::find_by_project_id_with_attempt_status(pool, task.project_id).await?;
+            // Include archived tasks so archive/unarchive actions emit updates
+            let tasks =
+                Task::find_by_project_id_with_attempt_status(pool, task.project_id, true).await?;
 
             if let Some(task_with_status) = tasks
                 .into_iter()
@@ -277,10 +279,12 @@ impl EventService {
                             match &record_type {
                                 RecordTypes::Task(task) => {
                                     // Convert Task to TaskWithAttemptStatus
+                                    // Include archived tasks so archive/unarchive actions emit updates
                                     if let Ok(task_list) =
                                         Task::find_by_project_id_with_attempt_status(
                                             &db.pool,
                                             task.project_id,
+                                            true,
                                         )
                                         .await
                                         && let Some(task_with_status) =
@@ -345,12 +349,14 @@ impl EventService {
                                 }
                                 RecordTypes::TaskAttempt(attempt) => {
                                     // Task attempts should update the parent task with fresh data
+                                    // Include archived tasks so archive/unarchive actions emit updates
                                     if let Ok(Some(task)) =
                                         Task::find_by_id(&db.pool, attempt.task_id).await
                                         && let Ok(task_list) =
                                             Task::find_by_project_id_with_attempt_status(
                                                 &db.pool,
                                                 task.project_id,
+                                                true,
                                             )
                                             .await
                                         && let Some(task_with_status) =
@@ -366,12 +372,14 @@ impl EventService {
                                     ..
                                 } => {
                                     // Task attempt deletion should update the parent task with fresh data
+                                    // Include archived tasks so archive/unarchive actions emit updates
                                     if let Ok(Some(task)) =
                                         Task::find_by_id(&db.pool, *task_id).await
                                         && let Ok(task_list) =
                                             Task::find_by_project_id_with_attempt_status(
                                                 &db.pool,
                                                 task.project_id,
+                                                true,
                                             )
                                             .await
                                         && let Some(task_with_status) =

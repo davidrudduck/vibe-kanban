@@ -10,7 +10,12 @@
   },
   "filters": {
     "sharedToggleAria": "Toggle shared tasks",
-    "sharedToggleTooltip": "Show/hide shared content"
+    "sharedToggleTooltip": "Show/hide shared content",
+    "archivedToggleAria": "Toggle archived tasks",
+    "archivedToggleTooltip": "Show/hide archived tasks"
+  },
+  "badges": {
+    "archived": "Archived"
   },
   "rebase": {
     "common": {
@@ -299,8 +304,19 @@
     "share": "Share",
     "reassign": "Reassign",
     "stopShare": "Stop share",
+    "archive": "Archive",
+    "unarchive": "Unarchive",
     "duplicate": "Duplicate",
     "remoteTaskCannotExecute": "Remote tasks execute on their origin node"
+  },
+  "archiveDialog": {
+    "title": "Archive Task",
+    "description": "Archive \"{{title}}\"?",
+    "info": "This will clean up worktrees to free disk space. Task data will be preserved and can be unarchived later.",
+    "includeSubtasks": "Also archive {{count}} subtask(s)",
+    "archiving": "Archiving...",
+    "confirm": "Archive Task",
+    "genericError": "Failed to archive task. Please try again."
   },
   "remoteTask": "Remote task",
   "editBranchName": {

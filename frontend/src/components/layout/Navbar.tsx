@@ -1,4 +1,4 @@
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { useCallback } from 'react';
 import { siDiscord } from 'simple-icons';
 import { Button } from '@/components/ui/button';
@@ -20,10 +20,17 @@ import {
   Plus,
   LogOut,
   LogIn,
+  Archive,
 } from 'lucide-react';
 import { Logo } from '@/components/Logo';
 import { SearchBar } from '@/components/SearchBar';
 import { ActivityFeed } from '@/components/activity';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { useSearch } from '@/contexts/SearchContext';
 import { openTaskForm } from '@/lib/openTaskForm';
 import { useProject } from '@/contexts/ProjectContext';
@@ -71,6 +78,7 @@ function NavDivider() {
 
 export function Navbar() {
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { projectId, project } = useProject();
   const { query, setQuery, active, clear, registerInputRef } = useSearch();
   const handleOpenInEditor = useOpenProjectInEditor(project || null);
@@ -78,6 +86,18 @@ export function Navbar() {
   const { loginStatus, reloadSystem, config, environment } = useUserSystem();
   const hideDiscord =
     environment?.is_dev_mode && config?.dev_banner?.hide_discord_link;
+
+  // Archive filter state from URL params
+  const showArchived = searchParams.get('archived') === 'on';
+  const toggleShowArchived = useCallback(() => {
+    const params = new URLSearchParams(searchParams);
+    if (showArchived) {
+      params.delete('archived');
+    } else {
+      params.set('archived', 'on');
+    }
+    setSearchParams(params, { replace: true });
+  }, [searchParams, setSearchParams, showArchived]);
 
   const setSearchBarRef = useCallback(
     (node: HTMLInputElement | null) => {
@@ -164,6 +184,27 @@ export function Navbar() {
               onClear={clear}
               project={project || null}
             />
+            {projectId && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant={showArchived ? 'default' : 'ghost'}
+                      size="icon"
+                      className="h-8 w-8 shrink-0"
+                      onClick={toggleShowArchived}
+                      aria-label={t('filters.archivedToggleAria')}
+                      aria-pressed={showArchived}
+                    >
+                      <Archive className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    {t('filters.archivedToggleTooltip')}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
           </div>
 
           <div className="flex flex-1 items-center justify-end gap-1">
