@@ -45,6 +45,9 @@ pub struct Task {
     // Validation steps for enhanced prompt (Anthropic Harness pattern)
     /// JSON array of validation step strings, e.g. ["Run tests", "Check E2E in browser"]
     pub validation_steps: Option<String>,
+    /// Timestamp when task was archived. NULL means not archived.
+    #[ts(type = "Date | null")]
+    pub archived_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -222,6 +225,7 @@ impl Task {
     pub async fn find_by_project_id_with_attempt_status(
         pool: &SqlitePool,
         project_id: Uuid,
+        include_archived: bool,
     ) -> Result<Vec<TaskWithAttemptStatus>, sqlx::Error> {
         let records = sqlx::query!(
             r#"SELECT
@@ -243,6 +247,7 @@ impl Task {
   t.remote_stream_node_id         AS "remote_stream_node_id: Uuid",
   t.remote_stream_url,
   t.validation_steps,
+  t.archived_at                   AS "archived_at: DateTime<Utc>",
 
   CASE WHEN EXISTS (
     SELECT 1
@@ -276,8 +281,10 @@ impl Task {
 
 FROM tasks t
 WHERE t.project_id = $1
+  AND (t.archived_at IS NULL OR $2)
 ORDER BY t.created_at DESC"#,
-            project_id
+            project_id,
+            include_archived
         )
         .fetch_all(pool)
         .await?;
@@ -304,6 +311,7 @@ ORDER BY t.created_at DESC"#,
                     remote_stream_node_id: rec.remote_stream_node_id,
                     remote_stream_url: rec.remote_stream_url,
                     validation_steps: rec.validation_steps,
+                    archived_at: rec.archived_at,
                 },
                 has_in_progress_attempt: rec.has_in_progress_attempt != 0,
                 has_merged_attempt: false, // TODO use merges table
@@ -327,7 +335,8 @@ ORDER BY t.created_at DESC"#,
                       remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                       remote_stream_node_id as "remote_stream_node_id: Uuid",
                       remote_stream_url,
-                      validation_steps
+                      validation_steps,
+                      archived_at as "archived_at: DateTime<Utc>"
                FROM tasks
                WHERE id = $1"#,
             id
@@ -348,7 +357,8 @@ ORDER BY t.created_at DESC"#,
                       remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                       remote_stream_node_id as "remote_stream_node_id: Uuid",
                       remote_stream_url,
-                      validation_steps
+                      validation_steps,
+                      archived_at as "archived_at: DateTime<Utc>"
                FROM tasks
                WHERE rowid = $1"#,
             rowid
@@ -373,7 +383,8 @@ ORDER BY t.created_at DESC"#,
                       remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                       remote_stream_node_id as "remote_stream_node_id: Uuid",
                       remote_stream_url,
-                      validation_steps
+                      validation_steps,
+                      archived_at as "archived_at: DateTime<Utc>"
                FROM tasks
                WHERE id = $1 AND project_id = $2"#,
             id,
@@ -401,7 +412,8 @@ ORDER BY t.created_at DESC"#,
                       remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                       remote_stream_node_id as "remote_stream_node_id: Uuid",
                       remote_stream_url,
-                      validation_steps
+                      validation_steps,
+                      archived_at as "archived_at: DateTime<Utc>"
                FROM tasks
                WHERE shared_task_id = $1
                LIMIT 1"#,
@@ -430,7 +442,8 @@ ORDER BY t.created_at DESC"#,
                          remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                          remote_stream_node_id as "remote_stream_node_id: Uuid",
                          remote_stream_url,
-                         validation_steps"#,
+                         validation_steps,
+                         archived_at as "archived_at: DateTime<Utc>""#,
             task_id,
             data.project_id,
             data.title,
@@ -469,7 +482,8 @@ ORDER BY t.created_at DESC"#,
                          remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                          remote_stream_node_id as "remote_stream_node_id: Uuid",
                          remote_stream_url,
-                         validation_steps"#,
+                         validation_steps,
+                         archived_at as "archived_at: DateTime<Utc>""#,
             id,
             project_id,
             title,
@@ -648,7 +662,8 @@ ORDER BY t.created_at DESC"#,
                       remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                       remote_stream_node_id as "remote_stream_node_id: Uuid",
                       remote_stream_url,
-                      validation_steps
+                      validation_steps,
+                      archived_at as "archived_at: DateTime<Utc>"
                FROM tasks
                WHERE parent_task_id = $1
                ORDER BY created_at DESC"#,
@@ -700,7 +715,8 @@ ORDER BY t.created_at DESC"#,
                       remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                       remote_stream_node_id as "remote_stream_node_id: Uuid",
                       remote_stream_url,
-                      validation_steps
+                      validation_steps,
+                      archived_at as "archived_at: DateTime<Utc>"
                FROM tasks
                WHERE project_id = $1 AND is_remote = 1
                ORDER BY created_at DESC"#,
@@ -767,7 +783,8 @@ ORDER BY t.created_at DESC"#,
                           remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                           remote_stream_node_id as "remote_stream_node_id: Uuid",
                           remote_stream_url,
-                          validation_steps"#,
+                          validation_steps,
+                          archived_at as "archived_at: DateTime<Utc>""#,
             local_id,
             project_id,
             title,
@@ -782,6 +799,77 @@ ORDER BY t.created_at DESC"#,
         )
         .fetch_one(executor)
         .await
+    }
+
+    /// Archive a task by setting archived_at to the current timestamp.
+    /// Returns the updated task.
+    pub async fn archive(pool: &SqlitePool, id: Uuid) -> Result<Self, sqlx::Error> {
+        sqlx::query_as!(
+            Task,
+            r#"UPDATE tasks
+               SET archived_at = datetime('now', 'subsec'), updated_at = datetime('now', 'subsec')
+               WHERE id = $1
+               RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", shared_task_id as "shared_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
+                         is_remote as "is_remote!: bool",
+                         remote_assignee_user_id as "remote_assignee_user_id: Uuid",
+                         remote_assignee_name,
+                         remote_assignee_username,
+                         remote_version as "remote_version!: i64",
+                         remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
+                         remote_stream_node_id as "remote_stream_node_id: Uuid",
+                         remote_stream_url,
+                         validation_steps,
+                         archived_at as "archived_at: DateTime<Utc>""#,
+            id
+        )
+        .fetch_one(pool)
+        .await
+    }
+
+    /// Unarchive a task by setting archived_at to NULL.
+    /// Returns the updated task.
+    pub async fn unarchive(pool: &SqlitePool, id: Uuid) -> Result<Self, sqlx::Error> {
+        sqlx::query_as!(
+            Task,
+            r#"UPDATE tasks
+               SET archived_at = NULL, updated_at = datetime('now', 'subsec')
+               WHERE id = $1
+               RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", shared_task_id as "shared_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
+                         is_remote as "is_remote!: bool",
+                         remote_assignee_user_id as "remote_assignee_user_id: Uuid",
+                         remote_assignee_name,
+                         remote_assignee_username,
+                         remote_version as "remote_version!: i64",
+                         remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
+                         remote_stream_node_id as "remote_stream_node_id: Uuid",
+                         remote_stream_url,
+                         validation_steps,
+                         archived_at as "archived_at: DateTime<Utc>""#,
+            id
+        )
+        .fetch_one(pool)
+        .await
+    }
+
+    /// Archive multiple tasks by their IDs.
+    /// Returns the number of tasks archived.
+    pub async fn archive_many(pool: &SqlitePool, ids: &[Uuid]) -> Result<u64, sqlx::Error> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+
+        // SQLite doesn't support array parameters directly, so we use a loop
+        let mut count = 0u64;
+        for id in ids {
+            let result = sqlx::query!(
+                "UPDATE tasks SET archived_at = datetime('now', 'subsec'), updated_at = datetime('now', 'subsec') WHERE id = $1",
+                id
+            )
+            .execute(pool)
+            .await?;
+            count += result.rows_affected();
+        }
+        Ok(count)
     }
 
     /// Update remote stream location for a task

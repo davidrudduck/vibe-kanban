@@ -28,6 +28,8 @@ pub struct TaskWithProjectInfo {
     pub remote_last_synced_at: Option<DateTime<Utc>>,
     pub remote_stream_node_id: Option<Uuid>,
     pub remote_stream_url: Option<String>,
+    #[ts(type = "Date | null")]
+    pub archived_at: Option<DateTime<Utc>>,
     // Assignee fields from shared_tasks (for consistent avatar/owner display)
     pub assignee_first_name: Option<String>,
     pub assignee_last_name: Option<String>,
@@ -51,7 +53,7 @@ pub struct AllTasksResponse {
 
 impl AllTasksResponse {
     /// Fetch all tasks from all projects with project info and attempt status
-    pub async fn fetch(pool: &SqlitePool) -> Result<Self, sqlx::Error> {
+    pub async fn fetch(pool: &SqlitePool, include_archived: bool) -> Result<Self, sqlx::Error> {
         let tasks = sqlx::query!(
             r#"SELECT
   t.id                            AS "id!: Uuid",
@@ -71,6 +73,7 @@ impl AllTasksResponse {
   t.remote_last_synced_at         AS "remote_last_synced_at: DateTime<Utc>",
   t.remote_stream_node_id         AS "remote_stream_node_id: Uuid",
   t.remote_stream_url             AS "remote_stream_url",
+  t.archived_at                   AS "archived_at: DateTime<Utc>",
 
   -- Project context
   p.name                          AS "project_name!",
@@ -131,7 +134,9 @@ impl AllTasksResponse {
 FROM tasks t
 JOIN projects p ON t.project_id = p.id
 LEFT JOIN shared_tasks st ON t.shared_task_id = st.id
-ORDER BY t.updated_at DESC"#
+WHERE (t.archived_at IS NULL OR $1)
+ORDER BY t.updated_at DESC"#,
+            include_archived
         )
         .fetch_all(pool)
         .await?;
@@ -156,6 +161,7 @@ ORDER BY t.updated_at DESC"#
                 remote_last_synced_at: rec.remote_last_synced_at,
                 remote_stream_node_id: rec.remote_stream_node_id,
                 remote_stream_url: rec.remote_stream_url,
+                archived_at: rec.archived_at,
                 assignee_first_name: rec.assignee_first_name,
                 assignee_last_name: rec.assignee_last_name,
                 assignee_username: rec.assignee_username,

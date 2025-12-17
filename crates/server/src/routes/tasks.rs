@@ -62,15 +62,20 @@ fn format_user_display_name(
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TaskQuery {
     pub project_id: Uuid,
+    #[serde(default)]
+    pub include_archived: bool,
 }
 
 pub async fn get_tasks(
     State(deployment): State<DeploymentImpl>,
     Query(query): Query<TaskQuery>,
 ) -> Result<ResponseJson<ApiResponse<Vec<TaskWithAttemptStatus>>>, ApiError> {
-    let tasks =
-        Task::find_by_project_id_with_attempt_status(&deployment.db().pool, query.project_id)
-            .await?;
+    let tasks = Task::find_by_project_id_with_attempt_status(
+        &deployment.db().pool,
+        query.project_id,
+        query.include_archived,
+    )
+    .await?;
 
     Ok(ResponseJson(ApiResponse::success(tasks)))
 }
@@ -81,7 +86,9 @@ pub async fn stream_tasks_ws(
     Query(query): Query<TaskQuery>,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| async move {
-        if let Err(e) = handle_tasks_ws(socket, deployment, query.project_id).await {
+        if let Err(e) =
+            handle_tasks_ws(socket, deployment, query.project_id, query.include_archived).await
+        {
             tracing::warn!("tasks WS closed: {}", e);
         }
     })
@@ -91,11 +98,12 @@ async fn handle_tasks_ws(
     socket: WebSocket,
     deployment: DeploymentImpl,
     project_id: Uuid,
+    include_archived: bool,
 ) -> anyhow::Result<()> {
     // Get the raw stream and convert LogMsg to WebSocket messages
     let stream = deployment
         .events()
-        .stream_tasks_raw(project_id)
+        .stream_tasks_raw(project_id, include_archived)
         .await?
         .map_ok(|msg| msg.to_ws_message_unchecked());
 
