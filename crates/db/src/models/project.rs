@@ -656,4 +656,73 @@ impl Project {
 
         Ok(rows.into_iter().flatten().collect())
     }
+
+    /// Find all local projects with their last attempt timestamp for sorting.
+    /// Returns tuples of (Project, Option<last_attempt_at>).
+    pub async fn find_local_projects_with_last_attempt(
+        pool: &SqlitePool,
+    ) -> Result<Vec<(Self, Option<DateTime<Utc>>)>, sqlx::Error> {
+        // Use a raw query since we need to join and return extra data
+        // Note: GROUP BY makes all columns potentially nullable in SQLite/SQLx,
+        // so we use "!" annotations to assert non-nullability for required fields
+        let rows = sqlx::query!(
+            r#"
+            SELECT
+                p.id as "id!: Uuid",
+                p.name as "name!",
+                p.git_repo_path as "git_repo_path!",
+                p.setup_script,
+                p.dev_script,
+                p.cleanup_script,
+                p.copy_files,
+                p.remote_project_id as "remote_project_id: Uuid",
+                p.created_at as "created_at!: DateTime<Utc>",
+                p.updated_at as "updated_at!: DateTime<Utc>",
+                p.is_remote as "is_remote!: bool",
+                p.source_node_id as "source_node_id: Uuid",
+                p.source_node_name,
+                p.source_node_public_url,
+                p.source_node_status,
+                p.remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
+                p.default_validation_steps,
+                MAX(ta.updated_at) as "last_attempt_at: DateTime<Utc>"
+            FROM projects p
+            LEFT JOIN tasks t ON t.project_id = p.id
+            LEFT JOIN task_attempts ta ON ta.task_id = t.id
+            WHERE p.is_remote = 0
+            GROUP BY p.id
+            ORDER BY p.created_at DESC
+            "#
+        )
+        .fetch_all(pool)
+        .await?;
+
+        let results = rows
+            .into_iter()
+            .map(|row| {
+                let project = Project {
+                    id: row.id,
+                    name: row.name,
+                    git_repo_path: row.git_repo_path.into(),
+                    setup_script: row.setup_script,
+                    dev_script: row.dev_script,
+                    cleanup_script: row.cleanup_script,
+                    copy_files: row.copy_files,
+                    remote_project_id: row.remote_project_id,
+                    created_at: row.created_at,
+                    updated_at: row.updated_at,
+                    is_remote: row.is_remote,
+                    source_node_id: row.source_node_id,
+                    source_node_name: row.source_node_name,
+                    source_node_public_url: row.source_node_public_url,
+                    source_node_status: row.source_node_status,
+                    remote_last_synced_at: row.remote_last_synced_at,
+                    default_validation_steps: row.default_validation_steps,
+                };
+                (project, row.last_attempt_at)
+            })
+            .collect();
+
+        Ok(results)
+    }
 }

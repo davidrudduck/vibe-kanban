@@ -87,6 +87,18 @@ pub struct CreateRemoteProjectRequest {
     pub name: String,
 }
 
+/// Request to link a local folder to a remote project
+/// This creates a new local project at the specified path and links it to the remote project
+#[derive(Deserialize, TS)]
+pub struct LinkToLocalFolderRequest {
+    /// The remote project ID to link to (from the Hive)
+    pub remote_project_id: Uuid,
+    /// The local folder path where the project will be created
+    pub local_folder_path: String,
+    /// Optional project name (defaults to folder name if not provided)
+    pub project_name: Option<String>,
+}
+
 /// A project in the unified view - can be local or from another node
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(tag = "type")]
@@ -151,6 +163,51 @@ pub struct UnifiedProjectsResponse {
     pub local: Vec<Project>,
     /// Projects from other nodes grouped by node
     pub remote_by_node: Vec<RemoteNodeGroup>,
+}
+
+/// A project in the merged view - merges local and remote projects by remote_project_id
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct MergedProject {
+    /// Use local project ID if exists, otherwise first remote's ID
+    pub id: Uuid,
+    pub name: String,
+    pub git_repo_path: String,
+    #[ts(type = "Date")]
+    pub created_at: DateTime<Utc>,
+
+    /// Linking status - Hive project ID (if linked)
+    pub remote_project_id: Option<Uuid>,
+
+    /// Location info - where the project runs
+    pub has_local: bool,
+    /// Local project ID if has_local is true
+    pub local_project_id: Option<Uuid>,
+    /// List of remote nodes that have this project
+    pub nodes: Vec<NodeLocation>,
+
+    /// For sorting - timestamp of last task attempt
+    #[ts(type = "Date | null")]
+    pub last_attempt_at: Option<DateTime<Utc>>,
+}
+
+/// A node location where a project exists
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct NodeLocation {
+    pub node_id: Uuid,
+    /// Full name like "tardis.raverx.net"
+    pub node_name: String,
+    /// Truncated at first period: "tardis"
+    pub node_short_name: String,
+    pub node_status: CachedNodeStatus,
+    pub node_public_url: Option<String>,
+    /// The project ID on that node
+    pub remote_project_id: Uuid,
+}
+
+/// Response for the merged projects endpoint
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct MergedProjectsResponse {
+    pub projects: Vec<MergedProject>,
 }
 
 /// A group of projects from a single remote node
@@ -247,6 +304,154 @@ pub async fn get_unified_projects(
     )))
 }
 
+/// Helper function to truncate node name at first period
+fn truncate_node_name(name: &str) -> String {
+    name.split('.').next().unwrap_or(name).to_string()
+}
+
+/// Get a merged view of all projects: local and remote projects merged by remote_project_id.
+///
+/// Projects with the same remote_project_id are merged into a single entry showing:
+/// - has_local: true if a local copy exists
+/// - nodes: list of remote nodes that have this project
+///
+/// Unlinked local projects (no remote_project_id) appear as standalone entries.
+pub async fn get_merged_projects(
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<MergedProjectsResponse>>, ApiError> {
+    use std::collections::HashMap;
+
+    let pool = &deployment.db().pool;
+
+    // Get local projects with last attempt timestamp
+    let local_projects_with_attempts = Project::find_local_projects_with_last_attempt(pool).await?;
+
+    // Get current node_id to exclude from remote list (if connected to hive)
+    let current_node_id = if let Some(ctx) = deployment.node_runner_context() {
+        ctx.node_id().await
+    } else {
+        None
+    };
+
+    // Get all remote projects (from other nodes)
+    let all_remote = Project::find_remote_projects(pool)
+        .await
+        .unwrap_or_default();
+
+    // Filter out projects from current node
+    let all_remote: Vec<_> = all_remote
+        .into_iter()
+        .filter(|p| {
+            if let Some(current_id) = current_node_id {
+                p.source_node_id != Some(current_id)
+            } else {
+                true
+            }
+        })
+        .collect();
+
+    // Build a map from remote_project_id -> MergedProject
+    // Key: remote_project_id (Uuid) -> Value: MergedProject being built
+    let mut merged_map: HashMap<Uuid, MergedProject> = HashMap::new();
+
+    // Also track local-only projects (those without remote_project_id)
+    let mut local_only_projects: Vec<MergedProject> = Vec::new();
+
+    // Process local projects first
+    for (project, last_attempt_at) in local_projects_with_attempts {
+        if let Some(remote_project_id) = project.remote_project_id {
+            // This local project is linked to a remote project
+            merged_map.insert(
+                remote_project_id,
+                MergedProject {
+                    id: project.id,
+                    name: project.name.clone(),
+                    git_repo_path: project.git_repo_path.to_string_lossy().to_string(),
+                    created_at: project.created_at,
+                    remote_project_id: Some(remote_project_id),
+                    has_local: true,
+                    local_project_id: Some(project.id),
+                    nodes: Vec::new(), // Will be populated from remote projects
+                    last_attempt_at,
+                },
+            );
+        } else {
+            // This local project is not linked - add it as standalone
+            local_only_projects.push(MergedProject {
+                id: project.id,
+                name: project.name.clone(),
+                git_repo_path: project.git_repo_path.to_string_lossy().to_string(),
+                created_at: project.created_at,
+                remote_project_id: None,
+                has_local: true,
+                local_project_id: Some(project.id),
+                nodes: Vec::new(),
+                last_attempt_at,
+            });
+        }
+    }
+
+    // Process remote projects - merge into existing or create new entries
+    for remote_project in all_remote {
+        let remote_project_id = match remote_project.remote_project_id {
+            Some(id) => id,
+            None => continue, // Skip remote projects without remote_project_id (shouldn't happen)
+        };
+
+        let node_location = NodeLocation {
+            node_id: remote_project.source_node_id.unwrap_or_default(),
+            node_name: remote_project.source_node_name.clone().unwrap_or_default(),
+            node_short_name: truncate_node_name(
+                remote_project.source_node_name.as_deref().unwrap_or(""),
+            ),
+            node_status: remote_project
+                .source_node_status
+                .as_deref()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(CachedNodeStatus::Pending),
+            node_public_url: remote_project.source_node_public_url.clone(),
+            remote_project_id,
+        };
+
+        if let Some(merged) = merged_map.get_mut(&remote_project_id) {
+            // Add this node to existing merged project
+            merged.nodes.push(node_location);
+        } else {
+            // Create new entry for remote-only project
+            merged_map.insert(
+                remote_project_id,
+                MergedProject {
+                    id: remote_project.id, // Use remote project's local ID
+                    name: remote_project.name.clone(),
+                    git_repo_path: remote_project.git_repo_path.to_string_lossy().to_string(),
+                    created_at: remote_project.created_at,
+                    remote_project_id: Some(remote_project_id),
+                    has_local: false,
+                    local_project_id: None,
+                    nodes: vec![node_location],
+                    last_attempt_at: None, // Remote projects don't have local attempt data
+                },
+            );
+        }
+    }
+
+    // Combine all projects into a single list
+    let mut projects: Vec<MergedProject> = merged_map.into_values().collect();
+    projects.extend(local_only_projects);
+
+    // Sort by name (default sort) - frontend will handle other sort options
+    projects.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+
+    tracing::debug!(
+        project_count = projects.len(),
+        "merged projects: returning projects"
+    );
+
+    Ok(ResponseJson(ApiResponse::success(MergedProjectsResponse {
+        projects,
+    })))
+}
+
 pub async fn get_project(
     Extension(project): Extension<Project>,
 ) -> Result<ResponseJson<ApiResponse<Project>>, ApiError> {
@@ -321,6 +526,111 @@ pub async fn create_and_link_remote_project(
 
     let updated_project =
         apply_remote_project_link(&deployment, project_id, remote_project).await?;
+
+    Ok(ResponseJson(ApiResponse::success(updated_project)))
+}
+
+/// Create a new local project at a specified folder path and link it to a remote project.
+/// This is used when a user wants to link a remote-only project to a local folder.
+pub async fn link_to_local_folder(
+    State(deployment): State<DeploymentImpl>,
+    Json(payload): Json<LinkToLocalFolderRequest>,
+) -> Result<ResponseJson<ApiResponse<Project>>, ApiError> {
+    let pool = &deployment.db().pool;
+
+    // Validate and expand the path
+    let path = std::path::absolute(expand_tilde(&payload.local_folder_path))?;
+
+    // Check if a project with this path already exists
+    if let Some(existing) =
+        Project::find_by_git_repo_path(pool, path.to_string_lossy().as_ref()).await?
+    {
+        // Project already exists at this path - just link it to the remote project
+        let client = deployment.remote_client()?;
+        let remote_project = client.get_project(payload.remote_project_id).await?;
+        let updated_project =
+            apply_remote_project_link(&deployment, existing.id, remote_project).await?;
+        return Ok(ResponseJson(ApiResponse::success(updated_project)));
+    }
+
+    // Validate that the path exists and is a git repository
+    if !path.exists() {
+        return Ok(ResponseJson(ApiResponse::error(
+            "The specified path does not exist",
+        )));
+    }
+
+    if !path.is_dir() {
+        return Ok(ResponseJson(ApiResponse::error(
+            "The specified path is not a directory",
+        )));
+    }
+
+    if !path.join(".git").exists() {
+        return Ok(ResponseJson(ApiResponse::error(
+            "The specified directory is not a git repository",
+        )));
+    }
+
+    // Ensure existing repo has a main branch if it's empty
+    if let Err(e) = deployment.git().ensure_main_branch_exists(&path) {
+        tracing::error!("Failed to ensure main branch exists: {}", e);
+        return Ok(ResponseJson(ApiResponse::error(&format!(
+            "Failed to ensure main branch exists: {}",
+            e
+        ))));
+    }
+
+    // Get the project name - use provided name or derive from folder name
+    let project_name = payload.project_name.unwrap_or_else(|| {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("Untitled Project")
+            .to_string()
+    });
+
+    // Create the local project
+    let project_id = Uuid::new_v4();
+    let create_data = CreateProject {
+        name: project_name.clone(),
+        git_repo_path: path.to_string_lossy().to_string(),
+        use_existing_repo: true,
+        setup_script: None,
+        dev_script: None,
+        cleanup_script: None,
+        copy_files: None,
+    };
+
+    let project = match Project::create(pool, &create_data, project_id).await {
+        Ok(p) => p,
+        Err(e) => {
+            return Err(ProjectError::CreateFailed(e.to_string()).into());
+        }
+    };
+
+    // Now link it to the remote project
+    let client = deployment.remote_client()?;
+    let remote_project = client.get_project(payload.remote_project_id).await?;
+    let updated_project = apply_remote_project_link(&deployment, project.id, remote_project).await?;
+
+    // Track the event
+    deployment
+        .track_if_analytics_allowed(
+            "project_created_and_linked_to_remote",
+            serde_json::json!({
+                "project_id": updated_project.id.to_string(),
+                "remote_project_id": payload.remote_project_id.to_string(),
+                "trigger": "link_to_local_folder",
+            }),
+        )
+        .await;
+
+    tracing::info!(
+        project_id = %updated_project.id,
+        remote_project_id = %payload.remote_project_id,
+        path = %path.display(),
+        "Created local project and linked to remote"
+    );
 
     Ok(ResponseJson(ApiResponse::success(updated_project)))
 }
@@ -1270,6 +1580,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let projects_router = Router::new()
         .route("/", get(get_projects).post(create_project))
         .route("/scan-config", post(scan_project_config))
+        .route("/link-local", post(link_to_local_folder))
         .nest("/{id}", project_id_router)
         .merge(project_files_router)
         .nest("/by-remote-id/{remote_project_id}", by_remote_id_router)
@@ -1278,4 +1589,5 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     Router::new()
         .nest("/projects", projects_router)
         .route("/unified-projects", get(get_unified_projects))
+        .route("/merged-projects", get(get_merged_projects))
 }

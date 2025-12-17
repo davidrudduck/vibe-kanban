@@ -57,6 +57,34 @@
     "error": "Failed to load dashboard summary"
   },
   "sections": {
-    "local": "Local Projects"
+    "local": "Local Projects",
+    "allProjects": "All Projects"
+  },
+  "linkToLocalFolder": "Link to Local Folder",
+  "linkToLocalFolderDialog": {
+    "title": "Link to Local Folder",
+    "description": "Create a local project from a git repository and link it to this remote project.",
+    "remoteProjectLabel": "Remote Project",
+    "localFolderLabel": "Local Git Repository",
+    "localFolderPlaceholder": "/path/to/your/git/repository",
+    "localFolderHelp": "Select an existing git repository folder on this machine.",
+    "projectNameLabel": "Project Name (optional)",
+    "projectNamePlaceholder": "Leave empty to use folder name",
+    "projectNameHelp": "Override the project name, or leave empty to use the folder name.",
+    "selectFolder": "Select Git Repository",
+    "selectFolderDescription": "Choose a git repository to link to this remote project",
+    "linking": "Linking...",
+    "linkButton": "Link Project",
+    "errors": {
+      "selectFolder": "Please select a local git repository folder",
+      "linkFailed": "Failed to link to local folder"
+    }
+  },
+  "sort": {
+    "label": "Sort by",
+    "nameAsc": "A → Z",
+    "nameDesc": "Z → A",
+    "recentActivity": "Recent Activity",
+    "oldestActivity": "Oldest Activity"
   }
 }
