@@ -29,6 +29,7 @@ use remote::routes::{
     },
 };
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use services::services::{
     container::ContainerService,
     share::{ShareError, status as task_status},
@@ -771,11 +772,232 @@ pub async fn get_stream_connection_info(
     Ok(ResponseJson(ApiResponse::success(response)))
 }
 
+/// Request body for archiving a task
+#[derive(Debug, Deserialize, TS)]
+pub struct ArchiveTaskRequest {
+    /// Whether to also archive subtasks (children). Defaults to true.
+    #[serde(default = "default_true")]
+    pub include_subtasks: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Response from archive/unarchive operations
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct ArchiveTaskResponse {
+    /// The archived/unarchived task
+    pub task: Task,
+    /// Number of subtasks also archived (only for archive operation)
+    pub subtasks_archived: u64,
+}
+
+/// Archive a task and optionally its subtasks.
+///
+/// This endpoint:
+/// 1. Archives the task by setting `archived_at` timestamp
+/// 2. Optionally archives all subtasks if `include_subtasks` is true
+/// 3. Cleans up worktrees associated with the task's attempts (background task)
+///
+/// Returns 202 Accepted since worktree cleanup happens in the background.
+pub async fn archive_task(
+    Extension(task): Extension<Task>,
+    State(deployment): State<DeploymentImpl>,
+    Json(payload): Json<ArchiveTaskRequest>,
+) -> Result<(StatusCode, ResponseJson<ApiResponse<ArchiveTaskResponse>>), ApiError> {
+    let pool = &deployment.db().pool;
+
+    // Remote tasks cannot be archived locally
+    if task.is_remote {
+        return Err(ApiError::BadRequest(
+            "Remote tasks cannot be archived. Archive them on the origin node.".to_string(),
+        ));
+    }
+
+    // Task already archived
+    if task.archived_at.is_some() {
+        return Err(ApiError::BadRequest("Task is already archived".to_string()));
+    }
+
+    // Validate no running execution processes
+    if deployment.container().has_running_processes(task.id).await? {
+        return Err(ApiError::Conflict(
+            "Task has running execution processes. Please wait for them to complete or stop them first.".to_string()
+        ));
+    }
+
+    // Get project for worktree cleanup paths
+    let project = task
+        .parent_project(pool)
+        .await?
+        .ok_or_else(|| ApiError::Database(SqlxError::RowNotFound))?;
+
+    // Gather task attempts for worktree cleanup (this task)
+    let mut attempts = TaskAttempt::fetch_all(pool, Some(task.id))
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch task attempts for task {}: {}", task.id, e);
+            ApiError::TaskAttempt(e)
+        })?;
+
+    // Collect subtask IDs and their attempts if cascading
+    let mut subtasks_archived = 0u64;
+    if payload.include_subtasks {
+        let children = Task::find_children_by_parent_id(pool, task.id).await?;
+        for child in &children {
+            // Check child doesn't have running processes
+            if deployment.container().has_running_processes(child.id).await? {
+                return Err(ApiError::Conflict(format!(
+                    "Subtask '{}' has running execution processes. Stop them first or uncheck 'include subtasks'.",
+                    child.title
+                )));
+            }
+
+            // Gather child's attempts for cleanup
+            let child_attempts = TaskAttempt::fetch_all(pool, Some(child.id))
+                .await
+                .map_err(|e| {
+                    tracing::error!(
+                        "Failed to fetch task attempts for subtask {}: {}",
+                        child.id,
+                        e
+                    );
+                    ApiError::TaskAttempt(e)
+                })?;
+            attempts.extend(child_attempts);
+        }
+
+        // Archive subtasks
+        let child_ids: Vec<Uuid> = children.iter().map(|c| c.id).collect();
+        subtasks_archived = Task::archive_many(pool, &child_ids).await?;
+    }
+
+    // Archive the main task
+    let archived_task = Task::archive(pool, task.id).await?;
+
+    // Gather cleanup data for background worktree cleanup
+    let cleanup_args: Vec<WorktreeCleanup> = attempts
+        .iter()
+        .filter_map(|attempt| {
+            attempt
+                .container_ref
+                .as_ref()
+                .map(|worktree_path| WorktreeCleanup {
+                    worktree_path: PathBuf::from(worktree_path),
+                    git_repo_path: Some(project.git_repo_path.clone()),
+                })
+        })
+        .collect();
+
+    // Track analytics
+    deployment
+        .track_if_analytics_allowed(
+            "task_archived",
+            json!({
+                "task_id": task.id.to_string(),
+                "project_id": task.project_id.to_string(),
+                "attempt_count": attempts.len(),
+                "subtasks_archived": subtasks_archived,
+                "include_subtasks": payload.include_subtasks,
+            }),
+        )
+        .await;
+
+    // Spawn background worktree cleanup task
+    let task_id = task.id;
+    tokio::spawn(async move {
+        let span = tracing::info_span!("archive_worktree_cleanup", task_id = %task_id);
+        let _enter = span.enter();
+
+        tracing::info!(
+            "Starting background worktree cleanup for archived task {} ({} worktrees)",
+            task_id,
+            cleanup_args.len()
+        );
+
+        if let Err(e) = WorktreeManager::batch_cleanup_worktrees(&cleanup_args).await {
+            tracing::error!(
+                "Background worktree cleanup failed for archived task {}: {}",
+                task_id,
+                e
+            );
+        } else {
+            tracing::info!(
+                "Background worktree cleanup completed for archived task {}",
+                task_id
+            );
+        }
+    });
+
+    // Return 202 Accepted to indicate archival was scheduled with background cleanup
+    Ok((
+        StatusCode::ACCEPTED,
+        ResponseJson(ApiResponse::success(ArchiveTaskResponse {
+            task: archived_task,
+            subtasks_archived,
+        })),
+    ))
+}
+
+/// Unarchive a task.
+///
+/// This endpoint clears the `archived_at` timestamp, making the task visible again.
+/// Note: Worktrees are not restored - a new attempt would need to be started.
+pub async fn unarchive_task(
+    Extension(task): Extension<Task>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<Task>>, ApiError> {
+    let pool = &deployment.db().pool;
+
+    // Remote tasks cannot be unarchived locally
+    if task.is_remote {
+        return Err(ApiError::BadRequest(
+            "Remote tasks cannot be unarchived. Unarchive them on the origin node.".to_string(),
+        ));
+    }
+
+    // Task not archived
+    if task.archived_at.is_none() {
+        return Err(ApiError::BadRequest("Task is not archived".to_string()));
+    }
+
+    // Unarchive the task
+    let unarchived_task = Task::unarchive(pool, task.id).await?;
+
+    // Track analytics
+    deployment
+        .track_if_analytics_allowed(
+            "task_unarchived",
+            json!({
+                "task_id": task.id.to_string(),
+                "project_id": task.project_id.to_string(),
+            }),
+        )
+        .await;
+
+    Ok(ResponseJson(ApiResponse::success(unarchived_task)))
+}
+
+/// Get children (subtasks) of a task.
+///
+/// Used by the archive dialog to show the user how many subtasks will be affected.
+pub async fn get_task_children(
+    Extension(task): Extension<Task>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<Vec<Task>>>, ApiError> {
+    let children = Task::find_children_by_parent_id(&deployment.db().pool, task.id).await?;
+    Ok(ResponseJson(ApiResponse::success(children)))
+}
+
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let task_actions_router = Router::new()
         .route("/", put(update_task))
         .route("/", delete(delete_task))
         .route("/share", post(share_task))
+        .route("/archive", post(archive_task))
+        .route("/unarchive", post(unarchive_task))
+        .route("/children", get(get_task_children))
         .route("/available-nodes", get(get_available_nodes))
         .route("/stream-connection-info", get(get_stream_connection_info));
 
