@@ -663,6 +663,7 @@ pub(super) fn convert_remote_task(
     task: &RemoteSharedTask,
     user: Option<&RemoteUserData>,
     last_event_seq: Option<i64>,
+    activity_at: Option<chrono::DateTime<chrono::Utc>>,
 ) -> SharedTaskInput {
     SharedTaskInput {
         id: task.id,
@@ -678,6 +679,7 @@ pub(super) fn convert_remote_task(
         last_event_seq,
         created_at: task.created_at,
         updated_at: task.updated_at,
+        activity_at,
     }
 }
 
@@ -714,6 +716,7 @@ where
             title: shared_task.title.clone(),
             description: shared_task.description.clone(),
             status: shared_task.status.clone(),
+            activity_at: shared_task.activity_at,
         },
         create_task_if_not_exists,
     )

@@ -252,6 +252,7 @@ async fn create_remote_task(
         assignee_name,
         response.user.as_ref().and_then(|u| u.username.clone()),
         response.task.version,
+        Some(response.task.updated_at), // Use updated_at as activity_at for new tasks
     )
     .await?;
 
@@ -514,6 +515,7 @@ async fn update_remote_task(
         assignee_name,
         response.user.as_ref().and_then(|u| u.username.clone()),
         response.task.version,
+        Some(response.task.updated_at), // Use updated_at as activity_at for task updates
     )
     .await?;
 

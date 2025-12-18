@@ -142,6 +142,7 @@ pub struct SyncTask {
     pub title: String,
     pub description: Option<String>,
     pub status: TaskStatus,
+    pub activity_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
@@ -526,7 +527,8 @@ ORDER BY t.created_at DESC"#,
                 title,
                 description,
                 status,
-                shared_task_id
+                shared_task_id,
+                activity_at
             )
             SELECT
                 $1,
@@ -534,8 +536,9 @@ ORDER BY t.created_at DESC"#,
                 $3,
                 $4,
                 $5,
-                $6
-            WHERE $7
+                $6,
+                $7
+            WHERE $8
                OR EXISTS (
                     SELECT 1 FROM tasks WHERE shared_task_id = $6
                )
@@ -544,6 +547,7 @@ ORDER BY t.created_at DESC"#,
                 title = excluded.title,
                 description = excluded.description,
                 status = excluded.status,
+                activity_at = excluded.activity_at,
                 updated_at = datetime('now', 'subsec')
             "#,
             new_task_id,
@@ -552,6 +556,7 @@ ORDER BY t.created_at DESC"#,
             data.description,
             data.status,
             data.shared_task_id,
+            data.activity_at,
             create_if_not_exists
         )
         .execute(executor)
@@ -754,6 +759,7 @@ ORDER BY t.created_at DESC"#,
         remote_assignee_name: Option<String>,
         remote_assignee_username: Option<String>,
         remote_version: i64,
+        activity_at: Option<DateTime<Utc>>,
     ) -> Result<Self, sqlx::Error>
     where
         E: Executor<'e, Database = Sqlite>,
@@ -773,9 +779,10 @@ ORDER BY t.created_at DESC"#,
                     remote_assignee_name,
                     remote_assignee_username,
                     remote_version,
-                    remote_last_synced_at
+                    remote_last_synced_at,
+                    activity_at
                 ) VALUES (
-                    $1, $2, $3, $4, $5, $6, 1, $7, $8, $9, $10, $11
+                    $1, $2, $3, $4, $5, $6, 1, $7, $8, $9, $10, $11, $12
                 )
                 ON CONFLICT(shared_task_id) WHERE shared_task_id IS NOT NULL DO UPDATE SET
                     title = excluded.title,
@@ -787,6 +794,7 @@ ORDER BY t.created_at DESC"#,
                     remote_assignee_username = excluded.remote_assignee_username,
                     remote_version = excluded.remote_version,
                     remote_last_synced_at = excluded.remote_last_synced_at,
+                    activity_at = excluded.activity_at,
                     updated_at = datetime('now', 'subsec')
                 RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", shared_task_id as "shared_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
                           is_remote as "is_remote!: bool",
@@ -810,7 +818,8 @@ ORDER BY t.created_at DESC"#,
             remote_assignee_name,
             remote_assignee_username,
             remote_version,
-            now
+            now,
+            activity_at
         )
         .fetch_one(executor)
         .await
