@@ -68,7 +68,7 @@ impl ActivityFeed {
   t.project_id                    AS "project_id!: Uuid",
   p.name                          AS project_name,
   t.status                        AS "status!: TaskStatus",
-  COALESCE(t.activity_at, t.updated_at) AS "activity_at!: DateTime<Utc>",
+  t.activity_at                   AS "activity_at!: DateTime<Utc>",
 
   COALESCE((
     SELECT ta.executor
@@ -107,9 +107,9 @@ WHERE
   ))
   OR
   -- Completed: Done status within last 24h
-  (t.status = 'done' AND COALESCE(t.activity_at, t.updated_at) > $1)
+  (t.status = 'done' AND t.activity_at > $1)
 
-ORDER BY COALESCE(t.activity_at, t.updated_at) DESC"#,
+ORDER BY t.activity_at DESC"#,
             cutoff_24h
         )
         .fetch_all(pool)
