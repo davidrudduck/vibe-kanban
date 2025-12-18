@@ -234,7 +234,7 @@ export type DashboardSummary = { running_tasks: Array<DashboardTask>, in_review_
 
 export type ActivityCategory = "needs_review" | "in_progress" | "completed";
 
-export type ActivityFeedItem = { task_id: string, task_title: string, project_id: string, project_name: string, status: TaskStatus, category: ActivityCategory, executor: string, updated_at: string, };
+export type ActivityFeedItem = { task_id: string, task_title: string, project_id: string, project_name: string, status: TaskStatus, category: ActivityCategory, executor: string, activity_at: string, };
 
 export type ActivityCounts = { needs_review: number, in_progress: number, completed: number, };
 
