@@ -18,6 +18,7 @@ import {
   Brain,
   CheckSquare,
   ChevronDown,
+  ExternalLink,
   Hammer,
   Edit,
   Eye,
@@ -35,6 +36,13 @@ import PendingQuestionEntry from './PendingQuestionEntry';
 import { NextActionCard } from './NextActionCard';
 import { cn } from '@/lib/utils';
 import { useRetryUi } from '@/contexts/RetryUiContext';
+import { FileViewDialog } from '@/components/dialogs';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 type Props = {
   entry: NormalizedEntry | ProcessStartPayload;
@@ -420,6 +428,15 @@ const PlanPresentationCard: React.FC<{
   );
 };
 
+/**
+ * Extract relative path within ~/.claude/ directory from a full path.
+ * Returns null if path is not within ~/.claude/.
+ */
+function getClaudeRelativePath(path: string): string | null {
+  const match = path.match(/\.claude\/(.+)$/);
+  return match ? match[1] : null;
+}
+
 const ToolCallCard: React.FC<{
   entry: NormalizedEntry | ProcessStartPayload;
   expansionKey: string;
@@ -471,6 +488,17 @@ const ToolCallCard: React.FC<{
   const hasArgs = isTool && !!actionType.arguments;
   const hasResult = isTool && !!actionType.result;
 
+  // File read with .claude/ path detection for view file link
+  const isFileRead = actionType?.action === 'file_read';
+  const fileReadPath = isFileRead ? actionType.path : null;
+  const claudeRelativePath = fileReadPath ? getClaudeRelativePath(fileReadPath) : null;
+
+  const handleViewFile = () => {
+    if (fileReadPath && claudeRelativePath) {
+      void FileViewDialog.show({ filePath: fileReadPath, relativePath: claudeRelativePath });
+    }
+  };
+
   const hasExpandableDetails = isCommand
     ? Boolean(argsText) || Boolean(output)
     : hasArgs || hasResult;
@@ -508,6 +536,27 @@ const ToolCallCard: React.FC<{
             <span className="font-normal">{label}</span>
           )}
         </span>
+        {/* View file link for ~/.claude/ paths */}
+        {claudeRelativePath && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleViewFile();
+                  }}
+                  className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors p-0.5"
+                  aria-label="View file"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>View file</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
       </HeaderWrapper>
 
       {effectiveExpanded && (
