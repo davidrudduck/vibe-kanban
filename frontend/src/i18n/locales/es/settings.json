@@ -330,6 +330,10 @@
           "label": "Script de Instalación",
           "helper": "Este script se ejecutará después de crear el worktree y antes de que comience el agente de codificación. Úsalo para tareas de configuración como instalar dependencias o preparar el entorno."
         },
+        "parallelSetup": {
+          "label": "Ejecutar script de instalación en paralelo con el agente",
+          "helper": "Cuando está habilitado, el script de instalación se ejecuta simultáneamente con el agente de codificación en lugar de esperar a que se complete primero. Útil para procesos de configuración que tardan mucho tiempo."
+        },
         "dev": {
           "label": "Script del Servidor de Desarrollo",
           "helper": "Este script se puede ejecutar desde los intentos de tarea para iniciar un servidor de desarrollo. Úsalo para iniciar rápidamente el servidor de desarrollo de tu proyecto para probar cambios."

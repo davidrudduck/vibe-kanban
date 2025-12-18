@@ -386,6 +386,10 @@
           "label": "Setup Script",
           "helper": "This script will run after creating the worktree and before the coding agent starts. Use it for setup tasks like installing dependencies or preparing the environment."
         },
+        "parallelSetup": {
+          "label": "Run setup script in parallel with agent",
+          "helper": "When enabled, the setup script runs concurrently with the coding agent instead of waiting for it to complete first. Useful for long-running setup processes."
+        },
         "dev": {
           "label": "Dev Server Script",
           "helper": "This script can be run from task attempts to start a development server. Use it to quickly start your project's dev server for testing changes."

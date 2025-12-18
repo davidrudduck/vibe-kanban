@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Folder } from 'lucide-react';
 import { useProjects } from '@/hooks/useProjects';
@@ -38,6 +39,7 @@ interface ProjectFormState {
   dev_script: string;
   cleanup_script: string;
   copy_files: string;
+  parallel_setup_script: boolean;
 }
 
 function projectToFormState(project: Project): ProjectFormState {
@@ -48,6 +50,7 @@ function projectToFormState(project: Project): ProjectFormState {
     dev_script: project.dev_script ?? '',
     cleanup_script: project.cleanup_script ?? '',
     copy_files: project.copy_files ?? '',
+    parallel_setup_script: project.parallel_setup_script ?? false,
   };
 }
 
@@ -215,6 +218,7 @@ export function ProjectSettings() {
         dev_script: draft.dev_script.trim() || null,
         cleanup_script: draft.cleanup_script.trim() || null,
         copy_files: draft.copy_files.trim() || null,
+        parallel_setup_script: draft.parallel_setup_script,
       };
 
       updateProject.mutate({
@@ -421,6 +425,22 @@ export function ProjectSettings() {
                 />
                 <p className="text-sm text-muted-foreground">
                   {t('settings.projects.scripts.setup.helper')}
+                </p>
+                <div className="flex items-center gap-2 mt-2">
+                  <Checkbox
+                    id="parallel-setup"
+                    checked={draft.parallel_setup_script}
+                    onCheckedChange={(checked) =>
+                      updateDraft({ parallel_setup_script: checked === true })
+                    }
+                    disabled={!draft.setup_script}
+                  />
+                  <Label htmlFor="parallel-setup" className="text-sm font-normal">
+                    {t('settings.projects.scripts.parallelSetup.label')}
+                  </Label>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {t('settings.projects.scripts.parallelSetup.helper')}
                 </p>
               </div>
 
