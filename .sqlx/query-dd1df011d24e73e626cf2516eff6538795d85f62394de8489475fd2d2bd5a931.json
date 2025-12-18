@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "\n            SELECT\n                id                         AS \"id!: Uuid\",\n                remote_project_id          AS \"remote_project_id!: Uuid\",\n                title                      AS title,\n                description                AS description,\n                status                     AS \"status!: TaskStatus\",\n                assignee_user_id           AS \"assignee_user_id: Uuid\",\n                assignee_first_name        AS \"assignee_first_name: String\",\n                assignee_last_name         AS \"assignee_last_name: String\",\n                assignee_username          AS \"assignee_username: String\",\n                version                    AS \"version!: i64\",\n                last_event_seq             AS \"last_event_seq: i64\",\n                created_at                 AS \"created_at!: DateTime<Utc>\",\n                updated_at                 AS \"updated_at!: DateTime<Utc>\"\n            FROM shared_tasks\n            WHERE remote_project_id = $1\n            ORDER BY updated_at DESC\n            ",
+  "query": "\n            SELECT\n                id                         AS \"id!: Uuid\",\n                remote_project_id          AS \"remote_project_id!: Uuid\",\n                title                      AS title,\n                description                AS description,\n                status                     AS \"status!: TaskStatus\",\n                assignee_user_id           AS \"assignee_user_id: Uuid\",\n                assignee_first_name        AS \"assignee_first_name: String\",\n                assignee_last_name         AS \"assignee_last_name: String\",\n                assignee_username          AS \"assignee_username: String\",\n                version                    AS \"version!: i64\",\n                last_event_seq             AS \"last_event_seq: i64\",\n                created_at                 AS \"created_at!: DateTime<Utc>\",\n                updated_at                 AS \"updated_at!: DateTime<Utc>\",\n                activity_at                AS \"activity_at: DateTime<Utc>\"\n            FROM shared_tasks\n            WHERE remote_project_id = $1\n            ORDER BY updated_at DESC\n            ",
   "describe": {
     "columns": [
       {
@@ -67,6 +67,11 @@
         "name": "updated_at!: DateTime<Utc>",
         "ordinal": 12,
         "type_info": "Text"
+      },
+      {
+        "name": "activity_at: DateTime<Utc>",
+        "ordinal": 13,
+        "type_info": "Datetime"
       }
     ],
     "parameters": {
@@ -85,8 +90,9 @@
       false,
       true,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "3cbd8fd4383a9f0899a12783be95972dec2ff6b9d0f3e3ed05bb5a07ea8c6ef0"
+  "hash": "dd1df011d24e73e626cf2516eff6538795d85f62394de8489475fd2d2bd5a931"
 }
