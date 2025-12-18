@@ -37,8 +37,11 @@
         "restore": "Restore"
       },
       "createSuccess": "Backup created",
+      "createError": "Failed to create backup",
       "deleteSuccess": "Backup deleted",
+      "deleteError": "Failed to delete backup",
       "restoreSuccess": "You must restart the application for the database restore to finalise.",
+      "restoreError": "Failed to restore backup",
       "confirmDelete": "Delete this backup?",
       "confirmRestore": "This will replace your database. A backup will be created first. Continue?"
     },
