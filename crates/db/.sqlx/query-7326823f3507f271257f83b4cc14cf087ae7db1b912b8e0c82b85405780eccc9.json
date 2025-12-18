@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "UPDATE tasks\n               SET title = $3, description = $4, status = $5, parent_task_id = $6, validation_steps = $7\n               WHERE id = $1 AND project_id = $2\n               RETURNING id as \"id!: Uuid\", project_id as \"project_id!: Uuid\", title, description, status as \"status!: TaskStatus\", parent_task_id as \"parent_task_id: Uuid\", shared_task_id as \"shared_task_id: Uuid\", created_at as \"created_at!: DateTime<Utc>\", updated_at as \"updated_at!: DateTime<Utc>\",\n                         is_remote as \"is_remote!: bool\",\n                         remote_assignee_user_id as \"remote_assignee_user_id: Uuid\",\n                         remote_assignee_name,\n                         remote_assignee_username,\n                         remote_version as \"remote_version!: i64\",\n                         remote_last_synced_at as \"remote_last_synced_at: DateTime<Utc>\",\n                         remote_stream_node_id as \"remote_stream_node_id: Uuid\",\n                         remote_stream_url,\n                         validation_steps,\n                         archived_at as \"archived_at: DateTime<Utc>\"",
+  "query": "INSERT INTO tasks (id, project_id, title, description, status, parent_task_id, shared_task_id, validation_steps)\n               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n               RETURNING id as \"id!: Uuid\", project_id as \"project_id!: Uuid\", title, description, status as \"status!: TaskStatus\", parent_task_id as \"parent_task_id: Uuid\", shared_task_id as \"shared_task_id: Uuid\", created_at as \"created_at!: DateTime<Utc>\", updated_at as \"updated_at!: DateTime<Utc>\",\n                         is_remote as \"is_remote!: bool\",\n                         remote_assignee_user_id as \"remote_assignee_user_id: Uuid\",\n                         remote_assignee_name,\n                         remote_assignee_username,\n                         remote_version as \"remote_version!: i64\",\n                         remote_last_synced_at as \"remote_last_synced_at: DateTime<Utc>\",\n                         remote_stream_node_id as \"remote_stream_node_id: Uuid\",\n                         remote_stream_url,\n                         validation_steps,\n                         archived_at as \"archived_at: DateTime<Utc>\",\n                         activity_at as \"activity_at: DateTime<Utc>\"",
   "describe": {
     "columns": [
       {
@@ -97,10 +97,15 @@
         "name": "archived_at: DateTime<Utc>",
         "ordinal": 18,
         "type_info": "Text"
+      },
+      {
+        "name": "activity_at: DateTime<Utc>",
+        "ordinal": 19,
+        "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 7
+      "Right": 8
     },
     "nullable": [
       true,
@@ -121,8 +126,9 @@
       true,
       true,
       true,
+      true,
       true
     ]
   },
-  "hash": "89b98913ff354a81d34764de4f0b8e7994466538e3b1f4975603531653b81aef"
+  "hash": "7326823f3507f271257f83b4cc14cf087ae7db1b912b8e0c82b85405780eccc9"
 }

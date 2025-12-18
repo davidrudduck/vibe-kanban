@@ -48,6 +48,10 @@ pub struct Task {
     /// Timestamp when task was archived. NULL means not archived.
     #[ts(type = "Date | null")]
     pub archived_at: Option<DateTime<Utc>>,
+    /// Timestamp of last significant activity (status change, execution start).
+    /// Unlike updated_at, this is NOT updated for metadata changes like title/description edits.
+    #[ts(type = "Date | null")]
+    pub activity_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -163,7 +167,7 @@ impl Task {
     /// This follows the Anthropic Harness pattern for quality-focused agent work.
     ///
     /// Format:
-    /// ```
+    /// ```text
     /// <task_title>
     ///
     /// <task_description>
@@ -248,6 +252,7 @@ impl Task {
   t.remote_stream_url,
   t.validation_steps,
   t.archived_at                   AS "archived_at: DateTime<Utc>",
+  t.activity_at                   AS "activity_at: DateTime<Utc>",
 
   CASE WHEN EXISTS (
     SELECT 1
@@ -312,6 +317,7 @@ ORDER BY t.created_at DESC"#,
                     remote_stream_url: rec.remote_stream_url,
                     validation_steps: rec.validation_steps,
                     archived_at: rec.archived_at,
+                    activity_at: rec.activity_at,
                 },
                 has_in_progress_attempt: rec.has_in_progress_attempt != 0,
                 has_merged_attempt: false, // TODO use merges table
@@ -336,7 +342,8 @@ ORDER BY t.created_at DESC"#,
                       remote_stream_node_id as "remote_stream_node_id: Uuid",
                       remote_stream_url,
                       validation_steps,
-                      archived_at as "archived_at: DateTime<Utc>"
+                      archived_at as "archived_at: DateTime<Utc>",
+                      activity_at as "activity_at: DateTime<Utc>"
                FROM tasks
                WHERE id = $1"#,
             id
@@ -358,7 +365,8 @@ ORDER BY t.created_at DESC"#,
                       remote_stream_node_id as "remote_stream_node_id: Uuid",
                       remote_stream_url,
                       validation_steps,
-                      archived_at as "archived_at: DateTime<Utc>"
+                      archived_at as "archived_at: DateTime<Utc>",
+                      activity_at as "activity_at: DateTime<Utc>"
                FROM tasks
                WHERE rowid = $1"#,
             rowid
@@ -384,7 +392,8 @@ ORDER BY t.created_at DESC"#,
                       remote_stream_node_id as "remote_stream_node_id: Uuid",
                       remote_stream_url,
                       validation_steps,
-                      archived_at as "archived_at: DateTime<Utc>"
+                      archived_at as "archived_at: DateTime<Utc>",
+                      activity_at as "activity_at: DateTime<Utc>"
                FROM tasks
                WHERE id = $1 AND project_id = $2"#,
             id,
@@ -413,7 +422,8 @@ ORDER BY t.created_at DESC"#,
                       remote_stream_node_id as "remote_stream_node_id: Uuid",
                       remote_stream_url,
                       validation_steps,
-                      archived_at as "archived_at: DateTime<Utc>"
+                      archived_at as "archived_at: DateTime<Utc>",
+                      activity_at as "activity_at: DateTime<Utc>"
                FROM tasks
                WHERE shared_task_id = $1
                LIMIT 1"#,
@@ -443,7 +453,8 @@ ORDER BY t.created_at DESC"#,
                          remote_stream_node_id as "remote_stream_node_id: Uuid",
                          remote_stream_url,
                          validation_steps,
-                         archived_at as "archived_at: DateTime<Utc>""#,
+                         archived_at as "archived_at: DateTime<Utc>",
+                         activity_at as "activity_at: DateTime<Utc>""#,
             task_id,
             data.project_id,
             data.title,
@@ -483,7 +494,8 @@ ORDER BY t.created_at DESC"#,
                          remote_stream_node_id as "remote_stream_node_id: Uuid",
                          remote_stream_url,
                          validation_steps,
-                         archived_at as "archived_at: DateTime<Utc>""#,
+                         archived_at as "archived_at: DateTime<Utc>",
+                         activity_at as "activity_at: DateTime<Utc>""#,
             id,
             project_id,
             title,
@@ -554,7 +566,7 @@ ORDER BY t.created_at DESC"#,
         status: TaskStatus,
     ) -> Result<(), sqlx::Error> {
         sqlx::query!(
-            "UPDATE tasks SET status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+            "UPDATE tasks SET status = $2, updated_at = CURRENT_TIMESTAMP, activity_at = datetime('now', 'subsec') WHERE id = $1",
             id,
             status
         )
@@ -663,7 +675,8 @@ ORDER BY t.created_at DESC"#,
                       remote_stream_node_id as "remote_stream_node_id: Uuid",
                       remote_stream_url,
                       validation_steps,
-                      archived_at as "archived_at: DateTime<Utc>"
+                      archived_at as "archived_at: DateTime<Utc>",
+                      activity_at as "activity_at: DateTime<Utc>"
                FROM tasks
                WHERE parent_task_id = $1
                ORDER BY created_at DESC"#,
@@ -716,7 +729,8 @@ ORDER BY t.created_at DESC"#,
                       remote_stream_node_id as "remote_stream_node_id: Uuid",
                       remote_stream_url,
                       validation_steps,
-                      archived_at as "archived_at: DateTime<Utc>"
+                      archived_at as "archived_at: DateTime<Utc>",
+                      activity_at as "activity_at: DateTime<Utc>"
                FROM tasks
                WHERE project_id = $1 AND is_remote = 1
                ORDER BY created_at DESC"#,
@@ -784,7 +798,8 @@ ORDER BY t.created_at DESC"#,
                           remote_stream_node_id as "remote_stream_node_id: Uuid",
                           remote_stream_url,
                           validation_steps,
-                          archived_at as "archived_at: DateTime<Utc>""#,
+                          archived_at as "archived_at: DateTime<Utc>",
+                          activity_at as "activity_at: DateTime<Utc>""#,
             local_id,
             project_id,
             title,
@@ -819,7 +834,8 @@ ORDER BY t.created_at DESC"#,
                          remote_stream_node_id as "remote_stream_node_id: Uuid",
                          remote_stream_url,
                          validation_steps,
-                         archived_at as "archived_at: DateTime<Utc>""#,
+                         archived_at as "archived_at: DateTime<Utc>",
+                         activity_at as "activity_at: DateTime<Utc>""#,
             id
         )
         .fetch_one(pool)
@@ -844,7 +860,8 @@ ORDER BY t.created_at DESC"#,
                          remote_stream_node_id as "remote_stream_node_id: Uuid",
                          remote_stream_url,
                          validation_steps,
-                         archived_at as "archived_at: DateTime<Utc>""#,
+                         archived_at as "archived_at: DateTime<Utc>",
+                         activity_at as "activity_at: DateTime<Utc>""#,
             id
         )
         .fetch_one(pool)
