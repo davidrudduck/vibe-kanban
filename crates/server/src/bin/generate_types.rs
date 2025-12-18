@@ -181,6 +181,7 @@ fn generate_types_content() -> String {
         db::models::merge::PullRequestInfo::decl(),
         db::models::draft::Draft::decl(),
         db::models::draft::DraftType::decl(),
+        db::BackupInfo::decl(),
         executors::logs::CommandExitStatus::decl(),
         executors::logs::CommandRunResult::decl(),
         executors::logs::NormalizedEntry::decl(),
