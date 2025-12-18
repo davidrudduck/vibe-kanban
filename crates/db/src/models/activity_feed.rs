@@ -31,7 +31,7 @@ pub struct ActivityFeedItem {
     pub status: TaskStatus,
     pub category: ActivityCategory,
     pub executor: String,
-    pub updated_at: DateTime<Utc>,
+    pub activity_at: DateTime<Utc>,
 }
 
 /// Counts per category for badge display.
@@ -68,7 +68,7 @@ impl ActivityFeed {
   t.project_id                    AS "project_id!: Uuid",
   p.name                          AS project_name,
   t.status                        AS "status!: TaskStatus",
-  t.updated_at                    AS "updated_at!: DateTime<Utc>",
+  COALESCE(t.activity_at, t.updated_at) AS "activity_at!: DateTime<Utc>",
 
   COALESCE((
     SELECT ta.executor
@@ -107,9 +107,9 @@ WHERE
   ))
   OR
   -- Completed: Done status within last 24h
-  (t.status = 'done' AND t.updated_at > $1)
+  (t.status = 'done' AND COALESCE(t.activity_at, t.updated_at) > $1)
 
-ORDER BY t.updated_at DESC"#,
+ORDER BY COALESCE(t.activity_at, t.updated_at) DESC"#,
             cutoff_24h
         )
         .fetch_all(pool)
@@ -143,7 +143,7 @@ ORDER BY t.updated_at DESC"#,
                 status: rec.status,
                 category,
                 executor: rec.executor,
-                updated_at: rec.updated_at,
+                activity_at: rec.activity_at,
             });
         }
 
