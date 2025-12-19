@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "INSERT INTO projects (\n                    id,\n                    name,\n                    git_repo_path,\n                    setup_script,\n                    dev_script,\n                    cleanup_script,\n                    copy_files\n                ) VALUES (\n                    $1, $2, $3, $4, $5, $6, $7\n                )\n                RETURNING id as \"id!: Uuid\",\n                          name,\n                          git_repo_path,\n                          setup_script,\n                          dev_script,\n                          cleanup_script,\n                          copy_files,\n                          remote_project_id as \"remote_project_id: Uuid\",\n                          created_at as \"created_at!: DateTime<Utc>\",\n                          updated_at as \"updated_at!: DateTime<Utc>\",\n                          is_remote as \"is_remote!: bool\",\n                          source_node_id as \"source_node_id: Uuid\",\n                          source_node_name,\n                          source_node_public_url,\n                          source_node_status,\n                          remote_last_synced_at as \"remote_last_synced_at: DateTime<Utc>\",\n                          default_validation_steps",
+  "query": "SELECT id as \"id!: Uuid\",\n                      name,\n                      git_repo_path,\n                      setup_script,\n                      dev_script,\n                      cleanup_script,\n                      copy_files,\n                      parallel_setup_script as \"parallel_setup_script!: bool\",\n                      remote_project_id as \"remote_project_id: Uuid\",\n                      created_at as \"created_at!: DateTime<Utc>\",\n                      updated_at as \"updated_at!: DateTime<Utc>\",\n                      is_remote as \"is_remote!: bool\",\n                      source_node_id as \"source_node_id: Uuid\",\n                      source_node_name,\n                      source_node_public_url,\n                      source_node_status,\n                      remote_last_synced_at as \"remote_last_synced_at: DateTime<Utc>\",\n                      default_validation_steps\n               FROM projects\n               WHERE git_repo_path = $1",
   "describe": {
     "columns": [
       {
@@ -39,58 +39,63 @@
         "type_info": "Text"
       },
       {
-        "name": "remote_project_id: Uuid",
+        "name": "parallel_setup_script!: bool",
         "ordinal": 7,
+        "type_info": "Bool"
+      },
+      {
+        "name": "remote_project_id: Uuid",
+        "ordinal": 8,
         "type_info": "Blob"
       },
       {
         "name": "created_at!: DateTime<Utc>",
-        "ordinal": 8,
-        "type_info": "Text"
-      },
-      {
-        "name": "updated_at!: DateTime<Utc>",
         "ordinal": 9,
         "type_info": "Text"
       },
       {
-        "name": "is_remote!: bool",
+        "name": "updated_at!: DateTime<Utc>",
         "ordinal": 10,
+        "type_info": "Text"
+      },
+      {
+        "name": "is_remote!: bool",
+        "ordinal": 11,
         "type_info": "Bool"
       },
       {
         "name": "source_node_id: Uuid",
-        "ordinal": 11,
+        "ordinal": 12,
         "type_info": "Blob"
       },
       {
         "name": "source_node_name",
-        "ordinal": 12,
-        "type_info": "Text"
-      },
-      {
-        "name": "source_node_public_url",
         "ordinal": 13,
         "type_info": "Text"
       },
       {
-        "name": "source_node_status",
+        "name": "source_node_public_url",
         "ordinal": 14,
         "type_info": "Text"
       },
       {
-        "name": "remote_last_synced_at: DateTime<Utc>",
+        "name": "source_node_status",
         "ordinal": 15,
         "type_info": "Text"
       },
       {
-        "name": "default_validation_steps",
+        "name": "remote_last_synced_at: DateTime<Utc>",
         "ordinal": 16,
+        "type_info": "Text"
+      },
+      {
+        "name": "default_validation_steps",
+        "ordinal": 17,
         "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 7
+      "Right": 1
     },
     "nullable": [
       true,
@@ -100,6 +105,7 @@
       true,
       true,
       true,
+      false,
       true,
       false,
       false,
@@ -107,10 +113,10 @@
       true,
       true,
       true,
-      false,
+      true,
       true,
       true
     ]
   },
-  "hash": "1ecda52ee20183f99120536139df9a0192f673fd4c722a48ae8b08d670606ce1"
+  "hash": "73a4eb2c8e3cac9bdc42bfe59725907659001642cfd7119935166a13d60c6f9c"
 }

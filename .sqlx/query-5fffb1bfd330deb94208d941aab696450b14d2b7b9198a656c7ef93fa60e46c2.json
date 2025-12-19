@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id as \"id!: Uuid\", task_attempt_id as \"task_attempt_id!: Uuid\", run_reason as \"run_reason!: ExecutionProcessRunReason\", executor_action as \"executor_action!: sqlx::types::Json<ExecutorActionField>\", before_head_commit,\n                      after_head_commit, status as \"status!: ExecutionProcessStatus\", exit_code, dropped, started_at as \"started_at!: DateTime<Utc>\", completed_at as \"completed_at?: DateTime<Utc>\",\n                      created_at as \"created_at!: DateTime<Utc>\", updated_at as \"updated_at!: DateTime<Utc>\"\n               FROM execution_processes\n               WHERE task_attempt_id = ? AND run_reason = ? AND dropped = FALSE\n               ORDER BY created_at DESC LIMIT 1",
+  "query": "SELECT id as \"id!: Uuid\", task_attempt_id as \"task_attempt_id!: Uuid\", run_reason as \"run_reason!: ExecutionProcessRunReason\", executor_action as \"executor_action!: sqlx::types::Json<ExecutorActionField>\", before_head_commit,\n                      after_head_commit, status as \"status!: ExecutionProcessStatus\", exit_code, dropped, pid, started_at as \"started_at!: DateTime<Utc>\", completed_at as \"completed_at?: DateTime<Utc>\",\n                      created_at as \"created_at!: DateTime<Utc>\", updated_at as \"updated_at!: DateTime<Utc>\"\n               FROM execution_processes\n               WHERE task_attempt_id = ? AND run_reason = ? AND dropped = FALSE\n               ORDER BY created_at DESC LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -49,23 +49,28 @@
         "type_info": "Bool"
       },
       {
-        "name": "started_at!: DateTime<Utc>",
+        "name": "pid",
         "ordinal": 9,
-        "type_info": "Text"
+        "type_info": "Integer"
       },
       {
-        "name": "completed_at?: DateTime<Utc>",
+        "name": "started_at!: DateTime<Utc>",
         "ordinal": 10,
         "type_info": "Text"
       },
       {
-        "name": "created_at!: DateTime<Utc>",
+        "name": "completed_at?: DateTime<Utc>",
         "ordinal": 11,
         "type_info": "Text"
       },
       {
-        "name": "updated_at!: DateTime<Utc>",
+        "name": "created_at!: DateTime<Utc>",
         "ordinal": 12,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: DateTime<Utc>",
+        "ordinal": 13,
         "type_info": "Text"
       }
     ],
@@ -82,11 +87,12 @@
       false,
       true,
       false,
+      true,
       false,
       true,
       false,
       false
     ]
   },
-  "hash": "3880c8745b172bec8e9f0477ee78339e157531a00dc63d73a31ce554f54e5ca6"
+  "hash": "5fffb1bfd330deb94208d941aab696450b14d2b7b9198a656c7ef93fa60e46c2"
 }

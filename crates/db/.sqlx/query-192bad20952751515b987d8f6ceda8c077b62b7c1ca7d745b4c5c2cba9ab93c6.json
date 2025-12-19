@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "\n        SELECT\n            id as \"id!: Uuid\",\n            task_attempt_id as \"task_attempt_id!: Uuid\",\n            run_reason as \"run_reason!: ExecutionProcessRunReason\",\n            executor_action as \"executor_action!: sqlx::types::Json<ExecutorActionField>\",\n            before_head_commit,\n            after_head_commit,\n            status as \"status!: ExecutionProcessStatus\",\n            exit_code,\n            dropped,\n            started_at as \"started_at!: DateTime<Utc>\",\n            completed_at as \"completed_at?: DateTime<Utc>\",\n            created_at as \"created_at!: DateTime<Utc>\",\n            updated_at as \"updated_at!: DateTime<Utc>\"\n        FROM execution_processes\n        WHERE status = 'running'\n          AND run_reason = 'devserver'\n          AND task_attempt_id = ?\n        ORDER BY created_at DESC\n        ",
+  "query": "SELECT id              as \"id!: Uuid\",\n                      task_attempt_id as \"task_attempt_id!: Uuid\",\n                      run_reason      as \"run_reason!: ExecutionProcessRunReason\",\n                      executor_action as \"executor_action!: sqlx::types::Json<ExecutorActionField>\",\n                      before_head_commit,\n                      after_head_commit,\n                      status          as \"status!: ExecutionProcessStatus\",\n                      exit_code,\n                      dropped,\n                      pid,\n                      started_at      as \"started_at!: DateTime<Utc>\",\n                      completed_at    as \"completed_at?: DateTime<Utc>\",\n                      created_at      as \"created_at!: DateTime<Utc>\",\n                      updated_at      as \"updated_at!: DateTime<Utc>\"\n               FROM execution_processes\n               WHERE task_attempt_id = ?\n                 AND (? OR dropped = FALSE)\n               ORDER BY created_at ASC",
   "describe": {
     "columns": [
       {
@@ -49,28 +49,33 @@
         "type_info": "Bool"
       },
       {
-        "name": "started_at!: DateTime<Utc>",
+        "name": "pid",
         "ordinal": 9,
-        "type_info": "Text"
+        "type_info": "Integer"
       },
       {
-        "name": "completed_at?: DateTime<Utc>",
+        "name": "started_at!: DateTime<Utc>",
         "ordinal": 10,
         "type_info": "Text"
       },
       {
-        "name": "created_at!: DateTime<Utc>",
+        "name": "completed_at?: DateTime<Utc>",
         "ordinal": 11,
         "type_info": "Text"
       },
       {
-        "name": "updated_at!: DateTime<Utc>",
+        "name": "created_at!: DateTime<Utc>",
         "ordinal": 12,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: DateTime<Utc>",
+        "ordinal": 13,
         "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 2
     },
     "nullable": [
       true,
@@ -82,11 +87,12 @@
       false,
       true,
       false,
+      true,
       false,
       true,
       false,
       false
     ]
   },
-  "hash": "196a97c709d226c23b957cc258c57f0d6cd35b1a6aeef879c7f6dfa89fc85539"
+  "hash": "192bad20952751515b987d8f6ceda8c077b62b7c1ca7d745b4c5c2cba9ab93c6"
 }

@@ -578,7 +578,11 @@ after_head_commit: string | null, status: ExecutionProcessStatus, exit_code: big
  * history view (due to restore/trimming). Hidden from logs/timeline;
  * still listed in the Processes tab.
  */
-dropped: boolean, started_at: string, completed_at: string | null, created_at: string, updated_at: string, };
+dropped: boolean, 
+/**
+ * System process ID (PID) for process tree discovery
+ */
+pid: bigint | null, started_at: string, completed_at: string | null, created_at: string, updated_at: string, };
 
 export enum ExecutionProcessStatus { running = "running", completed = "completed", failed = "failed", killed = "killed" }
 
