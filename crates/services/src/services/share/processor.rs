@@ -179,7 +179,7 @@ impl ActivityProcessor {
                     );
                 }
 
-                let input = convert_remote_task(&task, user.as_ref(), Some(event.seq));
+                let input = convert_remote_task(&task, user.as_ref(), Some(event.seq), Some(event.created_at));
                 let shared_task = SharedTask::upsert(tx.as_mut(), input).await?;
 
                 let current_profile = self.auth_ctx.cached_profile().await;
@@ -211,6 +211,7 @@ impl ActivityProcessor {
                             assignee_name,
                             user.as_ref().and_then(|u| u.username.clone()),
                             task.version,
+                            Some(event.created_at),
                         )
                         .await?;
                     } else {
@@ -297,7 +298,8 @@ impl ActivityProcessor {
             }
 
             keep_ids.insert(payload.task.id);
-            let input = convert_remote_task(&payload.task, payload.user.as_ref(), latest_seq);
+            // For bulk sync, use updated_at as activity_at since we don't have the actual event timestamp
+            let input = convert_remote_task(&payload.task, payload.user.as_ref(), latest_seq, Some(payload.task.updated_at));
             replacements.push(PreparedBulkTask {
                 input,
                 creator_user_id: payload.task.creator_user_id,
@@ -381,6 +383,7 @@ impl ActivityProcessor {
                         assignee_name,
                         remote_user_username,
                         remote_task_version,
+                        shared_task.activity_at,
                     )
                     .await?;
                 } else {
