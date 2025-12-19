@@ -5,7 +5,10 @@ use axum::{
     routing::post,
 };
 use deployment::Deployment;
-use utils::{approvals::{ApprovalResponse, ApprovalStatus}, response::ApiResponse};
+use utils::{
+    approvals::{ApprovalResponse, ApprovalStatus},
+    response::ApiResponse,
+};
 
 use crate::{DeploymentImpl, error::ApiError};
 

@@ -408,9 +408,7 @@ pub async fn update_task(
         None => existing_task.description,      // Field omitted = keep existing
     };
     let status = payload.status.unwrap_or(existing_task.status);
-    let parent_task_id = payload
-        .parent_task_id
-        .or(existing_task.parent_task_id);
+    let parent_task_id = payload.parent_task_id.or(existing_task.parent_task_id);
     // Handle validation_steps: if provided use it, otherwise keep existing
     let validation_steps = match &payload.validation_steps {
         Some(s) if s.trim().is_empty() => None, // Empty string = clear validation steps
@@ -740,9 +738,9 @@ pub async fn get_available_nodes(
 
     // If the project is not linked to the hive, return empty list
     let Some(remote_project_id) = project.remote_project_id else {
-        return Ok(ResponseJson(ApiResponse::success(ListProjectNodesResponse {
-            nodes: vec![],
-        })));
+        return Ok(ResponseJson(ApiResponse::success(
+            ListProjectNodesResponse { nodes: vec![] },
+        )));
     };
 
     // Query the hive for nodes that have this project linked
@@ -823,7 +821,11 @@ pub async fn archive_task(
     }
 
     // Validate no running execution processes
-    if deployment.container().has_running_processes(task.id).await? {
+    if deployment
+        .container()
+        .has_running_processes(task.id)
+        .await?
+    {
         return Err(ApiError::Conflict(
             "Task has running execution processes. Please wait for them to complete or stop them first.".to_string()
         ));
@@ -849,7 +851,11 @@ pub async fn archive_task(
         let children = Task::find_children_by_parent_id(pool, task.id).await?;
         for child in &children {
             // Check child doesn't have running processes
-            if deployment.container().has_running_processes(child.id).await? {
+            if deployment
+                .container()
+                .has_running_processes(child.id)
+                .await?
+            {
                 return Err(ApiError::Conflict(format!(
                     "Subtask '{}' has running execution processes. Stop them first or uncheck 'include subtasks'.",
                     child.title
@@ -857,16 +863,17 @@ pub async fn archive_task(
             }
 
             // Gather child's attempts for cleanup
-            let child_attempts = TaskAttempt::fetch_all(pool, Some(child.id))
-                .await
-                .map_err(|e| {
-                    tracing::error!(
-                        "Failed to fetch task attempts for subtask {}: {}",
-                        child.id,
-                        e
-                    );
-                    ApiError::TaskAttempt(e)
-                })?;
+            let child_attempts =
+                TaskAttempt::fetch_all(pool, Some(child.id))
+                    .await
+                    .map_err(|e| {
+                        tracing::error!(
+                            "Failed to fetch task attempts for subtask {}: {}",
+                            child.id,
+                            e
+                        );
+                        ApiError::TaskAttempt(e)
+                    })?;
             attempts.extend(child_attempts);
         }
 
