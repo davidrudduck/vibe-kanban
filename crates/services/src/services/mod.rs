@@ -23,6 +23,7 @@ pub mod notification;
 pub mod oauth_credentials;
 pub mod pr_monitor;
 pub mod process_inspector;
+pub mod process_service;
 pub mod project_detector;
 pub mod remote_client;
 pub mod share;
