@@ -132,6 +132,7 @@ fn generate_types_content() -> String {
         services::services::config::UiLanguage::decl(),
         services::services::config::ShowcaseState::decl(),
         services::services::config::DevBannerConfig::decl(),
+        services::services::config::PaginationConfig::decl(),
         services::services::git::GitBranch::decl(),
         utils::diff::Diff::decl(),
         utils::diff::DiffChangeKind::decl(),
