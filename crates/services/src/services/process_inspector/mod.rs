@@ -4,8 +4,10 @@
 //! allowing platform-specific implementations and mock implementations for testing.
 
 mod mock;
+mod sysinfo_impl;
 
 pub use mock::MockProcessInspector;
+pub use sysinfo_impl::SysinfoProcessInspector;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
