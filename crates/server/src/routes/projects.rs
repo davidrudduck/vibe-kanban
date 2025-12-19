@@ -611,7 +611,8 @@ pub async fn link_to_local_folder(
     // Now link it to the remote project
     let client = deployment.remote_client()?;
     let remote_project = client.get_project(payload.remote_project_id).await?;
-    let updated_project = apply_remote_project_link(&deployment, project.id, remote_project).await?;
+    let updated_project =
+        apply_remote_project_link(&deployment, project.id, remote_project).await?;
 
     // Track the event
     deployment

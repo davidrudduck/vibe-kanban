@@ -578,7 +578,11 @@ after_head_commit: string | null, status: ExecutionProcessStatus, exit_code: big
  * history view (due to restore/trimming). Hidden from logs/timeline;
  * still listed in the Processes tab.
  */
-dropped: boolean, started_at: string, completed_at: string | null, created_at: string, updated_at: string, };
+dropped: boolean, 
+/**
+ * System process ID (PID) for process tree discovery
+ */
+pid: bigint | null, started_at: string, completed_at: string | null, created_at: string, updated_at: string, };
 
 export enum ExecutionProcessStatus { running = "running", completed = "completed", failed = "failed", killed = "killed" }
 
@@ -663,3 +667,105 @@ export type Question = { question: string, header: string, multiSelect: boolean,
 export type QuestionOption = { label: string, description: string, };
 
 export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in string]?: JsonValue } | null;
+
+export type ProcessInfo = { 
+/**
+ * System process ID
+ */
+pid: number, 
+/**
+ * Parent process ID (None for orphans/init)
+ */
+parent_pid: number | null, 
+/**
+ * Process name (executable name)
+ */
+name: string, 
+/**
+ * Full command line arguments
+ */
+command: Array<string>, 
+/**
+ * Working directory of the process
+ */
+working_directory: string | null, 
+/**
+ * Memory usage in bytes
+ */
+memory_bytes: bigint, 
+/**
+ * CPU usage percentage (0.0 - 100.0)
+ */
+cpu_percent: number, 
+/**
+ * ID of the execution process record (if this is a tracked executor)
+ */
+execution_process_id: string | null, 
+/**
+ * ID of the task attempt this process belongs to
+ */
+task_attempt_id: string | null, 
+/**
+ * ID of the task this process belongs to
+ */
+task_id: string | null, 
+/**
+ * ID of the project this process belongs to
+ */
+project_id: string | null, 
+/**
+ * Name of the project (for display)
+ */
+project_name: string | null, 
+/**
+ * Title of the task (for display)
+ */
+task_title: string | null, 
+/**
+ * Whether this is a direct executor process (vs a child spawned by an executor)
+ */
+is_executor: boolean, };
+
+export type ProcessFilter = { 
+/**
+ * Filter by project ID
+ */
+project_id: string | null, 
+/**
+ * Filter by task ID
+ */
+task_id: string | null, 
+/**
+ * Filter by task attempt ID
+ */
+task_attempt_id: string | null, 
+/**
+ * Only include executor processes (exclude children)
+ */
+executors_only: boolean, };
+
+export type KillScope = { "type": "single", pid: number, } | { "type": "task", task_id: string, } | { "type": "project", project_id: string, } | { "type": "all_except_executors" } | { "type": "all" };
+
+export type KillResult = { 
+/**
+ * Number of processes successfully killed
+ */
+killed_count: number, 
+/**
+ * Number of processes that failed to kill
+ */
+failed_count: number, 
+/**
+ * PIDs that failed to kill with error messages
+ */
+failures: Array<KillFailure>, };
+
+export type KillFailure = { 
+/**
+ * PID that failed to kill
+ */
+pid: number, 
+/**
+ * Error message
+ */
+error: string, };

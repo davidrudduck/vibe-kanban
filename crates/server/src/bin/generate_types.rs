@@ -200,6 +200,12 @@ fn generate_types_content() -> String {
         utils::approvals::Question::decl(),
         utils::approvals::QuestionOption::decl(),
         serde_json::Value::decl(),
+        // Process management types
+        services::services::process_service::ProcessInfo::decl(),
+        services::services::process_service::ProcessFilter::decl(),
+        services::services::process_service::KillScope::decl(),
+        services::services::process_service::KillResult::decl(),
+        services::services::process_service::KillFailure::decl(),
     ];
 
     let body = decls

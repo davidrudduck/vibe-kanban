@@ -443,7 +443,10 @@ impl TaskServer {
             validation_steps: None,
         };
 
-        let task: Task = match self.send_json(self.client.post(&url).json(&create_payload)).await {
+        let task: Task = match self
+            .send_json(self.client.post(&url).json(&create_payload))
+            .await
+        {
             Ok(t) => t,
             Err(e) => return Ok(e),
         };
