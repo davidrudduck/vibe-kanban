@@ -842,6 +842,58 @@ export function GeneralSettings() {
 
       <Card>
         <CardHeader>
+          <CardTitle>{t('settings.general.performance.title')}</CardTitle>
+          <CardDescription>
+            {t('settings.general.performance.description')}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="initial-load">
+              {t('settings.general.performance.initialLoad.label')}
+            </Label>
+            <Select
+              value={String(draft?.pagination?.initial_load ?? 100)}
+              onValueChange={(value: string) =>
+                updateDraft({
+                  pagination: {
+                    ...draft!.pagination,
+                    initial_load: BigInt(value),
+                  },
+                })
+              }
+            >
+              <SelectTrigger id="initial-load">
+                <SelectValue
+                  placeholder={t(
+                    'settings.general.performance.initialLoad.option100'
+                  )}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="50">
+                  {t('settings.general.performance.initialLoad.option50')}
+                </SelectItem>
+                <SelectItem value="100">
+                  {t('settings.general.performance.initialLoad.option100')}
+                </SelectItem>
+                <SelectItem value="200">
+                  {t('settings.general.performance.initialLoad.option200')}
+                </SelectItem>
+                <SelectItem value="500">
+                  {t('settings.general.performance.initialLoad.option500')}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">
+              {t('settings.general.performance.initialLoad.helper')}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>{t('settings.general.privacy.title')}</CardTitle>
           <CardDescription>
             {t('settings.general.privacy.description')}
