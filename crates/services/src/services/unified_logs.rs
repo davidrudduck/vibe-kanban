@@ -385,7 +385,7 @@ mod tests {
     #[test]
     fn test_unified_log_service_has_accessors() {
         // This is a compile-time test to ensure the public API is correct
-        fn _check_api<'a>(service: &'a UnifiedLogService) -> (&'a LocalLogService, &'a RemoteLogService) {
+        fn _check_api(service: &UnifiedLogService) -> (&LocalLogService, &RemoteLogService) {
             (service.local(), service.remote())
         }
     }
