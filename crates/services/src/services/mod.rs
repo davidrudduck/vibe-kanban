@@ -25,4 +25,5 @@ pub mod pr_monitor;
 pub mod project_detector;
 pub mod remote_client;
 pub mod share;
+pub mod unified_logs;
 pub mod worktree_manager;
