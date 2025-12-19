@@ -384,7 +384,11 @@ export type CreateGitHubPrRequest = { title: string, body: string | null, target
 
 export type ImageResponse = { id: string, file_path: string, original_name: string, mime_type: string | null, size_bytes: bigint, hash: string, created_at: string, updated_at: string, };
 
-export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, analytics_enabled: boolean, sentry_enabled: boolean, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, dev_banner: DevBannerConfig, };
+export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, analytics_enabled: boolean, sentry_enabled: boolean, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, dev_banner: DevBannerConfig, 
+/**
+ * Pagination settings for log display
+ */
+pagination: PaginationConfig, };
 
 export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, };
 
@@ -425,6 +429,16 @@ show_os_info: boolean,
  * Whether to hide the Discord link in the navbar (dev mode only)
  */
 hide_discord_link: boolean, };
+
+export type PaginationConfig = { 
+/**
+ * Number of log entries to load initially (default: 100)
+ */
+initial_load: bigint, 
+/**
+ * Maximum entries per page request (default: 500)
+ */
+max_limit: bigint, };
 
 export type GitBranch = { name: string, is_current: boolean, is_remote: boolean, last_commit_date: Date, };
 
@@ -668,41 +682,41 @@ export type QuestionOption = { label: string, description: string, };
 
 export type OutputType = "stdout" | "stderr" | "system" | "json_patch" | "session_id" | "finished" | "refresh_required";
 
-export type LogEntry = {
+export type LogEntry = { 
 /**
  * Sequential ID for cursor-based pagination.
  */
-id: bigint,
+id: bigint, 
 /**
  * The content of the log entry.
  */
-content: string,
+content: string, 
 /**
  * The type of output (stdout, stderr, system, json_patch, etc.).
  */
-output_type: OutputType,
+output_type: OutputType, 
 /**
  * When the log entry was created.
  */
-timestamp: string,
+timestamp: string, 
 /**
  * The execution ID this log belongs to.
  */
 execution_id: string, };
 
-export type PaginatedLogs = {
+export type PaginatedLogs = { 
 /**
  * The log entries for this page.
  */
-entries: Array<LogEntry>,
+entries: Array<LogEntry>, 
 /**
  * Cursor for the next page (if more entries exist).
  */
-next_cursor: bigint | null,
+next_cursor: bigint | null, 
 /**
  * Whether there are more entries after this page.
  */
-has_more: boolean,
+has_more: boolean, 
 /**
  * Total count of log entries (if available).
  */
@@ -712,77 +726,77 @@ export type Direction = "forward" | "backward";
 
 export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in string]?: JsonValue } | null;
 
-export type ProcessInfo = {
+export type ProcessInfo = { 
 /**
  * System process ID
  */
-pid: number,
+pid: number, 
 /**
  * Parent process ID (None for orphans/init)
  */
-parent_pid: number | null,
+parent_pid: number | null, 
 /**
  * Process name (executable name)
  */
-name: string,
+name: string, 
 /**
  * Full command line arguments
  */
-command: Array<string>,
+command: Array<string>, 
 /**
  * Working directory of the process
  */
-working_directory: string | null,
+working_directory: string | null, 
 /**
  * Memory usage in bytes
  */
-memory_bytes: bigint,
+memory_bytes: bigint, 
 /**
  * CPU usage percentage (0.0 - 100.0)
  */
-cpu_percent: number,
+cpu_percent: number, 
 /**
  * ID of the execution process record (if this is a tracked executor)
  */
-execution_process_id: string | null,
+execution_process_id: string | null, 
 /**
  * ID of the task attempt this process belongs to
  */
-task_attempt_id: string | null,
+task_attempt_id: string | null, 
 /**
  * ID of the task this process belongs to
  */
-task_id: string | null,
+task_id: string | null, 
 /**
  * ID of the project this process belongs to
  */
-project_id: string | null,
+project_id: string | null, 
 /**
  * Name of the project (for display)
  */
-project_name: string | null,
+project_name: string | null, 
 /**
  * Title of the task (for display)
  */
-task_title: string | null,
+task_title: string | null, 
 /**
  * Whether this is a direct executor process (vs a child spawned by an executor)
  */
 is_executor: boolean, };
 
-export type ProcessFilter = {
+export type ProcessFilter = { 
 /**
  * Filter by project ID
  */
-project_id: string | null,
+project_id: string | null, 
 /**
  * Filter by task ID
  */
-task_id: string | null,
+task_id: string | null, 
 /**
  * Filter by task attempt ID
  */
-task_attempt_id: string | null,
+task_attempt_id: string | null, 
 /**
  * Only include executor processes (exclude children)
  */
@@ -790,25 +804,25 @@ executors_only: boolean, };
 
 export type KillScope = { "type": "single", pid: number, } | { "type": "task", task_id: string, } | { "type": "project", project_id: string, } | { "type": "all_except_executors" } | { "type": "all" };
 
-export type KillResult = {
+export type KillResult = { 
 /**
  * Number of processes successfully killed
  */
-killed_count: number,
+killed_count: number, 
 /**
  * Number of processes that failed to kill
  */
-failed_count: number,
+failed_count: number, 
 /**
  * PIDs that failed to kill with error messages
  */
 failures: Array<KillFailure>, };
 
-export type KillFailure = {
+export type KillFailure = { 
 /**
  * PID that failed to kill
  */
-pid: number,
+pid: number, 
 /**
  * Error message
  */
