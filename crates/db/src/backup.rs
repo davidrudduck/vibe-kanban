@@ -33,7 +33,9 @@ impl BackupService {
     /// Create a timestamped backup of the database before migrations.
     ///
     /// Returns the path to the backup file if created, or None if no database exists yet.
-    pub fn backup_before_migration(db_path: &Path) -> Result<Option<std::path::PathBuf>, std::io::Error> {
+    pub fn backup_before_migration(
+        db_path: &Path,
+    ) -> Result<Option<std::path::PathBuf>, std::io::Error> {
         if !db_path.exists() {
             info!("No existing database to backup - skipping pre-migration backup");
             return Ok(None);
@@ -488,7 +490,11 @@ mod tests {
 
         // Create files that should be ignored
         std::fs::write(backup_dir.join("random_file.sqlite"), "random").unwrap();
-        std::fs::write(backup_dir.join("db_backup_20250101_100000.txt"), "wrong ext").unwrap();
+        std::fs::write(
+            backup_dir.join("db_backup_20250101_100000.txt"),
+            "wrong ext",
+        )
+        .unwrap();
         std::fs::write(backup_dir.join("other.db"), "other").unwrap();
 
         let result = BackupService::list_backups(&db_path).unwrap();
