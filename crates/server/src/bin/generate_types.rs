@@ -199,6 +199,10 @@ fn generate_types_content() -> String {
         utils::approvals::ApprovalResponse::decl(),
         utils::approvals::Question::decl(),
         utils::approvals::QuestionOption::decl(),
+        utils::unified_log::OutputType::decl(),
+        utils::unified_log::LogEntry::decl(),
+        utils::unified_log::PaginatedLogs::decl(),
+        utils::unified_log::Direction::decl(),
         serde_json::Value::decl(),
     ];
 

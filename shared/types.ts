@@ -648,4 +648,48 @@ export type Question = { question: string, header: string, multiSelect: boolean,
 
 export type QuestionOption = { label: string, description: string, };
 
+export type OutputType = "stdout" | "stderr" | "system" | "json_patch" | "session_id" | "finished" | "refresh_required";
+
+export type LogEntry = { 
+/**
+ * Sequential ID for cursor-based pagination.
+ */
+id: bigint, 
+/**
+ * The content of the log entry.
+ */
+content: string, 
+/**
+ * The type of output (stdout, stderr, system, json_patch, etc.).
+ */
+output_type: OutputType, 
+/**
+ * When the log entry was created.
+ */
+timestamp: string, 
+/**
+ * The execution ID this log belongs to.
+ */
+execution_id: string, };
+
+export type PaginatedLogs = { 
+/**
+ * The log entries for this page.
+ */
+entries: Array<LogEntry>, 
+/**
+ * Cursor for the next page (if more entries exist).
+ */
+next_cursor: bigint | null, 
+/**
+ * Whether there are more entries after this page.
+ */
+has_more: boolean, 
+/**
+ * Total count of log entries (if available).
+ */
+total_count: bigint | null, };
+
+export type Direction = "forward" | "backward";
+
 export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in string]?: JsonValue } | null;
