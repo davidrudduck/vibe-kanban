@@ -379,7 +379,9 @@ impl From<ShareError> for ApiError {
 impl From<ApprovalError> for ApiError {
     fn from(err: ApprovalError) -> Self {
         match err {
-            ApprovalError::NotFound => ApiError::BadRequest("Approval request not found".to_string()),
+            ApprovalError::NotFound => {
+                ApiError::BadRequest("Approval request not found".to_string())
+            }
             ApprovalError::AlreadyCompleted => {
                 ApiError::Conflict("Approval request already completed".to_string())
             }

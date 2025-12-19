@@ -196,9 +196,9 @@ pub async fn create_task_attempt(
             .await?
             .ok_or(SqlxError::RowNotFound)?;
 
-        let remote_project_id = project.remote_project_id.ok_or_else(|| {
-            ApiError::BadRequest("Project is not linked to hive".to_string())
-        })?;
+        let remote_project_id = project
+            .remote_project_id
+            .ok_or_else(|| ApiError::BadRequest("Project is not linked to hive".to_string()))?;
 
         let nodes_response = client.list_project_nodes(remote_project_id).await?;
 
@@ -218,8 +218,7 @@ pub async fn create_task_attempt(
         if target_node.node_status != remote::nodes::NodeStatus::Online {
             return Err(ApiError::BadGateway(format!(
                 "Target node '{}' is not online (status: {:?})",
-                target_node.node_name,
-                target_node.node_status
+                target_node.node_name, target_node.node_status
             )));
         }
 
