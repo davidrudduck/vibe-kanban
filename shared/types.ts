@@ -30,7 +30,11 @@ truncated: boolean,
  */
 language: string | null, };
 
-export type Project = { id: string, name: string, git_repo_path: string, setup_script: string | null, dev_script: string | null, cleanup_script: string | null, copy_files: string | null, remote_project_id: string | null, created_at: Date, updated_at: Date, is_remote: boolean, source_node_id: string | null, source_node_name: string | null, source_node_public_url: string | null, source_node_status: string | null, remote_last_synced_at: Date | null, 
+export type Project = { id: string, name: string, git_repo_path: string, setup_script: string | null, dev_script: string | null, cleanup_script: string | null, copy_files: string | null, 
+/**
+ * When true, setup script runs concurrently with the coding agent
+ */
+parallel_setup_script: boolean, remote_project_id: string | null, created_at: Date, updated_at: Date, is_remote: boolean, source_node_id: string | null, source_node_name: string | null, source_node_public_url: string | null, source_node_status: string | null, remote_last_synced_at: Date | null, 
 /**
  * JSON array of default validation steps for new tasks in this project
  */
@@ -38,7 +42,7 @@ default_validation_steps: string | null, };
 
 export type CreateProject = { name: string, git_repo_path: string, use_existing_repo: boolean, setup_script: string | null, dev_script: string | null, cleanup_script: string | null, copy_files: string | null, };
 
-export type UpdateProject = { name: string | null, git_repo_path: string | null, setup_script: string | null, dev_script: string | null, cleanup_script: string | null, copy_files: string | null, };
+export type UpdateProject = { name: string | null, git_repo_path: string | null, setup_script: string | null, dev_script: string | null, cleanup_script: string | null, copy_files: string | null, parallel_setup_script: boolean | null, };
 
 export type SearchResult = { path: string, is_file: boolean, match_type: SearchMatchType, };
 
@@ -200,7 +204,12 @@ validation_steps: string | null,
 /**
  * Timestamp when task was archived. NULL means not archived.
  */
-archived_at: Date | null, };
+archived_at: Date | null, 
+/**
+ * Timestamp of last significant activity (status change, execution start).
+ * Unlike updated_at, this is NOT updated for metadata changes like title/description edits.
+ */
+activity_at: Date | null, };
 
 export type TaskWithAttemptStatus = { has_in_progress_attempt: boolean, has_merged_attempt: boolean, last_attempt_failed: boolean, executor: string, id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_task_id: string | null, shared_task_id: string | null, created_at: string, updated_at: string, is_remote: boolean, remote_assignee_user_id: string | null, remote_assignee_name: string | null, remote_assignee_username: string | null, remote_version: bigint, remote_last_synced_at: string | null, remote_stream_node_id: string | null, remote_stream_url: string | null, 
 /**
@@ -210,7 +219,12 @@ validation_steps: string | null,
 /**
  * Timestamp when task was archived. NULL means not archived.
  */
-archived_at: Date | null, };
+archived_at: Date | null, 
+/**
+ * Timestamp of last significant activity (status change, execution start).
+ * Unlike updated_at, this is NOT updated for metadata changes like title/description edits.
+ */
+activity_at: Date | null, };
 
 export type TaskRelationships = { parent_task: Task | null, current_attempt: TaskAttempt, children: Array<Task>, };
 
@@ -224,7 +238,7 @@ export type DashboardSummary = { running_tasks: Array<DashboardTask>, in_review_
 
 export type ActivityCategory = "needs_review" | "in_progress" | "completed";
 
-export type ActivityFeedItem = { task_id: string, task_title: string, project_id: string, project_name: string, status: TaskStatus, category: ActivityCategory, executor: string, updated_at: string, };
+export type ActivityFeedItem = { task_id: string, task_title: string, project_id: string, project_name: string, status: TaskStatus, category: ActivityCategory, executor: string, activity_at: string, };
 
 export type ActivityCounts = { needs_review: number, in_progress: number, completed: number, };
 
@@ -234,7 +248,7 @@ export type CreateTask = { project_id: string, title: string, description: strin
 
 export type UpdateTask = { title: string | null, description: string | null, status: TaskStatus | null, parent_task_id: string | null, image_ids: Array<string> | null, validation_steps: string | null, };
 
-export type SharedTask = { id: string, remote_project_id: string, title: string, description: string | null, status: TaskStatus, assignee_user_id: string | null, assignee_first_name: string | null, assignee_last_name: string | null, assignee_username: string | null, version: bigint, last_event_seq: bigint | null, created_at: Date, updated_at: Date, };
+export type SharedTask = { id: string, remote_project_id: string, title: string, description: string | null, status: TaskStatus, assignee_user_id: string | null, assignee_first_name: string | null, assignee_last_name: string | null, assignee_username: string | null, version: bigint, last_event_seq: bigint | null, created_at: Date, updated_at: Date, activity_at: Date | null, };
 
 export type Image = { id: string, file_path: string, original_name: string, mime_type: string | null, size_bytes: bigint, hash: string, created_at: string, updated_at: string, };
 
