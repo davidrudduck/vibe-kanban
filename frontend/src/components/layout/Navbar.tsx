@@ -21,6 +21,7 @@ import {
   LogOut,
   LogIn,
   Archive,
+  Activity,
 } from 'lucide-react';
 import { Logo } from '@/components/Logo';
 import { SearchBar } from '@/components/SearchBar';
@@ -46,6 +47,7 @@ import { ProjectSwitcher } from './ProjectSwitcher';
 const INTERNAL_NAV = [
   { label: 'Projects', icon: FolderOpen, to: '/projects' },
   { label: 'Nodes', icon: Server, to: '/nodes' },
+  { label: 'Processes', icon: Activity, to: '/processes' },
 ];
 
 const EXTERNAL_LINKS = [

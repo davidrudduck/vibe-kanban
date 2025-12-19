@@ -1021,6 +1021,24 @@ impl ContainerService for LocalContainerService {
             ))
         })??;
 
+        // Extract and store the PID for process tree discovery
+        if let Some(pid) = spawned.child.inner().id() {
+            tracing::debug!(
+                execution_process_id = %execution_process.id,
+                pid = pid,
+                "Storing PID for execution process"
+            );
+            if let Err(e) =
+                ExecutionProcess::update_pid(&self.db.pool, execution_process.id, pid as i64).await
+            {
+                tracing::warn!(
+                    execution_process_id = %execution_process.id,
+                    error = %e,
+                    "Failed to store PID for execution process"
+                );
+            }
+        }
+
         self.track_child_msgs_in_store(execution_process.id, &mut spawned.child)
             .await;
 

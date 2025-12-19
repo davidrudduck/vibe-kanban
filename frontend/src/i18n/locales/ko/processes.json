@@ -1,0 +1,49 @@
+{
+  "title": "Processes",
+  "description": "Monitor and manage running vibe-kanban processes",
+  "loading": "Loading processes...",
+  "processCount": "{{count}} process",
+  "processCount_other": "{{count}} processes",
+  "empty": {
+    "title": "No processes running",
+    "description": "Start an executor to see running processes here"
+  },
+  "error": {
+    "loadFailed": "Failed to load processes"
+  },
+  "badges": {
+    "executor": "Executor"
+  },
+  "actions": {
+    "refresh": "Refresh",
+    "killAll": "Kill All",
+    "killProcess": "Kill Process"
+  },
+  "filters": {
+    "mode": "Filter mode",
+    "all": "All Processes",
+    "executorsOnly": "Executors Only",
+    "byProject": "By Project",
+    "selectProject": "Select project..."
+  },
+  "killDialog": {
+    "title": "Confirm Kill",
+    "singleDescription": "Are you sure you want to kill process {{pid}}? This action cannot be undone.",
+    "allDescription": "Are you sure you want to kill all {{count}} processes? This action cannot be undone.",
+    "confirm": "Kill"
+  },
+  "toast": {
+    "killSuccess": {
+      "title": "Processes Killed",
+      "description": "Successfully killed {{count}} process(es)"
+    },
+    "killPartialFailure": {
+      "title": "Some Processes Failed",
+      "description": "Failed to kill {{failed}} process(es)"
+    },
+    "killError": {
+      "title": "Kill Failed",
+      "description": "Failed to kill processes. Please try again."
+    }
+  }
+}

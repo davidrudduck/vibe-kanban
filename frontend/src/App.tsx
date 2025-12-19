@@ -7,6 +7,7 @@ import { ProjectTasks } from '@/pages/ProjectTasks';
 import { AllProjectsTasks } from '@/pages/AllProjectsTasks';
 import { FullAttemptLogsPage } from '@/pages/FullAttemptLogs';
 import { Nodes } from '@/pages/Nodes';
+import { Processes } from '@/pages/Processes';
 import { NormalLayout } from '@/components/layout/NormalLayout';
 import { usePostHog } from 'posthog-js/react';
 import { useAuth } from '@/hooks';
@@ -145,6 +146,7 @@ function AppContent() {
                 <Route path="/projects/:projectId" element={<Projects />} />
                 <Route path="/nodes" element={<Nodes />} />
                 <Route path="/nodes/:nodeId" element={<Nodes />} />
+                <Route path="/processes" element={<Processes />} />
                 <Route path="/tasks/all" element={<AllProjectsTasks />} />
                 <Route
                   path="/projects/:projectId/tasks"
