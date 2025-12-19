@@ -19,6 +19,7 @@ use services::services::{
     github::GitHubServiceError,
     image::ImageError,
     node_proxy_client::NodeProxyError,
+    process_service::ProcessServiceError,
     remote_client::RemoteClientError,
     share::ShareError,
     worktree_manager::WorktreeError,
@@ -77,6 +78,8 @@ pub enum ApiError {
     GatewayTimeout,
     #[error(transparent)]
     NodeProxy(#[from] NodeProxyError),
+    #[error(transparent)]
+    ProcessService(#[from] ProcessServiceError),
 }
 
 impl From<&'static str> for ApiError {
@@ -206,6 +209,17 @@ impl IntoResponse for ApiError {
                 NodeProxyError::ParseError(_) => (StatusCode::BAD_GATEWAY, "NodeProxyError"),
                 NodeProxyError::JwtError(_) => {
                     (StatusCode::INTERNAL_SERVER_ERROR, "NodeProxyError")
+                }
+            },
+            ApiError::ProcessService(err) => match err {
+                ProcessServiceError::Database(_) => {
+                    (StatusCode::INTERNAL_SERVER_ERROR, "ProcessServiceError")
+                }
+                ProcessServiceError::ProcessInspector(_) => {
+                    (StatusCode::INTERNAL_SERVER_ERROR, "ProcessServiceError")
+                }
+                ProcessServiceError::NoProcessesFound => {
+                    (StatusCode::NOT_FOUND, "ProcessServiceError")
                 }
             },
         };
