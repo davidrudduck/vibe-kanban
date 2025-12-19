@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "\n            SELECT p.id as \"id!: Uuid\", p.name, p.git_repo_path, p.setup_script, p.dev_script, p.cleanup_script, p.copy_files,\n                   p.remote_project_id as \"remote_project_id: Uuid\",\n                   p.created_at as \"created_at!: DateTime<Utc>\", p.updated_at as \"updated_at!: DateTime<Utc>\",\n                   p.is_remote as \"is_remote!: bool\",\n                   p.source_node_id as \"source_node_id: Uuid\",\n                   p.source_node_name, p.source_node_public_url, p.source_node_status,\n                   p.remote_last_synced_at as \"remote_last_synced_at: DateTime<Utc>\",\n                   p.default_validation_steps\n            FROM projects p\n            WHERE p.id IN (\n                SELECT DISTINCT t.project_id\n                FROM tasks t\n                INNER JOIN task_attempts ta ON ta.task_id = t.id\n                ORDER BY ta.updated_at DESC\n            )\n            LIMIT $1\n            ",
+  "query": "SELECT id as \"id!: Uuid\",\n                      name,\n                      git_repo_path,\n                      setup_script,\n                      dev_script,\n                      cleanup_script,\n                      copy_files,\n                      parallel_setup_script as \"parallel_setup_script!: bool\",\n                      remote_project_id as \"remote_project_id: Uuid\",\n                      created_at as \"created_at!: DateTime<Utc>\",\n                      updated_at as \"updated_at!: DateTime<Utc>\",\n                      is_remote as \"is_remote!: bool\",\n                      source_node_id as \"source_node_id: Uuid\",\n                      source_node_name,\n                      source_node_public_url,\n                      source_node_status,\n                      remote_last_synced_at as \"remote_last_synced_at: DateTime<Utc>\",\n                      default_validation_steps\n               FROM projects\n               WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -39,53 +39,58 @@
         "type_info": "Text"
       },
       {
-        "name": "remote_project_id: Uuid",
+        "name": "parallel_setup_script!: bool",
         "ordinal": 7,
+        "type_info": "Bool"
+      },
+      {
+        "name": "remote_project_id: Uuid",
+        "ordinal": 8,
         "type_info": "Blob"
       },
       {
         "name": "created_at!: DateTime<Utc>",
-        "ordinal": 8,
-        "type_info": "Text"
-      },
-      {
-        "name": "updated_at!: DateTime<Utc>",
         "ordinal": 9,
         "type_info": "Text"
       },
       {
-        "name": "is_remote!: bool",
+        "name": "updated_at!: DateTime<Utc>",
         "ordinal": 10,
+        "type_info": "Text"
+      },
+      {
+        "name": "is_remote!: bool",
+        "ordinal": 11,
         "type_info": "Bool"
       },
       {
         "name": "source_node_id: Uuid",
-        "ordinal": 11,
+        "ordinal": 12,
         "type_info": "Blob"
       },
       {
         "name": "source_node_name",
-        "ordinal": 12,
-        "type_info": "Text"
-      },
-      {
-        "name": "source_node_public_url",
         "ordinal": 13,
         "type_info": "Text"
       },
       {
-        "name": "source_node_status",
+        "name": "source_node_public_url",
         "ordinal": 14,
         "type_info": "Text"
       },
       {
-        "name": "remote_last_synced_at: DateTime<Utc>",
+        "name": "source_node_status",
         "ordinal": 15,
         "type_info": "Text"
       },
       {
-        "name": "default_validation_steps",
+        "name": "remote_last_synced_at: DateTime<Utc>",
         "ordinal": 16,
+        "type_info": "Text"
+      },
+      {
+        "name": "default_validation_steps",
+        "ordinal": 17,
         "type_info": "Text"
       }
     ],
@@ -100,6 +105,7 @@
       true,
       true,
       true,
+      false,
       true,
       false,
       false,
@@ -112,5 +118,5 @@
       true
     ]
   },
-  "hash": "80be330245c59e546900479a15242eac588e4fd89f610bcf5e312258ff7bdf1c"
+  "hash": "af0cabb258c85b55bae1f14d7c2f33632bd0fed9dbc690807be525376b31f5fb"
 }
