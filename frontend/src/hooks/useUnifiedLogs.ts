@@ -1,14 +1,21 @@
 /**
- * useUnifiedLogs - Unified log access hook with pagination and live streaming
+ * useUnifiedLogs - Unified log access hook with pagination, live streaming, and caching
  *
  * This hook provides a unified interface for accessing logs from both local and remote
  * execution processes. It uses:
  * - REST API (GET /api/logs/{execution_id}) for paginated historical data
  * - WebSocket (WS /api/logs/{execution_id}/live) for live streaming updates
+ * - Client-side cache with TTL and LRU eviction for fast navigation
+ *
+ * Cache behavior:
+ * - Cached data is used for instant load when navigating back to a conversation
+ * - Cache expires after 5 minutes (TTL)
+ * - Maximum 10 conversations cached (LRU eviction)
+ * - Running processes skip caching (data changes too frequently)
  *
  * Usage:
  * ```tsx
- * const { entries, isLoading, hasMore, loadMore, isLive } = useUnifiedLogs({
+ * const { entries, isLoading, hasMore, loadMore, isLive, isCached } = useUnifiedLogs({
  *   executionId: '...',
  *   initialLimit: 100,
  * });
@@ -17,6 +24,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { logsApi } from '@/lib/api';
 import type { LogEntry, OutputType, PaginatedLogs } from 'shared/types';
+import { useLogCacheStore } from '@/stores/useLogCache';
 
 export interface UseUnifiedLogsOptions {
   /** The execution process ID to fetch logs for */
@@ -44,6 +52,8 @@ export interface UseUnifiedLogsResult {
   error: string | null;
   /** Total count of entries (if available from server) */
   totalCount: bigint | null;
+  /** Whether data was loaded from cache (instant load) */
+  isCached: boolean;
 }
 
 const DEFAULT_INITIAL_LIMIT = 100;
@@ -61,6 +71,13 @@ export function useUnifiedLogs({
   const [isLive, setIsLive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [totalCount, setTotalCount] = useState<bigint | null>(null);
+  const [isCached, setIsCached] = useState(false);
+
+  // Cache store methods
+  const getCached = useLogCacheStore((s) => s.getCached);
+  const setCached = useLogCacheStore((s) => s.setCached);
+  const appendOlderEntries = useLogCacheStore((s) => s.appendOlderEntries);
+  const invalidateCache = useLogCacheStore((s) => s.invalidate);
 
   // Refs for tracking state across renders
   const nextCursorRef = useRef<bigint | null>(null);
@@ -78,6 +95,7 @@ export function useUnifiedLogs({
     setIsLive(false);
     setError(null);
     setTotalCount(null);
+    setIsCached(false);
     nextCursorRef.current = null;
     isLoadingMoreRef.current = false;
     retryCountRef.current = 0;
@@ -93,7 +111,7 @@ export function useUnifiedLogs({
     }
   }, [executionId]);
 
-  // Initial load of historical entries
+  // Initial load of historical entries (with cache check)
   useEffect(() => {
     if (!executionId) {
       setIsLoading(false);
@@ -107,7 +125,22 @@ export function useUnifiedLogs({
         setIsLoading(true);
         setError(null);
 
-        // Load initial entries (newest first, using backward direction)
+        // Check cache first for instant load
+        const cached = getCached(executionId);
+        if (cached) {
+          // Use cached data
+          setEntries(cached.entries);
+          setHasMore(cached.hasMore);
+          nextCursorRef.current = cached.nextCursor;
+          if (cached.totalCount !== null) {
+            setTotalCount(cached.totalCount);
+          }
+          setIsCached(true);
+          setIsLoading(false);
+          return;
+        }
+
+        // No cache hit, fetch from server
         const result: PaginatedLogs = await logsApi.getPaginated(executionId, {
           limit: initialLimit,
           direction: 'backward',
@@ -123,7 +156,21 @@ export function useUnifiedLogs({
         if (result.total_count !== null) {
           setTotalCount(result.total_count);
         }
+        setIsCached(false);
         setIsLoading(false);
+
+        // Cache the result (will be skipped if process is running, detected via WebSocket)
+        // Note: We'll update cache status based on isLive state after WebSocket connects
+        setCached(
+          executionId,
+          {
+            entries: reversedEntries,
+            nextCursor: result.next_cursor,
+            hasMore: result.has_more,
+            totalCount: result.total_count,
+          },
+          false // Not running initially; WebSocket will determine live status
+        );
       } catch (err) {
         if (!mountedRef.current) return;
         console.error('Failed to load initial logs:', err);
@@ -137,7 +184,7 @@ export function useUnifiedLogs({
     return () => {
       mountedRef.current = false;
     };
-  }, [executionId, initialLimit]);
+  }, [executionId, initialLimit, getCached, setCached]);
 
   // Set up WebSocket for live streaming
   useEffect(() => {
@@ -155,6 +202,9 @@ export function useUnifiedLogs({
         setIsLive(true);
         setError(null);
         retryCountRef.current = 0;
+        // Invalidate cache for running processes - data is actively changing
+        invalidateCache(executionId);
+        setIsCached(false);
       };
 
       ws.onmessage = (event) => {
@@ -257,7 +307,7 @@ export function useUnifiedLogs({
         retryTimerRef.current = null;
       }
     };
-  }, [executionId, enableLiveStream, isLoading, connectionToken]);
+  }, [executionId, enableLiveStream, isLoading, connectionToken, invalidateCache]);
 
   // Load more historical entries (for scroll-to-top pagination)
   const loadMore = useCallback(async () => {
@@ -281,6 +331,11 @@ export function useUnifiedLogs({
       setEntries((prev) => [...olderEntries, ...prev]);
       setHasMore(result.has_more);
       nextCursorRef.current = result.next_cursor;
+
+      // Update cache with the additional older entries (only if not live streaming)
+      if (!isLive) {
+        appendOlderEntries(executionId, olderEntries, result.next_cursor, result.has_more);
+      }
     } catch (err) {
       if (!mountedRef.current) return;
       console.error('Failed to load more logs:', err);
@@ -288,7 +343,7 @@ export function useUnifiedLogs({
     } finally {
       isLoadingMoreRef.current = false;
     }
-  }, [executionId, hasMore]);
+  }, [executionId, hasMore, isLive, appendOlderEntries]);
 
   return {
     entries,
@@ -298,6 +353,7 @@ export function useUnifiedLogs({
     isLive,
     error,
     totalCount,
+    isCached,
   };
 }
 

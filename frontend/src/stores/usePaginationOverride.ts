@@ -52,7 +52,8 @@ export const usePaginationOverrideStore = create<State>((set, get) => ({
 
   clearOverride: (executionId) =>
     set((state) => {
-      const { [executionId]: _, ...rest } = state.overrides;
+      const { [executionId]: _cleared, ...rest } = state.overrides;
+      void _cleared; // Intentionally unused
       return { overrides: rest };
     }),
 
