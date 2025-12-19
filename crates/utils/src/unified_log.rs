@@ -240,6 +240,12 @@ impl PaginatedLogs {
             total_count: Some(0),
         }
     }
+
+    /// Add or update the total count in the pagination response.
+    pub fn with_total_count(mut self, total: i64) -> Self {
+        self.total_count = Some(total);
+        self
+    }
 }
 
 /// Direction for pagination queries.
