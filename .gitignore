@@ -89,3 +89,6 @@ remote-frontend/dist
 
 # Claude Code
 .claude/
+
+# Worktree progress tracking (branch-specific, not carried forward)
+.vk_progress.md

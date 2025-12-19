@@ -50,7 +50,7 @@ function ActivityFeedItem({ item, onNavigate }: Props) {
       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
         <span className="truncate">{item.project_name}</span>
         <span className="shrink-0">
-          {formatDistanceToNow(new Date(item.updated_at), { addSuffix: true })}
+          {formatDistanceToNow(new Date(item.activity_at), { addSuffix: true })}
         </span>
       </div>
     </div>

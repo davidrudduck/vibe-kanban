@@ -1,6 +1,6 @@
 import { type FileChange } from 'shared/types';
 import { useUserSystem } from '@/components/ConfigProvider';
-import { Trash2, FilePlus2, ArrowRight, FileX, FileClock } from 'lucide-react';
+import { Trash2, FilePlus2, ArrowRight, FileX, FileClock, ExternalLink } from 'lucide-react';
 import { getHighLightLanguageFromPath } from '@/utils/extToLanguage';
 import { getActualTheme } from '@/utils/theme';
 import EditDiffRenderer from './EditDiffRenderer';
@@ -8,6 +8,13 @@ import FileContentView from './FileContentView';
 import '@/styles/diff-style-overrides.css';
 import { useExpandable } from '@/stores/useExpandableStore';
 import { cn } from '@/lib/utils';
+import { FileViewDialog } from '@/components/dialogs';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 type Props = {
   path: string;
@@ -39,6 +46,15 @@ function isEdit(
   return change?.action === 'edit';
 }
 
+/**
+ * Extract relative path within ~/.claude/ directory from a full path.
+ * Returns null if path is not within ~/.claude/.
+ */
+function getClaudeRelativePath(path: string): string | null {
+  const match = path.match(/\.claude\/(.+)$/);
+  return match ? match[1] : null;
+}
+
 const FileChangeRenderer = ({
   path,
   change,
@@ -53,6 +69,14 @@ const FileChangeRenderer = ({
 
   const theme = getActualTheme(config?.theme);
   const headerClass = cn('flex items-center gap-1.5 text-secondary-foreground');
+
+  // Detect .claude/ paths for view file link
+  const claudeRelativePath = getClaudeRelativePath(path);
+  const handleViewFile = () => {
+    if (claudeRelativePath) {
+      void FileViewDialog.show({ filePath: path, relativePath: claudeRelativePath });
+    }
+  };
 
   const statusIcon =
     statusAppearance === 'denied' ? (
@@ -140,6 +164,27 @@ const FileChangeRenderer = ({
         >
           {titleNode}
         </p>
+        {/* View file link for ~/.claude/ paths */}
+        {claudeRelativePath && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleViewFile();
+                  }}
+                  className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors p-0.5"
+                  aria-label="View file"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>View file</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
       </div>
 
       {/* Body */}
