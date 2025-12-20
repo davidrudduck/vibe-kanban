@@ -98,7 +98,7 @@ impl Deployment for LocalDeployment {
         save_config_to_file(&raw_config, &config_path()).await?;
 
         let config = Arc::new(RwLock::new(raw_config));
-        // Generate a simple user ID for telemetry (Sentry)
+        // Generate a unique user ID for this deployment
         let user_id = Uuid::new_v4().to_string();
         let git = GitService::new();
         let msg_stores = Arc::new(RwLock::new(HashMap::new()));

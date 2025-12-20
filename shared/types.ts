@@ -384,7 +384,15 @@ export type CreateGitHubPrRequest = { title: string, body: string | null, target
 
 export type ImageResponse = { id: string, file_path: string, original_name: string, mime_type: string | null, size_bytes: bigint, hash: string, created_at: string, updated_at: string, };
 
-export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, analytics_enabled: boolean, sentry_enabled: boolean, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, dev_banner: DevBannerConfig, 
+export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, 
+/**
+ * Deprecated: analytics has been removed. Field kept for config compatibility.
+ */
+analytics_enabled: boolean, 
+/**
+ * Deprecated: Sentry error reporting has been removed. Field kept for config compatibility.
+ */
+sentry_enabled: boolean, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, dev_banner: DevBannerConfig, 
 /**
  * Pagination settings for log display
  */
