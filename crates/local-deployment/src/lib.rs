@@ -5,7 +5,6 @@ use db::DBService;
 use deployment::{Deployment, DeploymentError, RemoteClientNotConfigured};
 use executors::profile::ExecutorConfigs;
 use services::services::{
-    analytics::{AnalyticsConfig, AnalyticsContext, AnalyticsService, generate_user_id},
     approvals::Approvals,
     auth::AuthContext,
     config::{Config, load_config_from_file, save_config_to_file},
@@ -41,7 +40,6 @@ pub struct LocalDeployment {
     config: Arc<RwLock<Config>>,
     user_id: String,
     db: DBService,
-    analytics: Option<AnalyticsService>,
     container: LocalContainerService,
     git: GitService,
     image: ImageService,
@@ -100,8 +98,8 @@ impl Deployment for LocalDeployment {
         save_config_to_file(&raw_config, &config_path()).await?;
 
         let config = Arc::new(RwLock::new(raw_config));
-        let user_id = generate_user_id();
-        let analytics = AnalyticsConfig::new().map(AnalyticsService::new);
+        // Generate a simple user ID for telemetry (Sentry)
+        let user_id = Uuid::new_v4().to_string();
         let git = GitService::new();
         let msg_stores = Arc::new(RwLock::new(HashMap::new()));
         let filesystem = FilesystemService::new();
@@ -179,19 +177,12 @@ impl Deployment for LocalDeployment {
             share_sync_config = Some(sc_ref.clone());
         }
 
-        // We need to make analytics accessible to the ContainerService
-        // TODO: Handle this more gracefully
-        let analytics_ctx = analytics.as_ref().map(|s| AnalyticsContext {
-            user_id: user_id.clone(),
-            analytics_service: s.clone(),
-        });
         let container = LocalContainerService::new(
             db.clone(),
             msg_stores.clone(),
             config.clone(),
             git.clone(),
             image.clone(),
-            analytics_ctx,
             approvals.clone(),
             share_publisher.clone(),
         )
@@ -270,7 +261,6 @@ impl Deployment for LocalDeployment {
             config,
             user_id,
             db,
-            analytics,
             container,
             git,
             image,
@@ -317,10 +307,6 @@ impl Deployment for LocalDeployment {
 
     fn db(&self) -> &DBService {
         &self.db
-    }
-
-    fn analytics(&self) -> &Option<AnalyticsService> {
-        &self.analytics
     }
 
     fn container(&self) -> &impl ContainerService {

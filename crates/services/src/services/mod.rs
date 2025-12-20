@@ -1,4 +1,3 @@
-pub mod analytics;
 pub mod approvals;
 pub mod assignment_handler;
 pub mod auth;

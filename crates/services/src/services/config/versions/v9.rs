@@ -54,6 +54,8 @@ pub struct Config {
     pub notifications: NotificationConfig,
     pub editor: EditorConfig,
     pub github: GitHubConfig,
+    /// Deprecated: analytics has been removed. Field kept for config compatibility.
+    #[serde(default)]
     pub analytics_enabled: bool,
     #[serde(default)]
     pub sentry_enabled: bool,
@@ -132,7 +134,7 @@ impl Default for Config {
             notifications: NotificationConfig::default(),
             editor: EditorConfig::default(),
             github: GitHubConfig::default(),
-            analytics_enabled: true,
+            analytics_enabled: false, // Deprecated: analytics has been removed
             sentry_enabled: false,
             workspace_dir: None,
             last_app_version: None,
@@ -196,7 +198,6 @@ mod tests {
         // Verify other fields migrated correctly
         assert!(config.disclaimer_acknowledged);
         assert!(config.onboarding_acknowledged);
-        assert!(config.analytics_enabled);
     }
 
     #[test]
