@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { siDiscord } from 'simple-icons';
 import { Button } from '@/components/ui/button';
 import {
@@ -22,10 +22,18 @@ import {
   LogIn,
   Archive,
   Activity,
+  Search,
 } from 'lucide-react';
 import { Logo } from '@/components/Logo';
 import { SearchBar } from '@/components/SearchBar';
 import { ActivityFeed } from '@/components/activity';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import {
   Tooltip,
   TooltipContent,
@@ -88,6 +96,7 @@ export function Navbar() {
   const { loginStatus, reloadSystem, config, environment } = useUserSystem();
   const hideDiscord =
     environment?.is_dev_mode && config?.dev_banner?.hide_discord_link;
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
   // Archive filter state from URL params
   const showArchived = searchParams.get('archived') === 'on';
@@ -142,10 +151,10 @@ export function Navbar() {
       <div className="w-full px-3">
         <div className="flex items-center h-12 py-2">
           <div className="flex-1 flex items-center">
-            <Link to="/projects" className="hidden sm:block">
-              <Logo />
+            <Link to="/projects" className="shrink-0">
+              <Logo className="h-4 sm:h-6 w-auto" />
             </Link>
-            <ProjectSwitcher className="sm:ml-2" />
+            <ProjectSwitcher className="ml-2" />
             {!hideDiscord && (
               <a
                 href="https://discord.gg/AC4nwVtJM3"
@@ -176,6 +185,20 @@ export function Navbar() {
             )}
           </div>
 
+          {/* Mobile search button - visible on small screens only */}
+          {active && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 sm:hidden shrink-0"
+              onClick={() => setMobileSearchOpen(true)}
+              aria-label={t('common:search', 'Search')}
+            >
+              <Search className="h-4 w-4" />
+            </Button>
+          )}
+
+          {/* Desktop search bar and archive toggle */}
           <div className="hidden sm:flex items-center gap-2">
             <SearchBar
               ref={setSearchBarRef}
@@ -265,6 +288,22 @@ export function Navbar() {
                 </DropdownMenuTrigger>
 
                 <DropdownMenuContent align="end">
+                  {/* Archive toggle - visible only on mobile (sm:hidden in CSS) */}
+                  {projectId && (
+                    <>
+                      <DropdownMenuItem
+                        className="sm:hidden"
+                        onSelect={toggleShowArchived}
+                      >
+                        <Archive className="mr-2 h-4 w-4" />
+                        {showArchived
+                          ? t('actionsMenu.unarchive', 'Hide archived')
+                          : t('actionsMenu.archive', 'Show archived')}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator className="sm:hidden" />
+                    </>
+                  )}
+
                   {INTERNAL_NAV.map((item) => {
                     const active = location.pathname.startsWith(item.to);
                     const Icon = item.icon;
@@ -319,6 +358,47 @@ export function Navbar() {
           </div>
         </div>
       </div>
+
+      {/* Mobile search dialog */}
+      <Dialog open={mobileSearchOpen} onOpenChange={setMobileSearchOpen}>
+        <DialogHeader>
+          <DialogTitle className="sr-only">
+            {t('common:search', 'Search')}
+          </DialogTitle>
+        </DialogHeader>
+        <DialogContent>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={
+                project ? `Search ${project.name}...` : 'Search...'
+              }
+              className="pl-10 h-10"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  setMobileSearchOpen(false);
+                }
+              }}
+            />
+          </div>
+          {query && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full mt-2"
+              onClick={() => {
+                clear();
+                setMobileSearchOpen(false);
+              }}
+            >
+              {t('common:buttons.reset', 'Clear search')}
+            </Button>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

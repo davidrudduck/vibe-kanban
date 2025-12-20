@@ -28,7 +28,7 @@ const buttonVariants = cva(
         icon: 'h-10 w-10',
       },
     },
-    compoundVariants: [{ variant: 'icon', class: 'p-0 h-4' }],
+    compoundVariants: [{ variant: 'icon', class: 'min-h-11 min-w-11 p-2' }],
     defaultVariants: {
       variant: 'default',
       size: 'default',
