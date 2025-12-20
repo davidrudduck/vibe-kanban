@@ -20,6 +20,7 @@ pub mod shell;
 pub mod stream_lines;
 pub mod text;
 pub mod tokio;
+pub mod unified_log;
 pub mod version;
 pub mod ws;
 

@@ -132,6 +132,7 @@ fn generate_types_content() -> String {
         services::services::config::UiLanguage::decl(),
         services::services::config::ShowcaseState::decl(),
         services::services::config::DevBannerConfig::decl(),
+        services::services::config::PaginationConfig::decl(),
         services::services::git::GitBranch::decl(),
         utils::diff::Diff::decl(),
         utils::diff::DiffChangeKind::decl(),
@@ -199,6 +200,10 @@ fn generate_types_content() -> String {
         utils::approvals::ApprovalResponse::decl(),
         utils::approvals::Question::decl(),
         utils::approvals::QuestionOption::decl(),
+        utils::unified_log::OutputType::decl(),
+        utils::unified_log::LogEntry::decl(),
+        utils::unified_log::PaginatedLogs::decl(),
+        utils::unified_log::Direction::decl(),
         serde_json::Value::decl(),
         // Process management types
         services::services::process_service::ProcessInfo::decl(),

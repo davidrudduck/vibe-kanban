@@ -14,6 +14,7 @@ pub mod dashboard;
 pub mod filesystem;
 // pub mod github;
 pub mod drafts;
+pub mod logs;
 pub mod events;
 pub mod execution_processes;
 pub mod frontend;
@@ -52,6 +53,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(events::router(&deployment))
         .merge(approvals::router())
         .merge(backups::router())
+        .merge(logs::router(&deployment))
         .nest("/images", images::routes())
         .with_state(deployment);
 

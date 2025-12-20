@@ -1,5 +1,6 @@
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import DisplayConversationEntry from '../NormalizedConversation/DisplayConversationEntry';
 import { useEntries } from '@/contexts/EntriesContext';
@@ -8,10 +9,21 @@ import {
   PatchTypeWithKey,
   useConversationHistory,
 } from '@/hooks/useConversationHistory';
-import { ArrowDown, ArrowUp, Loader2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Loader2, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { TaskAttempt, TaskWithAttemptStatus } from 'shared/types';
 import { ApprovalFormProvider } from '@/contexts/ApprovalFormContext';
+import {
+  PaginationPreset,
+  usePaginationOverride,
+} from '@/stores/usePaginationOverride';
 
 interface VirtualizedListProps {
   attempt: TaskAttempt;
@@ -58,11 +70,16 @@ const computeItemKey = (_index: number, data: PatchTypeWithKey) =>
   `l-${data.patchKey}`;
 
 const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
+  const { t } = useTranslation('common');
   const [items, setItems] = useState<PatchTypeWithKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [atBottom, setAtBottom] = useState(true);
   const [atTop, setAtTop] = useState(false);
   const { setEntries, reset } = useEntries();
+
+  // Per-conversation pagination override (keyed by attempt ID)
+  const [paginationOverride, setPaginationOverride] =
+    usePaginationOverride(attempt.id);
 
   useEffect(() => {
     setLoading(true);
@@ -160,6 +177,46 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
           followOutput={atBottom && !loading ? 'smooth' : false}
           increaseViewportBy={{ top: 0, bottom: 600 }}
         />
+        {/* Pagination override dropdown */}
+        {!loading && (
+          <div className="absolute top-4 left-4 z-10">
+            <Select
+              value={String(paginationOverride)}
+              onValueChange={(value) => {
+                if (value === 'global') {
+                  setPaginationOverride('global');
+                } else {
+                  setPaginationOverride(Number(value) as PaginationPreset);
+                }
+              }}
+            >
+              <SelectTrigger
+                className="h-8 w-auto gap-1.5 px-2 text-xs bg-background/90 backdrop-blur-sm shadow-lg border-input"
+                aria-label={t('conversation.pagination.label')}
+              >
+                <Settings2 className="h-3.5 w-3.5" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="start">
+                <SelectItem value="global">
+                  {t('conversation.pagination.global')}
+                </SelectItem>
+                <SelectItem value="50">
+                  {t('conversation.pagination.entries50')}
+                </SelectItem>
+                <SelectItem value="100">
+                  {t('conversation.pagination.entries100')}
+                </SelectItem>
+                <SelectItem value="200">
+                  {t('conversation.pagination.entries200')}
+                </SelectItem>
+                <SelectItem value="500">
+                  {t('conversation.pagination.entries500')}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         {!atTop && items.length > 0 && !loading && (
           <Button
             variant="outline"

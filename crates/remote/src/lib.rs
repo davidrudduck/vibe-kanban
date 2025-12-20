@@ -6,6 +6,7 @@ pub mod db;
 pub mod mail;
 pub mod nodes;
 pub mod routes;
+pub mod services;
 mod state;
 pub mod ws;
 

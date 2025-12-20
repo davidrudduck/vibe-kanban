@@ -265,6 +265,22 @@
           }
         }
       },
+      "performance": {
+        "title": "Performance",
+        "description": "Configure log loading and display settings for optimal performance.",
+        "initialLoad": {
+          "label": "Initial Log Entries",
+          "helper": "Number of log entries to load when first viewing a conversation. Lower values improve loading speed.",
+          "option50": "50 entries (faster)",
+          "option100": "100 entries (default)",
+          "option200": "200 entries",
+          "option500": "500 entries (more context)"
+        },
+        "maxLimit": {
+          "label": "Maximum Entries Per Page",
+          "helper": "Maximum number of log entries to load per pagination request."
+        }
+      },
       "safety": {
         "title": "Safety & Disclaimers",
         "description": "Reset acknowledgments for safety warnings and onboarding.",

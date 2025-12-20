@@ -384,7 +384,11 @@ export type CreateGitHubPrRequest = { title: string, body: string | null, target
 
 export type ImageResponse = { id: string, file_path: string, original_name: string, mime_type: string | null, size_bytes: bigint, hash: string, created_at: string, updated_at: string, };
 
-export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, analytics_enabled: boolean, sentry_enabled: boolean, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, dev_banner: DevBannerConfig, };
+export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, analytics_enabled: boolean, sentry_enabled: boolean, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, dev_banner: DevBannerConfig, 
+/**
+ * Pagination settings for log display
+ */
+pagination: PaginationConfig, };
 
 export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, };
 
@@ -425,6 +429,16 @@ show_os_info: boolean,
  * Whether to hide the Discord link in the navbar (dev mode only)
  */
 hide_discord_link: boolean, };
+
+export type PaginationConfig = { 
+/**
+ * Number of log entries to load initially (default: 100)
+ */
+initial_load: bigint, 
+/**
+ * Maximum entries per page request (default: 500)
+ */
+max_limit: bigint, };
 
 export type GitBranch = { name: string, is_current: boolean, is_remote: boolean, last_commit_date: Date, };
 
@@ -665,6 +679,50 @@ answers?: { [key in string]?: string }, };
 export type Question = { question: string, header: string, multiSelect: boolean, options: Array<QuestionOption>, };
 
 export type QuestionOption = { label: string, description: string, };
+
+export type OutputType = "stdout" | "stderr" | "system" | "json_patch" | "session_id" | "finished" | "refresh_required";
+
+export type LogEntry = { 
+/**
+ * Sequential ID for cursor-based pagination.
+ */
+id: bigint, 
+/**
+ * The content of the log entry.
+ */
+content: string, 
+/**
+ * The type of output (stdout, stderr, system, json_patch, etc.).
+ */
+output_type: OutputType, 
+/**
+ * When the log entry was created.
+ */
+timestamp: string, 
+/**
+ * The execution ID this log belongs to.
+ */
+execution_id: string, };
+
+export type PaginatedLogs = { 
+/**
+ * The log entries for this page.
+ */
+entries: Array<LogEntry>, 
+/**
+ * Cursor for the next page (if more entries exist).
+ */
+next_cursor: bigint | null, 
+/**
+ * Whether there are more entries after this page.
+ */
+has_more: boolean, 
+/**
+ * Total count of log entries (if available).
+ */
+total_count: bigint | null, };
+
+export type Direction = "forward" | "backward";
 
 export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in string]?: JsonValue } | null;
 

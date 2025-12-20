@@ -580,6 +580,45 @@ pub trait ContainerService {
         }
     }
 
+    /// Stream live-only logs for an execution (no history).
+    ///
+    /// This is used by the unified log WebSocket endpoint to stream only
+    /// new log entries without replaying history. The frontend uses the
+    /// REST pagination endpoint to fetch historical entries separately.
+    ///
+    /// Returns `None` if:
+    /// - The execution doesn't exist
+    /// - The execution is not running (no live stream available)
+    async fn stream_live_logs_only(
+        &self,
+        id: &Uuid,
+    ) -> Option<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>> {
+        // Only available for running executions (in-memory store)
+        if let Some(store) = self.get_msg_store_by_id(id).await {
+            Some(
+                store
+                    .stream_live_only()
+                    .filter(|msg| {
+                        // Include all log types that the frontend might need
+                        future::ready(matches!(
+                            msg,
+                            Ok(LogMsg::Stdout(..)
+                                | LogMsg::Stderr(..)
+                                | LogMsg::JsonPatch(..)
+                                | LogMsg::SessionId(..)
+                                | LogMsg::Finished
+                                | LogMsg::RefreshRequired { .. })
+                        ))
+                    })
+                    .boxed(),
+            )
+        } else {
+            // Execution not running - no live stream available.
+            // Frontend should use REST pagination for completed executions.
+            None
+        }
+    }
+
     fn spawn_stream_raw_logs_to_db(&self, execution_id: &Uuid) -> JoinHandle<()> {
         let execution_id = *execution_id;
         let msg_stores = self.msg_stores().clone();
