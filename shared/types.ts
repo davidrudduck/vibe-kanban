@@ -424,11 +424,7 @@ show_hostname: boolean,
 /**
  * Whether to display the OS type and version in the banner
  */
-show_os_info: boolean, 
-/**
- * Whether to hide the Discord link in the navbar (dev mode only)
- */
-hide_discord_link: boolean, };
+show_os_info: boolean, };
 
 export type PaginationConfig = { 
 /**
