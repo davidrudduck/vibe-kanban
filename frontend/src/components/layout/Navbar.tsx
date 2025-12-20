@@ -143,7 +143,7 @@ export function Navbar() {
             <Link to="/projects" className="shrink-0">
               <Logo className="h-4 sm:h-6 w-auto" />
             </Link>
-            <ProjectSwitcher className="ml-2" />
+            <ProjectSwitcher className="ml-2 hidden sm:inline-flex" />
           </div>
 
           {/* Mobile search button - visible on small screens only */}
@@ -196,21 +196,21 @@ export function Navbar() {
           <div className="flex flex-1 items-center justify-end gap-1">
             {projectId ? (
               <>
-                <div className="flex items-center gap-1">
-                  <OpenInIdeButton
-                    onClick={handleOpenInIDE}
-                    className="h-9 w-9"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-9 w-9"
-                    onClick={handleCreateTask}
-                    aria-label="Create new task"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
+                {/* OpenInIdeButton - hidden on mobile to prevent overflow */}
+                <OpenInIdeButton
+                  onClick={handleOpenInIDE}
+                  className="h-9 w-9 hidden sm:inline-flex"
+                />
+                {/* Plus button - always visible for quick task creation */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9"
+                  onClick={handleCreateTask}
+                  aria-label="Create new task"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
                 <NavDivider />
               </>
             ) : null}
