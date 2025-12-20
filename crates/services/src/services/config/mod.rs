@@ -25,7 +25,6 @@ pub type SoundFile = versions::v9::SoundFile;
 pub type EditorType = versions::v9::EditorType;
 pub type GitHubConfig = versions::v9::GitHubConfig;
 pub type UiLanguage = versions::v9::UiLanguage;
-pub type ShowcaseState = versions::v9::ShowcaseState;
 pub type DevBannerConfig = versions::v9::DevBannerConfig;
 pub type PaginationConfig = versions::v9::PaginationConfig;
 

@@ -3,8 +3,8 @@ use executors::{executors::BaseCodingAgent, profile::ExecutorProfileId};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 pub use v8::{
-    DevBannerConfig, EditorConfig, EditorType, GitHubConfig, NotificationConfig, ShowcaseState,
-    SoundFile, ThemeMode, UiLanguage,
+    DevBannerConfig, EditorConfig, EditorType, GitHubConfig, NotificationConfig, SoundFile,
+    ThemeMode, UiLanguage,
 };
 
 use crate::services::config::versions::v8;
@@ -65,8 +65,6 @@ pub struct Config {
     #[serde(default = "default_git_branch_prefix")]
     pub git_branch_prefix: String,
     #[serde(default)]
-    pub showcases: ShowcaseState,
-    #[serde(default)]
     pub dev_banner: DevBannerConfig,
     /// Pagination settings for log display
     #[serde(default)]
@@ -91,7 +89,6 @@ impl Config {
             show_release_notes: old_config.show_release_notes,
             language: old_config.language,
             git_branch_prefix: old_config.git_branch_prefix,
-            showcases: old_config.showcases,
             dev_banner: old_config.dev_banner,
             pagination: PaginationConfig::default(),
         }
@@ -142,7 +139,6 @@ impl Default for Config {
             show_release_notes: false,
             language: UiLanguage::default(),
             git_branch_prefix: default_git_branch_prefix(),
-            showcases: ShowcaseState::default(),
             dev_banner: DevBannerConfig::default(),
             pagination: PaginationConfig::default(),
         }
@@ -180,9 +176,6 @@ mod tests {
             "show_release_notes": true,
             "language": "EN",
             "git_branch_prefix": "vk",
-            "showcases": {
-                "seen_features": []
-            },
             "dev_banner": {}
         }"#;
 
@@ -233,9 +226,6 @@ mod tests {
             "show_release_notes": false,
             "language": "EN",
             "git_branch_prefix": "vk",
-            "showcases": {
-                "seen_features": []
-            },
             "dev_banner": {},
             "pagination": {
                 "initial_load": 200,
@@ -305,10 +295,7 @@ mod tests {
             "last_app_version": null,
             "show_release_notes": false,
             "language": "EN",
-            "git_branch_prefix": "vk",
-            "showcases": {
-                "seen_features": []
-            }
+            "git_branch_prefix": "vk"
         }"#;
 
         let config = Config::from(v7_json.to_string());
