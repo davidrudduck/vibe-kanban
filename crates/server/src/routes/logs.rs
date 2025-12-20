@@ -33,7 +33,11 @@ use utils::{
 };
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError, ws_util::{WsKeepAlive, run_ws_stream}};
+use crate::{
+    DeploymentImpl,
+    error::ApiError,
+    ws_util::{WsKeepAlive, run_ws_stream},
+};
 
 /// Default number of log entries to return per page.
 const DEFAULT_LIMIT: i64 = 100;
@@ -61,9 +65,7 @@ pub struct PaginationParams {
 impl PaginationParams {
     /// Get the limit, clamped between 1 and MAX_LIMIT.
     pub fn limit(&self) -> i64 {
-        self.limit
-            .unwrap_or(DEFAULT_LIMIT)
-            .clamp(1, MAX_LIMIT)
+        self.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT)
     }
 
     /// Get the direction, defaulting to Backward (newest first) for initial loads.

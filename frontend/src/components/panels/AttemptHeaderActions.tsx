@@ -11,7 +11,6 @@ import {
 import type { LayoutMode } from '../layout/TasksLayout';
 import type { TaskAttempt, TaskWithAttemptStatus } from 'shared/types';
 import { ActionsDropdown } from '../ui/actions-dropdown';
-import { usePostHog } from 'posthog-js/react';
 import { useIsOrgAdmin, useRemoteConnectionStatus } from '@/hooks';
 import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
 import { ConnectionStatusBadge } from '@/components/common/ConnectionStatusBadge';
@@ -34,7 +33,6 @@ export const AttemptHeaderActions = ({
   sharedTask,
 }: AttemptHeaderActionsProps) => {
   const { t } = useTranslation('tasks');
-  const posthog = usePostHog();
   const isOrgAdmin = useIsOrgAdmin();
   const { status: connectionStatus } = useRemoteConnectionStatus(task, {
     enabled: Boolean(attempt),
@@ -59,36 +57,6 @@ export const AttemptHeaderActions = ({
             value={mode ?? ''}
             onValueChange={(v) => {
               const newMode = (v as LayoutMode) || null;
-
-              // Track view navigation
-              if (newMode === 'preview') {
-                posthog?.capture('preview_navigated', {
-                  trigger: 'button',
-                  timestamp: new Date().toISOString(),
-                  source: 'frontend',
-                });
-              } else if (newMode === 'diffs') {
-                posthog?.capture('diffs_navigated', {
-                  trigger: 'button',
-                  timestamp: new Date().toISOString(),
-                  source: 'frontend',
-                });
-              } else if (newMode === 'files') {
-                posthog?.capture('files_navigated', {
-                  trigger: 'button',
-                  timestamp: new Date().toISOString(),
-                  source: 'frontend',
-                });
-              } else if (newMode === null) {
-                // Closing the view (clicked active button)
-                posthog?.capture('view_closed', {
-                  trigger: 'button',
-                  from_view: mode ?? 'attempt',
-                  timestamp: new Date().toISOString(),
-                  source: 'frontend',
-                });
-              }
-
               onModeChange(newMode);
             }}
             className="inline-flex gap-4"

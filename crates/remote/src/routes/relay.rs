@@ -55,10 +55,7 @@ pub fn router() -> Router<AppState> {
             "/nodes/assignments/{assignment_id}/logs/ws",
             get(upgrade_log_stream),
         )
-        .route(
-            "/logs/{assignment_id}",
-            get(get_paginated_logs),
-        )
+        .route("/logs/{assignment_id}", get(get_paginated_logs))
 }
 
 #[derive(Debug, Deserialize)]
@@ -87,9 +84,7 @@ pub struct PaginationQuery {
 impl PaginationQuery {
     /// Get the limit, clamped between 1 and MAX_LIMIT.
     fn limit(&self) -> i64 {
-        self.limit
-            .unwrap_or(DEFAULT_LIMIT)
-            .clamp(1, MAX_LIMIT)
+        self.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT)
     }
 
     /// Get the direction, defaulting to Backward (newest first) for initial loads.
@@ -403,8 +398,13 @@ pub async fn get_paginated_logs(
     };
 
     // Try to authenticate
-    let auth_result =
-        authenticate(&state, &auth_query, ctx.as_ref().map(|e| &e.0), assignment_id).await;
+    let auth_result = authenticate(
+        &state,
+        &auth_query,
+        ctx.as_ref().map(|e| &e.0),
+        assignment_id,
+    )
+    .await;
 
     if let Err(response) = auth_result {
         return response;

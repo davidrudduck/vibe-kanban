@@ -208,16 +208,32 @@ mod tests {
         cache.set(assignment_id, None, 10, Direction::Backward, data);
 
         // Different limit
-        assert!(cache.get(assignment_id, None, 20, Direction::Backward).is_none());
+        assert!(
+            cache
+                .get(assignment_id, None, 20, Direction::Backward)
+                .is_none()
+        );
 
         // Different direction
-        assert!(cache.get(assignment_id, None, 10, Direction::Forward).is_none());
+        assert!(
+            cache
+                .get(assignment_id, None, 10, Direction::Forward)
+                .is_none()
+        );
 
         // Different cursor
-        assert!(cache.get(assignment_id, Some(5), 10, Direction::Backward).is_none());
+        assert!(
+            cache
+                .get(assignment_id, Some(5), 10, Direction::Backward)
+                .is_none()
+        );
 
         // Different assignment
-        assert!(cache.get(Uuid::new_v4(), None, 10, Direction::Backward).is_none());
+        assert!(
+            cache
+                .get(Uuid::new_v4(), None, 10, Direction::Backward)
+                .is_none()
+        );
     }
 
     #[test]
@@ -226,9 +242,27 @@ mod tests {
         let assignment_id = Uuid::new_v4();
         let other_assignment = Uuid::new_v4();
 
-        cache.set(assignment_id, None, 10, Direction::Backward, make_paginated_logs(10));
-        cache.set(assignment_id, Some(10), 10, Direction::Backward, make_paginated_logs(5));
-        cache.set(other_assignment, None, 10, Direction::Backward, make_paginated_logs(3));
+        cache.set(
+            assignment_id,
+            None,
+            10,
+            Direction::Backward,
+            make_paginated_logs(10),
+        );
+        cache.set(
+            assignment_id,
+            Some(10),
+            10,
+            Direction::Backward,
+            make_paginated_logs(5),
+        );
+        cache.set(
+            other_assignment,
+            None,
+            10,
+            Direction::Backward,
+            make_paginated_logs(3),
+        );
 
         assert_eq!(cache.len(), 3);
 
@@ -236,8 +270,16 @@ mod tests {
         cache.invalidate_assignment(assignment_id);
 
         assert_eq!(cache.len(), 1);
-        assert!(cache.get(assignment_id, None, 10, Direction::Backward).is_none());
-        assert!(cache.get(other_assignment, None, 10, Direction::Backward).is_some());
+        assert!(
+            cache
+                .get(assignment_id, None, 10, Direction::Backward)
+                .is_none()
+        );
+        assert!(
+            cache
+                .get(other_assignment, None, 10, Direction::Backward)
+                .is_some()
+        );
     }
 
     #[test]
@@ -245,8 +287,20 @@ mod tests {
         let cache = LogCache::new();
         let assignment_id = Uuid::new_v4();
 
-        cache.set(assignment_id, None, 10, Direction::Backward, make_paginated_logs(10));
-        cache.set(assignment_id, Some(10), 10, Direction::Backward, make_paginated_logs(5));
+        cache.set(
+            assignment_id,
+            None,
+            10,
+            Direction::Backward,
+            make_paginated_logs(10),
+        );
+        cache.set(
+            assignment_id,
+            Some(10),
+            10,
+            Direction::Backward,
+            make_paginated_logs(5),
+        );
 
         assert_eq!(cache.len(), 2);
 
@@ -264,12 +318,20 @@ mod tests {
         cache.set(assignment_id, None, 10, Direction::Backward, data);
 
         // Should be available immediately
-        assert!(cache.get(assignment_id, None, 10, Direction::Backward).is_some());
+        assert!(
+            cache
+                .get(assignment_id, None, 10, Direction::Backward)
+                .is_some()
+        );
 
         // Wait for TTL to expire (200ms + buffer)
         tokio::time::sleep(Duration::from_millis(250)).await;
 
         // Should be expired now
-        assert!(cache.get(assignment_id, None, 10, Direction::Backward).is_none());
+        assert!(
+            cache
+                .get(assignment_id, None, 10, Direction::Backward)
+                .is_none()
+        );
     }
 }

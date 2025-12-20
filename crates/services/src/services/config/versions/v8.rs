@@ -3,8 +3,7 @@ use executors::{executors::BaseCodingAgent, profile::ExecutorProfileId};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 pub use v7::{
-    EditorConfig, EditorType, GitHubConfig, NotificationConfig, ShowcaseState, SoundFile,
-    ThemeMode, UiLanguage,
+    EditorConfig, EditorType, GitHubConfig, NotificationConfig, SoundFile, ThemeMode, UiLanguage,
 };
 
 use crate::services::config::versions::v7;
@@ -28,9 +27,6 @@ pub struct DevBannerConfig {
     /// Whether to display the OS type and version in the banner
     #[serde(default)]
     pub show_os_info: bool,
-    /// Whether to hide the Discord link in the navbar (dev mode only)
-    #[serde(default)]
-    pub hide_discord_link: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -53,8 +49,6 @@ pub struct Config {
     pub language: UiLanguage,
     #[serde(default = "default_git_branch_prefix")]
     pub git_branch_prefix: String,
-    #[serde(default)]
-    pub showcases: ShowcaseState,
     #[serde(default)]
     pub dev_banner: DevBannerConfig,
 }
@@ -80,7 +74,6 @@ impl Config {
             show_release_notes: old_config.show_release_notes,
             language: old_config.language,
             git_branch_prefix: old_config.git_branch_prefix,
-            showcases: old_config.showcases,
             dev_banner: DevBannerConfig::default(),
         }
     }
@@ -130,7 +123,6 @@ impl Default for Config {
             show_release_notes: false,
             language: UiLanguage::default(),
             git_branch_prefix: default_git_branch_prefix(),
-            showcases: ShowcaseState::default(),
             dev_banner: DevBannerConfig::default(),
         }
     }
