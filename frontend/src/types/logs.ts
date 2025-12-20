@@ -2,7 +2,7 @@ import type { NormalizedEntry, ExecutorAction } from 'shared/types';
 
 export interface UnifiedLogEntry {
   id: string;
-  ts: number; // epoch-ms timestamp for sorting and react-window key
+  ts: number; // epoch-ms timestamp for sorting
   processId: string;
   processName: string;
   channel: 'raw' | 'stdout' | 'stderr' | 'normalized' | 'process_start';
