@@ -57,14 +57,6 @@ pub async fn assign_shared_task(
         )
         .await?;
 
-    let props = serde_json::json!({
-        "shared_task_id": shared_task_id,
-        "new_assignee_user_id": payload.new_assignee_user_id,
-    });
-    deployment
-        .track_if_analytics_allowed("reassign_shared_task", props)
-        .await;
-
     Ok(ResponseJson(ApiResponse::success(
         AssignSharedTaskResponse {
             shared_task: updated_shared_task,
@@ -81,13 +73,6 @@ pub async fn delete_shared_task(
     };
 
     publisher.delete_shared_task(shared_task_id).await?;
-
-    let props = serde_json::json!({
-        "shared_task_id": shared_task_id,
-    });
-    deployment
-        .track_if_analytics_allowed("stop_sharing_task", props)
-        .await;
 
     Ok(ResponseJson(ApiResponse::success(())))
 }

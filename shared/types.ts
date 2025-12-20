@@ -384,7 +384,15 @@ export type CreateGitHubPrRequest = { title: string, body: string | null, target
 
 export type ImageResponse = { id: string, file_path: string, original_name: string, mime_type: string | null, size_bytes: bigint, hash: string, created_at: string, updated_at: string, };
 
-export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, analytics_enabled: boolean, sentry_enabled: boolean, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, dev_banner: DevBannerConfig, 
+export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, 
+/**
+ * Deprecated: analytics has been removed. Field kept for config compatibility.
+ */
+analytics_enabled: boolean, 
+/**
+ * Deprecated: Sentry error reporting has been removed. Field kept for config compatibility.
+ */
+sentry_enabled: boolean, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, dev_banner: DevBannerConfig, 
 /**
  * Pagination settings for log display
  */
@@ -406,8 +414,6 @@ export enum SoundFile { ABSTRACT_SOUND1 = "ABSTRACT_SOUND1", ABSTRACT_SOUND2 = "
 
 export type UiLanguage = "BROWSER" | "EN" | "JA" | "ES" | "KO";
 
-export type ShowcaseState = { seen_features: Array<string>, };
-
 export type DevBannerConfig = { 
 /**
  * Custom background color (CSS color string), None = default orange
@@ -424,11 +430,7 @@ show_hostname: boolean,
 /**
  * Whether to display the OS type and version in the banner
  */
-show_os_info: boolean, 
-/**
- * Whether to hide the Discord link in the navbar (dev mode only)
- */
-hide_discord_link: boolean, };
+show_os_info: boolean, };
 
 export type PaginationConfig = { 
 /**
