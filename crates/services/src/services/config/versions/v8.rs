@@ -28,9 +28,6 @@ pub struct DevBannerConfig {
     /// Whether to display the OS type and version in the banner
     #[serde(default)]
     pub show_os_info: bool,
-    /// Whether to hide the Discord link in the navbar (dev mode only)
-    #[serde(default)]
-    pub hide_discord_link: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
