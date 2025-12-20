@@ -28,7 +28,6 @@ import { HotkeysProvider } from 'react-hotkeys-hook';
 
 import { ProjectProvider } from '@/contexts/ProjectContext';
 import { ThemeMode } from 'shared/types';
-import * as Sentry from '@sentry/react';
 import { Loader } from '@/components/ui/loader';
 
 import { DisclaimerDialog } from '@/components/dialogs/global/DisclaimerDialog';
@@ -37,24 +36,9 @@ import { ReleaseNotesDialog } from '@/components/dialogs/global/ReleaseNotesDial
 import { ClickedElementsProvider } from './contexts/ClickedElementsProvider';
 import NiceModal from '@ebay/nice-modal-react';
 
-const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
-
 function AppContent() {
   const { config, updateAndSaveConfig, loading } = useUserSystem();
   const { isSignedIn } = useAuth();
-
-  // Handle Sentry opt-in/opt-out when config loads
-  useEffect(() => {
-    const sentryEnabled = config?.sentry_enabled ?? false;
-
-    // Only update and log if the value actually changed
-    if (window.__SENTRY_ENABLED__ !== sentryEnabled) {
-      window.__SENTRY_ENABLED__ = sentryEnabled;
-      console.log(
-        `[Sentry] Error reporting ${sentryEnabled ? 'enabled' : 'disabled by user preference'}`
-      );
-    }
-  }, [config?.sentry_enabled]);
 
   useEffect(() => {
     if (!config) return;
@@ -116,7 +100,7 @@ function AppContent() {
       <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>
         <SearchProvider>
           <div className="h-screen flex flex-col bg-background">
-            <SentryRoutes>
+            <Routes>
               {/* VS Code full-page logs route (outside NormalLayout for minimal UI) */}
               <Route
                 path="/projects/:projectId/tasks/:taskId/attempts/:attemptId/full"
@@ -160,7 +144,7 @@ function AppContent() {
                   element={<ProjectTasks />}
                 />
               </Route>
-            </SentryRoutes>
+            </Routes>
           </div>
         </SearchProvider>
       </ThemeProvider>

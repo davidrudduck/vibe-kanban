@@ -150,14 +150,6 @@
           "helper": "Muestra notificaciones del sistema cuando las tareas terminan de ejecutarse."
         }
       },
-      "privacy": {
-        "title": "Privacidad",
-        "description": "Ayuda a mejorar Vibe-Kanban compartiendo datos de uso anónimos.",
-        "errorReporting": {
-          "label": "Habilitar Reporte de Errores",
-          "helper": "Reporta automáticamente errores de la aplicación para ayudar a identificar y corregir bugs. Los reportes incluyen detalles técnicos pero no tu código ni prompts."
-        }
-      },
       "taskTemplates": {
         "title": "Etiquetas",
         "description": "Crea fragmentos de texto reutilizables que se pueden insertar en descripciones de tareas usando @nombre_etiqueta."
