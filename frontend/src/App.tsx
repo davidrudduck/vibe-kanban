@@ -9,7 +9,6 @@ import { FullAttemptLogsPage } from '@/pages/FullAttemptLogs';
 import { Nodes } from '@/pages/Nodes';
 import { Processes } from '@/pages/Processes';
 import { NormalLayout } from '@/components/layout/NormalLayout';
-import { usePostHog } from 'posthog-js/react';
 import { useAuth } from '@/hooks';
 
 import {
@@ -41,24 +40,8 @@ import NiceModal from '@ebay/nice-modal-react';
 const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
 
 function AppContent() {
-  const { config, analyticsUserId, updateAndSaveConfig, loading } =
-    useUserSystem();
-  const posthog = usePostHog();
+  const { config, updateAndSaveConfig, loading } = useUserSystem();
   const { isSignedIn } = useAuth();
-
-  // Handle opt-in/opt-out and user identification when config loads
-  useEffect(() => {
-    if (!posthog || !analyticsUserId) return;
-
-    if (config?.analytics_enabled) {
-      posthog.opt_in_capturing();
-      posthog.identify(analyticsUserId);
-      console.log('[Analytics] Analytics enabled and user identified');
-    } else {
-      posthog.opt_out_capturing();
-      console.log('[Analytics] Analytics disabled by user preference');
-    }
-  }, [config?.analytics_enabled, analyticsUserId, posthog]);
 
   // Handle Sentry opt-in/opt-out when config loads
   useEffect(() => {

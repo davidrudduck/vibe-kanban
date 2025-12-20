@@ -879,23 +879,6 @@ export function GeneralSettings() {
         <CardContent className="space-y-4">
           <div className="flex items-center space-x-2">
             <Checkbox
-              id="analytics-enabled"
-              checked={draft?.analytics_enabled ?? false}
-              onCheckedChange={(checked: boolean) =>
-                updateDraft({ analytics_enabled: checked })
-              }
-            />
-            <div className="space-y-0.5">
-              <Label htmlFor="analytics-enabled" className="cursor-pointer">
-                {t('settings.general.privacy.telemetry.label')}
-              </Label>
-              <p className="text-sm text-muted-foreground">
-                {t('settings.general.privacy.telemetry.helper')}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center space-x-2">
-            <Checkbox
               id="sentry-enabled"
               checked={draft?.sentry_enabled ?? false}
               onCheckedChange={(checked: boolean) =>
