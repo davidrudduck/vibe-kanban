@@ -57,6 +57,7 @@ pub struct Config {
     /// Deprecated: analytics has been removed. Field kept for config compatibility.
     #[serde(default)]
     pub analytics_enabled: bool,
+    /// Deprecated: Sentry error reporting has been removed. Field kept for config compatibility.
     #[serde(default)]
     pub sentry_enabled: bool,
     pub workspace_dir: Option<String>,
@@ -135,7 +136,7 @@ impl Default for Config {
             editor: EditorConfig::default(),
             github: GitHubConfig::default(),
             analytics_enabled: false, // Deprecated: analytics has been removed
-            sentry_enabled: false,
+            sentry_enabled: false,    // Deprecated: Sentry has been removed
             workspace_dir: None,
             last_app_version: None,
             show_release_notes: false,

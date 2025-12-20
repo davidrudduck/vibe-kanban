@@ -95,9 +95,14 @@ impl LogService for LocalLogService {
         limit: i64,
         direction: Direction,
     ) -> Result<PaginatedLogs, LogServiceError> {
-        let paginated =
-            ExecutionProcessLogs::find_paginated(&self.pool, execution_id, cursor, limit, direction)
-                .await?;
+        let paginated = ExecutionProcessLogs::find_paginated(
+            &self.pool,
+            execution_id,
+            cursor,
+            limit,
+            direction,
+        )
+        .await?;
         Ok(paginated)
     }
 
@@ -301,9 +306,7 @@ impl UnifiedLogService {
         if location.is_local {
             self.local_service.get_execution_status(execution_id).await
         } else {
-            self.remote_service
-                .get_execution_status(execution_id)
-                .await
+            self.remote_service.get_execution_status(execution_id).await
         }
     }
 

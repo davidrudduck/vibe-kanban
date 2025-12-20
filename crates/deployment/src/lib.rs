@@ -32,7 +32,6 @@ use services::services::{
 use sqlx::{Error as SqlxError, types::Uuid};
 use thiserror::Error;
 use tokio::sync::{Mutex, RwLock};
-use utils::sentry as sentry_utils;
 
 #[derive(Debug, Clone, Copy, Error)]
 #[error("Remote client not configured")]
@@ -120,20 +119,6 @@ pub trait Deployment: Clone + Send + Sync + 'static {
                 *guard = Some(remote_sync_handle);
             }
         });
-    }
-
-    async fn update_sentry_scope(&self) -> Result<(), DeploymentError> {
-        let user_id = self.user_id();
-        let config = self.config().read().await;
-
-        // Apply sentry enabled/disabled setting from user config
-        sentry_utils::set_sentry_enabled(config.sentry_enabled);
-
-        let username = config.github.username.as_deref();
-        let email = config.github.primary_email.as_deref();
-        sentry_utils::configure_user_scope(user_id, username, email);
-
-        Ok(())
     }
 
     async fn spawn_pr_monitor_service(&self) -> tokio::task::JoinHandle<()> {

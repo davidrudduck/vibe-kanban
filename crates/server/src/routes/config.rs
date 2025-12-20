@@ -25,9 +25,7 @@ use services::services::config::{
 };
 use tokio::fs;
 use ts_rs::TS;
-use utils::{
-    api::oauth::LoginStatus, assets::config_path, response::ApiResponse, sentry as sentry_utils,
-};
+use utils::{api::oauth::LoginStatus, assets::config_path, response::ApiResponse};
 
 use crate::{DeploymentImpl, error::ApiError};
 
@@ -148,11 +146,6 @@ async fn update_config(
 }
 
 async fn handle_config_events(deployment: &DeploymentImpl, old: &Config, new: &Config) {
-    // Handle Sentry enabled/disabled state change
-    if old.sentry_enabled != new.sentry_enabled {
-        sentry_utils::set_sentry_enabled(new.sentry_enabled);
-    }
-
     if !old.disclaimer_acknowledged && new.disclaimer_acknowledged {
         // Spawn auto project setup as background task to avoid blocking config response
         let deployment_clone = deployment.clone();
