@@ -3,4 +3,8 @@
 /**
  * Counts per category for badge display.
  */
-export type ActivityCounts = { needs_review: number, in_progress: number, completed: number, };
+export type ActivityCounts = { needs_review: number, in_progress: number, completed: number, 
+/**
+ * Number of dismissed items (across all categories).
+ */
+dismissed: number, };

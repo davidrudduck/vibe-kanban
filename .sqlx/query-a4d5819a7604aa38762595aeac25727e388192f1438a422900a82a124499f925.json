@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT 1 as exists_flag FROM activity_dismissals WHERE task_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "name": "exists_flag",
+        "ordinal": 0,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a4d5819a7604aa38762595aeac25727e388192f1438a422900a82a124499f925"
+}

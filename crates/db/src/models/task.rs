@@ -5,7 +5,7 @@ use strum_macros::{Display, EnumString};
 use ts_rs::TS;
 use uuid::Uuid;
 
-use super::{project::Project, task_attempt::TaskAttempt};
+use super::{activity_dismissal::ActivityDismissal, project::Project, task_attempt::TaskAttempt};
 
 #[derive(
     Debug, Clone, Type, Serialize, Deserialize, PartialEq, TS, EnumString, Display, Default,
@@ -577,6 +577,10 @@ ORDER BY t.created_at DESC"#,
         )
         .execute(pool)
         .await?;
+
+        // Clear any activity dismissal when task status changes (auto-restore)
+        ActivityDismissal::clear_for_task(pool, id).await?;
+
         Ok(())
     }
 
