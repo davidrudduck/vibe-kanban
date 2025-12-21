@@ -2,6 +2,7 @@ import type { TaskAttempt, TaskWithAttemptStatus } from 'shared/types';
 import VirtualizedList from '@/components/logs/VirtualizedList';
 import { TaskFollowUpSection } from '@/components/tasks/TaskFollowUpSection';
 import { TaskRelationshipViewer } from '@/components/tasks/TaskRelationshipViewer';
+import { VariablesPanel } from '@/components/variables';
 import { EntriesProvider } from '@/contexts/EntriesContext';
 import { RetryUiProvider } from '@/contexts/RetryUiContext';
 import type { ReactNode } from 'react';
@@ -13,6 +14,7 @@ interface TaskAttemptPanelProps {
     logs: ReactNode;
     followUp: ReactNode;
     relationships: ReactNode;
+    variables: ReactNode;
   }) => ReactNode;
   onNavigateToTask?: (taskId: string) => void;
   tasksById?: Record<string, TaskWithAttemptStatus>;
@@ -53,6 +55,12 @@ const TaskAttemptPanel = ({
               onNavigateToTask={onNavigateToTask}
               task={task}
               tasksById={tasksById}
+            />
+          ),
+          variables: (
+            <VariablesPanel
+              taskId={task.id}
+              taskDescription={task.description ?? undefined}
             />
           ),
         })}

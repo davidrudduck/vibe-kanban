@@ -409,5 +409,32 @@
       "continueEditing": "계속 수정",
       "discardChanges": "변경사항 버리기"
     }
+  },
+  "variables": {
+    "title": "변수",
+    "panelTitle": "변수 ({{count}})",
+    "add": "추가",
+    "empty": "정의된 변수 없음",
+    "inherited": "상속됨",
+    "inheritedTooltip": "상위 작업에서 상속됨",
+    "inheritedCount": "{{count}}개 상속됨",
+    "inheritedVariables": "상속됨",
+    "ownVariables": "이 작업",
+    "emptyValue": "(비어있음)",
+    "override": "재정의",
+    "hint": "변수는 $VAR_NAME 또는 ${VAR_NAME} 구문으로 작업 설명에서 사용할 수 있습니다.",
+    "panelHint": "변수는 작업이 실행기에 전송될 때 확장됩니다.",
+    "undefinedWarning": "{{count}}개의 정의되지 않은 변수",
+    "undefinedTitle": "정의되지 않은 변수",
+    "undefinedDescription": "이 변수들은 작업 설명에서 참조되지만 정의되지 않았습니다:",
+    "namePlaceholder": "변수_이름",
+    "valuePlaceholder": "값",
+    "deleteConfirm": "\"{{name}}\" 변수를 삭제하시겠습니까?",
+    "errors": {
+      "nameRequired": "변수 이름은 필수입니다",
+      "invalidName": "이름은 대문자로 시작하고 A-Z, 0-9, 밑줄만 포함해야 합니다",
+      "nameExists": "이 이름의 변수가 이미 존재합니다",
+      "saveFailed": "변수 저장 실패"
+    }
   }
 }

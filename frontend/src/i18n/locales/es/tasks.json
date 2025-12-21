@@ -409,5 +409,32 @@
       "continueEditing": "Continuar Editando",
       "discardChanges": "Descartar Cambios"
     }
+  },
+  "variables": {
+    "title": "Variables",
+    "panelTitle": "Variables ({{count}})",
+    "add": "Agregar",
+    "empty": "No hay variables definidas",
+    "inherited": "Heredada",
+    "inheritedTooltip": "De la tarea padre",
+    "inheritedCount": "{{count}} heredadas",
+    "inheritedVariables": "Heredadas",
+    "ownVariables": "Esta Tarea",
+    "emptyValue": "(vacío)",
+    "override": "Sobrescribir",
+    "hint": "Las variables se pueden usar en las descripciones de tareas con la sintaxis $VAR_NAME o ${VAR_NAME}.",
+    "panelHint": "Las variables se expanden cuando la tarea se envía a un ejecutor.",
+    "undefinedWarning": "{{count}} variable(s) no definida(s)",
+    "undefinedTitle": "Variables No Definidas",
+    "undefinedDescription": "Estas variables están referenciadas en la descripción de la tarea pero no están definidas:",
+    "namePlaceholder": "NOMBRE_VARIABLE",
+    "valuePlaceholder": "Valor",
+    "deleteConfirm": "¿Eliminar variable \"{{name}}\"?",
+    "errors": {
+      "nameRequired": "El nombre de la variable es requerido",
+      "invalidName": "El nombre debe comenzar con letra mayúscula y contener solo A-Z, 0-9 y guiones bajos",
+      "nameExists": "Ya existe una variable con este nombre",
+      "saveFailed": "Error al guardar la variable"
+    }
   }
 }
