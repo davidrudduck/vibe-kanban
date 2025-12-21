@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/image-upload-section';
 import BranchSelector from '@/components/tasks/BranchSelector';
 import { ExecutorProfileSelector } from '@/components/settings';
+import { VariableEditor } from '@/components/variables';
 import { useUserSystem } from '@/components/ConfigProvider';
 import {
   useProjectBranches,
@@ -546,6 +547,18 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                 </div>
               )}
             </form.Field>
+
+            {/* Variables Editor - only in edit mode */}
+            {editMode && (
+              <div className="pt-4">
+                <VariableEditor
+                  taskId={props.task.id}
+                  disabled={isSubmitting}
+                  showInherited={true}
+                  compact={true}
+                />
+              </div>
+            )}
           </div>
 
           {/* Create mode dropdowns */}
