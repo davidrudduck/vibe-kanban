@@ -322,27 +322,36 @@ pub async fn create_task_attempt(
     )
     .await?;
 
-    // If using parent worktree, update container_ref directly and skip worktree creation
-    if let Some(ref container_ref) = parent_container_ref {
+    // If using parent worktree, update container_ref before calling start_attempt
+    let skip_worktree_creation = if let Some(ref container_ref) = parent_container_ref {
         TaskAttempt::update_container_ref(pool, task_attempt.id, container_ref).await?;
         tracing::info!(
             task_id = %task.id,
             attempt_id = %task_attempt.id,
             container_ref = %container_ref,
-            "Created attempt using parent worktree"
+            "Using parent worktree for attempt"
         );
+        true
     } else {
-        if let Err(err) = deployment
-            .container()
-            .start_attempt(&task_attempt, executor_profile_id.clone())
-            .await
-        {
-            tracing::error!("Failed to start task attempt: {}", err);
-        }
-        tracing::info!("Created attempt for task {}", task.id);
-    }
+        false
+    };
 
-    // Refetch to get the updated container_ref
+    // Refetch to get the updated container_ref before starting attempt
+    let task_attempt = TaskAttempt::find_by_id(pool, task_attempt.id)
+        .await?
+        .ok_or(SqlxError::RowNotFound)?;
+
+    // Start the attempt (creates worktree if needed, then starts execution)
+    if let Err(err) = deployment
+        .container()
+        .start_attempt(&task_attempt, executor_profile_id.clone(), skip_worktree_creation)
+        .await
+    {
+        tracing::error!("Failed to start task attempt: {}", err);
+    }
+    tracing::info!("Created attempt for task {}", task.id);
+
+    // Refetch to get the final state
     let task_attempt = TaskAttempt::find_by_id(pool, task_attempt.id)
         .await?
         .ok_or(SqlxError::RowNotFound)?;
@@ -416,33 +425,42 @@ pub async fn create_task_attempt_by_task_id(
     )
     .await?;
 
-    // If using parent worktree, update container_ref directly and skip worktree creation
-    if let Some(ref container_ref) = parent_container_ref {
+    // If using parent worktree, update container_ref before calling start_attempt
+    let skip_worktree_creation = if let Some(ref container_ref) = parent_container_ref {
         TaskAttempt::update_container_ref(pool, task_attempt.id, container_ref).await?;
         tracing::info!(
             task_id = %task.id,
             shared_task_id = ?task.shared_task_id,
             attempt_id = %task_attempt.id,
             container_ref = %container_ref,
-            "Created attempt via by-task-id route using parent worktree"
+            "Using parent worktree for attempt via by-task-id route"
         );
+        true
     } else {
-        if let Err(err) = deployment
-            .container()
-            .start_attempt(&task_attempt, executor_profile_id.clone())
-            .await
-        {
-            tracing::error!("Failed to start task attempt: {}", err);
-        }
-        tracing::info!(
-            task_id = %task.id,
-            shared_task_id = ?task.shared_task_id,
-            attempt_id = %task_attempt.id,
-            "Created attempt via by-task-id route"
-        );
-    }
+        false
+    };
 
-    // Refetch to get the updated container_ref
+    // Refetch to get the updated container_ref before starting attempt
+    let task_attempt = TaskAttempt::find_by_id(pool, task_attempt.id)
+        .await?
+        .ok_or(SqlxError::RowNotFound)?;
+
+    // Start the attempt (creates worktree if needed, then starts execution)
+    if let Err(err) = deployment
+        .container()
+        .start_attempt(&task_attempt, executor_profile_id.clone(), skip_worktree_creation)
+        .await
+    {
+        tracing::error!("Failed to start task attempt: {}", err);
+    }
+    tracing::info!(
+        task_id = %task.id,
+        shared_task_id = ?task.shared_task_id,
+        attempt_id = %task_attempt.id,
+        "Created attempt via by-task-id route"
+    );
+
+    // Refetch to get the final state
     let task_attempt = TaskAttempt::find_by_id(pool, task_attempt.id)
         .await?
         .ok_or(SqlxError::RowNotFound)?;

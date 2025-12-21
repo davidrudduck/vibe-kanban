@@ -334,7 +334,7 @@ pub async fn create_task_and_start(
     .await?;
     let is_attempt_running = deployment
         .container()
-        .start_attempt(&task_attempt, payload.executor_profile_id.clone())
+        .start_attempt(&task_attempt, payload.executor_profile_id.clone(), false)
         .await
         .inspect_err(|err| tracing::error!("Failed to start task attempt: {}", err))
         .is_ok();
