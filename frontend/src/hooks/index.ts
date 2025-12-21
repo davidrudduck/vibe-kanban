@@ -35,3 +35,10 @@ export type { NodeLogEntry, ConnectionType } from './useNodeLogStream';
 export { useIsOrgAdmin } from './useIsOrgAdmin';
 export { useAvailableNodes } from './useAvailableNodes';
 export { useRemoteConnectionStatus } from './useRemoteConnectionStatus';
+export {
+  useTaskVariables,
+  useResolvedVariables,
+  useTaskVariableMutations,
+  usePreviewExpansion,
+  taskVariablesKeys,
+} from './useTaskVariables';
