@@ -5,4 +5,8 @@ import type { TaskStatus } from "./TaskStatus";
 /**
  * A single activity feed item.
  */
-export type ActivityFeedItem = { task_id: string, task_title: string, project_id: string, project_name: string, status: TaskStatus, category: ActivityCategory, executor: string, activity_at: string, };
+export type ActivityFeedItem = { task_id: string, task_title: string, project_id: string, project_name: string, status: TaskStatus, category: ActivityCategory, executor: string, activity_at: string, 
+/**
+ * Whether this item has been dismissed by the user.
+ */
+is_dismissed: boolean, };

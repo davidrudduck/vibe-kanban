@@ -238,9 +238,17 @@ export type DashboardSummary = { running_tasks: Array<DashboardTask>, in_review_
 
 export type ActivityCategory = "needs_review" | "in_progress" | "completed";
 
-export type ActivityFeedItem = { task_id: string, task_title: string, project_id: string, project_name: string, status: TaskStatus, category: ActivityCategory, executor: string, activity_at: string, };
+export type ActivityFeedItem = { task_id: string, task_title: string, project_id: string, project_name: string, status: TaskStatus, category: ActivityCategory, executor: string, activity_at: string, 
+/**
+ * Whether this item has been dismissed by the user.
+ */
+is_dismissed: boolean, };
 
-export type ActivityCounts = { needs_review: number, in_progress: number, completed: number, };
+export type ActivityCounts = { needs_review: number, in_progress: number, completed: number, 
+/**
+ * Number of dismissed items (across all categories).
+ */
+dismissed: number, };
 
 export type ActivityFeed = { items: Array<ActivityFeedItem>, counts: ActivityCounts, };
 
