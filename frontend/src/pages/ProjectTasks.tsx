@@ -819,6 +819,7 @@ export function ProjectTasks() {
   const rightHeader = selectedTask ? (
     <NewCardHeader
       className="shrink-0"
+      stacked={isMobile}
       actions={
         isTaskView ? (
           <TaskPanelHeaderActions
@@ -878,6 +879,7 @@ export function ProjectTasks() {
   ) : selectedSharedTask ? (
     <NewCardHeader
       className="shrink-0"
+      stacked={isMobile}
       actions={
         <Button
           variant="icon"
