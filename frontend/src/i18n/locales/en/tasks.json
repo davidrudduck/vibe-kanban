@@ -420,5 +420,32 @@
       "continueEditing": "Continue Editing",
       "discardChanges": "Discard Changes"
     }
+  },
+  "variables": {
+    "title": "Variables",
+    "panelTitle": "Variables ({{count}})",
+    "add": "Add",
+    "empty": "No variables defined",
+    "inherited": "Inherited",
+    "inheritedTooltip": "From parent task",
+    "inheritedCount": "{{count}} inherited",
+    "inheritedVariables": "Inherited",
+    "ownVariables": "This Task",
+    "emptyValue": "(empty)",
+    "override": "Override",
+    "hint": "Variables can be used in task descriptions with $VAR_NAME or ${VAR_NAME} syntax.",
+    "panelHint": "Variables are expanded when the task is sent to an executor.",
+    "undefinedWarning": "{{count}} undefined variable(s)",
+    "undefinedTitle": "Undefined Variables",
+    "undefinedDescription": "These variables are referenced in the task description but not defined:",
+    "namePlaceholder": "VARIABLE_NAME",
+    "valuePlaceholder": "Value",
+    "deleteConfirm": "Delete variable \"{{name}}\"?",
+    "errors": {
+      "nameRequired": "Variable name is required",
+      "invalidName": "Name must start with uppercase letter, contain only A-Z, 0-9, and underscores",
+      "nameExists": "A variable with this name already exists",
+      "saveFailed": "Failed to save variable"
+    }
   }
 }

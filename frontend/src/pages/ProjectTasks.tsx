@@ -928,7 +928,7 @@ export function ProjectTasks() {
           }}
           tasksById={tasksById}
         >
-          {({ logs, followUp, relationships }) => (
+          {({ logs, followUp, relationships, variables }) => (
             <>
               <GitErrorBanner />
               <div className="flex-1 min-h-0 flex flex-col">
@@ -946,6 +946,13 @@ export function ProjectTasks() {
                 <div className="shrink-0 border-t">
                   <div className="mx-auto w-full max-w-[50rem]">
                     <TodoPanel />
+                  </div>
+                </div>
+
+                {/* Variables Panel - shown when task has variables */}
+                <div className="shrink-0 border-t">
+                  <div className="mx-auto w-full max-w-[50rem]">
+                    {variables}
                   </div>
                 </div>
 
