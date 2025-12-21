@@ -544,7 +544,12 @@ executor_profile_id: ExecutorProfileId, base_branch: string,
  * Target node ID for remote execution (if project exists on multiple nodes).
  * When set, the request will be proxied to the specified node.
  */
-target_node_id: string | null, };
+target_node_id: string | null, 
+/**
+ * When true, reuse the parent task's latest attempt worktree.
+ * Only valid when the task has a parent_task_id.
+ */
+use_parent_worktree: boolean | null, };
 
 export type RunAgentSetupRequest = { executor_profile_id: ExecutorProfileId, };
 

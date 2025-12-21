@@ -148,6 +148,10 @@ pub struct CreateTaskAttemptBody {
     /// When set, the request will be proxied to the specified node.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_node_id: Option<Uuid>,
+    /// When true, reuse the parent task's latest attempt worktree.
+    /// Only valid when the task has a parent_task_id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_parent_worktree: Option<bool>,
 }
 
 impl CreateTaskAttemptBody {
@@ -164,6 +168,10 @@ pub struct CreateTaskAttemptByTaskIdBody {
     /// Executor profile specification
     pub executor_profile_id: ExecutorProfileId,
     pub base_branch: String,
+    /// When true, reuse the parent task's latest attempt worktree.
+    /// Only valid when the task has a parent_task_id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_parent_worktree: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize, TS)]
@@ -233,6 +241,7 @@ pub async fn create_task_attempt(
         let proxy_body = CreateTaskAttemptByTaskIdBody {
             executor_profile_id: payload.executor_profile_id,
             base_branch: payload.base_branch,
+            use_parent_worktree: payload.use_parent_worktree,
         };
 
         let path = format!("/task-attempts/by-task-id/{}/create", shared_task_id);
@@ -2161,5 +2170,73 @@ mod tests {
         assert_eq!(url, "http://node:3000");
         assert_eq!(returned_node_id, node_id);
         assert_eq!(returned_task_id, task_id);
+    }
+
+    #[test]
+    fn test_create_task_attempt_body_with_use_parent_worktree() {
+        let body: CreateTaskAttemptBody = serde_json::from_str(
+            r#"{
+            "task_id": "550e8400-e29b-41d4-a716-446655440000",
+            "executor_profile_id": { "executor": "CLAUDE_CODE", "variant": null },
+            "base_branch": "main",
+            "use_parent_worktree": true
+        }"#,
+        )
+        .unwrap();
+        assert!(body.use_parent_worktree.unwrap_or(false));
+    }
+
+    #[test]
+    fn test_create_task_attempt_body_backwards_compatible() {
+        // Old requests without use_parent_worktree should still work
+        let body: CreateTaskAttemptBody = serde_json::from_str(
+            r#"{
+            "task_id": "550e8400-e29b-41d4-a716-446655440000",
+            "executor_profile_id": { "executor": "CLAUDE_CODE", "variant": null },
+            "base_branch": "main"
+        }"#,
+        )
+        .unwrap();
+        assert!(body.use_parent_worktree.is_none());
+    }
+
+    #[test]
+    fn test_create_task_attempt_body_with_use_parent_worktree_false() {
+        let body: CreateTaskAttemptBody = serde_json::from_str(
+            r#"{
+            "task_id": "550e8400-e29b-41d4-a716-446655440000",
+            "executor_profile_id": { "executor": "CLAUDE_CODE", "variant": null },
+            "base_branch": "main",
+            "use_parent_worktree": false
+        }"#,
+        )
+        .unwrap();
+        assert_eq!(body.use_parent_worktree, Some(false));
+    }
+
+    #[test]
+    fn test_create_task_attempt_by_task_id_body_with_use_parent_worktree() {
+        let body: CreateTaskAttemptByTaskIdBody = serde_json::from_str(
+            r#"{
+            "executor_profile_id": { "executor": "CLAUDE_CODE", "variant": null },
+            "base_branch": "main",
+            "use_parent_worktree": true
+        }"#,
+        )
+        .unwrap();
+        assert!(body.use_parent_worktree.unwrap_or(false));
+    }
+
+    #[test]
+    fn test_create_task_attempt_by_task_id_body_backwards_compatible() {
+        // Old requests without use_parent_worktree should still work
+        let body: CreateTaskAttemptByTaskIdBody = serde_json::from_str(
+            r#"{
+            "executor_profile_id": { "executor": "CLAUDE_CODE", "variant": null },
+            "base_branch": "main"
+        }"#,
+        )
+        .unwrap();
+        assert!(body.use_parent_worktree.is_none());
     }
 }
