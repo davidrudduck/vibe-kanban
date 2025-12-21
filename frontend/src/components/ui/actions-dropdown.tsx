@@ -93,14 +93,15 @@ export function ActionsDropdown({
 
   const handleViewRelatedTasks = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!attempt?.id || !projectId) return;
+    if (!task?.id || !projectId) return;
     ViewRelatedTasksDialog.show({
-      attemptId: attempt.id,
+      taskId: task.id,
       projectId,
-      attempt,
-      onNavigateToTask: (taskId: string) => {
+      attemptId: attempt?.id,
+      attempt: attempt ?? undefined,
+      onNavigateToTask: (navTaskId: string) => {
         if (projectId) {
-          navigate(`/projects/${projectId}/tasks/${taskId}/attempts/latest`);
+          navigate(`/projects/${projectId}/tasks/${navTaskId}/attempts/latest`);
         }
       },
     });
@@ -116,14 +117,12 @@ export function ActionsDropdown({
 
   const handleCreateSubtask = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!projectId || !task || !attempt) return;
-    const baseBranch = attempt.branch || attempt.target_branch;
-    if (!baseBranch) return;
+    if (!projectId || !task) return;
     openTaskForm({
       mode: 'subtask',
       projectId,
       parentTaskId: task.id,
-      initialBaseBranch: baseBranch,
+      initialBaseBranch: attempt?.branch || attempt?.target_branch,
     });
   };
 
@@ -200,14 +199,18 @@ export function ActionsDropdown({
   // - Org admin
   // - For local tasks without shared/remote info, anyone can edit (preserve current behavior)
   const isLocalOnlyTask = !isShared && !isRemote;
-  const canModifyTask = isLocalOnlyTask || isAssignee || isRemoteAssignee || isOrgAdmin;
+  const canModifyTask =
+    isLocalOnlyTask || isAssignee || isRemoteAssignee || isOrgAdmin;
 
   // For reassign: need both task and sharedTask, unless admin (admins can reassign shared-only tasks)
   const canReassign =
-    Boolean(sharedTask) && (Boolean(task) || isOrgAdmin) && (isAssignee || isOrgAdmin);
+    Boolean(sharedTask) &&
+    (Boolean(task) || isOrgAdmin) &&
+    (isAssignee || isOrgAdmin);
   const canStopShare = Boolean(sharedTask) && (isAssignee || isOrgAdmin);
   // Show shared task actions section when we only have a sharedTask (no local task)
-  const hasSharedOnlyActions = !hasTaskActions && Boolean(sharedTask) && isOrgAdmin;
+  const hasSharedOnlyActions =
+    !hasTaskActions && Boolean(sharedTask) && isOrgAdmin;
 
   return (
     <>
@@ -240,12 +243,6 @@ export function ActionsDropdown({
                 {t('actionsMenu.viewProcesses')}
               </DropdownMenuItem>
               <DropdownMenuItem
-                disabled={!attempt?.id}
-                onClick={handleViewRelatedTasks}
-              >
-                {t('actionsMenu.viewRelatedTasks')}
-              </DropdownMenuItem>
-              <DropdownMenuItem
                 disabled={isRemote}
                 onClick={handleCreateNewAttempt}
                 title={
@@ -255,17 +252,6 @@ export function ActionsDropdown({
                 }
               >
                 {t('actionsMenu.createNewAttempt')}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={!projectId || !attempt || isRemote}
-                onClick={handleCreateSubtask}
-                title={
-                  isRemote
-                    ? t('actionsMenu.remoteTaskCannotExecute')
-                    : undefined
-                }
-              >
-                {t('actionsMenu.createSubtask')}
               </DropdownMenuItem>
               <DropdownMenuItem
                 disabled={!attempt?.id || !task || isRemote}
@@ -316,6 +302,24 @@ export function ActionsDropdown({
                 {t('actionsMenu.stopShare')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              <DropdownMenuItem
+                disabled={!task?.id || !projectId}
+                onClick={handleViewRelatedTasks}
+              >
+                {t('actionsMenu.viewRelatedTasks')}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!projectId || !task || isRemote}
+                onClick={handleCreateSubtask}
+                title={
+                  isRemote
+                    ? t('actionsMenu.remoteTaskCannotExecute')
+                    : undefined
+                }
+              >
+                {t('actionsMenu.createSubtask')}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               {!task?.archived_at && (
                 <DropdownMenuItem
                   disabled={!projectId || !canModifyTask || isRemote}
@@ -363,7 +367,9 @@ export function ActionsDropdown({
 
           {hasSharedOnlyActions && (
             <>
-              <DropdownMenuLabel>{t('actionsMenu.sharedTask')}</DropdownMenuLabel>
+              <DropdownMenuLabel>
+                {t('actionsMenu.sharedTask')}
+              </DropdownMenuLabel>
               <DropdownMenuItem
                 disabled={!canReassign}
                 onClick={handleReassign}

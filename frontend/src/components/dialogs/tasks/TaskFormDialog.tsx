@@ -61,7 +61,7 @@ export type TaskFormDialogProps =
       mode: 'subtask';
       projectId: string;
       parentTaskId: string;
-      initialBaseBranch: string;
+      initialBaseBranch?: string;
     };
 
 type TaskFormValues = {
@@ -540,7 +540,8 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                     rows={3}
                   />
                   <p className="text-xs text-muted-foreground">
-                    These steps will be added to the agent prompt as validation requirements.
+                    These steps will be added to the agent prompt as validation
+                    requirements.
                   </p>
                 </div>
               )}
