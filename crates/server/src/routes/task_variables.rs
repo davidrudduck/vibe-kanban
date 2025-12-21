@@ -6,7 +6,9 @@ use axum::{
     routing::{get, post},
 };
 use db::models::task::Task;
-use db::models::task_variable::{CreateTaskVariable, ResolvedVariable, TaskVariable, UpdateTaskVariable};
+use db::models::task_variable::{
+    CreateTaskVariable, ResolvedVariable, TaskVariable, UpdateTaskVariable,
+};
 use deployment::Deployment;
 use serde::{Deserialize, Serialize};
 use services::services::variable_expander;
@@ -21,7 +23,7 @@ use crate::{DeploymentImpl, error::ApiError, middleware::load_task_middleware};
 fn validate_var_name(name: &str) -> Result<(), ApiError> {
     if name.is_empty() {
         return Err(ApiError::BadRequest(
-            "Variable name cannot be empty".to_string()
+            "Variable name cannot be empty".to_string(),
         ));
     }
 
@@ -155,24 +157,28 @@ pub async fn preview_expansion(
     // Expand variables in the text
     let result = variable_expander::expand_variables(&payload.text, &variables);
 
-    Ok(ResponseJson(ApiResponse::success(PreviewExpansionResponse {
-        expanded_text: result.text,
-        undefined_variables: result.undefined_vars,
-        expanded_variables: result
-            .expanded_vars
-            .into_iter()
-            .map(|(name, source_id)| ExpandedVariableInfo {
-                name,
-                source_task_id: source_id.map(|id| id.to_string()),
-            })
-            .collect(),
-    })))
+    Ok(ResponseJson(ApiResponse::success(
+        PreviewExpansionResponse {
+            expanded_text: result.text,
+            undefined_variables: result.undefined_vars,
+            expanded_variables: result
+                .expanded_vars
+                .into_iter()
+                .map(|(name, source_id)| ExpandedVariableInfo {
+                    name,
+                    source_task_id: source_id.map(|id| id.to_string()),
+                })
+                .collect(),
+        },
+    )))
 }
 
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     // Routes for a specific variable (need var_id in path)
-    let var_router = Router::new()
-        .route("/", axum::routing::put(update_task_variable).delete(delete_task_variable));
+    let var_router = Router::new().route(
+        "/",
+        axum::routing::put(update_task_variable).delete(delete_task_variable),
+    );
 
     // Routes under /tasks/:task_id/variables
     let task_var_router = Router::new()
