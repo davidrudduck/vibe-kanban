@@ -14,6 +14,7 @@ import {
   useTaskRelationships,
   useTaskChildren,
 } from '@/hooks/useTaskRelationships';
+import { useTaskUsesSharedWorktree } from '@/hooks';
 import { DataTable, type ColumnDef } from '@/components/ui/table/data-table';
 import type { Task, TaskAttempt } from 'shared/types';
 
@@ -38,6 +39,11 @@ const ViewRelatedTasksDialogImpl =
     }) => {
       const modal = useModal();
       const { t } = useTranslation('tasks');
+
+      // Check if this task uses a shared worktree (prevents subtask creation)
+      const { usesSharedWorktree } = useTaskUsesSharedWorktree(taskId, {
+        enabled: modal.visible,
+      });
 
       // Use attempt-based query when we have an attemptId, otherwise task-based
       const {
@@ -188,7 +194,12 @@ const ViewRelatedTasksDialogImpl =
                         <Button
                           variant="icon"
                           onClick={handleCreateSubtask}
-                          disabled={!projectId || !taskId}
+                          disabled={!projectId || !taskId || usesSharedWorktree}
+                          title={
+                            usesSharedWorktree
+                              ? t('actionsMenu.sharedWorktreeNoSubtask', 'Cannot create subtasks for tasks using a shared worktree')
+                              : undefined
+                          }
                         >
                           <PlusIcon size={16} />
                         </Button>

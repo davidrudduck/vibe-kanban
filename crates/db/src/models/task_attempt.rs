@@ -463,4 +463,32 @@ impl TaskAttempt {
 
         Ok((result.attempt_id, result.task_id, result.project_id))
     }
+
+    /// Check if any attempt for this task shares a container_ref with parent task's attempts.
+    /// This indicates the task is using a shared worktree from its parent.
+    ///
+    /// Returns true if any attempt shares container_ref with parent, false otherwise.
+    pub async fn task_uses_shared_worktree(
+        pool: &SqlitePool,
+        task_id: Uuid,
+        parent_task_id: Uuid,
+    ) -> Result<bool, sqlx::Error> {
+        // Use a single SQL query to check for any matching container_ref
+        // This is more efficient than fetching all attempts and comparing in Rust
+        let result = sqlx::query!(
+            r#"SELECT EXISTS(
+                SELECT 1 FROM task_attempts child
+                JOIN task_attempts parent ON child.container_ref = parent.container_ref
+                WHERE child.task_id = $1
+                  AND parent.task_id = $2
+                  AND child.container_ref IS NOT NULL
+            ) as "exists!: bool""#,
+            task_id,
+            parent_task_id
+        )
+        .fetch_one(pool)
+        .await?;
+
+        Ok(result.exists)
+    }
 }

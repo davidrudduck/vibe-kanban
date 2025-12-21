@@ -269,7 +269,9 @@
     "selectBranch": "Select branch",
     "error": "Failed to create attempt. Please try again.",
     "creating": "Creating...",
-    "start": "Start"
+    "start": "Start",
+    "useParentWorktree": "Use parent worktree",
+    "useParentWorktreeHelp": "Continue work in same worktree and branch as parent task"
   },
   "viewProcessesDialog": {
     "title": "Execution processes"
@@ -297,6 +299,7 @@
     "viewRelatedTasks": "View related tasks",
     "createNewAttempt": "Create new attempt",
     "createSubtask": "Create subtask",
+    "sharedWorktreeNoSubtask": "Cannot create subtask: this task uses a shared worktree",
     "gitActions": "Git actions",
     "editBranchName": "Edit branch name",
     "task": "Task",

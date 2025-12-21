@@ -42,3 +42,4 @@ export {
   usePreviewExpansion,
   taskVariablesKeys,
 } from './useTaskVariables';
+export { useTaskUsesSharedWorktree } from './useTaskUsesSharedWorktree';
