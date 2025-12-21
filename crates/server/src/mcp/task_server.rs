@@ -4,6 +4,7 @@ use db::models::{
     project::Project,
     task::{CreateTask, Task, TaskStatus, TaskWithAttemptStatus, UpdateTask},
     task_attempt::{TaskAttempt, TaskAttemptContext},
+    task_variable::{ResolvedVariable, TaskVariable},
 };
 use executors::{executors::BaseCodingAgent, profile::ExecutorProfileId};
 use rmcp::{
@@ -241,6 +242,89 @@ pub struct GetTaskRequest {
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct GetTaskResponse {
     pub task: TaskDetails,
+}
+
+// ===== Task Variables MCP Types =====
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetTaskVariablesRequest {
+    #[schemars(description = "The ID of the task to get variables for")]
+    pub task_id: Uuid,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct TaskVariableDetails {
+    #[schemars(description = "The variable name")]
+    pub name: String,
+    #[schemars(description = "The variable value")]
+    pub value: String,
+    #[schemars(description = "The task ID where this variable was defined")]
+    pub source_task_id: String,
+    #[schemars(description = "True if this variable was inherited from a parent task")]
+    pub inherited: bool,
+}
+
+impl TaskVariableDetails {
+    fn from_resolved(rv: ResolvedVariable) -> Self {
+        Self {
+            name: rv.name,
+            value: rv.value,
+            source_task_id: rv.source_task_id.to_string(),
+            inherited: rv.inherited,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct GetTaskVariablesResponse {
+    #[schemars(description = "The task ID these variables belong to")]
+    pub task_id: String,
+    #[schemars(description = "The resolved variables (including inherited from parent tasks)")]
+    pub variables: Vec<TaskVariableDetails>,
+    #[schemars(description = "Number of variables returned")]
+    pub count: usize,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SetTaskVariableRequest {
+    #[schemars(description = "The ID of the task to set the variable on")]
+    pub task_id: Uuid,
+    #[schemars(
+        description = "The variable name. Must start with uppercase letter and contain only uppercase letters, digits, and underscores (e.g., MY_VAR, API_KEY_2)"
+    )]
+    pub name: String,
+    #[schemars(description = "The variable value")]
+    pub value: String,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct SetTaskVariableResponse {
+    #[schemars(description = "The variable ID")]
+    pub id: String,
+    #[schemars(description = "The variable name")]
+    pub name: String,
+    #[schemars(description = "The variable value")]
+    pub value: String,
+    #[schemars(description = "The task ID this variable was set on")]
+    pub task_id: String,
+    #[schemars(description = "Whether a new variable was created (false if existing was updated)")]
+    pub created: bool,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DeleteTaskVariableRequest {
+    #[schemars(description = "The ID of the task to delete the variable from")]
+    pub task_id: Uuid,
+    #[schemars(description = "The name of the variable to delete")]
+    pub name: String,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct DeleteTaskVariableResponse {
+    #[schemars(description = "The name of the deleted variable")]
+    pub deleted_variable_name: String,
+    #[schemars(description = "The task ID the variable was deleted from")]
+    pub task_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -690,12 +774,148 @@ impl TaskServer {
 
         TaskServer::success(&response)
     }
+
+    // ===== Task Variables MCP Tools =====
+
+    #[tool(
+        description = "Get all resolved variables for a task, including variables inherited from parent tasks. Child tasks automatically inherit variables from parent tasks, with child values overriding parent values."
+    )]
+    async fn get_task_variables(
+        &self,
+        Parameters(GetTaskVariablesRequest { task_id }): Parameters<GetTaskVariablesRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/tasks/{}/variables/resolved", task_id));
+        let variables: Vec<ResolvedVariable> = match self.send_json(self.client.get(&url)).await {
+            Ok(v) => v,
+            Err(e) => return Ok(e),
+        };
+
+        let variable_details: Vec<TaskVariableDetails> = variables
+            .into_iter()
+            .map(TaskVariableDetails::from_resolved)
+            .collect();
+
+        let response = GetTaskVariablesResponse {
+            task_id: task_id.to_string(),
+            count: variable_details.len(),
+            variables: variable_details,
+        };
+
+        TaskServer::success(&response)
+    }
+
+    #[tool(
+        description = "Set a variable on a task. Creates a new variable if it doesn't exist, or updates an existing variable. Variable names must start with an uppercase letter and contain only uppercase letters, digits, and underscores (e.g., MY_VAR, API_KEY_2). Variables are expanded in task descriptions when sent to executors using $VAR or ${VAR} syntax."
+    )]
+    async fn set_task_variable(
+        &self,
+        Parameters(SetTaskVariableRequest {
+            task_id,
+            name,
+            value,
+        }): Parameters<SetTaskVariableRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        // First, check if the variable already exists on this task
+        let list_url = self.url(&format!("/api/tasks/{}/variables", task_id));
+        let existing_vars: Vec<TaskVariable> =
+            match self.send_json(self.client.get(&list_url)).await {
+                Ok(v) => v,
+                Err(e) => return Ok(e),
+            };
+
+        // Look for existing variable with same name
+        let existing = existing_vars.iter().find(|v| v.name == name);
+
+        let (variable, created) = if let Some(existing_var) = existing {
+            // Update existing variable
+            let update_url = self.url(&format!(
+                "/api/tasks/{}/variables/{}",
+                task_id, existing_var.id
+            ));
+            let payload = serde_json::json!({ "value": value });
+            let updated: TaskVariable = match self
+                .send_json(self.client.put(&update_url).json(&payload))
+                .await
+            {
+                Ok(v) => v,
+                Err(e) => return Ok(e),
+            };
+            (updated, false)
+        } else {
+            // Create new variable
+            let create_url = self.url(&format!("/api/tasks/{}/variables", task_id));
+            let payload = serde_json::json!({ "name": name, "value": value });
+            let created: TaskVariable = match self
+                .send_json(self.client.post(&create_url).json(&payload))
+                .await
+            {
+                Ok(v) => v,
+                Err(e) => return Ok(e),
+            };
+            (created, true)
+        };
+
+        let response = SetTaskVariableResponse {
+            id: variable.id.to_string(),
+            name: variable.name,
+            value: variable.value,
+            task_id: task_id.to_string(),
+            created,
+        };
+
+        TaskServer::success(&response)
+    }
+
+    #[tool(
+        description = "Delete a variable from a task. This only deletes variables defined directly on the task, not inherited variables from parent tasks."
+    )]
+    async fn delete_task_variable(
+        &self,
+        Parameters(DeleteTaskVariableRequest { task_id, name }): Parameters<
+            DeleteTaskVariableRequest,
+        >,
+    ) -> Result<CallToolResult, ErrorData> {
+        // First, get the list of variables on this task to find the ID
+        let list_url = self.url(&format!("/api/tasks/{}/variables", task_id));
+        let existing_vars: Vec<TaskVariable> =
+            match self.send_json(self.client.get(&list_url)).await {
+                Ok(v) => v,
+                Err(e) => return Ok(e),
+            };
+
+        // Look for variable with matching name
+        let variable = match existing_vars.iter().find(|v| v.name == name) {
+            Some(v) => v,
+            None => {
+                return Self::err(
+                    format!("Variable '{}' not found on task {}", name, task_id),
+                    None::<String>,
+                );
+            }
+        };
+
+        // Delete the variable by ID
+        let delete_url = self.url(&format!("/api/tasks/{}/variables/{}", task_id, variable.id));
+        if let Err(e) = self
+            .send_json::<serde_json::Value>(self.client.delete(&delete_url))
+            .await
+        {
+            return Ok(e);
+        }
+
+        let response = DeleteTaskVariableResponse {
+            deleted_variable_name: name,
+            task_id: task_id.to_string(),
+        };
+
+        TaskServer::success(&response)
+    }
 }
 
 #[tool_handler]
 impl ServerHandler for TaskServer {
     fn get_info(&self) -> ServerInfo {
-        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`.. TOOLS: 'list_projects', 'list_tasks', 'create_task', 'start_task_attempt', 'get_task', 'update_task', 'delete_task'. Make sure to pass `project_id` or `task_id` where required. You can use list tools to get the available ids.".to_string();
+        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`.. TOOLS: 'list_projects', 'list_tasks', 'create_task', 'start_workspace_session', 'get_task', 'update_task', 'delete_task', 'list_repos'. Make sure to pass `project_id` or `task_id` where required. You can use list tools to get the available ids. Task variables: Use 'get_task_variables', 'set_task_variable', and 'delete_task_variable' to manage variables that are expanded in task descriptions using $VAR or ${VAR} syntax.".to_string();
         if self.context.is_some() {
             let context_instruction = "Use 'get_context' to fetch project/task/attempt metadata for the active Vibe Kanban attempt when available.";
             instruction = format!("{} {}", context_instruction, instruction);

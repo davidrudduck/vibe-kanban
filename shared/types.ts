@@ -194,6 +194,22 @@ export type UpdateTag = { tag_name: string | null, content: string | null, };
 
 export type TagSearchParams = { search: string | null, };
 
+export type TaskVariable = { id: string, task_id: string, name: string, value: string, created_at: string, updated_at: string, };
+
+export type CreateTaskVariable = { name: string, value: string, };
+
+export type UpdateTaskVariable = { name: string | null, value: string | null, };
+
+export type ResolvedVariable = { name: string, value: string, 
+/**
+ * The task ID this variable was defined on (may differ from requested task_id for inherited vars)
+ */
+source_task_id: string, 
+/**
+ * True if this variable was inherited from a parent task
+ */
+inherited: boolean, };
+
 export type TaskStatus = "todo" | "inprogress" | "inreview" | "done" | "cancelled";
 
 export type Task = { id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_task_id: string | null, shared_task_id: string | null, created_at: string, updated_at: string, is_remote: boolean, remote_assignee_user_id: string | null, remote_assignee_name: string | null, remote_assignee_username: string | null, remote_version: bigint, remote_last_synced_at: string | null, remote_stream_node_id: string | null, remote_stream_url: string | null, 
@@ -387,6 +403,36 @@ task: Task,
  * Number of subtasks also archived (only for archive operation)
  */
 subtasks_archived: bigint, };
+
+export type PreviewExpansionRequest = { 
+/**
+ * The text to expand variables in
+ */
+text: string, };
+
+export type PreviewExpansionResponse = { 
+/**
+ * The text with variables expanded
+ */
+expanded_text: string, 
+/**
+ * Variables that were referenced but not defined
+ */
+undefined_variables: Array<string>, 
+/**
+ * Variables that were successfully expanded
+ */
+expanded_variables: Array<ExpandedVariableInfo>, };
+
+export type ExpandedVariableInfo = { 
+/**
+ * The variable name
+ */
+name: string, 
+/**
+ * The task ID where this variable was defined
+ */
+source_task_id: string | null, };
 
 export type CreateGitHubPrRequest = { title: string, body: string | null, target_branch: string | null, };
 

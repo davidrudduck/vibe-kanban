@@ -28,6 +28,7 @@ pub mod projects;
 pub mod shared_tasks;
 pub mod tags;
 pub mod task_attempts;
+pub mod task_variables;
 pub mod tasks;
 
 pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
@@ -46,6 +47,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(execution_processes::router(&deployment))
         .merge(processes::router(&deployment))
         .merge(tags::router(&deployment))
+        .merge(task_variables::router(&deployment))
         .merge(oauth::router())
         .merge(organizations::router())
         .merge(nodes::router())

@@ -409,5 +409,32 @@
       "continueEditing": "編集を続ける",
       "discardChanges": "変更を破棄"
     }
+  },
+  "variables": {
+    "title": "変数",
+    "panelTitle": "変数 ({{count}})",
+    "add": "追加",
+    "empty": "変数が定義されていません",
+    "inherited": "継承",
+    "inheritedTooltip": "親タスクから継承",
+    "inheritedCount": "{{count}}件継承",
+    "inheritedVariables": "継承",
+    "ownVariables": "このタスク",
+    "emptyValue": "(空)",
+    "override": "上書き",
+    "hint": "変数はタスクの説明で $VAR_NAME または ${VAR_NAME} 構文で使用できます。",
+    "panelHint": "変数はタスクがエグゼキューターに送信されるときに展開されます。",
+    "undefinedWarning": "{{count}}個の未定義変数",
+    "undefinedTitle": "未定義変数",
+    "undefinedDescription": "これらの変数はタスクの説明で参照されていますが、定義されていません：",
+    "namePlaceholder": "変数名",
+    "valuePlaceholder": "値",
+    "deleteConfirm": "変数「{{name}}」を削除しますか？",
+    "errors": {
+      "nameRequired": "変数名は必須です",
+      "invalidName": "名前は大文字で始まり、A-Z、0-9、アンダースコアのみを含む必要があります",
+      "nameExists": "この名前の変数は既に存在します",
+      "saveFailed": "変数の保存に失敗しました"
+    }
   }
 }
