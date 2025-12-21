@@ -16,7 +16,7 @@ use db::models::{
     image::TaskImage,
     project::Project,
     task::{CreateTask, Task, TaskWithAttemptStatus, UpdateTask},
-    task_attempt::{CreateTaskAttempt, TaskAttempt},
+    task_attempt::{CreateTaskAttempt, TaskAttempt, TaskAttemptError},
 };
 use deployment::Deployment;
 use executors::profile::ExecutorProfileId;
@@ -135,6 +135,28 @@ pub async fn create_task(
     }
 
     // Local project: existing logic
+
+    // Validate: If creating a subtask, check that the parent doesn't use a shared worktree
+    if let Some(parent_task_id) = payload.parent_task_id {
+        let parent_task = Task::find_by_id(pool, parent_task_id)
+            .await?
+            .ok_or(ApiError::Database(SqlxError::RowNotFound))?;
+
+        // Check if parent task uses a shared worktree from its own parent (grandparent)
+        if let Some(grandparent_id) = parent_task.parent_task_id {
+            let uses_shared =
+                TaskAttempt::task_uses_shared_worktree(pool, parent_task_id, grandparent_id)
+                    .await
+                    .map_err(|e| ApiError::TaskAttempt(TaskAttemptError::Database(e)))?;
+
+            if uses_shared {
+                return Err(ApiError::BadRequest(
+                    "Cannot create subtask: parent task uses a shared worktree".to_string(),
+                ));
+            }
+        }
+    }
+
     let id = Uuid::new_v4();
 
     tracing::debug!(
