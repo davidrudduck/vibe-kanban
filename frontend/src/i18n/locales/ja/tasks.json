@@ -12,21 +12,22 @@
     "archived": "アーカイブ済み"
   },
   "actionsMenu": {
-    "attempt": "Attempt",
-    "createNewAttempt": "Create new attempt",
-    "createSubtask": "Create subtask",
+    "attempt": "試行",
+    "createNewAttempt": "新しい試行を作成",
+    "createSubtask": "サブタスクを作成",
+    "sharedWorktreeNoSubtask": "サブタスクを作成できません：このタスクは共有ワークツリーを使用しています",
     "share": "タスクを共有",
     "reassign": "再割り当て",
     "stopShare": "共有を停止",
     "archive": "アーカイブ",
     "unarchive": "アーカイブ解除",
-    "duplicate": "Duplicate",
+    "duplicate": "複製",
     "editBranchName": "ブランチ名を編集",
     "gitActions": "Gitアクション",
-    "openInIde": "Open attempt in IDE",
-    "task": "Task",
-    "viewProcesses": "View processes",
-    "viewRelatedTasks": "View related tasks",
+    "openInIde": "IDEで試行を開く",
+    "task": "タスク",
+    "viewProcesses": "プロセスを表示",
+    "viewRelatedTasks": "関連タスクを表示",
     "remoteTaskCannotExecute": "リモートタスクは元のノードで実行されます"
   },
   "archiveDialog": {
@@ -163,14 +164,16 @@
     }
   },
   "createAttemptDialog": {
-    "baseBranch": "Base branch",
-    "creating": "Creating...",
-    "description": "Start a new attempt with a coding agent. A git worktree and task branch will be created.",
-    "error": "Failed to create attempt. Please try again.",
-    "loadingBranches": "Loading branches...",
-    "selectBranch": "Select branch",
-    "start": "Start",
-    "title": "Create Attempt"
+    "baseBranch": "ベースブランチ",
+    "creating": "作成中...",
+    "description": "コーディングエージェントで新しい試行を開始します。gitワークツリーとタスクブランチが作成されます。",
+    "error": "試行の作成に失敗しました。もう一度お試しください。",
+    "loadingBranches": "ブランチを読み込み中...",
+    "selectBranch": "ブランチを選択",
+    "start": "開始",
+    "title": "試行を作成",
+    "useParentWorktree": "親のワークツリーを使用",
+    "useParentWorktreeHelp": "親タスクと同じワークツリーとブランチで作業を続ける"
   },
   "diff": {
     "collapseAll": "Collapse all diffs",
