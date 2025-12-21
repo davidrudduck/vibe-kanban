@@ -84,10 +84,18 @@ pub async fn create_task_variable(
     Ok(ResponseJson(ApiResponse::success(variable)))
 }
 
+/// Path parameters for variable-specific routes
+#[derive(Debug, Deserialize)]
+pub struct VariablePathParams {
+    #[allow(dead_code)]
+    task_id: Uuid,
+    var_id: Uuid,
+}
+
 /// Update an existing variable
 pub async fn update_task_variable(
     State(deployment): State<DeploymentImpl>,
-    Path(var_id): Path<Uuid>,
+    Path(params): Path<VariablePathParams>,
     Json(payload): Json<UpdateTaskVariable>,
 ) -> Result<ResponseJson<ApiResponse<TaskVariable>>, ApiError> {
     // Validate variable name format if being updated
@@ -95,16 +103,16 @@ pub async fn update_task_variable(
         validate_var_name(name)?;
     }
 
-    let variable = TaskVariable::update(&deployment.db().pool, var_id, &payload).await?;
+    let variable = TaskVariable::update(&deployment.db().pool, params.var_id, &payload).await?;
     Ok(ResponseJson(ApiResponse::success(variable)))
 }
 
 /// Delete a variable
 pub async fn delete_task_variable(
     State(deployment): State<DeploymentImpl>,
-    Path(var_id): Path<Uuid>,
+    Path(params): Path<VariablePathParams>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
-    let rows_affected = TaskVariable::delete(&deployment.db().pool, var_id).await?;
+    let rows_affected = TaskVariable::delete(&deployment.db().pool, params.var_id).await?;
     if rows_affected == 0 {
         Err(ApiError::Database(sqlx::Error::RowNotFound))
     } else {
@@ -174,19 +182,21 @@ pub async fn preview_expansion(
 }
 
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
-    // Routes for a specific variable (need var_id in path)
-    let var_router = Router::new().route(
-        "/",
-        axum::routing::put(update_task_variable).delete(delete_task_variable),
-    );
-
-    // Routes under /tasks/:task_id/variables
+    // Routes under /tasks/:task_id/variables (needs task middleware)
     let task_var_router = Router::new()
         .route("/", get(get_task_variables).post(create_task_variable))
         .route("/resolved", get(get_resolved_variables))
         .route("/preview", post(preview_expansion))
-        .nest("/{var_id}", var_router)
         .layer(from_fn_with_state(deployment.clone(), load_task_middleware));
 
-    Router::new().nest("/tasks/{task_id}/variables", task_var_router)
+    // Routes for specific variable operations (don't use task middleware,
+    // path params include both task_id and var_id)
+    let var_specific_router = Router::new().route(
+        "/tasks/{task_id}/variables/{var_id}",
+        axum::routing::put(update_task_variable).delete(delete_task_variable),
+    );
+
+    Router::new()
+        .nest("/tasks/{task_id}/variables", task_var_router)
+        .merge(var_specific_router)
 }
