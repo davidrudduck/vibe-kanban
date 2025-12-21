@@ -12,21 +12,22 @@
     "archived": "Archivado"
   },
   "actionsMenu": {
-    "attempt": "Attempt",
-    "createNewAttempt": "Create new attempt",
-    "createSubtask": "Create subtask",
+    "attempt": "Intento",
+    "createNewAttempt": "Crear nuevo intento",
+    "createSubtask": "Crear subtarea",
+    "sharedWorktreeNoSubtask": "No se puede crear subtarea: esta tarea usa un worktree compartido",
     "share": "Compartir tarea",
     "reassign": "Reasignar",
     "stopShare": "Dejar de compartir",
     "archive": "Archivar",
     "unarchive": "Desarchivar",
-    "duplicate": "Duplicate",
+    "duplicate": "Duplicar",
     "editBranchName": "Editar nombre de rama",
     "gitActions": "Acciones de Git",
-    "openInIde": "Open attempt in IDE",
-    "task": "Task",
-    "viewProcesses": "View processes",
-    "viewRelatedTasks": "View related tasks",
+    "openInIde": "Abrir intento en IDE",
+    "task": "Tarea",
+    "viewProcesses": "Ver procesos",
+    "viewRelatedTasks": "Ver tareas relacionadas",
     "remoteTaskCannotExecute": "Las tareas remotas se ejecutan en su nodo de origen"
   },
   "archiveDialog": {
@@ -163,14 +164,16 @@
     }
   },
   "createAttemptDialog": {
-    "baseBranch": "Base branch",
-    "creating": "Creating...",
-    "description": "Start a new attempt with a coding agent. A git worktree and task branch will be created.",
-    "error": "Failed to create attempt. Please try again.",
-    "loadingBranches": "Loading branches...",
-    "selectBranch": "Select branch",
-    "start": "Start",
-    "title": "Create Attempt"
+    "baseBranch": "Rama base",
+    "creating": "Creando...",
+    "description": "Iniciar un nuevo intento con un agente de codificación. Se creará un git worktree y una rama de tarea.",
+    "error": "Error al crear intento. Por favor, inténtalo de nuevo.",
+    "loadingBranches": "Cargando ramas...",
+    "selectBranch": "Seleccionar rama",
+    "start": "Iniciar",
+    "title": "Crear Intento",
+    "useParentWorktree": "Usar worktree del padre",
+    "useParentWorktreeHelp": "Continuar el trabajo en el mismo worktree y rama que la tarea padre"
   },
   "diff": {
     "collapseAll": "Collapse all diffs",
