@@ -26,7 +26,7 @@ import { openTaskForm } from '@/lib/openTaskForm';
 
 import { useNavigate } from 'react-router-dom';
 import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
-import { useAuth } from '@/hooks';
+import { useAuth, useTaskUsesSharedWorktree } from '@/hooks';
 import { tasksApi } from '@/lib/api';
 import { useState } from 'react';
 
@@ -53,6 +53,9 @@ export function ActionsDropdown({
   const hasTaskActions = Boolean(task);
   const isShared = Boolean(sharedTask);
   const isRemote = Boolean(task?.is_remote);
+
+  // Check if this task uses a shared worktree (prevents subtask creation)
+  const { usesSharedWorktree } = useTaskUsesSharedWorktree(task?.id);
 
   const handleEdit = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -309,12 +312,14 @@ export function ActionsDropdown({
                 {t('actionsMenu.viewRelatedTasks')}
               </DropdownMenuItem>
               <DropdownMenuItem
-                disabled={!projectId || !task || isRemote}
+                disabled={!projectId || !task || isRemote || usesSharedWorktree}
                 onClick={handleCreateSubtask}
                 title={
                   isRemote
                     ? t('actionsMenu.remoteTaskCannotExecute')
-                    : undefined
+                    : usesSharedWorktree
+                      ? t('actionsMenu.sharedWorktreeNoSubtask', 'Cannot create subtasks for tasks using a shared worktree')
+                      : undefined
                 }
               >
                 {t('actionsMenu.createSubtask')}

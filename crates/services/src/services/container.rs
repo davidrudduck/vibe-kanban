@@ -697,9 +697,12 @@ pub trait ContainerService {
         &self,
         task_attempt: &TaskAttempt,
         executor_profile_id: ExecutorProfileId,
+        skip_worktree_creation: bool,
     ) -> Result<ExecutionProcess, ContainerError> {
-        // Create container
-        self.create(task_attempt).await?;
+        // Create container (unless skipping for shared worktree scenarios)
+        if !skip_worktree_creation {
+            self.create(task_attempt).await?;
+        }
 
         // Get parent task
         let task = task_attempt
