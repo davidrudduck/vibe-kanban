@@ -68,7 +68,7 @@ impl ActivityFeed {
   t.project_id                    AS "project_id!: Uuid",
   p.name                          AS project_name,
   t.status                        AS "status!: TaskStatus",
-  t.activity_at                   AS "activity_at!: DateTime<Utc>",
+  COALESCE(t.activity_at, t.created_at) AS "activity_at!: DateTime<Utc>",
 
   COALESCE((
     SELECT ta.executor
