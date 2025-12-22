@@ -22,6 +22,7 @@ interface AttemptHeaderActionsProps {
   task: TaskWithAttemptStatus;
   attempt?: TaskAttempt | null;
   sharedTask?: SharedTaskRecord;
+  isMobile?: boolean;
 }
 
 export const AttemptHeaderActions = ({
@@ -31,6 +32,7 @@ export const AttemptHeaderActions = ({
   task,
   attempt,
   sharedTask,
+  isMobile,
 }: AttemptHeaderActionsProps) => {
   const { t } = useTranslation('tasks');
   const isOrgAdmin = useIsOrgAdmin();
@@ -50,7 +52,7 @@ export const AttemptHeaderActions = ({
           <div className="h-4 w-px bg-border" />
         </>
       )}
-      {typeof mode !== 'undefined' && onModeChange && (
+      {!isMobile && typeof mode !== 'undefined' && onModeChange && (
         <TooltipProvider>
           <ToggleGroup
             type="single"
@@ -109,7 +111,7 @@ export const AttemptHeaderActions = ({
           </ToggleGroup>
         </TooltipProvider>
       )}
-      {typeof mode !== 'undefined' && onModeChange && (
+      {!isMobile && typeof mode !== 'undefined' && onModeChange && (
         <div className="h-4 w-px bg-border" />
       )}
       <ActionsDropdown task={task} attempt={attempt} sharedTask={sharedTask} isOrgAdmin={isOrgAdmin} />

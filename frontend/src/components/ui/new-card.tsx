@@ -12,11 +12,10 @@ NewCard.displayName = 'NewCard';
 
 interface NewCardHeaderProps extends React.HTMLAttributes<HTMLDivElement> {
   actions?: React.ReactNode;
-  stacked?: boolean;
 }
 
 const NewCardHeader = React.forwardRef<HTMLDivElement, NewCardHeaderProps>(
-  ({ className, actions, stacked, children, ...props }, ref) => (
+  ({ className, actions, children, ...props }, ref) => (
     <div
       ref={ref}
       className={cn(
@@ -24,26 +23,17 @@ const NewCardHeader = React.forwardRef<HTMLDivElement, NewCardHeaderProps>(
         // add a solid top line via ::before, except on the first header
         'before:content-[""] before:absolute before:top-0 before:left-0 before:right-0 ' +
           'before:h-px before:bg-border first:before:hidden',
-        stacked ? 'flex-col-reverse' : 'items-center',
-        actions && !stacked && 'justify-between',
+        'items-center',
+        actions && 'justify-between',
         className
       )}
       {...props}
     >
       {actions ? (
-        stacked ? (
-          <>
-            <div className="min-w-0 w-full pb-3">{children}</div>
-            <div className="flex items-center justify-end gap-4 pt-3">
-              {actions}
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="min-w-0 flex-1 py-3">{children}</div>
-            <div className="flex items-center gap-4">{actions}</div>
-          </>
-        )
+        <>
+          <div className="min-w-0 flex-1 py-3">{children}</div>
+          <div className="flex items-center gap-4">{actions}</div>
+        </>
       ) : (
         children
       )}
