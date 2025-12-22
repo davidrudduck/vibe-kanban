@@ -40,6 +40,16 @@
     "toolDetailsToggle": {
       "hide": "Ocultar detalles",
       "show": "Mostrar detalles"
+    },
+    "pagination": {
+      "label": "Cargar",
+      "title": "Configuración de conversación",
+      "description": "Menos entradas cargan más rápido en conexiones lentas.",
+      "global": "Configuración global",
+      "entries50": "50 entradas",
+      "entries100": "100 entradas",
+      "entries200": "200 entradas",
+      "entries500": "500 entradas"
     }
   },
   "language": {

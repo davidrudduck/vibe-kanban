@@ -41,6 +41,8 @@
     "deniedByUser": "{{toolName}} denied by user",
     "pagination": {
       "label": "Load",
+      "title": "Conversation Settings",
+      "description": "Fewer entries load faster on slow connections.",
       "global": "Global setting",
       "entries50": "50 entries",
       "entries100": "100 entries",
