@@ -225,10 +225,9 @@ impl ClaudeAgentClient {
             })?)
             .await?;
 
-        // Brief delay to allow async log processor to create the entry
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-        // Now call approval service - it will find the entry we just created
+        // The approval service now has retry logic with exponential backoff
+        // to handle the race condition where the log processor hasn't yet
+        // created the NormalizedEntry
         match approval_service
             .request_question_approval(&questions, &call_id)
             .await

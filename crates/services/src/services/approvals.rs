@@ -102,8 +102,27 @@ impl Approvals {
         let is_question = request.questions.is_some();
 
         if let Some(store) = self.msg_store_by_id(&request.execution_process_id).await {
-            // Find the matching tool use entry by name and input
-            let matching_tool = find_matching_tool_use(store.clone(), &request.tool_call_id);
+            // Retry finding the entry with backoff (handles race condition where
+            // the log processor hasn't created the entry yet)
+            let mut matching_tool = None;
+            let retry_delays = [50, 100, 200, 400]; // Total max wait: 750ms
+
+            for (attempt, delay_ms) in retry_delays.iter().enumerate() {
+                matching_tool = find_matching_tool_use(store.clone(), &request.tool_call_id);
+
+                if matching_tool.is_some() {
+                    break;
+                }
+
+                tracing::debug!(
+                    "Retry {}/{}: Entry not found for tool_call_id '{}', waiting {}ms",
+                    attempt + 1,
+                    retry_delays.len(),
+                    request.tool_call_id,
+                    delay_ms
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(*delay_ms)).await;
+            }
 
             if let Some((idx, matching_tool)) = matching_tool {
                 // Use PendingQuestion status for AskUserQuestion, PendingApproval otherwise
@@ -147,8 +166,10 @@ impl Approvals {
                 );
             } else {
                 tracing::warn!(
-                    "No matching tool use entry found for approval request: tool='{}', execution_process_id={}",
+                    "No matching tool use entry found after {} retries: tool='{}', tool_call_id='{}', execution_process_id={}",
+                    retry_delays.len(),
                     request.tool_name,
+                    request.tool_call_id,
                     request.execution_process_id
                 );
             }
