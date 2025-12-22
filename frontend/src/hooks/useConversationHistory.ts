@@ -11,7 +11,9 @@ import {
 } from 'shared/types';
 import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesContext';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { streamJsonPatchEntries } from '@/utils/streamJsonPatchEntries';
+import { logsApi } from '@/lib/api';
+import { logEntriesToPatches } from '@/utils/logEntryToPatch';
+import { applyPatch, type Operation } from 'rfc6902';
 
 export type PatchTypeWithKey = PatchType & {
   patchKey: string;
@@ -126,32 +128,51 @@ export const useConversationHistory = ({
     );
   }, [executionProcessesRaw]);
 
-  const loadEntriesForHistoricExecutionProcess = (
+  const loadEntriesForHistoricExecutionProcess = async (
     executionProcess: ExecutionProcess
-  ) => {
-    let url = '';
-    if (executionProcess.executor_action.typ.type === 'ScriptRequest') {
-      url = `/api/execution-processes/${executionProcess.id}/raw-logs/ws`;
-    } else {
-      url = `/api/execution-processes/${executionProcess.id}/normalized-logs/ws`;
-    }
+  ): Promise<PatchType[]> => {
+    try {
+      // For script requests, we need to fetch raw logs and convert them
+      // For coding agent requests, fetch paginated normalized logs
+      const allEntries: PatchType[] = [];
+      let cursor: bigint | undefined;
+      let hasMore = true;
 
-    return new Promise<PatchType[]>((resolve) => {
-      const controller = streamJsonPatchEntries<PatchType>(url, {
-        onFinished: (allEntries) => {
-          controller.close();
-          resolve(allEntries);
-        },
-        onError: (err) => {
-          console.warn!(
-            `Error loading entries for historic execution process ${executionProcess.id}`,
-            err
-          );
-          controller.close();
-          resolve([]);
-        },
-      });
-    });
+      // Fetch all pages to get complete history
+      while (hasMore) {
+        const result = await logsApi.getPaginated(executionProcess.id, {
+          limit: 500, // Max limit for efficiency
+          cursor,
+          direction: 'forward', // Oldest first for proper order
+        });
+
+        if (result.entries.length === 0) {
+          break;
+        }
+
+        // Convert LogEntry[] to PatchType[] by applying patches
+        const patches = logEntriesToPatches(result.entries, executionProcess.id);
+        // Extract just the PatchType (without keys) for this internal use
+        allEntries.push(...patches.map(p => {
+          const { patchKey, executionProcessId, ...rest } = p;
+          // Use void to suppress unused variable warnings
+          void patchKey;
+          void executionProcessId;
+          return rest as PatchType;
+        }));
+
+        hasMore = result.has_more;
+        cursor = result.next_cursor ?? undefined;
+      }
+
+      return allEntries;
+    } catch (err) {
+      console.warn(
+        `Error loading entries for historic execution process ${executionProcess.id}`,
+        err
+      );
+      return [];
+    }
   };
 
   const getLiveExecutionProcess = (
@@ -445,37 +466,66 @@ export const useConversationHistory = ({
           return;
         }
 
-        let url = '';
-        if (executionProcess.executor_action.typ.type === 'ScriptRequest') {
-          url = `/api/execution-processes/${executionProcess.id}/raw-logs/ws`;
-        } else {
-          url = `/api/execution-processes/${executionProcess.id}/normalized-logs/ws`;
-        }
-        const controller = streamJsonPatchEntries<PatchType>(url, {
-          onEntries(entries) {
-            const patchesWithKey = entries.map((entry, index) =>
-              patchWithKey(entry, executionProcess.id, index)
-            );
-            mergeIntoDisplayed((state) => {
-              state[executionProcess.id] = {
-                executionProcess,
-                entries: patchesWithKey,
-              };
-            });
-            emitEntries(displayedExecutionProcesses.current, 'running', false);
-          },
-          onFinished: () => {
-            activeStreamControllers.current.delete(processId); // Clean up tracking
-            emitEntries(displayedExecutionProcesses.current, 'running', false);
-            controller.close();
-            resolve();
-          },
-          onError: () => {
-            activeStreamControllers.current.delete(processId); // Clean up tracking
-            controller.close();
-            reject();
-          },
-        });
+        // Use the new unified logs live endpoint
+        const wsUrl = logsApi.getLiveStreamUrl(processId);
+        const ws = new WebSocket(wsUrl);
+        const patchContainer = { entries: [] as PatchType[] };
+
+        const controller = {
+          close: () => ws.close(),
+        };
+
+        ws.onopen = () => {
+          // Initialize with empty entries, will be updated as patches arrive
+          mergeIntoDisplayed((state) => {
+            state[processId] = {
+              executionProcess,
+              entries: [],
+            };
+          });
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+
+            // Handle JsonPatch messages
+            if (data.JsonPatch) {
+              applyPatch(patchContainer as unknown as object, data.JsonPatch as Operation[]);
+
+              const patchesWithKey = patchContainer.entries.map((entry: PatchType, index: number) =>
+                patchWithKey(entry, processId, index)
+              );
+              mergeIntoDisplayed((state) => {
+                state[processId] = {
+                  executionProcess,
+                  entries: patchesWithKey,
+                };
+              });
+              emitEntries(displayedExecutionProcesses.current, 'running', false);
+            }
+
+            // Handle Finished messages
+            if (data.finished === true || 'Finished' in data) {
+              activeStreamControllers.current.delete(processId);
+              emitEntries(displayedExecutionProcesses.current, 'running', false);
+              ws.close();
+              resolve();
+            }
+          } catch (err) {
+            console.error('Failed to parse WebSocket message:', err);
+          }
+        };
+
+        ws.onerror = () => {
+          activeStreamControllers.current.delete(processId);
+          reject();
+        };
+
+        ws.onclose = () => {
+          activeStreamControllers.current.delete(processId);
+          // Only resolve if not already resolved/rejected
+        };
 
         // Track this controller
         activeStreamControllers.current.set(processId, controller);
