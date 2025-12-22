@@ -4,23 +4,27 @@
       "DEFAULT": {
         "CLAUDE_CODE": {
           "dangerously_skip_permissions": true,
+          "interactive_questions": true,
           "append_prompt": "\n\n=== TASK COMPLETION REQUIREMENTS ===\n1. Work on ONE feature at a time - do not attempt to complete everything at once\n2. For web apps: TEST IN BROWSER using Playwright, not just API calls\n3. Create/update .vk_progress.md in worktree root with:\n   - Current status (in-progress, blocked, needs-review)\n   - Completed items checklist\n   - Remaining work\n   - Next session recommendations\n4. Commit working code with descriptive message before ending session\n5. Do NOT mark task complete until E2E verified in browser\n6. If incomplete, clearly document what remains in progress file\n7. Leave code in merge-ready state (no broken builds, no lint errors)"
         }
       },
       "PLAN": {
         "CLAUDE_CODE": {
-          "plan": true
+          "plan": true,
+          "interactive_questions": true
         }
       },
       "APPROVALS": {
         "CLAUDE_CODE": {
-          "approvals": true
+          "approvals": true,
+          "interactive_questions": true
         }
       },
       "NO_CONTEXT": {
         "CLAUDE_CODE": {
           "no_context": true,
-          "dangerously_skip_permissions": true
+          "dangerously_skip_permissions": true,
+          "interactive_questions": true
         }
       }
     },
