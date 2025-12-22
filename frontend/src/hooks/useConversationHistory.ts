@@ -14,6 +14,8 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { logsApi } from '@/lib/api';
 import { logEntriesToPatches } from '@/utils/logEntryToPatch';
 import { applyPatch, type Operation } from 'rfc6902';
+import { useEffectivePagination } from './useEffectivePagination';
+import type { PaginationPreset } from '@/stores/usePaginationOverride';
 
 export type PatchTypeWithKey = PatchType & {
   patchKey: string;
@@ -47,7 +49,18 @@ interface UseConversationHistoryParams {
   onEntriesUpdated: OnEntriesUpdated;
 }
 
-interface UseConversationHistoryResult {}
+interface UseConversationHistoryResult {
+  /** The effective pagination limit being used */
+  effectiveLimit: number;
+  /** The global pagination limit from config */
+  globalLimit: number;
+  /** Current override value ('global' means using global setting) */
+  override: PaginationPreset;
+  /** Set a per-conversation override */
+  setOverride: (value: PaginationPreset) => void;
+  /** Whether an override is active */
+  hasOverride: boolean;
+}
 
 const MIN_INITIAL_ENTRIES = 10;
 const REMAINING_BATCH_SIZE = 50;
@@ -98,6 +111,16 @@ export const useConversationHistory = ({
 }: UseConversationHistoryParams): UseConversationHistoryResult => {
   const { executionProcessesVisible: executionProcessesRaw } =
     useExecutionProcessesContext();
+
+  // Get effective pagination settings for this attempt
+  const {
+    effectiveLimit,
+    globalLimit,
+    override,
+    setOverride,
+    hasOverride,
+  } = useEffectivePagination(attempt.id);
+
   const executionProcesses = useRef<ExecutionProcess[]>(executionProcessesRaw);
   const displayedExecutionProcesses = useRef<ExecutionProcessStateStore>({});
   const loadedInitialEntries = useRef(false);
@@ -128,7 +151,7 @@ export const useConversationHistory = ({
     );
   }, [executionProcessesRaw]);
 
-  const loadEntriesForHistoricExecutionProcess = async (
+  const loadEntriesForHistoricExecutionProcess = useCallback(async (
     executionProcess: ExecutionProcess
   ): Promise<PatchType[]> => {
     try {
@@ -138,10 +161,14 @@ export const useConversationHistory = ({
       let cursor: bigint | undefined;
       let hasMore = true;
 
+      // Use effective limit from config/override for page size
+      // Cap at 500 which is the server-side maximum
+      const pageSize = Math.min(effectiveLimit, 500);
+
       // Fetch all pages to get complete history
       while (hasMore) {
         const result = await logsApi.getPaginated(executionProcess.id, {
-          limit: 500, // Max limit for efficiency
+          limit: pageSize,
           cursor,
           direction: 'forward', // Oldest first for proper order
         });
@@ -173,7 +200,7 @@ export const useConversationHistory = ({
       );
       return [];
     }
-  };
+  }, [effectiveLimit]);
 
   const getLiveExecutionProcess = (
     executionProcessId: string
@@ -587,7 +614,7 @@ export const useConversationHistory = ({
       }
 
       return localDisplayedExecutionProcesses;
-    }, [executionProcesses]);
+    }, [executionProcesses, loadEntriesForHistoricExecutionProcess]);
 
   const loadRemainingEntriesInBatches = useCallback(
     async (batchSize: number): Promise<boolean> => {
@@ -627,7 +654,7 @@ export const useConversationHistory = ({
       }
       return anyUpdated;
     },
-    [executionProcesses]
+    [executionProcesses, loadEntriesForHistoricExecutionProcess]
   );
 
   const ensureProcessVisible = useCallback((p: ExecutionProcess) => {
@@ -765,5 +792,11 @@ export const useConversationHistory = ({
     emitEntries(displayedExecutionProcesses.current, 'initial', true);
   }, [attempt.id, emitEntries]);
 
-  return {};
+  return {
+    effectiveLimit,
+    globalLimit,
+    override,
+    setOverride,
+    hasOverride,
+  };
 };
