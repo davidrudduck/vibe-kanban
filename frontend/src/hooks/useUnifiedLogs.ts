@@ -15,9 +15,15 @@
  *
  * Usage:
  * ```tsx
+ * // Basic usage with manual limit
  * const { entries, isLoading, hasMore, loadMore, isLive, isCached } = useUnifiedLogs({
  *   executionId: '...',
  *   initialLimit: 100,
+ * });
+ *
+ * // With config-aware pagination (recommended)
+ * const { entries, isLoading, hasMore, loadMore, effectiveLimit, setOverride } = useUnifiedLogsWithConfig({
+ *   executionId: '...',
  * });
  * ```
  */
@@ -25,6 +31,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { logsApi } from '@/lib/api';
 import type { LogEntry, OutputType, PaginatedLogs } from 'shared/types';
 import { useLogCacheStore } from '@/stores/useLogCache';
+import { useEffectivePagination } from './useEffectivePagination';
+import type { PaginationPreset } from '@/stores/usePaginationOverride';
 
 export interface UseUnifiedLogsOptions {
   /** The execution process ID to fetch logs for */
@@ -354,6 +362,87 @@ export function useUnifiedLogs({
     error,
     totalCount,
     isCached,
+  };
+}
+
+/**
+ * Options for useUnifiedLogsWithConfig - config-aware version
+ */
+export interface UseUnifiedLogsWithConfigOptions {
+  /** The execution process ID to fetch logs for */
+  executionId: string;
+  /** Whether to enable live streaming for running processes (default: true) */
+  enableLiveStream?: boolean;
+  /** Optional connection token for external/remote access */
+  connectionToken?: string;
+}
+
+/**
+ * Result from useUnifiedLogsWithConfig - includes pagination control
+ */
+export interface UseUnifiedLogsWithConfigResult extends UseUnifiedLogsResult {
+  /** The effective pagination limit being used */
+  effectiveLimit: number;
+  /** The global pagination limit from config */
+  globalLimit: number;
+  /** Current override value ('global' means using global setting) */
+  override: PaginationPreset;
+  /** Set a per-conversation override */
+  setOverride: (value: PaginationPreset) => void;
+  /** Whether an override is active */
+  hasOverride: boolean;
+}
+
+/**
+ * Config-aware version of useUnifiedLogs
+ *
+ * Automatically uses the global pagination setting from config,
+ * with support for per-conversation overrides.
+ *
+ * @example
+ * ```tsx
+ * const {
+ *   entries,
+ *   isLoading,
+ *   effectiveLimit,
+ *   setOverride,
+ *   hasOverride
+ * } = useUnifiedLogsWithConfig({ executionId });
+ *
+ * // Change pagination for this conversation only
+ * setOverride(200);
+ *
+ * // Reset to global setting
+ * setOverride('global');
+ * ```
+ */
+export function useUnifiedLogsWithConfig({
+  executionId,
+  enableLiveStream = true,
+  connectionToken,
+}: UseUnifiedLogsWithConfigOptions): UseUnifiedLogsWithConfigResult {
+  const {
+    effectiveLimit,
+    globalLimit,
+    override,
+    setOverride,
+    hasOverride,
+  } = useEffectivePagination(executionId);
+
+  const result = useUnifiedLogs({
+    executionId,
+    initialLimit: effectiveLimit,
+    enableLiveStream,
+    connectionToken,
+  });
+
+  return {
+    ...result,
+    effectiveLimit,
+    globalLimit,
+    override,
+    setOverride,
+    hasOverride,
   };
 }
 
