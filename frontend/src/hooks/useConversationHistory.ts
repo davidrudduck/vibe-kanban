@@ -11,7 +11,11 @@ import {
 } from 'shared/types';
 import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesContext';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { streamJsonPatchEntries } from '@/utils/streamJsonPatchEntries';
+import { logsApi } from '@/lib/api';
+import { logEntriesToPatches } from '@/utils/logEntryToPatch';
+import { applyPatch, type Operation } from 'rfc6902';
+import { useEffectivePagination } from './useEffectivePagination';
+import type { PaginationPreset } from '@/stores/usePaginationOverride';
 
 export type PatchTypeWithKey = PatchType & {
   patchKey: string;
@@ -45,7 +49,18 @@ interface UseConversationHistoryParams {
   onEntriesUpdated: OnEntriesUpdated;
 }
 
-interface UseConversationHistoryResult {}
+interface UseConversationHistoryResult {
+  /** The effective pagination limit being used */
+  effectiveLimit: number;
+  /** The global pagination limit from config */
+  globalLimit: number;
+  /** Current override value ('global' means using global setting) */
+  override: PaginationPreset;
+  /** Set a per-conversation override */
+  setOverride: (value: PaginationPreset) => void;
+  /** Whether an override is active */
+  hasOverride: boolean;
+}
 
 const MIN_INITIAL_ENTRIES = 10;
 const REMAINING_BATCH_SIZE = 50;
@@ -96,6 +111,16 @@ export const useConversationHistory = ({
 }: UseConversationHistoryParams): UseConversationHistoryResult => {
   const { executionProcessesVisible: executionProcessesRaw } =
     useExecutionProcessesContext();
+
+  // Get effective pagination settings for this attempt
+  const {
+    effectiveLimit,
+    globalLimit,
+    override,
+    setOverride,
+    hasOverride,
+  } = useEffectivePagination(attempt.id);
+
   const executionProcesses = useRef<ExecutionProcess[]>(executionProcessesRaw);
   const displayedExecutionProcesses = useRef<ExecutionProcessStateStore>({});
   const loadedInitialEntries = useRef(false);
@@ -126,33 +151,56 @@ export const useConversationHistory = ({
     );
   }, [executionProcessesRaw]);
 
-  const loadEntriesForHistoricExecutionProcess = (
+  const loadEntriesForHistoricExecutionProcess = useCallback(async (
     executionProcess: ExecutionProcess
-  ) => {
-    let url = '';
-    if (executionProcess.executor_action.typ.type === 'ScriptRequest') {
-      url = `/api/execution-processes/${executionProcess.id}/raw-logs/ws`;
-    } else {
-      url = `/api/execution-processes/${executionProcess.id}/normalized-logs/ws`;
-    }
+  ): Promise<PatchType[]> => {
+    try {
+      // For script requests, we need to fetch raw logs and convert them
+      // For coding agent requests, fetch paginated normalized logs
+      const allEntries: PatchType[] = [];
+      let cursor: bigint | undefined;
+      let hasMore = true;
 
-    return new Promise<PatchType[]>((resolve) => {
-      const controller = streamJsonPatchEntries<PatchType>(url, {
-        onFinished: (allEntries) => {
-          controller.close();
-          resolve(allEntries);
-        },
-        onError: (err) => {
-          console.warn!(
-            `Error loading entries for historic execution process ${executionProcess.id}`,
-            err
-          );
-          controller.close();
-          resolve([]);
-        },
-      });
-    });
-  };
+      // Use effective limit from config/override for page size
+      // Cap at 500 which is the server-side maximum
+      const pageSize = Math.min(effectiveLimit, 500);
+
+      // Fetch all pages to get complete history
+      while (hasMore) {
+        const result = await logsApi.getPaginated(executionProcess.id, {
+          limit: pageSize,
+          cursor,
+          direction: 'forward', // Oldest first for proper order
+        });
+
+        if (result.entries.length === 0) {
+          break;
+        }
+
+        // Convert LogEntry[] to PatchType[] by applying patches
+        const patches = logEntriesToPatches(result.entries, executionProcess.id);
+        // Extract just the PatchType (without keys) for this internal use
+        allEntries.push(...patches.map(p => {
+          const { patchKey, executionProcessId, ...rest } = p;
+          // Use void to suppress unused variable warnings
+          void patchKey;
+          void executionProcessId;
+          return rest as PatchType;
+        }));
+
+        hasMore = result.has_more;
+        cursor = result.next_cursor ?? undefined;
+      }
+
+      return allEntries;
+    } catch (err) {
+      console.warn(
+        `Error loading entries for historic execution process ${executionProcess.id}`,
+        err
+      );
+      return [];
+    }
+  }, [effectiveLimit]);
 
   const getLiveExecutionProcess = (
     executionProcessId: string
@@ -445,37 +493,66 @@ export const useConversationHistory = ({
           return;
         }
 
-        let url = '';
-        if (executionProcess.executor_action.typ.type === 'ScriptRequest') {
-          url = `/api/execution-processes/${executionProcess.id}/raw-logs/ws`;
-        } else {
-          url = `/api/execution-processes/${executionProcess.id}/normalized-logs/ws`;
-        }
-        const controller = streamJsonPatchEntries<PatchType>(url, {
-          onEntries(entries) {
-            const patchesWithKey = entries.map((entry, index) =>
-              patchWithKey(entry, executionProcess.id, index)
-            );
-            mergeIntoDisplayed((state) => {
-              state[executionProcess.id] = {
-                executionProcess,
-                entries: patchesWithKey,
-              };
-            });
-            emitEntries(displayedExecutionProcesses.current, 'running', false);
-          },
-          onFinished: () => {
-            activeStreamControllers.current.delete(processId); // Clean up tracking
-            emitEntries(displayedExecutionProcesses.current, 'running', false);
-            controller.close();
-            resolve();
-          },
-          onError: () => {
-            activeStreamControllers.current.delete(processId); // Clean up tracking
-            controller.close();
-            reject();
-          },
-        });
+        // Use the new unified logs live endpoint
+        const wsUrl = logsApi.getLiveStreamUrl(processId);
+        const ws = new WebSocket(wsUrl);
+        const patchContainer = { entries: [] as PatchType[] };
+
+        const controller = {
+          close: () => ws.close(),
+        };
+
+        ws.onopen = () => {
+          // Initialize with empty entries, will be updated as patches arrive
+          mergeIntoDisplayed((state) => {
+            state[processId] = {
+              executionProcess,
+              entries: [],
+            };
+          });
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+
+            // Handle JsonPatch messages
+            if (data.JsonPatch) {
+              applyPatch(patchContainer as unknown as object, data.JsonPatch as Operation[]);
+
+              const patchesWithKey = patchContainer.entries.map((entry: PatchType, index: number) =>
+                patchWithKey(entry, processId, index)
+              );
+              mergeIntoDisplayed((state) => {
+                state[processId] = {
+                  executionProcess,
+                  entries: patchesWithKey,
+                };
+              });
+              emitEntries(displayedExecutionProcesses.current, 'running', false);
+            }
+
+            // Handle Finished messages
+            if (data.finished === true || 'Finished' in data) {
+              activeStreamControllers.current.delete(processId);
+              emitEntries(displayedExecutionProcesses.current, 'running', false);
+              ws.close();
+              resolve();
+            }
+          } catch (err) {
+            console.error('Failed to parse WebSocket message:', err);
+          }
+        };
+
+        ws.onerror = () => {
+          activeStreamControllers.current.delete(processId);
+          reject();
+        };
+
+        ws.onclose = () => {
+          activeStreamControllers.current.delete(processId);
+          // Only resolve if not already resolved/rejected
+        };
 
         // Track this controller
         activeStreamControllers.current.set(processId, controller);
@@ -537,7 +614,7 @@ export const useConversationHistory = ({
       }
 
       return localDisplayedExecutionProcesses;
-    }, [executionProcesses]);
+    }, [executionProcesses, loadEntriesForHistoricExecutionProcess]);
 
   const loadRemainingEntriesInBatches = useCallback(
     async (batchSize: number): Promise<boolean> => {
@@ -577,7 +654,7 @@ export const useConversationHistory = ({
       }
       return anyUpdated;
     },
-    [executionProcesses]
+    [executionProcesses, loadEntriesForHistoricExecutionProcess]
   );
 
   const ensureProcessVisible = useCallback((p: ExecutionProcess) => {
@@ -715,5 +792,11 @@ export const useConversationHistory = ({
     emitEntries(displayedExecutionProcesses.current, 'initial', true);
   }, [attempt.id, emitEntries]);
 
-  return {};
+  return {
+    effectiveLimit,
+    globalLimit,
+    override,
+    setOverride,
+    hasOverride,
+  };
 };

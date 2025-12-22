@@ -40,6 +40,16 @@
     "toolDetailsToggle": {
       "hide": "詳細を非表示",
       "show": "詳細を表示"
+    },
+    "pagination": {
+      "label": "読み込み",
+      "title": "会話設定",
+      "description": "エントリ数を減らすと、低速接続で読み込みが速くなります。",
+      "global": "グローバル設定",
+      "entries50": "50件",
+      "entries100": "100件",
+      "entries200": "200件",
+      "entries500": "500件"
     }
   },
   "language": {
