@@ -20,10 +20,7 @@ import {
 } from '@/components/ui/select';
 import { TaskAttempt, TaskWithAttemptStatus } from 'shared/types';
 import { ApprovalFormProvider } from '@/contexts/ApprovalFormContext';
-import {
-  PaginationPreset,
-  usePaginationOverride,
-} from '@/stores/usePaginationOverride';
+import type { PaginationPreset } from '@/stores/usePaginationOverride';
 
 interface VirtualizedListProps {
   attempt: TaskAttempt;
@@ -77,10 +74,6 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
   const [atTop, setAtTop] = useState(false);
   const { setEntries, reset } = useEntries();
 
-  // Per-conversation pagination override (keyed by attempt ID)
-  const [paginationOverride, setPaginationOverride] =
-    usePaginationOverride(attempt.id);
-
   useEffect(() => {
     setLoading(true);
     setItems([]);
@@ -100,7 +93,10 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
     }
   };
 
-  useConversationHistory({ attempt, onEntriesUpdated });
+  // Get pagination settings from useConversationHistory
+  // This provides both the effective limit and control to change it
+  const { override: paginationOverride, setOverride: setPaginationOverride } =
+    useConversationHistory({ attempt, onEntriesUpdated });
 
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const didInitScroll = useRef(false);
