@@ -40,6 +40,16 @@
     "toolDetailsToggle": {
       "hide": "세부 정보 숨기기",
       "show": "세부 정보 보기"
+    },
+    "pagination": {
+      "label": "로드",
+      "title": "대화 설정",
+      "description": "항목 수를 줄이면 느린 연결에서 더 빠르게 로드됩니다.",
+      "global": "전역 설정",
+      "entries50": "50개 항목",
+      "entries100": "100개 항목",
+      "entries200": "200개 항목",
+      "entries500": "500개 항목"
     }
   },
   "language": {
