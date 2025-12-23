@@ -288,7 +288,7 @@ impl Task {
 FROM tasks t
 WHERE t.project_id = $1
   AND (t.archived_at IS NULL OR $2)
-ORDER BY t.created_at DESC"#,
+ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
             project_id,
             include_archived
         )
