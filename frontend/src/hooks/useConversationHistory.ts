@@ -170,17 +170,21 @@ export const useConversationHistory = ({
         return [];
       }
 
-      // Convert LogEntry[] to PatchType[] by applying patches
-      const patches = logEntriesToPatches(result.entries, executionProcess.id);
+      // IMPORTANT: Reverse entries BEFORE applying patches!
+      // JSON patches must be applied in chronological order (oldest first)
+      // because they build state incrementally. Backward fetch returns newest-first.
+      const chronologicalEntries = [...result.entries].reverse();
+
+      // Convert LogEntry[] to PatchType[] by applying patches in correct order
+      const patches = logEntriesToPatches(chronologicalEntries, executionProcess.id);
 
       // Extract just the PatchType (without keys) for this internal use
-      // Reverse since backward returns newest-first but we display chronologically
       const entries = patches.map(p => {
         const { patchKey, executionProcessId, ...rest } = p;
         void patchKey;
         void executionProcessId;
         return rest as PatchType;
-      }).reverse();
+      });
 
       return entries;
     } catch (err) {
