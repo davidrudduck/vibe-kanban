@@ -140,8 +140,7 @@ async fn load_project_impl(
         && project.remote_project_id.is_some()
         && project.source_node_name.is_none()
     {
-        project.source_node_name =
-            Some(gethostname::gethostname().to_string_lossy().to_string());
+        project.source_node_name = Some(gethostname::gethostname().to_string_lossy().to_string());
     }
 
     let mut request = request;
@@ -357,11 +356,7 @@ async fn load_task_attempt_impl(
     let project = match Project::find_by_id(&deployment.db().pool, task.project_id).await {
         Ok(Some(p)) => p,
         Ok(None) => {
-            tracing::warn!(
-                "Project {} not found for Task {}",
-                task.project_id,
-                task.id
-            );
+            tracing::warn!("Project {} not found for Task {}", task.project_id, task.id);
             return Err(StatusCode::NOT_FOUND);
         }
         Err(e) => {
@@ -377,8 +372,7 @@ async fn load_task_attempt_impl(
 
     // If project is remote, inject RemoteTaskAttemptContext for proxy routing
     if project.is_remote {
-        if let (Some(node_id), Some(shared_task_id)) =
-            (project.source_node_id, task.shared_task_id)
+        if let (Some(node_id), Some(shared_task_id)) = (project.source_node_id, task.shared_task_id)
         {
             let remote_ctx = RemoteTaskAttemptContext {
                 node_id,
@@ -502,19 +496,18 @@ async fn load_task_attempt_by_task_id_impl(
     };
 
     // Find the most recent attempt for this task
-    let attempts =
-        match TaskAttempt::fetch_all(&deployment.db().pool, Some(task.id)).await {
-            Ok(attempts) => attempts,
-            Err(e) => {
-                tracing::error!(
-                    task_id = %task.id,
-                    shared_task_id = %shared_task_id,
-                    error = %e,
-                    "Failed to fetch task attempts"
-                );
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
-            }
-        };
+    let attempts = match TaskAttempt::fetch_all(&deployment.db().pool, Some(task.id)).await {
+        Ok(attempts) => attempts,
+        Err(e) => {
+            tracing::error!(
+                task_id = %task.id,
+                shared_task_id = %shared_task_id,
+                error = %e,
+                "Failed to fetch task attempts"
+            );
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
 
     let attempt = match attempts.into_iter().next() {
         Some(attempt) => attempt,

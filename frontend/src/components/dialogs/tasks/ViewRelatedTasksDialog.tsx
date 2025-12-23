@@ -10,36 +10,78 @@ import {
 import { Button } from '@/components/ui/button';
 import { PlusIcon } from 'lucide-react';
 import { openTaskForm } from '@/lib/openTaskForm';
-import { useTaskRelationships } from '@/hooks/useTaskRelationships';
+import {
+  useTaskRelationships,
+  useTaskChildren,
+} from '@/hooks/useTaskRelationships';
+import { useTaskUsesSharedWorktree } from '@/hooks';
 import { DataTable, type ColumnDef } from '@/components/ui/table/data-table';
 import type { Task, TaskAttempt } from 'shared/types';
 
 export interface ViewRelatedTasksDialogProps {
-  attemptId: string;
+  taskId: string;
   projectId: string;
-  attempt: TaskAttempt | null;
+  attemptId?: string;
+  attempt?: TaskAttempt | null;
+  parentTask?: Task | null;
   onNavigateToTask?: (taskId: string) => void;
 }
 
 const ViewRelatedTasksDialogImpl =
   NiceModal.create<ViewRelatedTasksDialogProps>(
-    ({ attemptId, projectId, attempt, onNavigateToTask }) => {
+    ({
+      taskId,
+      projectId,
+      attemptId,
+      attempt,
+      parentTask,
+      onNavigateToTask,
+    }) => {
       const modal = useModal();
       const { t } = useTranslation('tasks');
+
+      // Check if this task uses a shared worktree (prevents subtask creation)
+      const { usesSharedWorktree } = useTaskUsesSharedWorktree(taskId, {
+        enabled: modal.visible,
+      });
+
+      // Use attempt-based query when we have an attemptId, otherwise task-based
       const {
         data: relationships,
-        isLoading,
-        isError,
-        refetch,
-      } = useTaskRelationships(attemptId);
+        isLoading: isLoadingRelationships,
+        isError: isErrorRelationships,
+        refetch: refetchRelationships,
+      } = useTaskRelationships(attemptId, { enabled: !!attemptId });
+
+      const {
+        data: children,
+        isLoading: isLoadingChildren,
+        isError: isErrorChildren,
+        refetch: refetchChildren,
+      } = useTaskChildren(taskId, { enabled: !attemptId && !!taskId });
+
+      const isLoading = attemptId ? isLoadingRelationships : isLoadingChildren;
+      const isError = attemptId ? isErrorRelationships : isErrorChildren;
+      const refetch = attemptId ? refetchRelationships : refetchChildren;
 
       // Combine parent and children into a single list of related tasks
       const relatedTasks: Task[] = [];
-      if (relationships?.parent_task) {
-        relatedTasks.push(relationships.parent_task);
-      }
-      if (relationships?.children) {
-        relatedTasks.push(...relationships.children);
+      if (attemptId) {
+        // Attempt-based mode: use relationships data
+        if (relationships?.parent_task) {
+          relatedTasks.push(relationships.parent_task);
+        }
+        if (relationships?.children) {
+          relatedTasks.push(...relationships.children);
+        }
+      } else {
+        // Task-based mode: use children data and optionally parent
+        if (parentTask) {
+          relatedTasks.push(parentTask);
+        }
+        if (children) {
+          relatedTasks.push(...children);
+        }
       }
 
       const taskColumns: ColumnDef<Task>[] = [
@@ -82,7 +124,7 @@ const ViewRelatedTasksDialogImpl =
       };
 
       const handleCreateSubtask = async () => {
-        if (!projectId || !attempt) return;
+        if (!projectId || !taskId) return;
 
         // Close immediately - user intent is to create a subtask
         modal.hide();
@@ -94,8 +136,8 @@ const ViewRelatedTasksDialogImpl =
           await openTaskForm({
             mode: 'subtask',
             projectId,
-            parentTaskId: attempt.task_id,
-            initialBaseBranch: attempt.branch || attempt.target_branch,
+            parentTaskId: taskId,
+            initialBaseBranch: attempt?.branch || attempt?.target_branch,
           });
         } catch {
           // User cancelled or error occurred
@@ -152,7 +194,12 @@ const ViewRelatedTasksDialogImpl =
                         <Button
                           variant="icon"
                           onClick={handleCreateSubtask}
-                          disabled={!projectId || !attempt}
+                          disabled={!projectId || !taskId || usesSharedWorktree}
+                          title={
+                            usesSharedWorktree
+                              ? t('actionsMenu.sharedWorktreeNoSubtask', 'Cannot create subtasks for tasks using a shared worktree')
+                              : undefined
+                          }
                         >
                           <PlusIcon size={16} />
                         </Button>

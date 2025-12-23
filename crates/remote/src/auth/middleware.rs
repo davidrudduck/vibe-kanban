@@ -11,7 +11,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::{
-    AppState, configure_user_scope,
+    AppState,
     db::{
         auth::{AuthSessionError, AuthSessionRepository, MAX_SESSION_INACTIVITY_DURATION},
         identity_errors::IdentityError,
@@ -95,8 +95,6 @@ pub async fn require_session(
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
-
-    configure_user_scope(user.id, user.username.as_deref(), Some(user.email.as_str()));
 
     req.extensions_mut().insert(RequestContext {
         user,

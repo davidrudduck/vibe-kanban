@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/image-upload-section';
 import BranchSelector from '@/components/tasks/BranchSelector';
 import { ExecutorProfileSelector } from '@/components/settings';
+import { VariableEditor } from '@/components/variables';
 import { useUserSystem } from '@/components/ConfigProvider';
 import {
   useProjectBranches,
@@ -61,7 +62,7 @@ export type TaskFormDialogProps =
       mode: 'subtask';
       projectId: string;
       parentTaskId: string;
-      initialBaseBranch: string;
+      initialBaseBranch?: string;
     };
 
 type TaskFormValues = {
@@ -540,11 +541,24 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                     rows={3}
                   />
                   <p className="text-xs text-muted-foreground">
-                    These steps will be added to the agent prompt as validation requirements.
+                    These steps will be added to the agent prompt as validation
+                    requirements.
                   </p>
                 </div>
               )}
             </form.Field>
+
+            {/* Variables Editor - only in edit mode */}
+            {editMode && (
+              <div className="pt-4">
+                <VariableEditor
+                  taskId={props.task.id}
+                  disabled={isSubmitting}
+                  showInherited={true}
+                  compact={true}
+                />
+              </div>
+            )}
           </div>
 
           {/* Create mode dropdowns */}

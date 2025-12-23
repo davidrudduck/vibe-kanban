@@ -25,9 +25,7 @@ use services::services::config::{
 };
 use tokio::fs;
 use ts_rs::TS;
-use utils::{
-    api::oauth::LoginStatus, assets::config_path, response::ApiResponse, sentry as sentry_utils,
-};
+use utils::{api::oauth::LoginStatus, assets::config_path, response::ApiResponse};
 
 use crate::{DeploymentImpl, error::ApiError};
 
@@ -147,46 +145,7 @@ async fn update_config(
     }
 }
 
-/// Track config events when fields transition from false → true
-async fn track_config_events(deployment: &DeploymentImpl, old: &Config, new: &Config) {
-    let events = [
-        (
-            !old.disclaimer_acknowledged && new.disclaimer_acknowledged,
-            "onboarding_disclaimer_accepted",
-            serde_json::json!({}),
-        ),
-        (
-            !old.onboarding_acknowledged && new.onboarding_acknowledged,
-            "onboarding_completed",
-            serde_json::json!({
-                "profile": new.executor_profile,
-                "editor": new.editor
-            }),
-        ),
-        (
-            !old.analytics_enabled && new.analytics_enabled,
-            "analytics_session_start",
-            serde_json::json!({}),
-        ),
-    ];
-
-    for (should_track, event_name, properties) in events {
-        if should_track {
-            deployment
-                .track_if_analytics_allowed(event_name, properties)
-                .await;
-        }
-    }
-}
-
 async fn handle_config_events(deployment: &DeploymentImpl, old: &Config, new: &Config) {
-    track_config_events(deployment, old, new).await;
-
-    // Handle Sentry enabled/disabled state change
-    if old.sentry_enabled != new.sentry_enabled {
-        sentry_utils::set_sentry_enabled(new.sentry_enabled);
-    }
-
     if !old.disclaimer_acknowledged && new.disclaimer_acknowledged {
         // Spawn auto project setup as background task to avoid blocking config response
         let deployment_clone = deployment.clone();

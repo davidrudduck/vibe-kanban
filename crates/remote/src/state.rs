@@ -11,6 +11,7 @@ use crate::{
     config::RemoteServerConfig,
     mail::Mailer,
     nodes::ConnectionManager,
+    services::LogCache,
 };
 
 #[derive(Clone)]
@@ -25,6 +26,7 @@ pub struct AppState {
     pub oauth_token_validator: Arc<OAuthTokenValidator>,
     pub node_connections: ConnectionManager,
     pub connection_token: Arc<ConnectionTokenService>,
+    pub log_cache: LogCache,
 }
 
 impl AppState {
@@ -52,7 +54,13 @@ impl AppState {
             oauth_token_validator,
             node_connections,
             connection_token,
+            log_cache: LogCache::new(),
         }
+    }
+
+    /// Get a reference to the log cache.
+    pub fn log_cache(&self) -> &LogCache {
+        &self.log_cache
     }
 
     pub fn pool(&self) -> &PgPool {

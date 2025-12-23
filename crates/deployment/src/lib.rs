@@ -13,9 +13,7 @@ use db::{
 use executors::executors::ExecutorError;
 use futures::{StreamExt, TryStreamExt};
 use git2::Error as Git2Error;
-use serde_json::Value;
 use services::services::{
-    analytics::{AnalyticsContext, AnalyticsService},
     approvals::Approvals,
     auth::AuthContext,
     config::{Config, ConfigError},
@@ -34,7 +32,6 @@ use services::services::{
 use sqlx::{Error as SqlxError, types::Uuid};
 use thiserror::Error;
 use tokio::sync::{Mutex, RwLock};
-use utils::sentry as sentry_utils;
 
 #[derive(Debug, Clone, Copy, Error)]
 #[error("Remote client not configured")]
@@ -84,8 +81,6 @@ pub trait Deployment: Clone + Send + Sync + 'static {
 
     fn db(&self) -> &DBService;
 
-    fn analytics(&self) -> &Option<AnalyticsService>;
-
     fn container(&self) -> &impl ContainerService;
 
     fn git(&self) -> &GitService;
@@ -126,39 +121,10 @@ pub trait Deployment: Clone + Send + Sync + 'static {
         });
     }
 
-    async fn update_sentry_scope(&self) -> Result<(), DeploymentError> {
-        let user_id = self.user_id();
-        let config = self.config().read().await;
-
-        // Apply sentry enabled/disabled setting from user config
-        sentry_utils::set_sentry_enabled(config.sentry_enabled);
-
-        let username = config.github.username.as_deref();
-        let email = config.github.primary_email.as_deref();
-        sentry_utils::configure_user_scope(user_id, username, email);
-
-        Ok(())
-    }
-
     async fn spawn_pr_monitor_service(&self) -> tokio::task::JoinHandle<()> {
         let db = self.db().clone();
-        let analytics = self
-            .analytics()
-            .as_ref()
-            .map(|analytics_service| AnalyticsContext {
-                user_id: self.user_id().to_string(),
-                analytics_service: analytics_service.clone(),
-            });
         let publisher = self.share_publisher().ok();
-        PrMonitorService::spawn(db, analytics, publisher).await
-    }
-
-    async fn track_if_analytics_allowed(&self, event_name: &str, properties: Value) {
-        let analytics_enabled = self.config().read().await.analytics_enabled;
-        // Track events unless user has explicitly opted out
-        if analytics_enabled && let Some(analytics) = self.analytics() {
-            analytics.track_event(self.user_id(), event_name, Some(properties.clone()));
-        }
+        PrMonitorService::spawn(db, publisher).await
     }
 
     /// Trigger background auto-setup of default projects for new users
@@ -201,25 +167,12 @@ pub trait Deployment: Clone + Send + Sync + 'static {
                     let project_id = Uuid::new_v4();
 
                     match Project::create(&self.db().pool, &create_data, project_id).await {
-                        Ok(project) => {
+                        Ok(_) => {
                             tracing::info!(
                                 "Auto-created project '{}' from {}",
                                 create_data.name,
                                 create_data.git_repo_path
                             );
-
-                            // Track project creation event
-                            self.track_if_analytics_allowed(
-                                "project_created",
-                                serde_json::json!({
-                                    "project_id": project.id.to_string(),
-                                    "use_existing_repo": create_data.use_existing_repo,
-                                    "has_setup_script": create_data.setup_script.is_some(),
-                                    "has_dev_script": create_data.dev_script.is_some(),
-                                    "trigger": "auto_setup",
-                                }),
-                            )
-                            .await;
                         }
                         Err(e) => {
                             tracing::warn!(

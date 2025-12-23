@@ -1,6 +1,5 @@
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
-import { useCallback } from 'react';
-import { siDiscord } from 'simple-icons';
+import { useCallback, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -15,16 +14,24 @@ import {
   Settings,
   BookOpen,
   MessageCircleQuestion,
-  MessageCircle,
   Menu,
   Plus,
   LogOut,
   LogIn,
   Archive,
+  Activity,
+  Search,
 } from 'lucide-react';
 import { Logo } from '@/components/Logo';
 import { SearchBar } from '@/components/SearchBar';
 import { ActivityFeed } from '@/components/activity';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import {
   Tooltip,
   TooltipContent,
@@ -36,7 +43,6 @@ import { openTaskForm } from '@/lib/openTaskForm';
 import { useProject } from '@/contexts/ProjectContext';
 import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
 import { OpenInIdeButton } from '@/components/ide/OpenInIdeButton';
-import { useDiscordOnlineCount } from '@/hooks/useDiscordOnlineCount';
 import { useTranslation } from 'react-i18next';
 import { OAuthDialog } from '@/components/dialogs/global/OAuthDialog';
 import { useUserSystem } from '@/components/ConfigProvider';
@@ -46,6 +52,7 @@ import { ProjectSwitcher } from './ProjectSwitcher';
 const INTERNAL_NAV = [
   { label: 'Projects', icon: FolderOpen, to: '/projects' },
   { label: 'Nodes', icon: Server, to: '/nodes' },
+  { label: 'Processes', icon: Activity, to: '/processes' },
 ];
 
 const EXTERNAL_LINKS = [
@@ -58,11 +65,6 @@ const EXTERNAL_LINKS = [
     label: 'Support',
     icon: MessageCircleQuestion,
     href: 'https://github.com/BloopAI/vibe-kanban/issues',
-  },
-  {
-    label: 'Discord',
-    icon: MessageCircle,
-    href: 'https://discord.gg/AC4nwVtJM3',
   },
 ];
 
@@ -82,10 +84,8 @@ export function Navbar() {
   const { projectId, project } = useProject();
   const { query, setQuery, active, clear, registerInputRef } = useSearch();
   const handleOpenInEditor = useOpenProjectInEditor(project || null);
-  const { data: onlineCount } = useDiscordOnlineCount();
-  const { loginStatus, reloadSystem, config, environment } = useUserSystem();
-  const hideDiscord =
-    environment?.is_dev_mode && config?.dev_banner?.hide_discord_link;
+  const { loginStatus, reloadSystem } = useUserSystem();
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
   // Archive filter state from URL params
   const showArchived = searchParams.get('archived') === 'on';
@@ -140,40 +140,26 @@ export function Navbar() {
       <div className="w-full px-3">
         <div className="flex items-center h-12 py-2">
           <div className="flex-1 flex items-center">
-            <Link to="/projects" className="hidden sm:block">
-              <Logo />
+            <Link to="/projects" className="shrink-0">
+              <Logo className="h-4 sm:h-6 w-auto" />
             </Link>
-            <ProjectSwitcher className="sm:ml-2" />
-            {!hideDiscord && (
-              <a
-                href="https://discord.gg/AC4nwVtJM3"
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Join our Discord"
-                className="hidden sm:inline-flex items-center ml-3 text-xs font-medium overflow-hidden border h-6"
-              >
-                <span className="bg-muted text-foreground flex items-center p-2 border-r">
-                  <svg
-                    className="h-4 w-4"
-                    viewBox="0 0 24 24"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path d={siDiscord.path} />
-                  </svg>
-                </span>
-                <span
-                  className=" h-full items-center flex p-2"
-                  aria-live="polite"
-                >
-                  {onlineCount != null
-                    ? `${onlineCount.toLocaleString()} online`
-                    : 'online'}
-                </span>
-              </a>
-            )}
+            <ProjectSwitcher className="ml-2 hidden sm:inline-flex" />
           </div>
 
+          {/* Mobile search button - visible on small screens only */}
+          {active && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 sm:hidden shrink-0"
+              onClick={() => setMobileSearchOpen(true)}
+              aria-label={t('common:search', 'Search')}
+            >
+              <Search className="h-4 w-4" />
+            </Button>
+          )}
+
+          {/* Desktop search bar and archive toggle */}
           <div className="hidden sm:flex items-center gap-2">
             <SearchBar
               ref={setSearchBarRef}
@@ -210,21 +196,21 @@ export function Navbar() {
           <div className="flex flex-1 items-center justify-end gap-1">
             {projectId ? (
               <>
-                <div className="flex items-center gap-1">
-                  <OpenInIdeButton
-                    onClick={handleOpenInIDE}
-                    className="h-9 w-9"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-9 w-9"
-                    onClick={handleCreateTask}
-                    aria-label="Create new task"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
+                {/* OpenInIdeButton - hidden on mobile to prevent overflow */}
+                <OpenInIdeButton
+                  onClick={handleOpenInIDE}
+                  className="h-9 w-9 hidden sm:inline-flex"
+                />
+                {/* Plus button - always visible for quick task creation */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9"
+                  onClick={handleCreateTask}
+                  aria-label="Create new task"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
                 <NavDivider />
               </>
             ) : null}
@@ -263,6 +249,22 @@ export function Navbar() {
                 </DropdownMenuTrigger>
 
                 <DropdownMenuContent align="end">
+                  {/* Archive toggle - visible only on mobile (sm:hidden in CSS) */}
+                  {projectId && (
+                    <>
+                      <DropdownMenuItem
+                        className="sm:hidden"
+                        onSelect={toggleShowArchived}
+                      >
+                        <Archive className="mr-2 h-4 w-4" />
+                        {showArchived
+                          ? t('actionsMenu.unarchive', 'Hide archived')
+                          : t('actionsMenu.archive', 'Show archived')}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator className="sm:hidden" />
+                    </>
+                  )}
+
                   {INTERNAL_NAV.map((item) => {
                     const active = location.pathname.startsWith(item.to);
                     const Icon = item.icon;
@@ -317,6 +319,47 @@ export function Navbar() {
           </div>
         </div>
       </div>
+
+      {/* Mobile search dialog */}
+      <Dialog open={mobileSearchOpen} onOpenChange={setMobileSearchOpen}>
+        <DialogHeader>
+          <DialogTitle className="sr-only">
+            {t('common:search', 'Search')}
+          </DialogTitle>
+        </DialogHeader>
+        <DialogContent>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={
+                project ? `Search ${project.name}...` : 'Search...'
+              }
+              className="pl-10 h-10"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  setMobileSearchOpen(false);
+                }
+              }}
+            />
+          </div>
+          {query && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full mt-2"
+              onClick={() => {
+                clear();
+                setMobileSearchOpen(false);
+              }}
+            >
+              {t('common:buttons.reset', 'Clear search')}
+            </Button>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

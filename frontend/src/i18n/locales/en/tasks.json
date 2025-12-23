@@ -269,7 +269,9 @@
     "selectBranch": "Select branch",
     "error": "Failed to create attempt. Please try again.",
     "creating": "Creating...",
-    "start": "Start"
+    "start": "Start",
+    "useParentWorktree": "Use parent worktree",
+    "useParentWorktreeHelp": "Continue work in same worktree and branch as parent task"
   },
   "viewProcessesDialog": {
     "title": "Execution processes"
@@ -297,6 +299,7 @@
     "viewRelatedTasks": "View related tasks",
     "createNewAttempt": "Create new attempt",
     "createSubtask": "Create subtask",
+    "sharedWorktreeNoSubtask": "Cannot create subtask: this task uses a shared worktree",
     "gitActions": "Git actions",
     "editBranchName": "Edit branch name",
     "task": "Task",
@@ -390,35 +393,6 @@
       "action": "Sign in"
     }
   },
-  "showcases": {
-    "taskPanel": {
-      "companion": {
-        "title": "Vibe Kanban Companion Point-and-Click",
-        "description": "Click any UI component in the preview window to select it precisely. The coding agent receives exact DOM selectors and component hierarchy, eliminating ambiguous feedback."
-      },
-      "installation": {
-        "title": "Dev Server & Companion Installation",
-        "description": "Set a dev server command for previews, with a setup script configurable in settings. Use a coding agent to automatically install the Vibe Kanban web companion."
-      },
-      "codeReview": {
-        "title": "Built-in Code Review",
-        "description": "Add line-specific comments directly in the diffs view with the plus icon. All feedback is collected and sent as a complete review to the coding agent."
-      },
-      "pullRequest": {
-        "title": "Create PR from Task",
-        "description": "Merge your changes or create pull requests directly from task attempts. The PR dialog pre-fills title and description from your task details for streamlined workflows."
-      },
-      "tags": {
-        "title": "Custom Prompt Tags",
-        "description": "Save custom prompts as tags and embed them within new tasks or follow-up messages. Reuse common instructions to maintain consistency across your workflow."
-      }
-    },
-    "buttons": {
-      "previous": "Previous",
-      "next": "Next",
-      "finish": "Finish"
-    }
-  },
   "taskFormDialog": {
     "createTitle": "Create New Task",
     "editTitle": "Edit Task",
@@ -445,6 +419,33 @@
       "description": "You have unsaved changes. Are you sure you want to discard them?",
       "continueEditing": "Continue Editing",
       "discardChanges": "Discard Changes"
+    }
+  },
+  "variables": {
+    "title": "Variables",
+    "panelTitle": "Variables ({{count}})",
+    "add": "Add",
+    "empty": "No variables defined",
+    "inherited": "Inherited",
+    "inheritedTooltip": "From parent task",
+    "inheritedCount": "{{count}} inherited",
+    "inheritedVariables": "Inherited",
+    "ownVariables": "This Task",
+    "emptyValue": "(empty)",
+    "override": "Override",
+    "hint": "Variables can be used in task descriptions with $VAR_NAME or ${VAR_NAME} syntax.",
+    "panelHint": "Variables are expanded when the task is sent to an executor.",
+    "undefinedWarning": "{{count}} undefined variable(s)",
+    "undefinedTitle": "Undefined Variables",
+    "undefinedDescription": "These variables are referenced in the task description but not defined:",
+    "namePlaceholder": "VARIABLE_NAME",
+    "valuePlaceholder": "Value",
+    "deleteConfirm": "Delete variable \"{{name}}\"?",
+    "errors": {
+      "nameRequired": "Variable name is required",
+      "invalidName": "Name must start with uppercase letter, contain only A-Z, 0-9, and underscores",
+      "nameExists": "A variable with this name already exists",
+      "saveFailed": "Failed to save variable"
     }
   }
 }

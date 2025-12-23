@@ -31,7 +31,9 @@ pub struct ActivityFeedItem {
     pub status: TaskStatus,
     pub category: ActivityCategory,
     pub executor: String,
-    pub updated_at: DateTime<Utc>,
+    pub activity_at: DateTime<Utc>,
+    /// Whether this item has been dismissed by the user.
+    pub is_dismissed: bool,
 }
 
 /// Counts per category for badge display.
@@ -41,6 +43,8 @@ pub struct ActivityCounts {
     pub needs_review: usize,
     pub in_progress: usize,
     pub completed: usize,
+    /// Number of dismissed items (across all categories).
+    pub dismissed: usize,
 }
 
 /// Activity feed response with items and counts.
@@ -58,7 +62,11 @@ impl ActivityFeed {
     /// - `needs_review`: Tasks with status = 'inreview'
     /// - `in_progress`: Tasks with status = 'inprogress' AND has running execution process
     /// - `completed`: Tasks with status = 'done' AND updated within last 24 hours
-    pub async fn fetch(pool: &SqlitePool) -> Result<Self, sqlx::Error> {
+    ///
+    /// # Arguments
+    /// * `pool` - Database connection pool
+    /// * `include_dismissed` - If true, includes dismissed items; if false, excludes them
+    pub async fn fetch(pool: &SqlitePool, include_dismissed: bool) -> Result<Self, sqlx::Error> {
         let cutoff_24h = Utc::now() - Duration::hours(24);
 
         let records = sqlx::query!(
@@ -68,7 +76,7 @@ impl ActivityFeed {
   t.project_id                    AS "project_id!: Uuid",
   p.name                          AS project_name,
   t.status                        AS "status!: TaskStatus",
-  t.updated_at                    AS "updated_at!: DateTime<Utc>",
+  COALESCE(t.activity_at, t.created_at) AS "activity_at!: DateTime<Utc>",
 
   COALESCE((
     SELECT ta.executor
@@ -87,29 +95,35 @@ impl ActivityFeed {
        AND ep.status        = 'running'
        AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
      LIMIT 1
-  ) THEN 1 ELSE 0 END            AS "has_running_attempt!: i64"
+  ) THEN 1 ELSE 0 END            AS "has_running_attempt!: i64",
+
+  CASE WHEN EXISTS (
+    SELECT 1 FROM activity_dismissals ad WHERE ad.task_id = t.id
+  ) THEN 1 ELSE 0 END            AS "is_dismissed!: i64"
 
 FROM tasks t
 JOIN projects p ON t.project_id = p.id
 WHERE
-  -- Needs Review: InReview status
-  t.status = 'inreview'
-  OR
-  -- In Progress: InProgress status AND has running execution process
-  (t.status = 'inprogress' AND EXISTS (
-    SELECT 1
-      FROM task_attempts ta
-      JOIN execution_processes ep
-        ON ep.task_attempt_id = ta.id
-     WHERE ta.task_id = t.id
-       AND ep.status = 'running'
-       AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
-  ))
-  OR
-  -- Completed: Done status within last 24h
-  (t.status = 'done' AND t.updated_at > $1)
+  (
+    -- Needs Review: InReview status
+    t.status = 'inreview'
+    OR
+    -- In Progress: InProgress status AND has running execution process
+    (t.status = 'inprogress' AND EXISTS (
+      SELECT 1
+        FROM task_attempts ta
+        JOIN execution_processes ep
+          ON ep.task_attempt_id = ta.id
+       WHERE ta.task_id = t.id
+         AND ep.status = 'running'
+         AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
+    ))
+    OR
+    -- Completed: Done status within last 24h
+    (t.status = 'done' AND t.activity_at > $1)
+  )
 
-ORDER BY t.updated_at DESC"#,
+ORDER BY t.activity_at DESC"#,
             cutoff_24h
         )
         .fetch_all(pool)
@@ -119,16 +133,35 @@ ORDER BY t.updated_at DESC"#,
         let mut needs_review_count = 0;
         let mut in_progress_count = 0;
         let mut completed_count = 0;
+        let mut dismissed_count = 0;
 
         for rec in records {
+            let is_dismissed = rec.is_dismissed != 0;
+
+            // Track dismissed count for all matching items
+            if is_dismissed {
+                dismissed_count += 1;
+            }
+
+            // Skip dismissed items if not including them
+            if is_dismissed && !include_dismissed {
+                continue;
+            }
+
             let category = if rec.status == TaskStatus::InReview {
-                needs_review_count += 1;
+                if !is_dismissed {
+                    needs_review_count += 1;
+                }
                 ActivityCategory::NeedsReview
             } else if rec.status == TaskStatus::InProgress && rec.has_running_attempt != 0 {
-                in_progress_count += 1;
+                if !is_dismissed {
+                    in_progress_count += 1;
+                }
                 ActivityCategory::InProgress
             } else if rec.status == TaskStatus::Done {
-                completed_count += 1;
+                if !is_dismissed {
+                    completed_count += 1;
+                }
                 ActivityCategory::Completed
             } else {
                 // Skip items that don't match a category (shouldn't happen given WHERE clause)
@@ -143,7 +176,8 @@ ORDER BY t.updated_at DESC"#,
                 status: rec.status,
                 category,
                 executor: rec.executor,
-                updated_at: rec.updated_at,
+                activity_at: rec.activity_at,
+                is_dismissed,
             });
         }
 
@@ -153,6 +187,7 @@ ORDER BY t.updated_at DESC"#,
                 needs_review: needs_review_count,
                 in_progress: in_progress_count,
                 completed: completed_count,
+                dismissed: dismissed_count,
             },
         })
     }

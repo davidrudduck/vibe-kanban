@@ -131,7 +131,7 @@ impl<C: ContainerService + Sync> AssignmentHandler<C> {
         // Start the attempt
         match self
             .container
-            .start_attempt(&task_attempt, executor_profile_id)
+            .start_attempt(&task_attempt, executor_profile_id, false)
             .await
         {
             Ok(_) => {

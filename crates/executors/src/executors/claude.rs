@@ -38,7 +38,7 @@ fn base_command(claude_code_router: bool) -> &'static str {
     if claude_code_router {
         "npx -y @musistudio/claude-code-router@1.0.66 code"
     } else {
-        "npx -y @anthropic-ai/claude-code@2.0.54"
+        "npx -y @anthropic-ai/claude-code@2.0.75"
     }
 }
 
@@ -67,7 +67,10 @@ pub struct ClaudeCode {
     /// When enabled, questions are displayed as clickable options in the UI.
     /// When disabled, questions fall back to text-based prompts.
     /// Defaults to true.
-    #[serde(default = "default_interactive_questions", skip_serializing_if = "is_default_interactive_questions")]
+    #[serde(
+        default = "default_interactive_questions",
+        skip_serializing_if = "is_default_interactive_questions"
+    )]
     pub interactive_questions: bool,
     #[serde(flatten)]
     pub cmd: CmdOverrides,
@@ -281,7 +284,8 @@ impl ClaudeCode {
         let interactive_questions = self.interactive_questions;
         tokio::spawn(async move {
             let log_writer = LogWriter::new(new_stdout);
-            let client = ClaudeAgentClient::new(log_writer.clone(), approvals_clone, interactive_questions);
+            let client =
+                ClaudeAgentClient::new(log_writer.clone(), approvals_clone, interactive_questions);
             let protocol_peer = ProtocolPeer::spawn(child_stdin, child_stdout, client.clone());
 
             // Initialize control protocol
@@ -1182,9 +1186,9 @@ impl ClaudeLogProcessor {
                 ..
             } => {
                 // Create metadata with tool_call_id for approval matching
-                let metadata = tool_use_id.as_ref().map(|id| {
-                    serde_json::json!({ "tool_call_id": id })
-                });
+                let metadata = tool_use_id
+                    .as_ref()
+                    .map(|id| serde_json::json!({ "tool_call_id": id }));
 
                 let content = if questions.len() == 1 {
                     questions[0].question.clone()

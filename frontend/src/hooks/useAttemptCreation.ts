@@ -7,6 +7,8 @@ type CreateAttemptArgs = {
   baseBranch: string;
   /** Optional target node ID for remote execution */
   targetNodeId?: string | null;
+  /** When true, reuse the parent task's worktree instead of creating a new one */
+  useParentWorktree?: boolean | null;
 };
 
 type UseAttemptCreationArgs = {
@@ -21,12 +23,18 @@ export function useAttemptCreation({
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
-    mutationFn: ({ profile, baseBranch, targetNodeId }: CreateAttemptArgs) =>
+    mutationFn: ({
+      profile,
+      baseBranch,
+      targetNodeId,
+      useParentWorktree,
+    }: CreateAttemptArgs) =>
       attemptsApi.create({
         task_id: taskId,
         executor_profile_id: profile,
         base_branch: baseBranch,
         target_node_id: targetNodeId ?? null,
+        use_parent_worktree: useParentWorktree ?? null,
       }),
     onSuccess: (newAttempt: TaskAttempt) => {
       queryClient.setQueryData(

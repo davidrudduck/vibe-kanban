@@ -16,19 +16,16 @@ use super::{
     jwt::{JwtError, JwtService},
     provider::{AuthorizationGrant, AuthorizationProvider, ProviderUser},
 };
-use crate::{
-    configure_user_scope,
-    db::{
-        auth::{AuthSessionError, AuthSessionRepository, MAX_SESSION_INACTIVITY_DURATION},
-        identity_errors::IdentityError,
-        oauth::{
-            AuthorizationStatus, CreateOAuthHandoff, OAuthHandoff, OAuthHandoffError,
-            OAuthHandoffRepository,
-        },
-        oauth_accounts::{OAuthAccountError, OAuthAccountInsert, OAuthAccountRepository},
-        organizations::OrganizationRepository,
-        users::{UpsertUser, UserRepository},
+use crate::db::{
+    auth::{AuthSessionError, AuthSessionRepository, MAX_SESSION_INACTIVITY_DURATION},
+    identity_errors::IdentityError,
+    oauth::{
+        AuthorizationStatus, CreateOAuthHandoff, OAuthHandoff, OAuthHandoffError,
+        OAuthHandoffRepository,
     },
+    oauth_accounts::{OAuthAccountError, OAuthAccountInsert, OAuthAccountRepository},
+    organizations::OrganizationRepository,
+    users::{UpsertUser, UserRepository},
 };
 
 const STATE_LENGTH: usize = 48;
@@ -300,8 +297,6 @@ impl OAuthHandoffService {
         )
         .await?;
 
-        configure_user_scope(user.id, user.username.as_deref(), Some(user.email.as_str()));
-
         Ok(CallbackResult::Success {
             handoff_id: record.id,
             return_to: record.return_to,
@@ -380,8 +375,6 @@ impl OAuthHandoffService {
 
         session_repo.touch(session.id).await?;
         repo.mark_redeemed(record.id).await?;
-
-        configure_user_scope(user.id, user.username.as_deref(), Some(user.email.as_str()));
 
         Ok(RedeemResponse {
             access_token: tokens.access_token,

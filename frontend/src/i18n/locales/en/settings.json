@@ -12,8 +12,38 @@
         "mcp": "MCP Servers",
         "mcpDesc": "Model Context Protocol servers",
         "organizations": "Organization Settings",
-        "organizationsDesc": "Manage organization members and permissions"
+        "organizationsDesc": "Manage organization members and permissions",
+        "backups": "Backups",
+        "backupsDesc": "Database backup management"
       }
+    },
+    "backups": {
+      "title": "Database Backups",
+      "description": "Create, restore, and manage database backups",
+      "loading": "Loading backups...",
+      "loadError": "Failed to load backups.",
+      "noBackups": "No backups found",
+      "table": {
+        "filename": "Filename",
+        "created": "Created",
+        "size": "Size",
+        "actions": "Actions"
+      },
+      "actions": {
+        "create": "Create Backup",
+        "upload": "Upload",
+        "download": "Download",
+        "delete": "Delete",
+        "restore": "Restore"
+      },
+      "createSuccess": "Backup created",
+      "createError": "Failed to create backup",
+      "deleteSuccess": "Backup deleted",
+      "deleteError": "Failed to delete backup",
+      "restoreSuccess": "You must restart the application for the database restore to finalise.",
+      "restoreError": "Failed to restore backup",
+      "confirmDelete": "Delete this backup?",
+      "confirmRestore": "This will replace your database. A backup will be created first. Continue?"
     },
     "general": {
       "loading": "Loading settings...",
@@ -59,10 +89,6 @@
         "showOsInfo": {
           "label": "Show OS Information",
           "helper": "Display the operating system type and version in the development banner."
-        },
-        "hideDiscordLink": {
-          "label": "Hide Discord Link",
-          "helper": "Hide the Discord server link and online count from the navigation bar."
         }
       },
       "taskExecution": {
@@ -176,18 +202,6 @@
           "helper": "Show system notifications when task attempts finish running."
         }
       },
-      "privacy": {
-        "title": "Privacy",
-        "description": "Help improve Vibe-Kanban by sharing anonymous usage data.",
-        "telemetry": {
-          "label": "Enable Telemetry",
-          "helper": "Enables anonymous usage events tracking to help improve the application. No prompts or project information are collected."
-        },
-        "errorReporting": {
-          "label": "Enable Error Reporting",
-          "helper": "Automatically report application errors to help identify and fix bugs. Error reports include technical details but not your code or prompts."
-        }
-      },
       "taskTemplates": {
         "title": "Tags",
         "description": "Create reusable text snippets that can be inserted into task descriptions using @tag_name."
@@ -233,6 +247,22 @@
             "create": "Create",
             "update": "Update"
           }
+        }
+      },
+      "performance": {
+        "title": "Performance",
+        "description": "Configure log loading and display settings for optimal performance.",
+        "initialLoad": {
+          "label": "Initial Log Entries",
+          "helper": "Number of log entries to load when first viewing a conversation. Lower values improve loading speed.",
+          "option50": "50 entries (faster)",
+          "option100": "100 entries (default)",
+          "option200": "200 entries",
+          "option500": "500 entries (more context)"
+        },
+        "maxLimit": {
+          "label": "Maximum Entries Per Page",
+          "helper": "Maximum number of log entries to load per pagination request."
         }
       },
       "safety": {
@@ -355,6 +385,10 @@
         "setup": {
           "label": "Setup Script",
           "helper": "This script will run after creating the worktree and before the coding agent starts. Use it for setup tasks like installing dependencies or preparing the environment."
+        },
+        "parallelSetup": {
+          "label": "Run setup script in parallel with agent",
+          "helper": "When enabled, the setup script runs concurrently with the coding agent instead of waiting for it to complete first. Useful for long-running setup processes."
         },
         "dev": {
           "label": "Dev Server Script",

@@ -150,18 +150,6 @@
           "helper": "Muestra notificaciones del sistema cuando las tareas terminan de ejecutarse."
         }
       },
-      "privacy": {
-        "title": "Privacidad",
-        "description": "Ayuda a mejorar Vibe-Kanban compartiendo datos de uso anónimos.",
-        "telemetry": {
-          "label": "Habilitar Telemetría",
-          "helper": "Habilita el seguimiento anónimo para ayudar a mejorar la aplicación. No se recopilan prompts ni información del proyecto."
-        },
-        "errorReporting": {
-          "label": "Habilitar Reporte de Errores",
-          "helper": "Reporta automáticamente errores de la aplicación para ayudar a identificar y corregir bugs. Los reportes incluyen detalles técnicos pero no tu código ni prompts."
-        }
-      },
       "taskTemplates": {
         "title": "Etiquetas",
         "description": "Crea fragmentos de texto reutilizables que se pueden insertar en descripciones de tareas usando @nombre_etiqueta."
@@ -329,6 +317,10 @@
         "setup": {
           "label": "Script de Instalación",
           "helper": "Este script se ejecutará después de crear el worktree y antes de que comience el agente de codificación. Úsalo para tareas de configuración como instalar dependencias o preparar el entorno."
+        },
+        "parallelSetup": {
+          "label": "Ejecutar script de instalación en paralelo con el agente",
+          "helper": "Cuando está habilitado, el script de instalación se ejecuta simultáneamente con el agente de codificación en lugar de esperar a que se complete primero. Útil para procesos de configuración que tardan mucho tiempo."
         },
         "dev": {
           "label": "Script del Servidor de Desarrollo",

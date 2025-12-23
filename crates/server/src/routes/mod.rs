@@ -7,6 +7,7 @@ use crate::DeploymentImpl;
 
 pub mod all_tasks;
 pub mod approvals;
+pub mod backups;
 pub mod config;
 pub mod containers;
 pub mod dashboard;
@@ -18,13 +19,16 @@ pub mod execution_processes;
 pub mod frontend;
 pub mod health;
 pub mod images;
+pub mod logs;
 pub mod nodes;
 pub mod oauth;
 pub mod organizations;
+pub mod processes;
 pub mod projects;
 pub mod shared_tasks;
 pub mod tags;
 pub mod task_attempts;
+pub mod task_variables;
 pub mod tasks;
 
 pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
@@ -41,13 +45,17 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(shared_tasks::router())
         .merge(task_attempts::router(&deployment))
         .merge(execution_processes::router(&deployment))
+        .merge(processes::router(&deployment))
         .merge(tags::router(&deployment))
+        .merge(task_variables::router(&deployment))
         .merge(oauth::router())
         .merge(organizations::router())
         .merge(nodes::router())
         .merge(filesystem::router())
         .merge(events::router(&deployment))
         .merge(approvals::router())
+        .merge(backups::router())
+        .merge(logs::router(&deployment))
         .nest("/images", images::routes())
         .with_state(deployment);
 

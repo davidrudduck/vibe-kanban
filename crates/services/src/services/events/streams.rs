@@ -31,9 +31,12 @@ impl EventService {
         let receiver = self.msg_store.get_receiver();
 
         // Get initial snapshot of tasks
-        let tasks =
-            Task::find_by_project_id_with_attempt_status(&self.db.pool, project_id, include_archived)
-                .await?;
+        let tasks = Task::find_by_project_id_with_attempt_status(
+            &self.db.pool,
+            project_id,
+            include_archived,
+        )
+        .await?;
 
         // Convert task array to object keyed by task ID
         let tasks_map: serde_json::Map<String, serde_json::Value> = tasks

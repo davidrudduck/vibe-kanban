@@ -12,21 +12,22 @@
     "archived": "アーカイブ済み"
   },
   "actionsMenu": {
-    "attempt": "Attempt",
-    "createNewAttempt": "Create new attempt",
-    "createSubtask": "Create subtask",
+    "attempt": "試行",
+    "createNewAttempt": "新しい試行を作成",
+    "createSubtask": "サブタスクを作成",
+    "sharedWorktreeNoSubtask": "サブタスクを作成できません：このタスクは共有ワークツリーを使用しています",
     "share": "タスクを共有",
     "reassign": "再割り当て",
     "stopShare": "共有を停止",
     "archive": "アーカイブ",
     "unarchive": "アーカイブ解除",
-    "duplicate": "Duplicate",
+    "duplicate": "複製",
     "editBranchName": "ブランチ名を編集",
     "gitActions": "Gitアクション",
-    "openInIde": "Open attempt in IDE",
-    "task": "Task",
-    "viewProcesses": "View processes",
-    "viewRelatedTasks": "View related tasks",
+    "openInIde": "IDEで試行を開く",
+    "task": "タスク",
+    "viewProcesses": "プロセスを表示",
+    "viewRelatedTasks": "関連タスクを表示",
     "remoteTaskCannotExecute": "リモートタスクは元のノードで実行されます"
   },
   "archiveDialog": {
@@ -163,14 +164,16 @@
     }
   },
   "createAttemptDialog": {
-    "baseBranch": "Base branch",
-    "creating": "Creating...",
-    "description": "Start a new attempt with a coding agent. A git worktree and task branch will be created.",
-    "error": "Failed to create attempt. Please try again.",
-    "loadingBranches": "Loading branches...",
-    "selectBranch": "Select branch",
-    "start": "Start",
-    "title": "Create Attempt"
+    "baseBranch": "ベースブランチ",
+    "creating": "作成中...",
+    "description": "コーディングエージェントで新しい試行を開始します。gitワークツリーとタスクブランチが作成されます。",
+    "error": "試行の作成に失敗しました。もう一度お試しください。",
+    "loadingBranches": "ブランチを読み込み中...",
+    "selectBranch": "ブランチを選択",
+    "start": "開始",
+    "title": "試行を作成",
+    "useParentWorktree": "親のワークツリーを使用",
+    "useParentWorktreeHelp": "親タスクと同じワークツリーとブランチで作業を続ける"
   },
   "diff": {
     "collapseAll": "Collapse all diffs",
@@ -379,35 +382,6 @@
       "status": "Status"
     }
   },
-  "showcases": {
-    "taskPanel": {
-      "companion": {
-        "title": "Vibe Kanban Companion ポイント＆クリック",
-        "description": "プレビューウィンドウ内の任意のUIコンポーネントをクリックして正確に選択できます。コーディングエージェントは正確なDOMセレクタとコンポーネント階層を受け取り、曖昧なフィードバックを排除します。"
-      },
-      "installation": {
-        "title": "開発サーバーとCompanionのインストール",
-        "description": "プレビュー用に開発サーバーコマンドを設定します。設定でセットアップスクリプトを構成できます。コーディングエージェントを使用してVibe Kanban Webコンパニオンを自動的にインストールします。"
-      },
-      "codeReview": {
-        "title": "組み込みコードレビュー",
-        "description": "プラスアイコンを使用して、差分ビューに直接行固有のコメントを追加します。すべてのフィードバックが収集され、完全なレビューとしてコーディングエージェントに送信されます。"
-      },
-      "pullRequest": {
-        "title": "タスクからPRを作成",
-        "description": "タスク試行から直接変更をマージしたり、プルリクエストを作成できます。PRダイアログはタスク詳細からタイトルと説明を事前入力し、ワークフローを効率化します。"
-      },
-      "tags": {
-        "title": "カスタムプロンプトタグ",
-        "description": "カスタムプロンプトをタグとして保存し、新しいタスクやフォローアップメッセージに埋め込むことができます。共通の指示を再利用してワークフローの一貫性を維持します。"
-      }
-    },
-    "buttons": {
-      "previous": "前へ",
-      "next": "次へ",
-      "finish": "完了"
-    }
-  },
   "taskFormDialog": {
     "createTitle": "新規タスクを作成",
     "editTitle": "タスクを編集",
@@ -434,6 +408,33 @@
       "description": "未保存の変更があります。本当に破棄してもよろしいですか？",
       "continueEditing": "編集を続ける",
       "discardChanges": "変更を破棄"
+    }
+  },
+  "variables": {
+    "title": "変数",
+    "panelTitle": "変数 ({{count}})",
+    "add": "追加",
+    "empty": "変数が定義されていません",
+    "inherited": "継承",
+    "inheritedTooltip": "親タスクから継承",
+    "inheritedCount": "{{count}}件継承",
+    "inheritedVariables": "継承",
+    "ownVariables": "このタスク",
+    "emptyValue": "(空)",
+    "override": "上書き",
+    "hint": "変数はタスクの説明で $VAR_NAME または ${VAR_NAME} 構文で使用できます。",
+    "panelHint": "変数はタスクがエグゼキューターに送信されるときに展開されます。",
+    "undefinedWarning": "{{count}}個の未定義変数",
+    "undefinedTitle": "未定義変数",
+    "undefinedDescription": "これらの変数はタスクの説明で参照されていますが、定義されていません：",
+    "namePlaceholder": "変数名",
+    "valuePlaceholder": "値",
+    "deleteConfirm": "変数「{{name}}」を削除しますか？",
+    "errors": {
+      "nameRequired": "変数名は必須です",
+      "invalidName": "名前は大文字で始まり、A-Z、0-9、アンダースコアのみを含む必要があります",
+      "nameExists": "この名前の変数は既に存在します",
+      "saveFailed": "変数の保存に失敗しました"
     }
   }
 }

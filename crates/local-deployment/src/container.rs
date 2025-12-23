@@ -38,9 +38,7 @@ use executors::{
     },
 };
 use futures::{FutureExt, StreamExt, TryStreamExt, stream::select};
-use serde_json::json;
 use services::services::{
-    analytics::AnalyticsContext,
     approvals::{Approvals, executor_approvals::ExecutorApprovalBridge},
     config::Config,
     container::{ContainerError, ContainerRef, ContainerService},
@@ -69,20 +67,17 @@ pub struct LocalContainerService {
     config: Arc<RwLock<Config>>,
     git: GitService,
     image_service: ImageService,
-    analytics: Option<AnalyticsContext>,
     approvals: Approvals,
     publisher: Result<SharePublisher, RemoteClientNotConfigured>,
 }
 
 impl LocalContainerService {
-    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         db: DBService,
         msg_stores: Arc<RwLock<HashMap<Uuid, Arc<MsgStore>>>>,
         config: Arc<RwLock<Config>>,
         git: GitService,
         image_service: ImageService,
-        analytics: Option<AnalyticsContext>,
         approvals: Approvals,
         publisher: Result<SharePublisher, RemoteClientNotConfigured>,
     ) -> Self {
@@ -95,7 +90,6 @@ impl LocalContainerService {
             config,
             git,
             image_service,
-            analytics,
             approvals,
             publisher,
         };
@@ -290,9 +284,7 @@ impl LocalContainerService {
         let child_store = self.child_store.clone();
         let msg_stores = self.msg_stores.clone();
         let db = self.db.clone();
-        let config = self.config.clone();
         let container = self.clone();
-        let analytics = self.analytics.clone();
         let publisher = self.publisher.clone();
 
         let mut process_exit_rx = self.spawn_os_exit_watcher(exec_id);
@@ -403,14 +395,14 @@ impl LocalContainerService {
 
                         // Manually finalize task since we're bypassing normal execution flow
                         container
-                            .finalize_task(&config, publisher.as_ref().ok(), &ctx)
+                            .finalize_task(&container.config, publisher.as_ref().ok(), &ctx)
                             .await;
                     }
                 }
 
                 if container.should_finalize(&ctx) {
                     container
-                        .finalize_task(&config, publisher.as_ref().ok(), &ctx)
+                        .finalize_task(&container.config, publisher.as_ref().ok(), &ctx)
                         .await;
                     // After finalization, check if a queued follow-up exists and start it
                     if let Err(e) = container.try_consume_queued_followup(&ctx).await {
@@ -420,23 +412,6 @@ impl LocalContainerService {
                             e
                         );
                     }
-                }
-
-                // Fire analytics event when CodingAgent execution has finished
-                if config.read().await.analytics_enabled
-                    && matches!(
-                        &ctx.execution_process.run_reason,
-                        ExecutionProcessRunReason::CodingAgent
-                    )
-                    && let Some(analytics) = &analytics
-                {
-                    analytics.analytics_service.track_event(&analytics.user_id, "task_attempt_finished", Some(json!({
-                        "task_id": ctx.task.id.to_string(),
-                        "project_id": ctx.task.project_id.to_string(),
-                        "attempt_id": ctx.task_attempt.id.to_string(),
-                        "execution_success": matches!(ctx.execution_process.status, ExecutionProcessStatus::Completed),
-                        "exit_code": ctx.execution_process.exit_code,
-                    })));
                 }
             }
 
@@ -1020,6 +995,24 @@ impl ContainerService for LocalContainerService {
                 "Timeout: process took more than 30 seconds to start"
             ))
         })??;
+
+        // Extract and store the PID for process tree discovery
+        if let Some(pid) = spawned.child.inner().id() {
+            tracing::debug!(
+                execution_process_id = %execution_process.id,
+                pid = pid,
+                "Storing PID for execution process"
+            );
+            if let Err(e) =
+                ExecutionProcess::update_pid(&self.db.pool, execution_process.id, pid as i64).await
+            {
+                tracing::warn!(
+                    execution_process_id = %execution_process.id,
+                    error = %e,
+                    "Failed to store PID for execution process"
+                );
+            }
+        }
 
         self.track_child_msgs_in_store(execution_process.id, &mut spawned.child)
             .await;

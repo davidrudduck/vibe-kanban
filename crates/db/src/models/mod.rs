@@ -1,3 +1,4 @@
+pub mod activity_dismissal;
 pub mod activity_feed;
 pub mod all_tasks;
 pub mod cached_node;
@@ -13,3 +14,4 @@ pub mod shared_task;
 pub mod tag;
 pub mod task;
 pub mod task_attempt;
+pub mod task_variable;
