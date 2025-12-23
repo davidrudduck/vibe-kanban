@@ -24,6 +24,10 @@ import { cn } from '@/lib/utils';
 import { LabelBadge } from '@/components/labels/LabelBadge';
 import { ArchiveToggleIcon } from './ArchiveToggleIcon';
 import { tasksApi } from '@/lib/api';
+import {
+  useTaskOptimistic,
+  getArchivedCallback,
+} from '@/contexts/TaskOptimisticContext';
 
 /**
  * Get short node name from full hostname (e.g., "justX" from "justX.raverx.net")
@@ -59,6 +63,12 @@ export function TaskCard({
   const navigate = useNavigateWithSearch();
   const isOrgAdmin = useIsOrgAdmin();
   const { project } = useProject();
+  const taskOptimisticContext = useTaskOptimistic();
+
+  // Get optimistic archived callback from context or global registry
+  const updateTaskArchivedOptimistically =
+    taskOptimisticContext?.updateTaskArchivedOptimistically ??
+    getArchivedCallback(projectId);
 
   // Fetch labels for this task (only for local tasks, not remote)
   const { data: labels } = useTaskLabels(
@@ -113,25 +123,53 @@ export function TaskCard({
     if (isArchiving || task.is_remote) return;
     setIsArchiving(true);
     try {
+      // Apply optimistic update immediately for instant UI feedback
+      if (updateTaskArchivedOptimistically) {
+        updateTaskArchivedOptimistically(task.id, new Date().toISOString());
+      }
       await tasksApi.archive(task.id, { include_subtasks: false });
     } catch (err) {
       console.error('Failed to archive task:', err);
+      // Rollback optimistic update on error
+      if (updateTaskArchivedOptimistically) {
+        updateTaskArchivedOptimistically(task.id, null);
+      }
     } finally {
       setIsArchiving(false);
     }
-  }, [task.id, task.is_remote, isArchiving]);
+  }, [task.id, task.is_remote, isArchiving, updateTaskArchivedOptimistically]);
 
   const handleUnarchive = useCallback(async () => {
     if (isArchiving || task.is_remote) return;
     setIsArchiving(true);
+    const previousArchivedAt = task.archived_at;
     try {
+      // Apply optimistic update immediately for instant UI feedback
+      if (updateTaskArchivedOptimistically) {
+        updateTaskArchivedOptimistically(task.id, null);
+      }
       await tasksApi.unarchive(task.id);
     } catch (err) {
       console.error('Failed to unarchive task:', err);
+      // Rollback optimistic update on error
+      if (updateTaskArchivedOptimistically && previousArchivedAt) {
+        updateTaskArchivedOptimistically(
+          task.id,
+          typeof previousArchivedAt === 'string'
+            ? previousArchivedAt
+            : previousArchivedAt.toISOString()
+        );
+      }
     } finally {
       setIsArchiving(false);
     }
-  }, [task.id, task.is_remote, isArchiving]);
+  }, [
+    task.id,
+    task.is_remote,
+    task.archived_at,
+    isArchiving,
+    updateTaskArchivedOptimistically,
+  ]);
 
   return (
     <KanbanCard

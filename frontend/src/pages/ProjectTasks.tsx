@@ -186,6 +186,7 @@ export function ProjectTasks() {
     error: streamError,
     addTaskOptimistically,
     updateTaskStatusOptimistically,
+    updateTaskArchivedOptimistically,
   } = useProjectTasks(projectId || '', projectTasksOptions);
 
   const selectedTask = useMemo(
@@ -1052,6 +1053,7 @@ export function ProjectTasks() {
     <TaskOptimisticProvider
       addTaskOptimistically={addTaskOptimistically}
       updateTaskStatusOptimistically={updateTaskStatusOptimistically}
+      updateTaskArchivedOptimistically={updateTaskArchivedOptimistically}
     >
       <div className="min-h-full h-full flex flex-col">
         {streamError && (

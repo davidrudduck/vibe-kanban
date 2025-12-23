@@ -3,6 +3,7 @@ import { useJsonPatchWsStream } from './useJsonPatchWsStream';
 import {
   useRegisterOptimisticCallback,
   useRegisterStatusCallback,
+  useRegisterArchivedCallback,
 } from '@/contexts/TaskOptimisticContext';
 import type {
   SharedTask,
@@ -47,6 +48,14 @@ export interface UseProjectTasksResult {
    * Call this after successful REST API status update for instant UI feedback.
    */
   updateTaskStatusOptimistically: (taskId: string, status: TaskStatus) => void;
+  /**
+   * Optimistically update a task's archived_at in the local state.
+   * Call this after successful REST API archive/unarchive for instant UI feedback.
+   */
+  updateTaskArchivedOptimistically: (
+    taskId: string,
+    archivedAt: string | null
+  ) => void;
 }
 
 export interface UseProjectTasksOptions {
@@ -110,9 +119,24 @@ export const useProjectTasks = (
     [patchData]
   );
 
+  // Optimistically update a task's archived_at via JSON Patch
+  const updateTaskArchivedOptimistically = useCallback(
+    (taskId: string, archivedAt: string | null) => {
+      patchData([
+        {
+          op: 'replace',
+          path: `/tasks/${taskId}/archived_at`,
+          value: archivedAt,
+        },
+      ]);
+    },
+    [patchData]
+  );
+
   // Register callbacks globally so modals/other components can access them
   useRegisterOptimisticCallback(projectId, addTaskOptimistically);
   useRegisterStatusCallback(projectId, updateTaskStatusOptimistically);
+  useRegisterArchivedCallback(projectId, updateTaskArchivedOptimistically);
 
   const localTasksById = useMemo(() => data?.tasks ?? {}, [data?.tasks]);
   const sharedTasksById = useMemo(
@@ -242,5 +266,6 @@ export const useProjectTasks = (
     error,
     addTaskOptimistically,
     updateTaskStatusOptimistically,
+    updateTaskArchivedOptimistically,
   };
 };

@@ -12,6 +12,14 @@ interface TaskOptimisticContextType {
    * Call this after successful REST API status update for instant UI feedback.
    */
   updateTaskStatusOptimistically: (taskId: string, status: TaskStatus) => void;
+  /**
+   * Optimistically update a task's archived_at in local WebSocket state.
+   * Call this after successful REST API archive/unarchive for instant UI feedback.
+   */
+  updateTaskArchivedOptimistically: (
+    taskId: string,
+    archivedAt: string | null
+  ) => void;
 }
 
 const TaskOptimisticContext = createContext<TaskOptimisticContextType | null>(
@@ -22,16 +30,25 @@ interface TaskOptimisticProviderProps {
   children: ReactNode;
   addTaskOptimistically: (task: TaskWithAttemptStatus) => void;
   updateTaskStatusOptimistically: (taskId: string, status: TaskStatus) => void;
+  updateTaskArchivedOptimistically: (
+    taskId: string,
+    archivedAt: string | null
+  ) => void;
 }
 
 export function TaskOptimisticProvider({
   children,
   addTaskOptimistically,
   updateTaskStatusOptimistically,
+  updateTaskArchivedOptimistically,
 }: TaskOptimisticProviderProps) {
   return (
     <TaskOptimisticContext.Provider
-      value={{ addTaskOptimistically, updateTaskStatusOptimistically }}
+      value={{
+        addTaskOptimistically,
+        updateTaskStatusOptimistically,
+        updateTaskArchivedOptimistically,
+      }}
     >
       {children}
     </TaskOptimisticContext.Provider>
@@ -54,10 +71,18 @@ export function useTaskOptimistic(): TaskOptimisticContextType | null {
 
 type AddTaskCallback = (task: TaskWithAttemptStatus) => void;
 type UpdateStatusCallback = (taskId: string, status: TaskStatus) => void;
+type UpdateArchivedCallback = (
+  taskId: string,
+  archivedAt: string | null
+) => void;
 
 // Global registry of project -> callback mappings
 const globalAddCallbackRegistry = new Map<string, AddTaskCallback>();
 const globalStatusCallbackRegistry = new Map<string, UpdateStatusCallback>();
+const globalArchivedCallbackRegistry = new Map<
+  string,
+  UpdateArchivedCallback
+>();
 
 /**
  * Register an optimistic add callback for a project.
@@ -82,6 +107,17 @@ export function registerStatusCallback(
 }
 
 /**
+ * Register an optimistic archived update callback for a project.
+ * Call this from useProjectTasks when the hook mounts.
+ */
+export function registerArchivedCallback(
+  projectId: string,
+  callback: UpdateArchivedCallback
+): void {
+  globalArchivedCallbackRegistry.set(projectId, callback);
+}
+
+/**
  * Unregister an optimistic callback for a project.
  * Call this from useProjectTasks when the hook unmounts.
  */
@@ -95,6 +131,14 @@ export function unregisterOptimisticCallback(projectId: string): void {
  */
 export function unregisterStatusCallback(projectId: string): void {
   globalStatusCallbackRegistry.delete(projectId);
+}
+
+/**
+ * Unregister an optimistic archived callback for a project.
+ * Call this from useProjectTasks when the hook unmounts.
+ */
+export function unregisterArchivedCallback(projectId: string): void {
+  globalArchivedCallbackRegistry.delete(projectId);
 }
 
 /**
@@ -115,6 +159,16 @@ export function getStatusCallback(
   projectId: string
 ): UpdateStatusCallback | undefined {
   return globalStatusCallbackRegistry.get(projectId);
+}
+
+/**
+ * Get the optimistic archived callback for a project.
+ * Used by TaskCard when archiving/unarchiving tasks.
+ */
+export function getArchivedCallback(
+  projectId: string
+): UpdateArchivedCallback | undefined {
+  return globalArchivedCallbackRegistry.get(projectId);
 }
 
 /**
@@ -147,6 +201,23 @@ export function useRegisterStatusCallback(
     registerStatusCallback(projectId, callback);
     return () => {
       unregisterStatusCallback(projectId);
+    };
+  }, [projectId, callback]);
+}
+
+/**
+ * Hook to register and auto-cleanup optimistic archived callback.
+ * Use this in useProjectTasks.
+ */
+export function useRegisterArchivedCallback(
+  projectId: string | undefined,
+  callback: UpdateArchivedCallback
+): void {
+  useEffect(() => {
+    if (!projectId) return;
+    registerArchivedCallback(projectId, callback);
+    return () => {
+      unregisterArchivedCallback(projectId);
     };
   }, [projectId, callback]);
 }
