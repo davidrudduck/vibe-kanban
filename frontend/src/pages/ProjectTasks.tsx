@@ -371,6 +371,15 @@ export function ProjectTasks() {
       );
     };
 
+    // Archive filter: when showArchived=true, show ONLY archived tasks
+    // when showArchived=false, show ONLY non-archived tasks
+    const matchesArchiveFilter = (
+      archivedAt: string | Date | null
+    ): boolean => {
+      const isArchived = archivedAt !== null;
+      return showArchived ? isArchived : !isArchived;
+    };
+
     tasks.forEach((task) => {
       const statusKey = normalizeStatus(task.status);
       const sharedTask = task.shared_task_id
@@ -378,6 +387,11 @@ export function ProjectTasks() {
         : sharedTasksById[task.id];
 
       if (!matchesSearch(task.title, task.description)) {
+        return;
+      }
+
+      // Apply archive filter
+      if (!matchesArchiveFilter(task.archived_at)) {
         return;
       }
 
@@ -398,27 +412,31 @@ export function ProjectTasks() {
       });
     });
 
-    (
-      Object.entries(sharedOnlyByStatus) as [TaskStatus, SharedTaskRecord[]][]
-    ).forEach(([status, items]) => {
-      if (!columns[status]) {
-        columns[status] = [];
-      }
-      items.forEach((sharedTask) => {
-        if (!matchesSearch(sharedTask.title, sharedTask.description)) {
-          return;
+    // Shared tasks don't have archived_at field, so we exclude them
+    // when showing only archived tasks (they're treated as non-archived)
+    if (!showArchived) {
+      (
+        Object.entries(sharedOnlyByStatus) as [TaskStatus, SharedTaskRecord[]][]
+      ).forEach(([status, items]) => {
+        if (!columns[status]) {
+          columns[status] = [];
         }
-        const shouldIncludeShared =
-          showSharedTasks || sharedTask.assignee_user_id === userId;
-        if (!shouldIncludeShared) {
-          return;
-        }
-        columns[status].push({
-          type: 'shared',
-          task: sharedTask,
+        items.forEach((sharedTask) => {
+          if (!matchesSearch(sharedTask.title, sharedTask.description)) {
+            return;
+          }
+          const shouldIncludeShared =
+            showSharedTasks || sharedTask.assignee_user_id === userId;
+          if (!shouldIncludeShared) {
+            return;
+          }
+          columns[status].push({
+            type: 'shared',
+            task: sharedTask,
+          });
         });
       });
-    });
+    }
 
     // Get activity time for sorting (fallback to created_at)
     const getActivityTime = (item: KanbanColumnItem) => {
@@ -451,6 +469,7 @@ export function ProjectTasks() {
     sharedOnlyByStatus,
     sharedTasksById,
     showSharedTasks,
+    showArchived,
     userId,
   ]);
 
