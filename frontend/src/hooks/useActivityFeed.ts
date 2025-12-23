@@ -17,7 +17,8 @@ export function useActivityFeed(options?: UseActivityFeedOptions) {
   const query = useQuery<ActivityFeed>({
     queryKey: ['dashboard', 'activity', { includeDismissed }],
     queryFn: () => dashboardApi.getActivityFeed(includeDismissed),
-    refetchInterval: 10000, // Poll every 10 seconds
+    // Only poll when tab is visible to reduce unnecessary network requests
+    refetchInterval: () => (document.hidden ? false : 10000),
     staleTime: 5000,
     enabled,
   });
