@@ -154,55 +154,69 @@ impl TaskVariable {
     /// Find all variables for a task including inherited ones from parent chain.
     /// Child variables override parent variables with the same name.
     /// Returns variables as a list with source information.
+    ///
+    /// Performance: Uses a recursive CTE to traverse the parent chain and fetch
+    /// all variables in a single query, reducing from O(2*depth) queries to O(1).
     pub async fn find_inherited(
         pool: &SqlitePool,
         task_id: Uuid,
     ) -> Result<Vec<ResolvedVariable>, sqlx::Error> {
-        // Collect all task IDs in the parent chain (starting from current task)
-        let mut task_chain: Vec<Uuid> = Vec::new();
-        let mut current_task_id: Option<Uuid> = Some(task_id);
+        // Use recursive CTE to traverse parent chain and collect variables in one query.
+        // The CTE builds the task chain with depth, then joins variables.
+        // We use ROW_NUMBER partitioned by name and ordered by depth ASC to get
+        // the closest (child) variable for each name, allowing child overrides.
+        let rows = sqlx::query!(
+            r#"
+            WITH RECURSIVE task_chain AS (
+                -- Base case: start with the requested task at depth 0
+                SELECT id, parent_task_id, CAST(0 AS INTEGER) as depth
+                FROM tasks
+                WHERE id = $1
 
-        while let Some(tid) = current_task_id {
-            task_chain.push(tid);
+                UNION ALL
 
-            // Get parent_task_id for current task
-            let parent = sqlx::query_scalar!(
-                r#"SELECT parent_task_id as "parent_task_id: Uuid" FROM tasks WHERE id = $1"#,
-                tid
+                -- Recursive case: traverse to parent, incrementing depth
+                SELECT t.id, t.parent_task_id, CAST(tc.depth + 1 AS INTEGER)
+                FROM tasks t
+                INNER JOIN task_chain tc ON t.id = tc.parent_task_id
+            ),
+            -- Join variables with task chain and rank by depth per variable name
+            ranked_vars AS (
+                SELECT
+                    tv.name,
+                    tv.value,
+                    tc.id as source_task_id,
+                    tc.depth,
+                    ROW_NUMBER() OVER (PARTITION BY tv.name ORDER BY tc.depth ASC) as rn
+                FROM task_chain tc
+                INNER JOIN task_variables tv ON tv.task_id = tc.id
             )
-            .fetch_optional(pool)
-            .await?
-            .flatten();
+            -- Select only the closest (lowest depth) variable for each name
+            SELECT
+                name as "name!",
+                value as "value!",
+                source_task_id as "source_task_id!: Uuid",
+                depth as "depth!: i32"
+            FROM ranked_vars
+            WHERE rn = 1
+            ORDER BY name ASC
+            "#,
+            task_id
+        )
+        .fetch_all(pool)
+        .await?;
 
-            current_task_id = parent;
-        }
+        // Convert to ResolvedVariable, marking inherited based on depth
+        let result = rows
+            .into_iter()
+            .map(|row| ResolvedVariable {
+                name: row.name,
+                value: row.value,
+                source_task_id: row.source_task_id,
+                inherited: row.depth > 0,
+            })
+            .collect();
 
-        // Collect all variables from all tasks in the chain
-        // Start from the root (end of chain) and work towards current task
-        // This way, child variables naturally override parent variables
-        let mut resolved: std::collections::HashMap<String, ResolvedVariable> =
-            std::collections::HashMap::new();
-
-        for (depth, &ancestor_task_id) in task_chain.iter().rev().enumerate() {
-            let vars = Self::find_by_task_id(pool, ancestor_task_id).await?;
-            let is_current_task = depth == task_chain.len() - 1;
-
-            for var in vars {
-                resolved.insert(
-                    var.name.clone(),
-                    ResolvedVariable {
-                        name: var.name,
-                        value: var.value,
-                        source_task_id: ancestor_task_id,
-                        inherited: !is_current_task,
-                    },
-                );
-            }
-        }
-
-        // Convert to sorted vector
-        let mut result: Vec<ResolvedVariable> = resolved.into_values().collect();
-        result.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(result)
     }
 
