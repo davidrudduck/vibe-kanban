@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
+import { Label as FormLabel } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import {
   Select,
@@ -52,7 +52,10 @@ import type {
   TaskStatus,
   ExecutorProfileId,
   ImageResponse,
+  Label,
 } from 'shared/types';
+import { LabelPicker } from '@/components/labels/LabelPicker';
+import { useTaskLabels } from '@/hooks/useTaskLabels';
 
 export type TaskFormDialogProps =
   | { mode: 'create'; projectId: string }
@@ -101,6 +104,19 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
   const { data: taskImages } = useTaskImages(
     editMode ? props.task.id : undefined
   );
+
+  // Labels management (only for edit mode)
+  const taskId = editMode ? props.task.id : undefined;
+  const { data: taskLabels } = useTaskLabels(taskId, editMode);
+  // Note: setTaskLabels mutation is handled inside LabelPicker component
+  const [selectedLabels, setSelectedLabels] = useState<Label[]>([]);
+
+  // Sync labels from server to local state when data arrives
+  useEffect(() => {
+    if (taskLabels) {
+      setSelectedLabels(taskLabels);
+    }
+  }, [taskLabels]);
 
   // Convert JSON array string to line-separated text for display
   const jsonToValidationSteps = (json: string | null): string => {
@@ -300,6 +316,15 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
     [form]
   );
 
+  // Labels change handler
+  const handleLabelsChange = useCallback(
+    (newLabels: Label[]) => {
+      setSelectedLabels(newLabels);
+      // The LabelPicker already handles the API call, so we just update local state
+    },
+    []
+  );
+
   // Unsaved changes detection
   const hasUnsavedChanges = useCallback(() => {
     if (isDirty) return true;
@@ -482,12 +507,12 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
               <form.Field name="status">
                 {(field) => (
                   <div className="space-y-2">
-                    <Label
+                    <FormLabel
                       htmlFor="task-status"
                       className="text-sm font-medium"
                     >
                       {t('taskFormDialog.statusLabel')}
-                    </Label>
+                    </FormLabel>
                     <Select
                       value={field.state.value}
                       onValueChange={(value) =>
@@ -521,16 +546,32 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
               </form.Field>
             )}
 
+            {/* Labels - edit mode only */}
+            {editMode && taskId && (
+              <div className="space-y-2 pt-4">
+                <FormLabel className="text-sm font-medium text-muted-foreground">
+                  {t('taskFormDialog.labelsLabel', 'Labels')}
+                </FormLabel>
+                <LabelPicker
+                  taskId={taskId}
+                  projectId={projectId}
+                  selectedLabels={selectedLabels}
+                  onLabelsChange={handleLabelsChange}
+                  disabled={isSubmitting}
+                />
+              </div>
+            )}
+
             {/* Validation Steps */}
             <form.Field name="validationSteps">
               {(field) => (
                 <div className="space-y-2 pt-4">
-                  <Label
+                  <FormLabel
                     htmlFor="validation-steps"
                     className="text-sm font-medium text-muted-foreground"
                   >
                     Validation Steps (one per line)
-                  </Label>
+                  </FormLabel>
                   <textarea
                     id="validation-steps"
                     value={field.state.value}
@@ -638,12 +679,12 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                         className="data-[state=checked]:bg-gray-900 dark:data-[state=checked]:bg-gray-100"
                         aria-label={t('taskFormDialog.startLabel')}
                       />
-                      <Label
+                      <FormLabel
                         htmlFor="autostart-switch"
                         className="text-sm cursor-pointer"
                       >
                         {t('taskFormDialog.startLabel')}
-                      </Label>
+                      </FormLabel>
                     </div>
                   )}
                 </form.Field>

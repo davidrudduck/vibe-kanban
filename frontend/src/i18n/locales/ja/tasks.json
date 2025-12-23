@@ -388,6 +388,7 @@
     "titlePlaceholder": "タスクのタイトル",
     "descriptionPlaceholder": "詳細を追加（オプション）。@でファイルを検索できます。",
     "statusLabel": "ステータス",
+    "labelsLabel": "ラベル",
     "statusOptions": {
       "todo": "未着手",
       "inprogress": "進行中",

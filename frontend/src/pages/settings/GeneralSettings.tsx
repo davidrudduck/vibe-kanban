@@ -45,7 +45,8 @@ import { AgentAvailabilityIndicator } from '@/components/AgentAvailabilityIndica
 import { useTheme } from '@/components/ThemeProvider';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { useFeedback } from '@/hooks/useFeedback';
-import { TagManager } from '@/components/TagManager';
+import { TemplateManager } from '@/components/TemplateManager';
+import { LabelManager } from '@/components/LabelManager';
 
 export function GeneralSettings() {
   const { t } = useTranslation(['settings', 'common']);
@@ -877,7 +878,19 @@ export function GeneralSettings() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <TagManager />
+          <TemplateManager />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('settings.general.labels.title')}</CardTitle>
+          <CardDescription>
+            {t('settings.general.labels.description')}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <LabelManager />
         </CardContent>
       </Card>
 
