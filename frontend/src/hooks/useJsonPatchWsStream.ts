@@ -122,7 +122,9 @@ export const useJsonPatchWsStream = <T extends object>(
       console.error(
         '[WS] Max reconnection attempts exceeded, giving up. Refresh the page to retry.'
       );
-      setError('Connection failed after multiple retries. Please refresh the page.');
+      setError(
+        'Connection failed after multiple retries. Please refresh the page.'
+      );
       return;
     }
 
@@ -242,7 +244,11 @@ export const useJsonPatchWsStream = <T extends object>(
             const idleTime = Date.now() - lastMessageTimeRef.current;
             if (idleTime > PING_INTERVAL_MS * 3) {
               // Log for debugging, but don't force reconnect - connection may be legitimately idle
-              console.debug('[WS] No message for', Math.round(idleTime / 1000), 's');
+              console.debug(
+                '[WS] No message for',
+                Math.round(idleTime / 1000),
+                's'
+              );
             }
           }
         }, PING_INTERVAL_MS);
@@ -330,7 +336,8 @@ export const useJsonPatchWsStream = <T extends object>(
 
         // Track connection state for debugging
         if (window.__WS_DEBUG__) {
-          window.__WS_DEBUG__.connections[endpoint] = `closed (code=${evt?.code})`;
+          window.__WS_DEBUG__.connections[endpoint] =
+            `closed (code=${evt?.code})`;
           window.__WS_DEBUG__.reconnectAttempts++;
         }
 

@@ -318,7 +318,10 @@ export function ActionsDropdown({
                   isRemote
                     ? t('actionsMenu.remoteTaskCannotExecute')
                     : usesSharedWorktree
-                      ? t('actionsMenu.sharedWorktreeNoSubtask', 'Cannot create subtasks for tasks using a shared worktree')
+                      ? t(
+                          'actionsMenu.sharedWorktreeNoSubtask',
+                          'Cannot create subtasks for tasks using a shared worktree'
+                        )
                       : undefined
                 }
               >

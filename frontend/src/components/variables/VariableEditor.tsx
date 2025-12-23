@@ -8,7 +8,15 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { Plus, Trash2, Edit2, Check, X, Loader2, AlertCircle } from 'lucide-react';
+import {
+  Plus,
+  Trash2,
+  Edit2,
+  Check,
+  X,
+  Loader2,
+  AlertCircle,
+} from 'lucide-react';
 import {
   useTaskVariables,
   useResolvedVariables,
@@ -180,9 +188,7 @@ function VariableEditor({
       setError(null);
     } catch (err) {
       console.error('Failed to save variable:', err);
-      setError(
-        t('variables.errors.saveFailed', 'Failed to save variable')
-      );
+      setError(t('variables.errors.saveFailed', 'Failed to save variable'));
     }
   }, [editing, validateName, createVariable, updateVariable, t]);
 
@@ -212,18 +218,15 @@ function VariableEditor({
   );
 
   // Override an inherited variable
-  const handleOverride = useCallback(
-    (variable: ResolvedVariable) => {
-      setEditing({
-        id: null,
-        name: variable.name,
-        value: variable.value,
-        isNew: true, // This creates a new variable that shadows the inherited one
-      });
-      setError(null);
-    },
-    []
-  );
+  const handleOverride = useCallback((variable: ResolvedVariable) => {
+    setEditing({
+      id: null,
+      name: variable.name,
+      value: variable.value,
+      isNew: true, // This creates a new variable that shadows the inherited one
+    });
+    setError(null);
+  }, []);
 
   // Handle Enter key in inputs
   const handleKeyDown = useCallback(
@@ -288,10 +291,16 @@ function VariableEditor({
                       <Input
                         value={editing.name}
                         onChange={(e) =>
-                          setEditing({ ...editing, name: e.target.value.toUpperCase() })
+                          setEditing({
+                            ...editing,
+                            name: e.target.value.toUpperCase(),
+                          })
                         }
                         onKeyDown={handleKeyDown}
-                        placeholder={t('variables.namePlaceholder', 'VARIABLE_NAME')}
+                        placeholder={t(
+                          'variables.namePlaceholder',
+                          'VARIABLE_NAME'
+                        )}
                         className="h-8 text-sm font-mono flex-1"
                         disabled={isMutating}
                         autoFocus
@@ -346,10 +355,7 @@ function VariableEditor({
             {displayVariables.map((variable) => (
               <div
                 key={variable.name}
-                className={cn(
-                  'p-2 group',
-                  variable.inherited && 'bg-muted/20'
-                )}
+                className={cn('p-2 group', variable.inherited && 'bg-muted/20')}
               >
                 {editing && editing.id === variable.id ? (
                   // Editing existing variable
@@ -361,7 +367,10 @@ function VariableEditor({
                           onChange={(e) =>
                             setEditing((prev) =>
                               prev
-                                ? { ...prev, name: e.target.value.toUpperCase() }
+                                ? {
+                                    ...prev,
+                                    name: e.target.value.toUpperCase(),
+                                  }
                                 : null
                             )
                           }
@@ -433,7 +442,10 @@ function VariableEditor({
                               </Badge>
                             </TooltipTrigger>
                             <TooltipContent>
-                              {t('variables.inheritedTooltip', 'From parent task')}
+                              {t(
+                                'variables.inheritedTooltip',
+                                'From parent task'
+                              )}
                             </TooltipContent>
                           </Tooltip>
                         )}

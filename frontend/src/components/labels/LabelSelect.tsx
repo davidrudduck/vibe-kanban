@@ -104,9 +104,7 @@ export function LabelSelect({
                 <span>No label</span>
               </span>
               <span className="flex-1" />
-              {!selectedLabel && (
-                <Check className="h-4 w-4 text-foreground" />
-              )}
+              {!selectedLabel && <Check className="h-4 w-4 text-foreground" />}
             </button>
 
             {/* Separator */}
@@ -129,9 +127,7 @@ export function LabelSelect({
                 >
                   <LabelBadge label={label} size="sm" />
                   <span className="flex-1" />
-                  {isSelected && (
-                    <Check className="h-4 w-4 text-foreground" />
-                  )}
+                  {isSelected && <Check className="h-4 w-4 text-foreground" />}
                 </button>
               );
             })}

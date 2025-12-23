@@ -113,7 +113,9 @@ export function TemplateManager() {
                     key={template.id}
                     className="border-b hover:bg-muted/30 transition-colors"
                   >
-                    <td className="p-2 text-sm font-medium">@{template.template_name}</td>
+                    <td className="p-2 text-sm font-medium">
+                      @{template.template_name}
+                    </td>
                     <td className="p-2 text-sm">
                       <div
                         className="max-w-[400px] truncate"

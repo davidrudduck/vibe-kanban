@@ -475,10 +475,7 @@ export function OrganizationSettings() {
       )}
 
       {selectedOrg && (
-        <NodeApiKeySection
-          organizationId={selectedOrg.id}
-          isAdmin={isAdmin}
-        />
+        <NodeApiKeySection organizationId={selectedOrg.id} isAdmin={isAdmin} />
       )}
 
       {selectedOrg && isAdmin && !isPersonalOrg && (

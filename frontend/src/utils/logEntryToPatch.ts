@@ -72,18 +72,21 @@ export function logEntriesToPatches(
   }
 
   // Add keys to each entry - use Object.assign to preserve the discriminated union
-  return container.entries.map((patch, index) =>
-    Object.assign({}, patch, {
-      patchKey: `${executionProcessId}:${index}`,
-      executionProcessId,
-    }) as PatchTypeWithKey
+  return container.entries.map(
+    (patch, index) =>
+      Object.assign({}, patch, {
+        patchKey: `${executionProcessId}:${index}`,
+        executionProcessId,
+      }) as PatchTypeWithKey
   );
 }
 
 /**
  * Creates a loading patch entry for display during loading states.
  */
-export function createLoadingPatch(executionProcessId: string): PatchTypeWithKey {
+export function createLoadingPatch(
+  executionProcessId: string
+): PatchTypeWithKey {
   const base: PatchType = {
     type: 'NORMALIZED_ENTRY',
     content: {

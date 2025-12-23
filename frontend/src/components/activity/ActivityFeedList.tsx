@@ -8,7 +8,12 @@ interface Props {
   onUndismiss?: (taskId: string) => void;
 }
 
-function ActivityFeedList({ items, onNavigate, onDismiss, onUndismiss }: Props) {
+function ActivityFeedList({
+  items,
+  onNavigate,
+  onDismiss,
+  onUndismiss,
+}: Props) {
   if (items.length === 0) {
     return (
       <div className="px-3 py-6 text-center text-muted-foreground text-sm">

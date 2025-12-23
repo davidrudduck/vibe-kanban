@@ -1,9 +1,5 @@
 import { useCallback } from 'react';
-import {
-  Panel,
-  PanelGroup,
-  PanelResizeHandle,
-} from 'react-resizable-panels';
+import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { GitBranch, FolderTree } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -100,7 +96,8 @@ export function FilesPanel({
   // Check if we have the required IDs
   const hasWorktree = !!attemptId;
   const hasProject = !!projectId;
-  const canBrowse = (source === 'worktree' && hasWorktree) || (source === 'main' && hasProject);
+  const canBrowse =
+    (source === 'worktree' && hasWorktree) || (source === 'main' && hasProject);
 
   // Compact/mobile mode: show either tree or viewer, not both
   if (compact) {

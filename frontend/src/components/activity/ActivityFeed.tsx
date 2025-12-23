@@ -28,7 +28,12 @@ function ActivityFeed() {
 
   const { dismissItem, undismissItem } = useActivityDismiss();
 
-  const counts = data?.counts ?? { needs_review: 0, in_progress: 0, completed: 0, dismissed: 0 };
+  const counts = data?.counts ?? {
+    needs_review: 0,
+    in_progress: 0,
+    completed: 0,
+    dismissed: 0,
+  };
   const totalCount = counts.needs_review + counts.in_progress;
 
   const filterByCategory = (category: ActivityCategory | 'all') => {
@@ -66,11 +71,7 @@ function ActivityFeed() {
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent
-        className="w-80 p-0"
-        align="end"
-        sideOffset={8}
-      >
+      <PopoverContent className="w-80 p-0" align="end" sideOffset={8}>
         <div className="border-b px-3 py-2 flex items-center justify-between">
           <h4 className="font-medium text-sm">Activity</h4>
           {counts.dismissed > 0 && (
@@ -81,7 +82,11 @@ function ActivityFeed() {
                     variant={showDismissed ? 'secondary' : 'ghost'}
                     size="icon"
                     onClick={() => setShowDismissed(!showDismissed)}
-                    aria-label={showDismissed ? 'Hide dismissed items' : 'Show dismissed items'}
+                    aria-label={
+                      showDismissed
+                        ? 'Hide dismissed items'
+                        : 'Show dismissed items'
+                    }
                     className="h-6 w-6"
                   >
                     {showDismissed ? (
@@ -92,7 +97,10 @@ function ActivityFeed() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
-                  <p>{showDismissed ? 'Hide' : 'Show'} {counts.dismissed} dismissed</p>
+                  <p>
+                    {showDismissed ? 'Hide' : 'Show'} {counts.dismissed}{' '}
+                    dismissed
+                  </p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>

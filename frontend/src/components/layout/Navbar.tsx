@@ -334,9 +334,7 @@ export function Navbar() {
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={
-                project ? `Search ${project.name}...` : 'Search...'
-              }
+              placeholder={project ? `Search ${project.name}...` : 'Search...'}
               className="pl-10 h-10"
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {

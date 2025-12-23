@@ -575,7 +575,9 @@ export const taskVariablesApi = {
    * Child variables override parent variables with the same name.
    */
   listResolved: async (taskId: string): Promise<ResolvedVariable[]> => {
-    const response = await makeRequest(`/api/tasks/${taskId}/variables/resolved`);
+    const response = await makeRequest(
+      `/api/tasks/${taskId}/variables/resolved`
+    );
     return handleApiResponse<ResolvedVariable[]>(response);
   },
 
@@ -1007,7 +1009,9 @@ export const fileBrowserApi = {
   },
 
   // Read file content from ~/.claude/ directory (security-restricted)
-  readClaudeFile: async (relativePath: string): Promise<FileContentResponse> => {
+  readClaudeFile: async (
+    relativePath: string
+  ): Promise<FileContentResponse> => {
     const response = await makeRequest(
       `/api/filesystem/claude-file?path=${encodeURIComponent(relativePath)}`
     );
@@ -1064,7 +1068,10 @@ export const templatesApi = {
     return handleApiResponse<Template>(response);
   },
 
-  update: async (templateId: string, data: UpdateTemplate): Promise<Template> => {
+  update: async (
+    templateId: string,
+    data: UpdateTemplate
+  ): Promise<Template> => {
     const response = await makeRequest(`/api/templates/${templateId}`, {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -1126,7 +1133,10 @@ export const labelsApi = {
   },
 
   /** Set labels for a task (replaces existing) */
-  setTaskLabels: async (taskId: string, data: SetTaskLabels): Promise<Label[]> => {
+  setTaskLabels: async (
+    taskId: string,
+    data: SetTaskLabels
+  ): Promise<Label[]> => {
     const response = await makeRequest(`/api/tasks/${taskId}/labels`, {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -1514,9 +1524,12 @@ export const backupsApi = {
    * Delete a database backup by filename.
    */
   delete: async (filename: string): Promise<void> => {
-    const response = await makeRequest(`/api/backups/${encodeURIComponent(filename)}`, {
-      method: 'DELETE',
-    });
+    const response = await makeRequest(
+      `/api/backups/${encodeURIComponent(filename)}`,
+      {
+        method: 'DELETE',
+      }
+    );
     return handleApiResponse<void>(response);
   },
 
@@ -1567,7 +1580,9 @@ export const processesApi = {
       params.set('executors_only', 'true');
     }
     const queryString = params.toString();
-    const url = queryString ? `/api/processes?${queryString}` : '/api/processes';
+    const url = queryString
+      ? `/api/processes?${queryString}`
+      : '/api/processes';
     const response = await makeRequest(url);
     return handleApiResponse<ProcessInfo[]>(response);
   },
@@ -1575,7 +1590,10 @@ export const processesApi = {
   /**
    * Kill processes by scope.
    */
-  kill: async (scope: KillScope, force: boolean = false): Promise<KillResult> => {
+  kill: async (
+    scope: KillScope,
+    force: boolean = false
+  ): Promise<KillResult> => {
     const response = await makeRequest('/api/processes/kill', {
       method: 'POST',
       body: JSON.stringify({ scope, force }),

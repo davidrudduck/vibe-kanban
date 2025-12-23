@@ -32,7 +32,12 @@ function formatDate(date: Date | string): string {
 export function BackupSettings() {
   const { t } = useTranslation('settings');
   const queryClient = useQueryClient();
-  const { success, error: feedbackError, showSuccess, showError } = useFeedback();
+  const {
+    success,
+    error: feedbackError,
+    showSuccess,
+    showError,
+  } = useFeedback();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
@@ -139,7 +144,9 @@ export function BackupSettings() {
       {success && (
         <Alert variant="success">
           <AlertDescription className="font-medium">
-            {typeof success === 'string' ? success : t('settings.backups.createSuccess')}
+            {typeof success === 'string'
+              ? success
+              : t('settings.backups.createSuccess')}
           </AlertDescription>
         </Alert>
       )}
@@ -148,7 +155,9 @@ export function BackupSettings() {
         <CardHeader className="flex flex-row items-start justify-between">
           <div className="space-y-1">
             <CardTitle>{t('settings.backups.title')}</CardTitle>
-            <CardDescription>{t('settings.backups.description')}</CardDescription>
+            <CardDescription>
+              {t('settings.backups.description')}
+            </CardDescription>
           </div>
           <div className="flex gap-2">
             <input
@@ -224,14 +233,15 @@ export function BackupSettings() {
                           {formatBytes(backup.size_bytes)}
                         </td>
                         <td className="p-3 text-right space-x-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            asChild
-                          >
-                            <a href={backupsApi.getDownloadUrl(backup.filename)} download>
+                          <Button variant="ghost" size="sm" asChild>
+                            <a
+                              href={backupsApi.getDownloadUrl(backup.filename)}
+                              download
+                            >
                               <Download className="h-4 w-4" />
-                              <span className="sr-only">{t('settings.backups.actions.download')}</span>
+                              <span className="sr-only">
+                                {t('settings.backups.actions.download')}
+                              </span>
                             </a>
                           </Button>
                           <Button
@@ -242,7 +252,9 @@ export function BackupSettings() {
                             className="text-destructive hover:text-destructive hover:bg-destructive/10"
                           >
                             <Trash2 className="h-4 w-4" />
-                            <span className="sr-only">{t('settings.backups.actions.delete')}</span>
+                            <span className="sr-only">
+                              {t('settings.backups.actions.delete')}
+                            </span>
                           </Button>
                         </td>
                       </tr>

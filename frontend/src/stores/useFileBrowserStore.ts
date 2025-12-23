@@ -77,7 +77,8 @@ export const useFileBrowserStore = create<FileBrowserState>((set, get) => ({
 
   toggleMarkdownViewMode: () =>
     set((state) => ({
-      markdownViewMode: state.markdownViewMode === 'preview' ? 'raw' : 'preview',
+      markdownViewMode:
+        state.markdownViewMode === 'preview' ? 'raw' : 'preview',
     })),
 
   setFilterTerm: (term) => set({ filterTerm: term }),

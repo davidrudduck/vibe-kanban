@@ -114,7 +114,12 @@ export const AttemptHeaderActions = ({
       {!isMobile && typeof mode !== 'undefined' && onModeChange && (
         <div className="h-4 w-px bg-border" />
       )}
-      <ActionsDropdown task={task} attempt={attempt} sharedTask={sharedTask} isOrgAdmin={isOrgAdmin} />
+      <ActionsDropdown
+        task={task}
+        attempt={attempt}
+        sharedTask={sharedTask}
+        isOrgAdmin={isOrgAdmin}
+      />
       <Button variant="icon" aria-label="Close" onClick={onClose}>
         <X size={16} />
       </Button>

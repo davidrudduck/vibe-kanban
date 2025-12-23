@@ -197,7 +197,10 @@ const ViewRelatedTasksDialogImpl =
                           disabled={!projectId || !taskId || usesSharedWorktree}
                           title={
                             usesSharedWorktree
-                              ? t('actionsMenu.sharedWorktreeNoSubtask', 'Cannot create subtasks for tasks using a shared worktree')
+                              ? t(
+                                  'actionsMenu.sharedWorktreeNoSubtask',
+                                  'Cannot create subtasks for tasks using a shared worktree'
+                                )
                               : undefined
                           }
                         >

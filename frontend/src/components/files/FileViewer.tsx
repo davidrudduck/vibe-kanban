@@ -1,5 +1,13 @@
 import { useCallback, useState } from 'react';
-import { Loader2, AlertCircle, Copy, Check, Code, Eye, ExternalLink } from 'lucide-react';
+import {
+  Loader2,
+  AlertCircle,
+  Copy,
+  Check,
+  Code,
+  Eye,
+  ExternalLink,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
@@ -81,12 +89,7 @@ export function FileViewer({
   // Loading state
   if (isLoading) {
     return (
-      <div
-        className={cn(
-          'flex items-center justify-center h-full',
-          className
-        )}
-      >
+      <div className={cn('flex items-center justify-center h-full', className)}>
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
     );
@@ -174,7 +177,9 @@ export function FileViewer({
                   )}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>{copied ? 'Copied!' : 'Copy content'}</TooltipContent>
+              <TooltipContent>
+                {copied ? 'Copied!' : 'Copy content'}
+              </TooltipContent>
             </Tooltip>
           </TooltipProvider>
 

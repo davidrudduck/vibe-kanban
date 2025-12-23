@@ -17,7 +17,9 @@ function ActivityFeedItem({ item, onNavigate, onDismiss, onUndismiss }: Props) {
   const navigate = useNavigate();
 
   const handleClick = () => {
-    navigate(`/projects/${item.project_id}/tasks/${item.task_id}/attempts/latest`);
+    navigate(
+      `/projects/${item.project_id}/tasks/${item.task_id}/attempts/latest`
+    );
     onNavigate?.();
   };
 
@@ -32,9 +34,12 @@ function ActivityFeedItem({ item, onNavigate, onDismiss, onUndismiss }: Props) {
   };
 
   const categoryColors = {
-    needs_review: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200',
-    in_progress: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
-    completed: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
+    needs_review:
+      'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200',
+    in_progress:
+      'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
+    completed:
+      'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
   };
 
   const categoryLabels = {
@@ -48,7 +53,7 @@ function ActivityFeedItem({ item, onNavigate, onDismiss, onUndismiss }: Props) {
       onClick={handleClick}
       className={cn(
         'group flex flex-col gap-1 px-3 py-2 cursor-pointer hover:bg-muted/50 border-b last:border-b-0',
-        item.is_dismissed && 'opacity-60',
+        item.is_dismissed && 'opacity-60'
       )}
     >
       <div className="flex items-center justify-between gap-2">
