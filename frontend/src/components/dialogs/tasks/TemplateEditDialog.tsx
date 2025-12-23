@@ -13,49 +13,49 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Loader2 } from 'lucide-react';
-import { tagsApi } from '@/lib/api';
-import type { Tag, CreateTag, UpdateTag } from 'shared/types';
+import { templatesApi } from '@/lib/api';
+import type { Template, CreateTemplate, UpdateTemplate } from 'shared/types';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal, getErrorMessage } from '@/lib/modals';
 
-export interface TagEditDialogProps {
-  tag?: Tag | null; // null for create mode
+export interface TemplateEditDialogProps {
+  template?: Template | null; // null for create mode
 }
 
-export type TagEditResult = 'saved' | 'canceled';
+export type TemplateEditResult = 'saved' | 'canceled';
 
-const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
+const TemplateEditDialogImpl = NiceModal.create<TemplateEditDialogProps>(({ template }) => {
   const modal = useModal();
   const { t } = useTranslation('settings');
   const [formData, setFormData] = useState({
-    tag_name: '',
+    template_name: '',
     content: '',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tagNameError, setTagNameError] = useState<string | null>(null);
+  const [templateNameError, setTemplateNameError] = useState<string | null>(null);
 
-  const isEditMode = Boolean(tag);
+  const isEditMode = Boolean(template);
 
   useEffect(() => {
-    if (tag) {
+    if (template) {
       setFormData({
-        tag_name: tag.tag_name,
-        content: tag.content,
+        template_name: template.template_name,
+        content: template.content,
       });
     } else {
       setFormData({
-        tag_name: '',
+        template_name: '',
         content: '',
       });
     }
     setError(null);
-    setTagNameError(null);
-  }, [tag]);
+    setTemplateNameError(null);
+  }, [template]);
 
   const handleSave = async () => {
-    if (!formData.tag_name.trim()) {
-      setError(t('settings.general.tags.dialog.errors.nameRequired'));
+    if (!formData.template_name.trim()) {
+      setError(t('settings.general.templates.dialog.errors.nameRequired'));
       return;
     }
 
@@ -63,26 +63,26 @@ const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
     setError(null);
 
     try {
-      if (isEditMode && tag) {
-        const updateData: UpdateTag = {
-          tag_name: formData.tag_name,
+      if (isEditMode && template) {
+        const updateData: UpdateTemplate = {
+          template_name: formData.template_name,
           content: formData.content || null, // null means "don't update"
         };
-        await tagsApi.update(tag.id, updateData);
+        await templatesApi.update(template.id, updateData);
       } else {
-        const createData: CreateTag = {
-          tag_name: formData.tag_name,
+        const createData: CreateTemplate = {
+          template_name: formData.template_name,
           content: formData.content,
         };
-        await tagsApi.create(createData);
+        await templatesApi.create(createData);
       }
 
-      modal.resolve('saved' as TagEditResult);
+      modal.resolve('saved' as TemplateEditResult);
       modal.hide();
     } catch (err: unknown) {
       setError(
         getErrorMessage(err) ||
-          t('settings.general.tags.dialog.errors.saveFailed')
+          t('settings.general.templates.dialog.errors.saveFailed')
       );
     } finally {
       setSaving(false);
@@ -90,7 +90,7 @@ const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
   };
 
   const handleCancel = () => {
-    modal.resolve('canceled' as TagEditResult);
+    modal.resolve('canceled' as TemplateEditResult);
     modal.hide();
   };
 
@@ -98,7 +98,7 @@ const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
     if (!open) {
       // Reset form data when dialog closes
       setFormData({
-        tag_name: '',
+        template_name: '',
         content: '',
       });
       setError(null);
@@ -112,72 +112,72 @@ const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
         <DialogHeader>
           <DialogTitle>
             {isEditMode
-              ? t('settings.general.tags.dialog.editTitle')
-              : t('settings.general.tags.dialog.createTitle')}
+              ? t('settings.general.templates.dialog.editTitle')
+              : t('settings.general.templates.dialog.createTitle')}
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div>
-            <Label htmlFor="tag-name">
-              {t('settings.general.tags.dialog.tagName.label')}{' '}
+            <Label htmlFor="template-name">
+              {t('settings.general.templates.dialog.templateName.label')}{' '}
               <span className="text-destructive">
-                {t('settings.general.tags.dialog.tagName.required')}
+                {t('settings.general.templates.dialog.templateName.required')}
               </span>
             </Label>
             <p className="text-xs text-muted-foreground mb-1.5">
-              {t('settings.general.tags.dialog.tagName.hint', {
-                tagName: formData.tag_name || 'tag_name',
+              {t('settings.general.templates.dialog.templateName.hint', {
+                templateName: formData.template_name || 'template_name',
               })}
             </p>
             <Input
-              id="tag-name"
-              value={formData.tag_name}
+              id="template-name"
+              value={formData.template_name}
               onChange={(e) => {
                 const value = e.target.value;
-                setFormData({ ...formData, tag_name: value });
+                setFormData({ ...formData, template_name: value });
 
                 // Validate in real-time for spaces
                 if (value.includes(' ')) {
-                  setTagNameError(
-                    t('settings.general.tags.dialog.tagName.error')
+                  setTemplateNameError(
+                    t('settings.general.templates.dialog.templateName.error')
                   );
                 } else {
-                  setTagNameError(null);
+                  setTemplateNameError(null);
                 }
               }}
               placeholder={t(
-                'settings.general.tags.dialog.tagName.placeholder'
+                'settings.general.templates.dialog.templateName.placeholder'
               )}
               disabled={saving}
               autoFocus
-              aria-invalid={!!tagNameError}
-              className={tagNameError ? 'border-destructive' : undefined}
+              aria-invalid={!!templateNameError}
+              className={templateNameError ? 'border-destructive' : undefined}
             />
-            {tagNameError && (
-              <p className="text-sm text-destructive">{tagNameError}</p>
+            {templateNameError && (
+              <p className="text-sm text-destructive">{templateNameError}</p>
             )}
           </div>
           <div>
-            <Label htmlFor="tag-content">
-              {t('settings.general.tags.dialog.content.label')}{' '}
+            <Label htmlFor="template-content">
+              {t('settings.general.templates.dialog.content.label')}{' '}
               <span className="text-destructive">
-                {t('settings.general.tags.dialog.content.required')}
+                {t('settings.general.templates.dialog.content.required')}
               </span>
             </Label>
             <p className="text-xs text-muted-foreground mb-1.5">
-              {t('settings.general.tags.dialog.content.hint', {
-                tagName: formData.tag_name || 'tag_name',
+              {t('settings.general.templates.dialog.content.hint', {
+                templateName: formData.template_name || 'template_name',
               })}
             </p>
             <Textarea
-              id="tag-content"
+              id="template-content"
               value={formData.content}
               onChange={(e) => {
                 const value = e.target.value;
                 setFormData({ ...formData, content: value });
               }}
               placeholder={t(
-                'settings.general.tags.dialog.content.placeholder'
+                'settings.general.templates.dialog.content.placeholder'
               )}
               rows={6}
               disabled={saving}
@@ -187,16 +187,16 @@ const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={handleCancel} disabled={saving}>
-            {t('settings.general.tags.dialog.buttons.cancel')}
+            {t('settings.general.templates.dialog.buttons.cancel')}
           </Button>
           <Button
             onClick={handleSave}
-            disabled={saving || !!tagNameError || !formData.content.trim()}
+            disabled={saving || !!templateNameError || !formData.content.trim()}
           >
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {isEditMode
-              ? t('settings.general.tags.dialog.buttons.update')
-              : t('settings.general.tags.dialog.buttons.create')}
+              ? t('settings.general.templates.dialog.buttons.update')
+              : t('settings.general.templates.dialog.buttons.create')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -204,6 +204,6 @@ const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
   );
 });
 
-export const TagEditDialog = defineModal<TagEditDialogProps, TagEditResult>(
-  TagEditDialogImpl
+export const TemplateEditDialog = defineModal<TemplateEditDialogProps, TemplateEditResult>(
+  TemplateEditDialogImpl
 );

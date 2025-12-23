@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "DELETE FROM tags WHERE id = $1",
+  "query": "DELETE FROM labels WHERE id = $1",
   "describe": {
     "columns": [],
     "parameters": {
@@ -8,5 +8,5 @@
     },
     "nullable": []
   },
-  "hash": "dd0d0e3fd03f130aab947d13580796eee9a786e2ca01d339fd0e8356f8ad3824"
+  "hash": "69a251804865460f8917d16a690dbcfde188ba8a27688fa9f7e16ce256ca414c"
 }

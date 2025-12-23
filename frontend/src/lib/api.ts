@@ -18,7 +18,8 @@ import {
   CreateTask,
   CreateAndStartTaskRequest,
   CreateTaskAttemptBody,
-  CreateTag,
+  CreateTemplate,
+  CreateLabel,
   CreateTaskVariable,
   DirectoryListResponse,
   DirectoryEntry,
@@ -38,13 +39,17 @@ import {
   TaskAttempt,
   TaskRelationships,
   TaskVariable,
-  Tag,
-  TagSearchParams,
+  Template,
+  TemplateSearchParams,
+  Label,
+  LabelQueryParams,
+  SetTaskLabels,
   TaskWithAttemptStatus,
   AssignSharedTaskResponse,
   UpdateProject,
   UpdateTask,
-  UpdateTag,
+  UpdateTemplate,
+  UpdateLabel,
   UpdateTaskVariable,
   UserSystemInfo,
   UpdateRetryFollowUpDraftRequest,
@@ -1041,37 +1046,92 @@ export const configApi = {
   },
 };
 
-// Task Tags APIs (all tags are global)
-export const tagsApi = {
-  list: async (params?: TagSearchParams): Promise<Tag[]> => {
+// Templates APIs (renamed from Tags - used for @mentions in descriptions)
+export const templatesApi = {
+  list: async (params?: TemplateSearchParams): Promise<Template[]> => {
     const queryParam = params?.search
       ? `?search=${encodeURIComponent(params.search)}`
       : '';
-    const response = await makeRequest(`/api/tags${queryParam}`);
-    return handleApiResponse<Tag[]>(response);
+    const response = await makeRequest(`/api/templates${queryParam}`);
+    return handleApiResponse<Template[]>(response);
   },
 
-  create: async (data: CreateTag): Promise<Tag> => {
-    const response = await makeRequest('/api/tags', {
+  create: async (data: CreateTemplate): Promise<Template> => {
+    const response = await makeRequest('/api/templates', {
       method: 'POST',
       body: JSON.stringify(data),
     });
-    return handleApiResponse<Tag>(response);
+    return handleApiResponse<Template>(response);
   },
 
-  update: async (tagId: string, data: UpdateTag): Promise<Tag> => {
-    const response = await makeRequest(`/api/tags/${tagId}`, {
+  update: async (templateId: string, data: UpdateTemplate): Promise<Template> => {
+    const response = await makeRequest(`/api/templates/${templateId}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
-    return handleApiResponse<Tag>(response);
+    return handleApiResponse<Template>(response);
   },
 
-  delete: async (tagId: string): Promise<void> => {
-    const response = await makeRequest(`/api/tags/${tagId}`, {
+  delete: async (templateId: string): Promise<void> => {
+    const response = await makeRequest(`/api/templates/${templateId}`, {
       method: 'DELETE',
     });
     return handleApiResponse<void>(response);
+  },
+};
+
+// Labels APIs (visual task categorization)
+export const labelsApi = {
+  /** List labels. If projectId provided, returns global + project-specific labels */
+  list: async (params?: LabelQueryParams): Promise<Label[]> => {
+    const queryParam = params?.project_id
+      ? `?project_id=${encodeURIComponent(params.project_id)}`
+      : '';
+    const response = await makeRequest(`/api/labels${queryParam}`);
+    return handleApiResponse<Label[]>(response);
+  },
+
+  get: async (labelId: string): Promise<Label> => {
+    const response = await makeRequest(`/api/labels/${labelId}`);
+    return handleApiResponse<Label>(response);
+  },
+
+  create: async (data: CreateLabel): Promise<Label> => {
+    const response = await makeRequest('/api/labels', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    return handleApiResponse<Label>(response);
+  },
+
+  update: async (labelId: string, data: UpdateLabel): Promise<Label> => {
+    const response = await makeRequest(`/api/labels/${labelId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+    return handleApiResponse<Label>(response);
+  },
+
+  delete: async (labelId: string): Promise<void> => {
+    const response = await makeRequest(`/api/labels/${labelId}`, {
+      method: 'DELETE',
+    });
+    return handleApiResponse<void>(response);
+  },
+
+  /** Get labels for a specific task */
+  getTaskLabels: async (taskId: string): Promise<Label[]> => {
+    const response = await makeRequest(`/api/tasks/${taskId}/labels`);
+    return handleApiResponse<Label[]>(response);
+  },
+
+  /** Set labels for a task (replaces existing) */
+  setTaskLabels: async (taskId: string, data: SetTaskLabels): Promise<Label[]> => {
+    const response = await makeRequest(`/api/tasks/${taskId}/labels`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+    return handleApiResponse<Label[]>(response);
   },
 };
 

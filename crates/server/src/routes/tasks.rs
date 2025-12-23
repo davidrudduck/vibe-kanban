@@ -14,6 +14,7 @@ use axum::{
 };
 use db::models::{
     image::TaskImage,
+    label::{Label, SetTaskLabels},
     project::Project,
     task::{CreateTask, Task, TaskWithAttemptStatus, UpdateTask},
     task_attempt::{CreateTaskAttempt, TaskAttempt, TaskAttemptError},
@@ -942,6 +943,32 @@ pub async fn get_task_children(
     Ok(ResponseJson(ApiResponse::success(children)))
 }
 
+/// GET /api/tasks/{id}/labels - Get labels for a task
+pub async fn get_task_labels(
+    Extension(task): Extension<Task>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<Vec<Label>>>, ApiError> {
+    let labels = Label::find_by_task_id(&deployment.db().pool, task.id).await?;
+    Ok(ResponseJson(ApiResponse::success(labels)))
+}
+
+/// PUT /api/tasks/{id}/labels - Set labels for a task (replaces existing)
+pub async fn set_task_labels(
+    Extension(task): Extension<Task>,
+    State(deployment): State<DeploymentImpl>,
+    Json(payload): Json<SetTaskLabels>,
+) -> Result<ResponseJson<ApiResponse<Vec<Label>>>, ApiError> {
+    // Remote tasks don't support labels
+    if task.is_remote {
+        return Err(ApiError::BadRequest(
+            "Labels are not supported for remote tasks".to_string(),
+        ));
+    }
+
+    let labels = Label::set_task_labels(&deployment.db().pool, task.id, &payload.label_ids).await?;
+    Ok(ResponseJson(ApiResponse::success(labels)))
+}
+
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let task_actions_router = Router::new()
         .route("/", put(update_task))
@@ -950,6 +977,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/archive", post(archive_task))
         .route("/unarchive", post(unarchive_task))
         .route("/children", get(get_task_children))
+        .route("/labels", get(get_task_labels).put(set_task_labels))
         .route("/available-nodes", get(get_available_nodes))
         .route("/stream-connection-info", get(get_stream_connection_info));
 
