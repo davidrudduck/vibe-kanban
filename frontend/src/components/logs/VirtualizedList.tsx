@@ -18,10 +18,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { BottomSheet } from '@/components/ui/bottom-sheet';
 import { TaskAttempt, TaskWithAttemptStatus } from 'shared/types';
 import { ApprovalFormProvider } from '@/contexts/ApprovalFormContext';
-import type { PaginationPreset } from '@/stores/usePaginationOverride';
+import {
+  PaginationPreset,
+  usePaginationOverride,
+} from '@/stores/usePaginationOverride';
 
 interface VirtualizedListProps {
   attempt: TaskAttempt;
@@ -73,8 +75,11 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
   const [loading, setLoading] = useState(true);
   const [atBottom, setAtBottom] = useState(true);
   const [atTop, setAtTop] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const { setEntries, reset } = useEntries();
+
+  // Per-conversation pagination override (keyed by attempt ID)
+  const [paginationOverride, setPaginationOverride] =
+    usePaginationOverride(attempt.id);
 
   useEffect(() => {
     setLoading(true);
@@ -95,10 +100,7 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
     }
   };
 
-  // Get pagination settings from useConversationHistory
-  // This provides both the effective limit and control to change it
-  const { override: paginationOverride, setOverride: setPaginationOverride } =
-    useConversationHistory({ attempt, onEntriesUpdated });
+  useConversationHistory({ attempt, onEntriesUpdated });
 
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const didInitScroll = useRef(false);
@@ -175,61 +177,45 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
           followOutput={atBottom && !loading ? 'smooth' : false}
           increaseViewportBy={{ top: 0, bottom: 600 }}
         />
-        {/* Pagination settings - BottomSheet on mobile, Popover on desktop */}
+        {/* Pagination override dropdown */}
         {!loading && (
-          <BottomSheet
-            open={settingsOpen}
-            onOpenChange={setSettingsOpen}
-            title={t('conversation.pagination.title')}
-            trigger={
-              <Button
-                variant="outline"
-                size="icon"
-                className="absolute top-4 left-4 z-10 rounded-full shadow-lg bg-background/90 backdrop-blur-sm hover:bg-background"
+          <div className="absolute top-4 left-4 z-10">
+            <Select
+              value={String(paginationOverride)}
+              onValueChange={(value) => {
+                if (value === 'global') {
+                  setPaginationOverride('global');
+                } else {
+                  setPaginationOverride(Number(value) as PaginationPreset);
+                }
+              }}
+            >
+              <SelectTrigger
+                className="h-8 w-auto gap-1.5 px-2 text-xs bg-background/90 backdrop-blur-sm shadow-lg border-input"
                 aria-label={t('conversation.pagination.label')}
               >
-                <Settings2 className="h-4 w-4" />
-              </Button>
-            }
-          >
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                {t('conversation.pagination.description')}
-              </p>
-              <Select
-                value={String(paginationOverride)}
-                onValueChange={(value) => {
-                  if (value === 'global') {
-                    setPaginationOverride('global');
-                  } else {
-                    setPaginationOverride(Number(value) as PaginationPreset);
-                  }
-                  setSettingsOpen(false);
-                }}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="global">
-                    {t('conversation.pagination.global')}
-                  </SelectItem>
-                  <SelectItem value="50">
-                    {t('conversation.pagination.entries50')}
-                  </SelectItem>
-                  <SelectItem value="100">
-                    {t('conversation.pagination.entries100')}
-                  </SelectItem>
-                  <SelectItem value="200">
-                    {t('conversation.pagination.entries200')}
-                  </SelectItem>
-                  <SelectItem value="500">
-                    {t('conversation.pagination.entries500')}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </BottomSheet>
+                <Settings2 className="h-3.5 w-3.5" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="start">
+                <SelectItem value="global">
+                  {t('conversation.pagination.global')}
+                </SelectItem>
+                <SelectItem value="50">
+                  {t('conversation.pagination.entries50')}
+                </SelectItem>
+                <SelectItem value="100">
+                  {t('conversation.pagination.entries100')}
+                </SelectItem>
+                <SelectItem value="200">
+                  {t('conversation.pagination.entries200')}
+                </SelectItem>
+                <SelectItem value="500">
+                  {t('conversation.pagination.entries500')}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         )}
         {!atTop && items.length > 0 && !loading && (
           <Button
