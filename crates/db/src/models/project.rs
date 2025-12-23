@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{Executor, FromRow, Sqlite, SqlitePool};
+use sqlx::{Executor, FromRow, QueryBuilder, Sqlite, SqlitePool};
 use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
@@ -629,7 +629,10 @@ impl Project {
         Ok(())
     }
 
-    /// Delete remote projects that are no longer in the Hive
+    /// Delete remote projects that are no longer in the Hive.
+    ///
+    /// Uses a single bulk DELETE query with NOT IN clause for O(1) database calls
+    /// instead of O(n) fetch + O(m) deletes.
     pub async fn delete_stale_remote_projects(
         pool: &SqlitePool,
         active_remote_project_ids: &[Uuid],
@@ -639,21 +642,18 @@ impl Project {
             return Ok(0);
         }
 
-        // SQLite doesn't have array parameters, so we need to build the query dynamically
-        // However, sqlx doesn't support dynamic IN clauses easily.
-        // For now, we'll use a simpler approach: fetch all remote projects and delete ones not in list
-        let all_remote = Self::find_remote_projects(pool).await?;
-        let mut deleted = 0u64;
-
-        for project in all_remote {
-            if let Some(remote_id) = project.remote_project_id
-                && !active_remote_project_ids.contains(&remote_id)
-            {
-                deleted += Self::delete(pool, project.id).await?;
+        let mut builder = QueryBuilder::<Sqlite>::new(
+            "DELETE FROM projects WHERE is_remote = 1 AND remote_project_id IS NOT NULL AND remote_project_id NOT IN (",
+        );
+        {
+            let mut separated = builder.separated(", ");
+            for id in active_remote_project_ids {
+                separated.push_bind(id);
             }
         }
-
-        Ok(deleted)
+        builder.push(")");
+        let result = builder.build().execute(pool).await?;
+        Ok(result.rows_affected())
     }
 
     /// Get all remote_project_ids from local projects (for exclusion during remote sync)
