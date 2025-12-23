@@ -67,10 +67,7 @@ pub struct ClaudeCode {
     /// When enabled, questions are displayed as clickable options in the UI.
     /// When disabled, questions fall back to text-based prompts.
     /// Defaults to true.
-    #[serde(
-        default = "default_interactive_questions",
-        skip_serializing_if = "is_default_interactive_questions"
-    )]
+    #[serde(default = "default_interactive_questions")]
     pub interactive_questions: bool,
     #[serde(flatten)]
     pub cmd: CmdOverrides,
@@ -83,10 +80,6 @@ pub struct ClaudeCode {
 
 fn default_interactive_questions() -> bool {
     true
-}
-
-fn is_default_interactive_questions(value: &bool) -> bool {
-    *value
 }
 
 impl ClaudeCode {
@@ -2400,18 +2393,19 @@ mod tests {
     #[test]
     fn test_interactive_questions_serialization() {
         // Test using JSON deserialization to create a valid ClaudeCode
-        // Default (true) should be skipped during serialization
+        // Default (true) should now be serialized (not skipped)
         let json = r#"{}"#;
         let config: ClaudeCode = serde_json::from_str(json).unwrap();
         assert!(config.interactive_questions, "Default should be true");
 
         let serialized = serde_json::to_value(&config).unwrap();
-        assert!(
-            serialized.get("interactive_questions").is_none(),
-            "interactive_questions=true should be skipped during serialization"
+        assert_eq!(
+            serialized.get("interactive_questions"),
+            Some(&serde_json::json!(true)),
+            "interactive_questions=true should be serialized"
         );
 
-        // False should be serialized
+        // False should also be serialized
         let json_false = r#"{"interactive_questions": false}"#;
         let config_false: ClaudeCode = serde_json::from_str(json_false).unwrap();
         let serialized_false = serde_json::to_value(&config_false).unwrap();
