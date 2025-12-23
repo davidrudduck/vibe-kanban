@@ -4,6 +4,7 @@ import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal } from '@/lib/modals';
 import { useDropzone } from 'react-dropzone';
 import { useForm, useStore } from '@tanstack/react-form';
+import { useQueryClient } from '@tanstack/react-query';
 import { Image as ImageIcon } from 'lucide-react';
 import {
   Dialog,
@@ -54,7 +55,8 @@ import type {
   ImageResponse,
   Label,
 } from 'shared/types';
-import { LabelPicker } from '@/components/labels/LabelPicker';
+import { LabelSelect } from '@/components/labels';
+import { labelsApi } from '@/lib/api';
 import { useTaskLabels } from '@/hooks/useTaskLabels';
 
 export type TaskFormDialogProps =
@@ -83,6 +85,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
   const editMode = mode === 'edit';
   const modal = useModal();
   const { t } = useTranslation(['tasks', 'common']);
+  const queryClient = useQueryClient();
   const { createTask, createAndStart, updateTask } =
     useTaskMutations(projectId);
   const { system, profiles, loading: userSystemLoading } = useUserSystem();
@@ -105,16 +108,16 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
     editMode ? props.task.id : undefined
   );
 
-  // Labels management (only for edit mode)
+  // Labels management (for both create and edit modes)
   const taskId = editMode ? props.task.id : undefined;
   const { data: taskLabels } = useTaskLabels(taskId, editMode);
-  // Note: setTaskLabels mutation is handled inside LabelPicker component
-  const [selectedLabels, setSelectedLabels] = useState<Label[]>([]);
+  const [selectedLabel, setSelectedLabel] = useState<Label | null>(null);
 
-  // Sync labels from server to local state when data arrives
+  // Sync labels from server to local state when data arrives (edit mode)
   useEffect(() => {
-    if (taskLabels) {
-      setSelectedLabels(taskLabels);
+    if (taskLabels && taskLabels.length > 0) {
+      // Single label mode - take the first label
+      setSelectedLabel(taskLabels[0]);
     }
   }, [taskLabels]);
 
@@ -226,6 +229,21 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
         validation_steps: validationStepsJson,
       };
       const shouldAutoStart = value.autoStart && !forceCreateOnlyRef.current;
+
+      // Helper to set label after task creation
+      const setLabelAfterCreate = async (createdTaskId: string) => {
+        if (selectedLabel) {
+          try {
+            await labelsApi.setTaskLabels(createdTaskId, {
+              label_ids: [selectedLabel.id],
+            });
+          } catch (err) {
+            console.error('Failed to set label on new task:', err);
+            // Don't block task creation if label assignment fails
+          }
+        }
+      };
+
       if (shouldAutoStart) {
         await createAndStart.mutateAsync(
           {
@@ -233,10 +251,21 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
             executor_profile_id: value.executorProfileId!,
             base_branch: value.branch,
           },
-          { onSuccess: () => modal.remove() }
+          {
+            onSuccess: async (result) => {
+              // TaskWithAttemptStatus has task fields directly (not nested)
+              await setLabelAfterCreate(result.id);
+              modal.remove();
+            },
+          }
         );
       } else {
-        await createTask.mutateAsync(task, { onSuccess: () => modal.remove() });
+        await createTask.mutateAsync(task, {
+          onSuccess: async (createdTask) => {
+            await setLabelAfterCreate(createdTask.id);
+            modal.remove();
+          },
+        });
       }
     }
   };
@@ -316,13 +345,32 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
     [form]
   );
 
-  // Labels change handler
-  const handleLabelsChange = useCallback(
-    (newLabels: Label[]) => {
-      setSelectedLabels(newLabels);
-      // The LabelPicker already handles the API call, so we just update local state
+  // Label change handler (for single label selection)
+  const handleLabelChange = useCallback(
+    async (newLabel: Label | null) => {
+      setSelectedLabel(newLabel);
+
+      // In edit mode, immediately save the label change to the server
+      if (editMode && taskId) {
+        try {
+          await labelsApi.setTaskLabels(taskId, {
+            label_ids: newLabel ? [newLabel.id] : [],
+          });
+          // Invalidate the task labels cache so TaskCard updates
+          queryClient.invalidateQueries({ queryKey: ['taskLabels', taskId] });
+        } catch (err) {
+          console.error('Failed to update task label:', err);
+          // Revert on error - restore from server data
+          if (taskLabels && taskLabels.length > 0) {
+            setSelectedLabel(taskLabels[0]);
+          } else {
+            setSelectedLabel(null);
+          }
+        }
+      }
+      // In create mode, just update local state - label will be saved after task creation
     },
-    []
+    [editMode, taskId, taskLabels, queryClient]
   );
 
   // Unsaved changes detection
@@ -546,22 +594,6 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
               </form.Field>
             )}
 
-            {/* Labels - edit mode only */}
-            {editMode && taskId && (
-              <div className="space-y-2 pt-4">
-                <FormLabel className="text-sm font-medium text-muted-foreground">
-                  {t('taskFormDialog.labelsLabel', 'Labels')}
-                </FormLabel>
-                <LabelPicker
-                  taskId={taskId}
-                  projectId={projectId}
-                  selectedLabels={selectedLabels}
-                  onLabelsChange={handleLabelsChange}
-                  disabled={isSubmitting}
-                />
-              </div>
-            )}
-
             {/* Validation Steps */}
             <form.Field name="validationSteps">
               {(field) => (
@@ -663,8 +695,16 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
               </Button>
             </div>
 
-            {/* Autostart switch */}
+            {/* Label selector + Autostart switch + Create/Update button */}
             <div className="flex items-center gap-3">
+              {/* Label selector */}
+              <LabelSelect
+                projectId={projectId}
+                selectedLabel={selectedLabel}
+                onLabelChange={handleLabelChange}
+                disabled={isSubmitting}
+              />
+
               {!editMode && (
                 <form.Field name="autoStart">
                   {(field) => (
