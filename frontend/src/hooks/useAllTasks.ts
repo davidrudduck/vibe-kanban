@@ -20,7 +20,8 @@ export const useAllTasks = (): UseAllTasksResult => {
       const response = await tasksApi.getAll();
       return response.tasks;
     },
-    refetchInterval: 10000, // Refetch every 10 seconds for live updates
+    // Only poll when tab is visible to reduce unnecessary network requests
+    refetchInterval: () => (document.hidden ? false : 10000),
     staleTime: 5000,
   });
 

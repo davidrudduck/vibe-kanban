@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{Executor, FromRow, Sqlite, SqlitePool, Type};
+use sqlx::{Executor, FromRow, QueryBuilder, Sqlite, SqlitePool, Type};
 use strum_macros::{Display, EnumString};
 use ts_rs::TS;
 use uuid::Uuid;
@@ -883,23 +883,26 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
 
     /// Archive multiple tasks by their IDs.
     /// Returns the number of tasks archived.
+    ///
+    /// Uses a single bulk UPDATE query with IN clause for O(1) database calls
+    /// instead of O(n) individual queries.
     pub async fn archive_many(pool: &SqlitePool, ids: &[Uuid]) -> Result<u64, sqlx::Error> {
         if ids.is_empty() {
             return Ok(0);
         }
 
-        // SQLite doesn't support array parameters directly, so we use a loop
-        let mut count = 0u64;
-        for id in ids {
-            let result = sqlx::query!(
-                "UPDATE tasks SET archived_at = datetime('now', 'subsec'), updated_at = datetime('now', 'subsec') WHERE id = $1",
-                id
-            )
-            .execute(pool)
-            .await?;
-            count += result.rows_affected();
+        let mut builder = QueryBuilder::<Sqlite>::new(
+            "UPDATE tasks SET archived_at = datetime('now', 'subsec'), updated_at = datetime('now', 'subsec') WHERE id IN (",
+        );
+        {
+            let mut separated = builder.separated(", ");
+            for id in ids {
+                separated.push_bind(id);
+            }
         }
-        Ok(count)
+        builder.push(")");
+        let result = builder.build().execute(pool).await?;
+        Ok(result.rows_affected())
     }
 
     /// Update remote stream location for a task
@@ -924,30 +927,32 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
         Ok(())
     }
 
-    /// Delete remote tasks that are no longer in the Hive for a given project
+    /// Delete remote tasks that are no longer in the Hive for a given project.
+    ///
+    /// Uses a single bulk DELETE query with NOT IN clause for O(1) database calls
+    /// instead of O(n) fetch + O(m) deletes.
     pub async fn delete_stale_remote_tasks(
         pool: &SqlitePool,
         project_id: Uuid,
         active_shared_task_ids: &[Uuid],
     ) -> Result<u64, sqlx::Error> {
-        // If the list is empty, don't delete anything
+        // If the list is empty, don't delete anything (safety check)
         if active_shared_task_ids.is_empty() {
             return Ok(0);
         }
 
-        // Fetch all remote tasks for this project and delete ones not in list
-        let all_remote = Self::find_remote_by_project_id(pool, project_id).await?;
-        let mut deleted = 0u64;
-
-        for task in all_remote {
-            if let Some(shared_id) = task.shared_task_id
-                && !active_shared_task_ids.contains(&shared_id)
-            {
-                deleted += Self::delete(pool, task.id).await?;
+        let mut builder = QueryBuilder::<Sqlite>::new("DELETE FROM tasks WHERE project_id = ");
+        builder.push_bind(project_id);
+        builder.push(" AND is_remote = 1 AND shared_task_id IS NOT NULL AND shared_task_id NOT IN (");
+        {
+            let mut separated = builder.separated(", ");
+            for id in active_shared_task_ids {
+                separated.push_bind(id);
             }
         }
-
-        Ok(deleted)
+        builder.push(")");
+        let result = builder.build().execute(pool).await?;
+        Ok(result.rows_affected())
     }
 
     /// Delete a task by its shared_task_id

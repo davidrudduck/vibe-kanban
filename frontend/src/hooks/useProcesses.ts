@@ -17,7 +17,8 @@ export const useProcesses = (filter?: ProcessFilter): UseProcessesResult => {
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['processes', filter],
     queryFn: () => processesApi.list(filter),
-    refetchInterval: 5000, // Poll every 5 seconds for live updates
+    // Only poll when tab is visible to reduce unnecessary network requests
+    refetchInterval: () => (document.hidden ? false : 5000),
     staleTime: 2000,
   });
 

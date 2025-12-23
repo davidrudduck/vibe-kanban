@@ -6,7 +6,8 @@ export function useDashboardSummary() {
   return useQuery<DashboardSummary>({
     queryKey: ['dashboard', 'summary'],
     queryFn: () => dashboardApi.getSummary(),
-    refetchInterval: 5000, // Poll every 5 seconds for updates
+    // Only poll when tab is visible to reduce unnecessary network requests
+    refetchInterval: () => (document.hidden ? false : 5000),
     staleTime: 2000,
   });
 }
