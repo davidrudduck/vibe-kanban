@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { KanbanCard } from '@/components/ui/shadcn-io/kanban';
 import {
   Archive,
@@ -22,6 +22,8 @@ import { useTranslation } from 'react-i18next';
 import { useProject } from '@/contexts/ProjectContext';
 import { cn } from '@/lib/utils';
 import { LabelBadge } from '@/components/labels/LabelBadge';
+import { ArchiveToggleIcon } from './ArchiveToggleIcon';
+import { tasksApi } from '@/lib/api';
 
 /**
  * Get short node name from full hostname (e.g., "justX" from "justX.raverx.net")
@@ -105,6 +107,31 @@ export function TaskCard({
   }, [isOpen]);
 
   const isArchived = task.archived_at !== null;
+  const [isArchiving, setIsArchiving] = useState(false);
+
+  const handleArchive = useCallback(async () => {
+    if (isArchiving || task.is_remote) return;
+    setIsArchiving(true);
+    try {
+      await tasksApi.archive(task.id, { include_subtasks: false });
+    } catch (err) {
+      console.error('Failed to archive task:', err);
+    } finally {
+      setIsArchiving(false);
+    }
+  }, [task.id, task.is_remote, isArchiving]);
+
+  const handleUnarchive = useCallback(async () => {
+    if (isArchiving || task.is_remote) return;
+    setIsArchiving(true);
+    try {
+      await tasksApi.unarchive(task.id);
+    } catch (err) {
+      console.error('Failed to unarchive task:', err);
+    } finally {
+      setIsArchiving(false);
+    }
+  }, [task.id, task.is_remote, isArchiving]);
 
   return (
     <KanbanCard
@@ -218,6 +245,15 @@ export function TaskCard({
             )}
           </div>
         )}
+        {/* Archive toggle icon */}
+        <div className="flex justify-end mt-1">
+          <ArchiveToggleIcon
+            isArchived={isArchived}
+            onArchive={handleArchive}
+            onUnarchive={handleUnarchive}
+            disabled={task.is_remote || isArchiving}
+          />
+        </div>
       </div>
     </KanbanCard>
   );
