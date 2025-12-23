@@ -30,6 +30,9 @@ pub struct TaskWithProjectInfo {
     pub remote_stream_url: Option<String>,
     #[ts(type = "Date | null")]
     pub archived_at: Option<DateTime<Utc>>,
+    /// Timestamp of last significant activity (status change, execution start).
+    #[ts(type = "Date | null")]
+    pub activity_at: Option<DateTime<Utc>>,
     // Assignee fields from shared_tasks (for consistent avatar/owner display)
     pub assignee_first_name: Option<String>,
     pub assignee_last_name: Option<String>,
@@ -74,6 +77,7 @@ impl AllTasksResponse {
   t.remote_stream_node_id         AS "remote_stream_node_id: Uuid",
   t.remote_stream_url             AS "remote_stream_url",
   t.archived_at                   AS "archived_at: DateTime<Utc>",
+  t.activity_at                   AS "activity_at: DateTime<Utc>",
 
   -- Project context
   p.name                          AS "project_name!",
@@ -135,7 +139,7 @@ FROM tasks t
 JOIN projects p ON t.project_id = p.id
 LEFT JOIN shared_tasks st ON t.shared_task_id = st.id
 WHERE (t.archived_at IS NULL OR $1)
-ORDER BY t.updated_at DESC"#,
+ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
             include_archived
         )
         .fetch_all(pool)
@@ -162,6 +166,7 @@ ORDER BY t.updated_at DESC"#,
                 remote_stream_node_id: rec.remote_stream_node_id,
                 remote_stream_url: rec.remote_stream_url,
                 archived_at: rec.archived_at,
+                activity_at: rec.activity_at,
                 assignee_first_name: rec.assignee_first_name,
                 assignee_last_name: rec.assignee_last_name,
                 assignee_username: rec.assignee_username,
