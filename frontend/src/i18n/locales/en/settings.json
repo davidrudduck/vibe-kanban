@@ -203,44 +203,88 @@
         }
       },
       "taskTemplates": {
-        "title": "Tags",
-        "description": "Create reusable text snippets that can be inserted into task descriptions using @tag_name."
+        "title": "Templates",
+        "description": "Create reusable text snippets that can be inserted into task descriptions using @template_name."
       },
-      "tags": {
+      "templates": {
         "manager": {
-          "title": "Task Tags",
-          "addTag": "Add Tag",
-          "noTags": "No tags yet. Create reusable text snippets for common task descriptions. Use @tag_name in any task.",
+          "title": "Task Templates",
+          "addTemplate": "Add Template",
+          "noTemplates": "No templates yet. Create reusable text snippets for common task descriptions. Use @template_name in any task.",
           "table": {
-            "tagName": "Tag Name",
+            "templateName": "Template Name",
             "content": "Content",
             "actions": "Actions"
           },
           "actions": {
-            "editTag": "Edit tag",
-            "deleteTag": "Delete tag"
+            "editTemplate": "Edit template",
+            "deleteTemplate": "Delete template"
           },
-          "deleteConfirm": "Are you sure you want to delete the tag \"{{tagName}}\"?"
+          "deleteConfirm": "Are you sure you want to delete the template \"{{templateName}}\"?"
         },
         "dialog": {
-          "createTitle": "Create Tag",
-          "editTitle": "Edit Tag",
-          "tagName": {
-            "label": "Tag Name",
+          "createTitle": "Create Template",
+          "editTitle": "Edit Template",
+          "templateName": {
+            "label": "Template Name",
             "required": "*",
-            "hint": "Use this name with @ in task descriptions: @{{tagName}}",
+            "hint": "Use this name with @ in task descriptions: @{{templateName}}",
             "placeholder": "e.g., bug_fix, test_plan, api_docs",
-            "error": "Tag name cannot contain spaces. Use underscores instead (e.g., my_tag)"
+            "error": "Template name cannot contain spaces. Use underscores instead (e.g., my_template)"
           },
           "content": {
             "label": "Content",
             "required": "*",
-            "hint": "Text that will be inserted when you use @{{tagName}} in task descriptions",
-            "placeholder": "Enter the text that will be inserted when you use this tag"
+            "hint": "Text that will be inserted when you use @{{templateName}} in task descriptions",
+            "placeholder": "Enter the text that will be inserted when you use this template"
           },
           "errors": {
-            "nameRequired": "Tag name is required",
-            "saveFailed": "Failed to save tag"
+            "nameRequired": "Template name is required",
+            "saveFailed": "Failed to save template"
+          },
+          "buttons": {
+            "cancel": "Cancel",
+            "create": "Create",
+            "update": "Update"
+          }
+        }
+      },
+      "labels": {
+        "title": "Labels",
+        "description": "Create visual labels for categorizing and organizing tasks.",
+        "manager": {
+          "title": "Task Labels",
+          "addLabel": "Add Label",
+          "noLabels": "No labels yet. Create visual labels to categorize and organize your tasks.",
+          "table": {
+            "preview": "Preview",
+            "name": "Name",
+            "icon": "Icon",
+            "color": "Color",
+            "actions": "Actions"
+          },
+          "actions": {
+            "editLabel": "Edit label",
+            "deleteLabel": "Delete label"
+          },
+          "deleteConfirm": "Are you sure you want to delete the label \"{{labelName}}\"?"
+        },
+        "dialog": {
+          "createTitle": "Create Label",
+          "editTitle": "Edit Label",
+          "name": {
+            "label": "Label Name",
+            "placeholder": "e.g., Bug, Feature, Documentation"
+          },
+          "icon": {
+            "label": "Icon"
+          },
+          "color": {
+            "label": "Color"
+          },
+          "errors": {
+            "nameRequired": "Label name is required",
+            "saveFailed": "Failed to save label"
           },
           "buttons": {
             "cancel": "Cancel",

@@ -49,10 +49,10 @@ export {
 } from './tasks/DeleteTaskConfirmationDialog';
 export { ShareDialog, type ShareDialogProps } from './tasks/ShareDialog';
 export {
-  TagEditDialog,
-  type TagEditDialogProps,
-  type TagEditResult,
-} from './tasks/TagEditDialog';
+  TemplateEditDialog,
+  type TemplateEditDialogProps,
+  type TemplateEditResult,
+} from './tasks/TemplateEditDialog';
 export {
   ChangeTargetBranchDialog,
   type ChangeTargetBranchDialogProps,
@@ -108,6 +108,11 @@ export {
   type DeleteConfigurationDialogProps,
   type DeleteConfigurationResult,
 } from './settings/DeleteConfigurationDialog';
+export {
+  LabelEditDialog,
+  type LabelEditDialogProps,
+  type LabelEditResult,
+} from './settings/LabelEditDialog';
 
 // Shared/Generic dialogs
 export { ConfirmDialog, type ConfirmDialogProps } from './shared/ConfirmDialog';

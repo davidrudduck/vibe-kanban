@@ -14,12 +14,14 @@ import { ActionsDropdown } from '@/components/ui/actions-dropdown';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useNavigateWithSearch, useIsOrgAdmin } from '@/hooks';
+import { useTaskLabels } from '@/hooks/useTaskLabels';
 import { paths } from '@/lib/paths';
 import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
 import { TaskCardHeader } from './TaskCardHeader';
 import { useTranslation } from 'react-i18next';
 import { useProject } from '@/contexts/ProjectContext';
 import { cn } from '@/lib/utils';
+import { LabelBadge } from '@/components/labels/LabelBadge';
 
 /**
  * Get short node name from full hostname (e.g., "justX" from "justX.raverx.net")
@@ -55,6 +57,12 @@ export function TaskCard({
   const navigate = useNavigateWithSearch();
   const isOrgAdmin = useIsOrgAdmin();
   const { project } = useProject();
+
+  // Fetch labels for this task (only for local tasks, not remote)
+  const { data: labels } = useTaskLabels(
+    task.is_remote ? undefined : task.id,
+    !task.is_remote
+  );
 
   // Get owner name from shared task or remote task
   const ownerName =
@@ -184,6 +192,14 @@ export function TaskCard({
               ? `${task.description.substring(0, 130)}...`
               : task.description}
           </p>
+        )}
+        {/* Labels */}
+        {labels && labels.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {labels.map((label) => (
+              <LabelBadge key={label.id} label={label} size="sm" />
+            ))}
+          </div>
         )}
         {/* Owner and node info */}
         {(ownerName || shortNodeName) && (

@@ -5,8 +5,8 @@ use axum::{
     response::Response,
 };
 use db::models::{
-    execution_process::ExecutionProcess, project::Project, tag::Tag, task::Task,
-    task_attempt::TaskAttempt,
+    execution_process::ExecutionProcess, label::Label, project::Project, task::Task,
+    task_attempt::TaskAttempt, template::Template,
 };
 use deployment::Deployment;
 use uuid::Uuid;
@@ -637,29 +637,57 @@ pub async fn load_execution_process_middleware(
     Ok(next.run(request).await)
 }
 
-// Middleware that loads and injects Tag based on the tag_id path parameter
-pub async fn load_tag_middleware(
+// Middleware that loads and injects Template based on the template_id path parameter
+pub async fn load_template_middleware(
     State(deployment): State<DeploymentImpl>,
-    Path(tag_id): Path<Uuid>,
+    Path(template_id): Path<Uuid>,
     request: axum::extract::Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    // Load the tag from the database
-    let tag = match Tag::find_by_id(&deployment.db().pool, tag_id).await {
-        Ok(Some(tag)) => tag,
+    // Load the template from the database
+    let template = match Template::find_by_id(&deployment.db().pool, template_id).await {
+        Ok(Some(template)) => template,
         Ok(None) => {
-            tracing::warn!("Tag {} not found", tag_id);
+            tracing::warn!("Template {} not found", template_id);
             return Err(StatusCode::NOT_FOUND);
         }
         Err(e) => {
-            tracing::error!("Failed to fetch tag {}: {}", tag_id, e);
+            tracing::error!("Failed to fetch template {}: {}", template_id, e);
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     };
 
-    // Insert the tag as an extension
+    // Insert the template as an extension
     let mut request = request;
-    request.extensions_mut().insert(tag);
+    request.extensions_mut().insert(template);
+
+    // Continue with the next middleware/handler
+    Ok(next.run(request).await)
+}
+
+// Middleware that loads and injects Label based on the label_id path parameter
+pub async fn load_label_middleware(
+    State(deployment): State<DeploymentImpl>,
+    Path(label_id): Path<Uuid>,
+    request: axum::extract::Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    // Load the label from the database
+    let label = match Label::find_by_id(&deployment.db().pool, label_id).await {
+        Ok(Some(label)) => label,
+        Ok(None) => {
+            tracing::warn!("Label {} not found", label_id);
+            return Err(StatusCode::NOT_FOUND);
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch label {}: {}", label_id, e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+
+    // Insert the label as an extension
+    let mut request = request;
+    request.extensions_mut().insert(label);
 
     // Continue with the next middleware/handler
     Ok(next.run(request).await)

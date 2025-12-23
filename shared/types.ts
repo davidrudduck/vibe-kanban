@@ -186,13 +186,46 @@ export enum BaseCodingAgent { CLAUDE_CODE = "CLAUDE_CODE", AMP = "AMP", GEMINI =
 
 export type CodingAgent = { "CLAUDE_CODE": ClaudeCode } | { "AMP": Amp } | { "GEMINI": Gemini } | { "CODEX": Codex } | { "OPENCODE": Opencode } | { "CURSOR_AGENT": CursorAgent } | { "QWEN_CODE": QwenCode } | { "COPILOT": Copilot } | { "DROID": Droid };
 
-export type Tag = { id: string, tag_name: string, content: string, created_at: string, updated_at: string, };
+export type Template = { id: string, template_name: string, content: string, created_at: string, updated_at: string, };
 
-export type CreateTag = { tag_name: string, content: string, };
+export type CreateTemplate = { template_name: string, content: string, };
 
-export type UpdateTag = { tag_name: string | null, content: string | null, };
+export type UpdateTemplate = { template_name: string | null, content: string | null, };
 
-export type TagSearchParams = { search: string | null, };
+export type TemplateSearchParams = { search: string | null, };
+
+export type Label = { id: string, 
+/**
+ * Project ID if project-specific, NULL if global
+ */
+project_id: string | null, name: string, 
+/**
+ * Lucide icon name (e.g., "tag", "bug", "code")
+ */
+icon: string, 
+/**
+ * Hex color code (e.g., "#3b82f6")
+ */
+color: string, created_at: string, updated_at: string, };
+
+export type CreateLabel = { 
+/**
+ * Project ID if project-specific, None for global label
+ */
+project_id: string | null, name: string, icon: string, color: string, };
+
+export type UpdateLabel = { name: string | null, icon: string | null, color: string | null, };
+
+export type TaskLabel = { id: string, task_id: string, label_id: string, created_at: string, };
+
+export type SetTaskLabels = { label_ids: Array<string>, };
+
+export type LabelQueryParams = { 
+/**
+ * Filter by project ID. If provided, returns global + project-specific labels.
+ * If not provided, returns only global labels.
+ */
+project_id: string | null, };
 
 export type TaskVariable = { id: string, task_id: string, name: string, value: string, created_at: string, updated_at: string, };
 

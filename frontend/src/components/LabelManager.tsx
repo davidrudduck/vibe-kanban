@@ -2,54 +2,56 @@ import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Plus, Edit2, Trash2, Loader2 } from 'lucide-react';
-import { tagsApi } from '@/lib/api';
-import { TagEditDialog } from '@/components/dialogs/tasks/TagEditDialog';
-import type { Tag } from 'shared/types';
+import { labelsApi } from '@/lib/api';
+import { LabelEditDialog } from '@/components/dialogs/settings/LabelEditDialog';
+import { LabelBadge } from '@/components/labels';
+import type { Label } from 'shared/types';
 
-export function TagManager() {
+export function LabelManager() {
   const { t } = useTranslation('settings');
-  const [tags, setTags] = useState<Tag[]>([]);
+  const [labels, setLabels] = useState<Label[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchTags = useCallback(async () => {
+  const fetchLabels = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await tagsApi.list();
-      setTags(data);
+      // Fetch only global labels for settings
+      const data = await labelsApi.list();
+      setLabels(data);
     } catch (err) {
-      console.error('Failed to fetch tags:', err);
+      console.error('Failed to fetch labels:', err);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchTags();
-  }, [fetchTags]);
+    fetchLabels();
+  }, [fetchLabels]);
 
   const handleOpenDialog = useCallback(
-    async (tag?: Tag) => {
+    async (label?: Label) => {
       try {
-        const result = await TagEditDialog.show({
-          tag: tag || null,
+        const result = await LabelEditDialog.show({
+          label: label || null,
         });
 
         if (result === 'saved') {
-          await fetchTags();
+          await fetchLabels();
         }
-      } catch (error) {
+      } catch {
         // User cancelled - do nothing
       }
     },
-    [fetchTags]
+    [fetchLabels]
   );
 
   const handleDelete = useCallback(
-    async (tag: Tag) => {
+    async (label: Label) => {
       if (
         !confirm(
-          t('settings.general.tags.manager.deleteConfirm', {
-            tagName: tag.tag_name,
+          t('settings.general.labels.manager.deleteConfirm', {
+            labelName: label.name,
           })
         )
       ) {
@@ -57,13 +59,13 @@ export function TagManager() {
       }
 
       try {
-        await tagsApi.delete(tag.id);
-        await fetchTags();
+        await labelsApi.delete(label.id);
+        await fetchLabels();
       } catch (err) {
-        console.error('Failed to delete tag:', err);
+        console.error('Failed to delete label:', err);
       }
     },
-    [fetchTags, t]
+    [fetchLabels, t]
   );
 
   if (loading) {
@@ -78,17 +80,17 @@ export function TagManager() {
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h3 className="text-lg font-semibold">
-          {t('settings.general.tags.manager.title')}
+          {t('settings.general.labels.manager.title')}
         </h3>
         <Button onClick={() => handleOpenDialog()} size="sm">
           <Plus className="h-4 w-4 mr-2" />
-          {t('settings.general.tags.manager.addTag')}
+          {t('settings.general.labels.manager.addLabel')}
         </Button>
       </div>
 
-      {tags.length === 0 ? (
+      {labels.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground">
-          {t('settings.general.tags.manager.noTags')}
+          {t('settings.general.labels.manager.noLabels')}
         </div>
       ) : (
         <div className="border rounded-lg overflow-hidden">
@@ -97,31 +99,44 @@ export function TagManager() {
               <thead className="border-b bg-muted/50 sticky top-0">
                 <tr>
                   <th className="text-left p-2 text-sm font-medium">
-                    {t('settings.general.tags.manager.table.tagName')}
+                    {t('settings.general.labels.manager.table.preview')}
                   </th>
                   <th className="text-left p-2 text-sm font-medium">
-                    {t('settings.general.tags.manager.table.content')}
+                    {t('settings.general.labels.manager.table.name')}
+                  </th>
+                  <th className="text-left p-2 text-sm font-medium">
+                    {t('settings.general.labels.manager.table.icon')}
+                  </th>
+                  <th className="text-left p-2 text-sm font-medium">
+                    {t('settings.general.labels.manager.table.color')}
                   </th>
                   <th className="text-right p-2 text-sm font-medium">
-                    {t('settings.general.tags.manager.table.actions')}
+                    {t('settings.general.labels.manager.table.actions')}
                   </th>
                 </tr>
               </thead>
               <tbody>
-                {tags.map((tag) => (
+                {labels.map((label) => (
                   <tr
-                    key={tag.id}
+                    key={label.id}
                     className="border-b hover:bg-muted/30 transition-colors"
                   >
-                    <td className="p-2 text-sm font-medium">@{tag.tag_name}</td>
-                    <td className="p-2 text-sm">
-                      <div
-                        className="max-w-[400px] truncate"
-                        title={tag.content || ''}
-                      >
-                        {tag.content || (
-                          <span className="text-muted-foreground">-</span>
-                        )}
+                    <td className="p-2">
+                      <LabelBadge label={label} size="sm" />
+                    </td>
+                    <td className="p-2 text-sm">{label.name}</td>
+                    <td className="p-2 text-sm font-mono text-muted-foreground">
+                      {label.icon}
+                    </td>
+                    <td className="p-2">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="h-4 w-4 rounded border border-border"
+                          style={{ backgroundColor: label.color }}
+                        />
+                        <span className="text-sm font-mono text-muted-foreground">
+                          {label.color}
+                        </span>
                       </div>
                     </td>
                     <td className="p-2">
@@ -130,9 +145,9 @@ export function TagManager() {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7"
-                          onClick={() => handleOpenDialog(tag)}
+                          onClick={() => handleOpenDialog(label)}
                           title={t(
-                            'settings.general.tags.manager.actions.editTag'
+                            'settings.general.labels.manager.actions.editLabel'
                           )}
                         >
                           <Edit2 className="h-3 w-3" />
@@ -141,9 +156,9 @@ export function TagManager() {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7"
-                          onClick={() => handleDelete(tag)}
+                          onClick={() => handleDelete(label)}
                           title={t(
-                            'settings.general.tags.manager.actions.deleteTag'
+                            'settings.general.labels.manager.actions.deleteLabel'
                           )}
                         >
                           <Trash2 className="h-3 w-3" />

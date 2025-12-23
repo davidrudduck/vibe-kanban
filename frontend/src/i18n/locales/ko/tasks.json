@@ -388,6 +388,7 @@
     "titlePlaceholder": "작업 제목",
     "descriptionPlaceholder": "세부 정보 추가 (선택 사항). @를 입력하여 파일을 검색합니다.",
     "statusLabel": "상태",
+    "labelsLabel": "라벨",
     "statusOptions": {
       "todo": "할 일",
       "inprogress": "진행 중",
