@@ -155,44 +155,34 @@ export const useConversationHistory = ({
     executionProcess: ExecutionProcess
   ): Promise<PatchType[]> => {
     try {
-      // For script requests, we need to fetch raw logs and convert them
-      // For coding agent requests, fetch paginated normalized logs
-      const allEntries: PatchType[] = [];
-      let cursor: bigint | undefined;
-      let hasMore = true;
-
       // Use effective limit from config/override for page size
       // Cap at 500 which is the server-side maximum
       const pageSize = Math.min(effectiveLimit, 500);
 
-      // Fetch all pages to get complete history
-      while (hasMore) {
-        const result = await logsApi.getPaginated(executionProcess.id, {
-          limit: pageSize,
-          cursor,
-          direction: 'forward', // Oldest first for proper order
-        });
+      // Fetch only the first page with newest entries first
+      // This provides instant display instead of waiting for all pages
+      const result = await logsApi.getPaginated(executionProcess.id, {
+        limit: pageSize,
+        direction: 'backward', // Newest first for fast initial display
+      });
 
-        if (result.entries.length === 0) {
-          break;
-        }
-
-        // Convert LogEntry[] to PatchType[] by applying patches
-        const patches = logEntriesToPatches(result.entries, executionProcess.id);
-        // Extract just the PatchType (without keys) for this internal use
-        allEntries.push(...patches.map(p => {
-          const { patchKey, executionProcessId, ...rest } = p;
-          // Use void to suppress unused variable warnings
-          void patchKey;
-          void executionProcessId;
-          return rest as PatchType;
-        }));
-
-        hasMore = result.has_more;
-        cursor = result.next_cursor ?? undefined;
+      if (result.entries.length === 0) {
+        return [];
       }
 
-      return allEntries;
+      // Convert LogEntry[] to PatchType[] by applying patches
+      const patches = logEntriesToPatches(result.entries, executionProcess.id);
+
+      // Extract just the PatchType (without keys) for this internal use
+      // Reverse since backward returns newest-first but we display chronologically
+      const entries = patches.map(p => {
+        const { patchKey, executionProcessId, ...rest } = p;
+        void patchKey;
+        void executionProcessId;
+        return rest as PatchType;
+      }).reverse();
+
+      return entries;
     } catch (err) {
       console.warn(
         `Error loading entries for historic execution process ${executionProcess.id}`,
