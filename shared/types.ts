@@ -30,7 +30,11 @@ truncated: boolean,
  */
 language: string | null, };
 
-export type Project = { id: string, name: string, git_repo_path: string, setup_script: string | null, dev_script: string | null, cleanup_script: string | null, copy_files: string | null, remote_project_id: string | null, created_at: Date, updated_at: Date, is_remote: boolean, source_node_id: string | null, source_node_name: string | null, source_node_public_url: string | null, source_node_status: string | null, remote_last_synced_at: Date | null, 
+export type Project = { id: string, name: string, git_repo_path: string, setup_script: string | null, dev_script: string | null, cleanup_script: string | null, copy_files: string | null, 
+/**
+ * When true, setup script runs concurrently with the coding agent
+ */
+parallel_setup_script: boolean, remote_project_id: string | null, created_at: Date, updated_at: Date, is_remote: boolean, source_node_id: string | null, source_node_name: string | null, source_node_public_url: string | null, source_node_status: string | null, remote_last_synced_at: Date | null, 
 /**
  * JSON array of default validation steps for new tasks in this project
  */
@@ -38,7 +42,7 @@ default_validation_steps: string | null, };
 
 export type CreateProject = { name: string, git_repo_path: string, use_existing_repo: boolean, setup_script: string | null, dev_script: string | null, cleanup_script: string | null, copy_files: string | null, };
 
-export type UpdateProject = { name: string | null, git_repo_path: string | null, setup_script: string | null, dev_script: string | null, cleanup_script: string | null, copy_files: string | null, };
+export type UpdateProject = { name: string | null, git_repo_path: string | null, setup_script: string | null, dev_script: string | null, cleanup_script: string | null, copy_files: string | null, parallel_setup_script: boolean | null, };
 
 export type SearchResult = { path: string, is_file: boolean, match_type: SearchMatchType, };
 
@@ -190,6 +194,22 @@ export type UpdateTag = { tag_name: string | null, content: string | null, };
 
 export type TagSearchParams = { search: string | null, };
 
+export type TaskVariable = { id: string, task_id: string, name: string, value: string, created_at: string, updated_at: string, };
+
+export type CreateTaskVariable = { name: string, value: string, };
+
+export type UpdateTaskVariable = { name: string | null, value: string | null, };
+
+export type ResolvedVariable = { name: string, value: string, 
+/**
+ * The task ID this variable was defined on (may differ from requested task_id for inherited vars)
+ */
+source_task_id: string, 
+/**
+ * True if this variable was inherited from a parent task
+ */
+inherited: boolean, };
+
 export type TaskStatus = "todo" | "inprogress" | "inreview" | "done" | "cancelled";
 
 export type Task = { id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_task_id: string | null, shared_task_id: string | null, created_at: string, updated_at: string, is_remote: boolean, remote_assignee_user_id: string | null, remote_assignee_name: string | null, remote_assignee_username: string | null, remote_version: bigint, remote_last_synced_at: string | null, remote_stream_node_id: string | null, remote_stream_url: string | null, 
@@ -200,7 +220,12 @@ validation_steps: string | null,
 /**
  * Timestamp when task was archived. NULL means not archived.
  */
-archived_at: Date | null, };
+archived_at: Date | null, 
+/**
+ * Timestamp of last significant activity (status change, execution start).
+ * Unlike updated_at, this is NOT updated for metadata changes like title/description edits.
+ */
+activity_at: Date | null, };
 
 export type TaskWithAttemptStatus = { has_in_progress_attempt: boolean, has_merged_attempt: boolean, last_attempt_failed: boolean, executor: string, id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_task_id: string | null, shared_task_id: string | null, created_at: string, updated_at: string, is_remote: boolean, remote_assignee_user_id: string | null, remote_assignee_name: string | null, remote_assignee_username: string | null, remote_version: bigint, remote_last_synced_at: string | null, remote_stream_node_id: string | null, remote_stream_url: string | null, 
 /**
@@ -210,7 +235,12 @@ validation_steps: string | null,
 /**
  * Timestamp when task was archived. NULL means not archived.
  */
-archived_at: Date | null, };
+archived_at: Date | null, 
+/**
+ * Timestamp of last significant activity (status change, execution start).
+ * Unlike updated_at, this is NOT updated for metadata changes like title/description edits.
+ */
+activity_at: Date | null, };
 
 export type TaskRelationships = { parent_task: Task | null, current_attempt: TaskAttempt, children: Array<Task>, };
 
@@ -224,9 +254,17 @@ export type DashboardSummary = { running_tasks: Array<DashboardTask>, in_review_
 
 export type ActivityCategory = "needs_review" | "in_progress" | "completed";
 
-export type ActivityFeedItem = { task_id: string, task_title: string, project_id: string, project_name: string, status: TaskStatus, category: ActivityCategory, executor: string, updated_at: string, };
+export type ActivityFeedItem = { task_id: string, task_title: string, project_id: string, project_name: string, status: TaskStatus, category: ActivityCategory, executor: string, activity_at: string, 
+/**
+ * Whether this item has been dismissed by the user.
+ */
+is_dismissed: boolean, };
 
-export type ActivityCounts = { needs_review: number, in_progress: number, completed: number, };
+export type ActivityCounts = { needs_review: number, in_progress: number, completed: number, 
+/**
+ * Number of dismissed items (across all categories).
+ */
+dismissed: number, };
 
 export type ActivityFeed = { items: Array<ActivityFeedItem>, counts: ActivityCounts, };
 
@@ -234,7 +272,7 @@ export type CreateTask = { project_id: string, title: string, description: strin
 
 export type UpdateTask = { title: string | null, description: string | null, status: TaskStatus | null, parent_task_id: string | null, image_ids: Array<string> | null, validation_steps: string | null, };
 
-export type SharedTask = { id: string, remote_project_id: string, title: string, description: string | null, status: TaskStatus, assignee_user_id: string | null, assignee_first_name: string | null, assignee_last_name: string | null, assignee_username: string | null, version: bigint, last_event_seq: bigint | null, created_at: Date, updated_at: Date, };
+export type SharedTask = { id: string, remote_project_id: string, title: string, description: string | null, status: TaskStatus, assignee_user_id: string | null, assignee_first_name: string | null, assignee_last_name: string | null, assignee_username: string | null, version: bigint, last_event_seq: bigint | null, created_at: Date, updated_at: Date, activity_at: Date | null, };
 
 export type Image = { id: string, file_path: string, original_name: string, mime_type: string | null, size_bytes: bigint, hash: string, created_at: string, updated_at: string, };
 
@@ -366,11 +404,53 @@ task: Task,
  */
 subtasks_archived: bigint, };
 
+export type PreviewExpansionRequest = { 
+/**
+ * The text to expand variables in
+ */
+text: string, };
+
+export type PreviewExpansionResponse = { 
+/**
+ * The text with variables expanded
+ */
+expanded_text: string, 
+/**
+ * Variables that were referenced but not defined
+ */
+undefined_variables: Array<string>, 
+/**
+ * Variables that were successfully expanded
+ */
+expanded_variables: Array<ExpandedVariableInfo>, };
+
+export type ExpandedVariableInfo = { 
+/**
+ * The variable name
+ */
+name: string, 
+/**
+ * The task ID where this variable was defined
+ */
+source_task_id: string | null, };
+
 export type CreateGitHubPrRequest = { title: string, body: string | null, target_branch: string | null, };
 
 export type ImageResponse = { id: string, file_path: string, original_name: string, mime_type: string | null, size_bytes: bigint, hash: string, created_at: string, updated_at: string, };
 
-export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, analytics_enabled: boolean, sentry_enabled: boolean, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, dev_banner: DevBannerConfig, };
+export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, 
+/**
+ * Deprecated: analytics has been removed. Field kept for config compatibility.
+ */
+analytics_enabled: boolean, 
+/**
+ * Deprecated: Sentry error reporting has been removed. Field kept for config compatibility.
+ */
+sentry_enabled: boolean, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, dev_banner: DevBannerConfig, 
+/**
+ * Pagination settings for log display
+ */
+pagination: PaginationConfig, };
 
 export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, };
 
@@ -388,8 +468,6 @@ export enum SoundFile { ABSTRACT_SOUND1 = "ABSTRACT_SOUND1", ABSTRACT_SOUND2 = "
 
 export type UiLanguage = "BROWSER" | "EN" | "JA" | "ES" | "KO";
 
-export type ShowcaseState = { seen_features: Array<string>, };
-
 export type DevBannerConfig = { 
 /**
  * Custom background color (CSS color string), None = default orange
@@ -406,11 +484,17 @@ show_hostname: boolean,
 /**
  * Whether to display the OS type and version in the banner
  */
-show_os_info: boolean, 
+show_os_info: boolean, };
+
+export type PaginationConfig = { 
 /**
- * Whether to hide the Discord link in the navbar (dev mode only)
+ * Number of log entries to load initially (default: 100)
  */
-hide_discord_link: boolean, };
+initial_load: bigint, 
+/**
+ * Maximum entries per page request (default: 500)
+ */
+max_limit: bigint, };
 
 export type GitBranch = { name: string, is_current: boolean, is_remote: boolean, last_commit_date: Date, };
 
@@ -514,7 +598,12 @@ executor_profile_id: ExecutorProfileId, base_branch: string,
  * Target node ID for remote execution (if project exists on multiple nodes).
  * When set, the request will be proxied to the specified node.
  */
-target_node_id: string | null, };
+target_node_id: string | null, 
+/**
+ * When true, reuse the parent task's latest attempt worktree.
+ * Only valid when the task has a parent_task_id.
+ */
+use_parent_worktree: boolean | null, };
 
 export type RunAgentSetupRequest = { executor_profile_id: ExecutorProfileId, };
 
@@ -564,7 +653,11 @@ after_head_commit: string | null, status: ExecutionProcessStatus, exit_code: big
  * history view (due to restore/trimming). Hidden from logs/timeline;
  * still listed in the Processes tab.
  */
-dropped: boolean, started_at: string, completed_at: string | null, created_at: string, updated_at: string, };
+dropped: boolean, 
+/**
+ * System process ID (PID) for process tree discovery
+ */
+pid: bigint | null, started_at: string, completed_at: string | null, created_at: string, updated_at: string, };
 
 export enum ExecutionProcessStatus { running = "running", completed = "completed", failed = "failed", killed = "killed" }
 
@@ -583,6 +676,20 @@ export type PullRequestInfo = { number: bigint, url: string, status: MergeStatus
 export type Draft = { id: string, task_attempt_id: string, draft_type: DraftType, retry_process_id: string | null, prompt: string, queued: boolean, sending: boolean, variant: string | null, image_ids: Array<string> | null, created_at: string, updated_at: string, version: bigint, };
 
 export type DraftType = "follow_up" | "retry";
+
+export type BackupInfo = { 
+/**
+ * Filename of the backup (e.g., "db_backup_20250101_100000.sqlite")
+ */
+filename: string, 
+/**
+ * When the backup was created
+ */
+created_at: Date, 
+/**
+ * Size of the backup file in bytes
+ */
+size_bytes: bigint, };
 
 export type CommandExitStatus = { "type": "exit_code", code: number, } | { "type": "success", success: boolean, };
 
@@ -634,4 +741,150 @@ export type Question = { question: string, header: string, multiSelect: boolean,
 
 export type QuestionOption = { label: string, description: string, };
 
+export type OutputType = "stdout" | "stderr" | "system" | "json_patch" | "session_id" | "finished" | "refresh_required";
+
+export type LogEntry = { 
+/**
+ * Sequential ID for cursor-based pagination.
+ */
+id: bigint, 
+/**
+ * The content of the log entry.
+ */
+content: string, 
+/**
+ * The type of output (stdout, stderr, system, json_patch, etc.).
+ */
+output_type: OutputType, 
+/**
+ * When the log entry was created.
+ */
+timestamp: string, 
+/**
+ * The execution ID this log belongs to.
+ */
+execution_id: string, };
+
+export type PaginatedLogs = { 
+/**
+ * The log entries for this page.
+ */
+entries: Array<LogEntry>, 
+/**
+ * Cursor for the next page (if more entries exist).
+ */
+next_cursor: bigint | null, 
+/**
+ * Whether there are more entries after this page.
+ */
+has_more: boolean, 
+/**
+ * Total count of log entries (if available).
+ */
+total_count: bigint | null, };
+
+export type Direction = "forward" | "backward";
+
 export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in string]?: JsonValue } | null;
+
+export type ProcessInfo = { 
+/**
+ * System process ID
+ */
+pid: number, 
+/**
+ * Parent process ID (None for orphans/init)
+ */
+parent_pid: number | null, 
+/**
+ * Process name (executable name)
+ */
+name: string, 
+/**
+ * Full command line arguments
+ */
+command: Array<string>, 
+/**
+ * Working directory of the process
+ */
+working_directory: string | null, 
+/**
+ * Memory usage in bytes
+ */
+memory_bytes: bigint, 
+/**
+ * CPU usage percentage (0.0 - 100.0)
+ */
+cpu_percent: number, 
+/**
+ * ID of the execution process record (if this is a tracked executor)
+ */
+execution_process_id: string | null, 
+/**
+ * ID of the task attempt this process belongs to
+ */
+task_attempt_id: string | null, 
+/**
+ * ID of the task this process belongs to
+ */
+task_id: string | null, 
+/**
+ * ID of the project this process belongs to
+ */
+project_id: string | null, 
+/**
+ * Name of the project (for display)
+ */
+project_name: string | null, 
+/**
+ * Title of the task (for display)
+ */
+task_title: string | null, 
+/**
+ * Whether this is a direct executor process (vs a child spawned by an executor)
+ */
+is_executor: boolean, };
+
+export type ProcessFilter = { 
+/**
+ * Filter by project ID
+ */
+project_id: string | null, 
+/**
+ * Filter by task ID
+ */
+task_id: string | null, 
+/**
+ * Filter by task attempt ID
+ */
+task_attempt_id: string | null, 
+/**
+ * Only include executor processes (exclude children)
+ */
+executors_only: boolean, };
+
+export type KillScope = { "type": "single", pid: number, } | { "type": "task", task_id: string, } | { "type": "project", project_id: string, } | { "type": "all_except_executors" } | { "type": "all" };
+
+export type KillResult = { 
+/**
+ * Number of processes successfully killed
+ */
+killed_count: number, 
+/**
+ * Number of processes that failed to kill
+ */
+failed_count: number, 
+/**
+ * PIDs that failed to kill with error messages
+ */
+failures: Array<KillFailure>, };
+
+export type KillFailure = { 
+/**
+ * PID that failed to kill
+ */
+pid: number, 
+/**
+ * Error message
+ */
+error: string, };

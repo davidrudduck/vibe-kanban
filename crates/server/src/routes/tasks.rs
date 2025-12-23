@@ -16,7 +16,7 @@ use db::models::{
     image::TaskImage,
     project::Project,
     task::{CreateTask, Task, TaskWithAttemptStatus, UpdateTask},
-    task_attempt::{CreateTaskAttempt, TaskAttempt},
+    task_attempt::{CreateTaskAttempt, TaskAttempt, TaskAttemptError},
 };
 use deployment::Deployment;
 use executors::profile::ExecutorProfileId;
@@ -29,7 +29,6 @@ use remote::routes::{
     },
 };
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use services::services::{
     container::ContainerService,
     share::{ShareError, status as task_status},
@@ -136,6 +135,28 @@ pub async fn create_task(
     }
 
     // Local project: existing logic
+
+    // Validate: If creating a subtask, check that the parent doesn't use a shared worktree
+    if let Some(parent_task_id) = payload.parent_task_id {
+        let parent_task = Task::find_by_id(pool, parent_task_id)
+            .await?
+            .ok_or(ApiError::Database(SqlxError::RowNotFound))?;
+
+        // Check if parent task uses a shared worktree from its own parent (grandparent)
+        if let Some(grandparent_id) = parent_task.parent_task_id {
+            let uses_shared =
+                TaskAttempt::task_uses_shared_worktree(pool, parent_task_id, grandparent_id)
+                    .await
+                    .map_err(|e| ApiError::TaskAttempt(TaskAttemptError::Database(e)))?;
+
+            if uses_shared {
+                return Err(ApiError::BadRequest(
+                    "Cannot create subtask: parent task uses a shared worktree".to_string(),
+                ));
+            }
+        }
+    }
+
     let id = Uuid::new_v4();
 
     tracing::debug!(
@@ -183,18 +204,6 @@ pub async fn create_task(
             }
         }
     }
-
-    deployment
-        .track_if_analytics_allowed(
-            "task_created",
-            serde_json::json!({
-            "task_id": task.id.to_string(),
-            "project_id": payload.project_id,
-            "has_description": task.description.is_some(),
-            "has_images": payload.image_ids.is_some(),
-            }),
-        )
-        .await;
 
     Ok(ResponseJson(ApiResponse::success(task)))
 }
@@ -252,6 +261,7 @@ async fn create_remote_task(
         assignee_name,
         response.user.as_ref().and_then(|u| u.username.clone()),
         response.task.version,
+        Some(response.task.updated_at), // Use updated_at as activity_at for new tasks
     )
     .await?;
 
@@ -327,17 +337,6 @@ pub async fn create_task_and_start(
         }
     }
 
-    deployment
-        .track_if_analytics_allowed(
-            "task_created",
-            serde_json::json!({
-                "task_id": task.id.to_string(),
-                "project_id": task.project_id,
-                "has_description": task.description.is_some(),
-                "has_images": payload.task.image_ids.is_some(),
-            }),
-        )
-        .await;
     let attempt_id = Uuid::new_v4();
     let git_branch_name = deployment
         .container()
@@ -357,21 +356,10 @@ pub async fn create_task_and_start(
     .await?;
     let is_attempt_running = deployment
         .container()
-        .start_attempt(&task_attempt, payload.executor_profile_id.clone())
+        .start_attempt(&task_attempt, payload.executor_profile_id.clone(), false)
         .await
         .inspect_err(|err| tracing::error!("Failed to start task attempt: {}", err))
         .is_ok();
-    deployment
-        .track_if_analytics_allowed(
-            "task_attempt_started",
-            serde_json::json!({
-                "task_id": task.id.to_string(),
-                "executor": &payload.executor_profile_id.executor,
-                "variant": &payload.executor_profile_id.variant,
-                "attempt_id": task_attempt.id.to_string(),
-            }),
-        )
-        .await;
 
     let task = Task::find_by_id(pool, task.id)
         .await?
@@ -407,9 +395,7 @@ pub async fn update_task(
         None => existing_task.description,      // Field omitted = keep existing
     };
     let status = payload.status.unwrap_or(existing_task.status);
-    let parent_task_id = payload
-        .parent_task_id
-        .or(existing_task.parent_task_id);
+    let parent_task_id = payload.parent_task_id.or(existing_task.parent_task_id);
     // Handle validation_steps: if provided use it, otherwise keep existing
     let validation_steps = match &payload.validation_steps {
         Some(s) if s.trim().is_empty() => None, // Empty string = clear validation steps
@@ -514,6 +500,7 @@ async fn update_remote_task(
         assignee_name,
         response.user.as_ref().and_then(|u| u.username.clone()),
         response.task.version,
+        Some(response.task.updated_at), // Use updated_at as activity_at for task updates
     )
     .await?;
 
@@ -615,17 +602,6 @@ pub async fn delete_task(
         );
     }
 
-    deployment
-        .track_if_analytics_allowed(
-            "task_deleted",
-            serde_json::json!({
-                "task_id": task.id.to_string(),
-                "project_id": task.project_id.to_string(),
-                "attempt_count": attempts.len(),
-            }),
-        )
-        .await;
-
     // Spawn background worktree cleanup task
     let task_id = task.id;
     tokio::spawn(async move {
@@ -708,14 +684,6 @@ pub async fn share_task(
         .ok_or(ShareError::MissingAuth)?;
     let shared_task_id = publisher.share_task(task.id, Some(profile.user_id)).await?;
 
-    let props = serde_json::json!({
-        "task_id": task.id,
-        "shared_task_id": shared_task_id,
-    });
-    deployment
-        .track_if_analytics_allowed("start_sharing_task", props)
-        .await;
-
     Ok(ResponseJson(ApiResponse::success(ShareTaskResponse {
         shared_task_id,
     })))
@@ -738,9 +706,9 @@ pub async fn get_available_nodes(
 
     // If the project is not linked to the hive, return empty list
     let Some(remote_project_id) = project.remote_project_id else {
-        return Ok(ResponseJson(ApiResponse::success(ListProjectNodesResponse {
-            nodes: vec![],
-        })));
+        return Ok(ResponseJson(ApiResponse::success(
+            ListProjectNodesResponse { nodes: vec![] },
+        )));
     };
 
     // Query the hive for nodes that have this project linked
@@ -821,7 +789,11 @@ pub async fn archive_task(
     }
 
     // Validate no running execution processes
-    if deployment.container().has_running_processes(task.id).await? {
+    if deployment
+        .container()
+        .has_running_processes(task.id)
+        .await?
+    {
         return Err(ApiError::Conflict(
             "Task has running execution processes. Please wait for them to complete or stop them first.".to_string()
         ));
@@ -847,7 +819,11 @@ pub async fn archive_task(
         let children = Task::find_children_by_parent_id(pool, task.id).await?;
         for child in &children {
             // Check child doesn't have running processes
-            if deployment.container().has_running_processes(child.id).await? {
+            if deployment
+                .container()
+                .has_running_processes(child.id)
+                .await?
+            {
                 return Err(ApiError::Conflict(format!(
                     "Subtask '{}' has running execution processes. Stop them first or uncheck 'include subtasks'.",
                     child.title
@@ -855,16 +831,17 @@ pub async fn archive_task(
             }
 
             // Gather child's attempts for cleanup
-            let child_attempts = TaskAttempt::fetch_all(pool, Some(child.id))
-                .await
-                .map_err(|e| {
-                    tracing::error!(
-                        "Failed to fetch task attempts for subtask {}: {}",
-                        child.id,
-                        e
-                    );
-                    ApiError::TaskAttempt(e)
-                })?;
+            let child_attempts =
+                TaskAttempt::fetch_all(pool, Some(child.id))
+                    .await
+                    .map_err(|e| {
+                        tracing::error!(
+                            "Failed to fetch task attempts for subtask {}: {}",
+                            child.id,
+                            e
+                        );
+                        ApiError::TaskAttempt(e)
+                    })?;
             attempts.extend(child_attempts);
         }
 
@@ -889,20 +866,6 @@ pub async fn archive_task(
                 })
         })
         .collect();
-
-    // Track analytics
-    deployment
-        .track_if_analytics_allowed(
-            "task_archived",
-            json!({
-                "task_id": task.id.to_string(),
-                "project_id": task.project_id.to_string(),
-                "attempt_count": attempts.len(),
-                "subtasks_archived": subtasks_archived,
-                "include_subtasks": payload.include_subtasks,
-            }),
-        )
-        .await;
 
     // Spawn background worktree cleanup task
     let task_id = task.id;
@@ -964,17 +927,6 @@ pub async fn unarchive_task(
 
     // Unarchive the task
     let unarchived_task = Task::unarchive(pool, task.id).await?;
-
-    // Track analytics
-    deployment
-        .track_if_analytics_allowed(
-            "task_unarchived",
-            json!({
-                "task_id": task.id.to_string(),
-                "project_id": task.project_id.to_string(),
-            }),
-        )
-        .await;
 
     Ok(ResponseJson(ApiResponse::success(unarchived_task)))
 }

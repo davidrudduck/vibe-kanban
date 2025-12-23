@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT parent_task_id as \"parent_task_id: Uuid\" FROM tasks WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "name": "parent_task_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "2870731dfcf9b4a763d3308b20cb61af5e1d071f8e76fa7997a9bca05ea4cc9f"
+}

@@ -7,10 +7,10 @@ use sqlx::{
 use tracing::warn;
 use utils::assets::asset_dir;
 
-mod backup;
+pub mod backup;
 pub mod models;
 
-use backup::BackupService;
+pub use backup::{BackupInfo, BackupService};
 
 #[derive(Clone)]
 pub struct DBService {

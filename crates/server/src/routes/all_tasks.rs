@@ -1,4 +1,9 @@
-use axum::{Router, extract::{Query, State}, response::Json as ResponseJson, routing::get};
+use axum::{
+    Router,
+    extract::{Query, State},
+    response::Json as ResponseJson,
+    routing::get,
+};
 use db::models::all_tasks::AllTasksResponse;
 use deployment::Deployment;
 use serde::Deserialize;
@@ -22,8 +27,5 @@ pub async fn get_all_tasks(
 }
 
 pub fn router(_deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
-    Router::new().nest(
-        "/tasks",
-        Router::new().route("/all", get(get_all_tasks)),
-    )
+    Router::new().nest("/tasks", Router::new().route("/all", get(get_all_tasks)))
 }

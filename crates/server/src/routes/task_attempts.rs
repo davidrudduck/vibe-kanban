@@ -148,6 +148,10 @@ pub struct CreateTaskAttemptBody {
     /// When set, the request will be proxied to the specified node.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_node_id: Option<Uuid>,
+    /// When true, reuse the parent task's latest attempt worktree.
+    /// Only valid when the task has a parent_task_id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_parent_worktree: Option<bool>,
 }
 
 impl CreateTaskAttemptBody {
@@ -164,6 +168,10 @@ pub struct CreateTaskAttemptByTaskIdBody {
     /// Executor profile specification
     pub executor_profile_id: ExecutorProfileId,
     pub base_branch: String,
+    /// When true, reuse the parent task's latest attempt worktree.
+    /// Only valid when the task has a parent_task_id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_parent_worktree: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize, TS)]
@@ -196,9 +204,9 @@ pub async fn create_task_attempt(
             .await?
             .ok_or(SqlxError::RowNotFound)?;
 
-        let remote_project_id = project.remote_project_id.ok_or_else(|| {
-            ApiError::BadRequest("Project is not linked to hive".to_string())
-        })?;
+        let remote_project_id = project
+            .remote_project_id
+            .ok_or_else(|| ApiError::BadRequest("Project is not linked to hive".to_string()))?;
 
         let nodes_response = client.list_project_nodes(remote_project_id).await?;
 
@@ -218,8 +226,7 @@ pub async fn create_task_attempt(
         if target_node.node_status != remote::nodes::NodeStatus::Online {
             return Err(ApiError::BadGateway(format!(
                 "Target node '{}' is not online (status: {:?})",
-                target_node.node_name,
-                target_node.node_status
+                target_node.node_name, target_node.node_status
             )));
         }
 
@@ -234,6 +241,7 @@ pub async fn create_task_attempt(
         let proxy_body = CreateTaskAttemptByTaskIdBody {
             executor_profile_id: payload.executor_profile_id,
             base_branch: payload.base_branch,
+            use_parent_worktree: payload.use_parent_worktree,
         };
 
         let path = format!("/task-attempts/by-task-id/{}/create", shared_task_id);
@@ -254,18 +262,56 @@ pub async fn create_task_attempt(
 
     // Local execution path
     let executor_profile_id = payload.get_executor_profile_id();
-    let task = Task::find_by_id(&deployment.db().pool, payload.task_id)
+    let pool = &deployment.db().pool;
+    let task = Task::find_by_id(pool, payload.task_id)
         .await?
         .ok_or(SqlxError::RowNotFound)?;
 
     let attempt_id = Uuid::new_v4();
-    let git_branch_name = deployment
-        .container()
-        .git_branch_from_task_attempt(&attempt_id, &task.title)
-        .await;
+
+    // Determine branch name and parent worktree info based on use_parent_worktree flag
+    let (git_branch_name, parent_container_ref) =
+        if payload.use_parent_worktree.unwrap_or(false) {
+            // Validate task has parent
+            let parent_task_id = task.parent_task_id.ok_or_else(|| {
+                ApiError::BadRequest(
+                    "Cannot use parent worktree: task has no parent_task_id".into(),
+                )
+            })?;
+
+            // Get parent task's latest attempt
+            let parent_attempts = TaskAttempt::fetch_all(pool, Some(parent_task_id)).await?;
+            let parent_attempt = parent_attempts.first().ok_or_else(|| {
+                ApiError::BadRequest(
+                    "Cannot use parent worktree: parent task has no attempts".into(),
+                )
+            })?;
+
+            // Validate parent has a worktree
+            let container_ref = parent_attempt.container_ref.clone().ok_or_else(|| {
+                ApiError::BadRequest(
+                    "Cannot use parent worktree: parent attempt has no worktree".into(),
+                )
+            })?;
+
+            // Validate parent worktree not deleted
+            if parent_attempt.worktree_deleted {
+                return Err(ApiError::BadRequest(
+                    "Cannot use parent worktree: parent worktree was deleted".into(),
+                ));
+            }
+
+            (parent_attempt.branch.clone(), Some(container_ref))
+        } else {
+            let branch = deployment
+                .container()
+                .git_branch_from_task_attempt(&attempt_id, &task.title)
+                .await;
+            (branch, None)
+        };
 
     let task_attempt = TaskAttempt::create(
-        &deployment.db().pool,
+        pool,
         &CreateTaskAttempt {
             executor: executor_profile_id.executor,
             base_branch: payload.base_branch.clone(),
@@ -276,27 +322,39 @@ pub async fn create_task_attempt(
     )
     .await?;
 
+    // If using parent worktree, update container_ref before calling start_attempt
+    let skip_worktree_creation = if let Some(ref container_ref) = parent_container_ref {
+        TaskAttempt::update_container_ref(pool, task_attempt.id, container_ref).await?;
+        tracing::info!(
+            task_id = %task.id,
+            attempt_id = %task_attempt.id,
+            container_ref = %container_ref,
+            "Using parent worktree for attempt"
+        );
+        true
+    } else {
+        false
+    };
+
+    // Refetch to get the updated container_ref before starting attempt
+    let task_attempt = TaskAttempt::find_by_id(pool, task_attempt.id)
+        .await?
+        .ok_or(SqlxError::RowNotFound)?;
+
+    // Start the attempt (creates worktree if needed, then starts execution)
     if let Err(err) = deployment
         .container()
-        .start_attempt(&task_attempt, executor_profile_id.clone())
+        .start_attempt(&task_attempt, executor_profile_id.clone(), skip_worktree_creation)
         .await
     {
         tracing::error!("Failed to start task attempt: {}", err);
     }
-
-    deployment
-        .track_if_analytics_allowed(
-            "task_attempt_started",
-            serde_json::json!({
-                "task_id": task_attempt.task_id.to_string(),
-                "variant": &executor_profile_id.variant,
-                "executor": &executor_profile_id.executor,
-                "attempt_id": task_attempt.id.to_string(),
-            }),
-        )
-        .await;
-
     tracing::info!("Created attempt for task {}", task.id);
+
+    // Refetch to get the final state
+    let task_attempt = TaskAttempt::find_by_id(pool, task_attempt.id)
+        .await?
+        .ok_or(SqlxError::RowNotFound)?;
 
     Ok(ResponseJson(ApiResponse::success(task_attempt)))
 }
@@ -310,15 +368,53 @@ pub async fn create_task_attempt_by_task_id(
     Json(payload): Json<CreateTaskAttemptByTaskIdBody>,
 ) -> Result<ResponseJson<ApiResponse<TaskAttempt>>, ApiError> {
     let executor_profile_id = payload.executor_profile_id.clone();
+    let pool = &deployment.db().pool;
 
     let attempt_id = Uuid::new_v4();
-    let git_branch_name = deployment
-        .container()
-        .git_branch_from_task_attempt(&attempt_id, &task.title)
-        .await;
+
+    // Determine branch name and parent worktree info based on use_parent_worktree flag
+    let (git_branch_name, parent_container_ref) =
+        if payload.use_parent_worktree.unwrap_or(false) {
+            // Validate task has parent
+            let parent_task_id = task.parent_task_id.ok_or_else(|| {
+                ApiError::BadRequest(
+                    "Cannot use parent worktree: task has no parent_task_id".into(),
+                )
+            })?;
+
+            // Get parent task's latest attempt
+            let parent_attempts = TaskAttempt::fetch_all(pool, Some(parent_task_id)).await?;
+            let parent_attempt = parent_attempts.first().ok_or_else(|| {
+                ApiError::BadRequest(
+                    "Cannot use parent worktree: parent task has no attempts".into(),
+                )
+            })?;
+
+            // Validate parent has a worktree
+            let container_ref = parent_attempt.container_ref.clone().ok_or_else(|| {
+                ApiError::BadRequest(
+                    "Cannot use parent worktree: parent attempt has no worktree".into(),
+                )
+            })?;
+
+            // Validate parent worktree not deleted
+            if parent_attempt.worktree_deleted {
+                return Err(ApiError::BadRequest(
+                    "Cannot use parent worktree: parent worktree was deleted".into(),
+                ));
+            }
+
+            (parent_attempt.branch.clone(), Some(container_ref))
+        } else {
+            let branch = deployment
+                .container()
+                .git_branch_from_task_attempt(&attempt_id, &task.title)
+                .await;
+            (branch, None)
+        };
 
     let task_attempt = TaskAttempt::create(
-        &deployment.db().pool,
+        pool,
         &CreateTaskAttempt {
             executor: executor_profile_id.executor,
             base_branch: payload.base_branch.clone(),
@@ -329,33 +425,45 @@ pub async fn create_task_attempt_by_task_id(
     )
     .await?;
 
+    // If using parent worktree, update container_ref before calling start_attempt
+    let skip_worktree_creation = if let Some(ref container_ref) = parent_container_ref {
+        TaskAttempt::update_container_ref(pool, task_attempt.id, container_ref).await?;
+        tracing::info!(
+            task_id = %task.id,
+            shared_task_id = ?task.shared_task_id,
+            attempt_id = %task_attempt.id,
+            container_ref = %container_ref,
+            "Using parent worktree for attempt via by-task-id route"
+        );
+        true
+    } else {
+        false
+    };
+
+    // Refetch to get the updated container_ref before starting attempt
+    let task_attempt = TaskAttempt::find_by_id(pool, task_attempt.id)
+        .await?
+        .ok_or(SqlxError::RowNotFound)?;
+
+    // Start the attempt (creates worktree if needed, then starts execution)
     if let Err(err) = deployment
         .container()
-        .start_attempt(&task_attempt, executor_profile_id.clone())
+        .start_attempt(&task_attempt, executor_profile_id.clone(), skip_worktree_creation)
         .await
     {
         tracing::error!("Failed to start task attempt: {}", err);
     }
-
-    deployment
-        .track_if_analytics_allowed(
-            "task_attempt_started",
-            serde_json::json!({
-                "task_id": task_attempt.task_id.to_string(),
-                "variant": &executor_profile_id.variant,
-                "executor": &executor_profile_id.executor,
-                "attempt_id": task_attempt.id.to_string(),
-                "via": "by_task_id",
-            }),
-        )
-        .await;
-
     tracing::info!(
         task_id = %task.id,
         shared_task_id = ?task.shared_task_id,
         attempt_id = %task_attempt.id,
         "Created attempt via by-task-id route"
     );
+
+    // Refetch to get the final state
+    let task_attempt = TaskAttempt::find_by_id(pool, task_attempt.id)
+        .await?
+        .ok_or(SqlxError::RowNotFound)?;
 
     Ok(ResponseJson(ApiResponse::success(task_attempt)))
 }
@@ -378,16 +486,6 @@ pub async fn run_agent_setup(
         }
         _ => return Err(ApiError::Executor(ExecutorError::SetupHelperNotSupported)),
     }
-
-    deployment
-        .track_if_analytics_allowed(
-            "agent_setup_script_executed",
-            serde_json::json!({
-                "executor_profile_id": executor_profile_id.to_string(),
-                "attempt_id": task_attempt.id.to_string(),
-            }),
-        )
-        .await;
 
     Ok(ResponseJson(ApiResponse::success(RunAgentSetupResponse {})))
 }
@@ -786,17 +884,6 @@ pub async fn merge_task_attempt(
         );
     }
 
-    deployment
-        .track_if_analytics_allowed(
-            "task_attempt_merged",
-            serde_json::json!({
-                "task_id": ctx.task.id.to_string(),
-                "project_id": ctx.project.id.to_string(),
-                "attempt_id": task_attempt.id.to_string(),
-            }),
-        )
-        .await;
-
     Ok(ResponseJson(ApiResponse::success(())))
 }
 
@@ -1043,16 +1130,6 @@ pub async fn create_github_pr(
             if let Err(e) = utils::browser::open_browser(&pr_info.url).await {
                 tracing::warn!("Failed to open PR in browser: {}", e);
             }
-            deployment
-                .track_if_analytics_allowed(
-                    "github_pr_created",
-                    serde_json::json!({
-                        "task_id": task.id.to_string(),
-                        "project_id": project.id.to_string(),
-                        "attempt_id": task_attempt.id.to_string(),
-                    }),
-                )
-                .await;
 
             Ok(ResponseJson(ApiResponse::success(pr_info.url)))
         }
@@ -1116,17 +1193,6 @@ pub async fn open_task_attempt_in_editor(
                 path.display(),
                 if url.is_some() { " (remote mode)" } else { "" }
             );
-
-            deployment
-                .track_if_analytics_allowed(
-                    "task_attempt_editor_opened",
-                    serde_json::json!({
-                        "attempt_id": task_attempt.id.to_string(),
-                        "editor_type": payload.editor_type.as_ref(),
-                        "remote_mode": url.is_some(),
-                    }),
-                )
-                .await;
 
             Ok(ResponseJson(ApiResponse::success(OpenEditorResponse {
                 url,
@@ -1377,15 +1443,6 @@ pub async fn change_target_branch(
         &new_target_branch,
     )?;
 
-    deployment
-        .track_if_analytics_allowed(
-            "task_attempt_target_branch_changed",
-            serde_json::json!({
-                "attempt_id": task_attempt.id.to_string(),
-            }),
-        )
-        .await;
-
     Ok(ResponseJson(ApiResponse::success(
         ChangeTargetBranchResponse {
             new_target_branch,
@@ -1501,15 +1558,6 @@ pub async fn rename_branch(
         );
     }
 
-    deployment
-        .track_if_analytics_allowed(
-            "task_attempt_branch_renamed",
-            serde_json::json!({
-                "updated_children": updated_children_count,
-            }),
-        )
-        .await;
-
     Ok(ResponseJson(ApiResponse::success(RenameBranchResponse {
         branch: new_branch_name.to_string(),
     })))
@@ -1609,17 +1657,6 @@ pub async fn rebase_task_attempt(
             other => Err(ApiError::GitService(other)),
         };
     }
-
-    deployment
-        .track_if_analytics_allowed(
-            "task_attempt_rebased",
-            serde_json::json!({
-                "task_id": task.id.to_string(),
-                "project_id": ctx.project.id.to_string(),
-                "attempt_id": task_attempt.id.to_string(),
-            }),
-        )
-        .await;
 
     Ok(ResponseJson(ApiResponse::success(())))
 }
@@ -1737,17 +1774,6 @@ pub async fn start_dev_server(
         )));
     };
 
-    deployment
-        .track_if_analytics_allowed(
-            "dev_server_started",
-            serde_json::json!({
-                "task_id": task.id.to_string(),
-                "project_id": project.id.to_string(),
-                "attempt_id": task_attempt.id.to_string(),
-            }),
-        )
-        .await;
-
     Ok(ResponseJson(ApiResponse::success(())))
 }
 
@@ -1756,20 +1782,7 @@ pub async fn get_task_attempt_children(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<TaskRelationships>>, StatusCode> {
     match Task::find_relationships_for_attempt(&deployment.db().pool, &task_attempt).await {
-        Ok(relationships) => {
-            deployment
-                .track_if_analytics_allowed(
-                    "task_attempt_children_viewed",
-                    serde_json::json!({
-                        "attempt_id": task_attempt.id.to_string(),
-                        "children_count": relationships.children.len(),
-                        "parent_count": if relationships.parent_task.is_some() { 1 } else { 0 },
-                    }),
-                )
-                .await;
-
-            Ok(ResponseJson(ApiResponse::success(relationships)))
-        }
+        Ok(relationships) => Ok(ResponseJson(ApiResponse::success(relationships))),
         Err(e) => {
             tracing::error!(
                 "Failed to fetch relationships for task attempt {}: {}",
@@ -1806,15 +1819,6 @@ pub async fn stop_task_attempt_execution(
     }
 
     deployment.container().try_stop(&task_attempt).await;
-
-    deployment
-        .track_if_analytics_allowed(
-            "task_attempt_stopped",
-            serde_json::json!({
-                "attempt_id": task_attempt.id.to_string(),
-            }),
-        )
-        .await;
 
     Ok(ResponseJson(ApiResponse::success(())))
 }
@@ -1949,18 +1953,7 @@ pub async fn gh_cli_setup_handler(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<ExecutionProcess, GhCliSetupError>>, ApiError> {
     match gh_cli_setup::run_gh_cli_setup(&deployment, &task_attempt).await {
-        Ok(execution_process) => {
-            deployment
-                .track_if_analytics_allowed(
-                    "gh_cli_setup_executed",
-                    serde_json::json!({
-                        "attempt_id": task_attempt.id.to_string(),
-                    }),
-                )
-                .await;
-
-            Ok(ResponseJson(ApiResponse::success(execution_process)))
-        }
+        Ok(execution_process) => Ok(ResponseJson(ApiResponse::success(execution_process))),
         Err(ApiError::Executor(ExecutorError::ExecutableNotFound { program }))
             if program == "brew" =>
         {
@@ -2302,5 +2295,73 @@ mod tests {
         assert_eq!(url, "http://node:3000");
         assert_eq!(returned_node_id, node_id);
         assert_eq!(returned_task_id, task_id);
+    }
+
+    #[test]
+    fn test_create_task_attempt_body_with_use_parent_worktree() {
+        let body: CreateTaskAttemptBody = serde_json::from_str(
+            r#"{
+            "task_id": "550e8400-e29b-41d4-a716-446655440000",
+            "executor_profile_id": { "executor": "CLAUDE_CODE", "variant": null },
+            "base_branch": "main",
+            "use_parent_worktree": true
+        }"#,
+        )
+        .unwrap();
+        assert!(body.use_parent_worktree.unwrap_or(false));
+    }
+
+    #[test]
+    fn test_create_task_attempt_body_backwards_compatible() {
+        // Old requests without use_parent_worktree should still work
+        let body: CreateTaskAttemptBody = serde_json::from_str(
+            r#"{
+            "task_id": "550e8400-e29b-41d4-a716-446655440000",
+            "executor_profile_id": { "executor": "CLAUDE_CODE", "variant": null },
+            "base_branch": "main"
+        }"#,
+        )
+        .unwrap();
+        assert!(body.use_parent_worktree.is_none());
+    }
+
+    #[test]
+    fn test_create_task_attempt_body_with_use_parent_worktree_false() {
+        let body: CreateTaskAttemptBody = serde_json::from_str(
+            r#"{
+            "task_id": "550e8400-e29b-41d4-a716-446655440000",
+            "executor_profile_id": { "executor": "CLAUDE_CODE", "variant": null },
+            "base_branch": "main",
+            "use_parent_worktree": false
+        }"#,
+        )
+        .unwrap();
+        assert_eq!(body.use_parent_worktree, Some(false));
+    }
+
+    #[test]
+    fn test_create_task_attempt_by_task_id_body_with_use_parent_worktree() {
+        let body: CreateTaskAttemptByTaskIdBody = serde_json::from_str(
+            r#"{
+            "executor_profile_id": { "executor": "CLAUDE_CODE", "variant": null },
+            "base_branch": "main",
+            "use_parent_worktree": true
+        }"#,
+        )
+        .unwrap();
+        assert!(body.use_parent_worktree.unwrap_or(false));
+    }
+
+    #[test]
+    fn test_create_task_attempt_by_task_id_body_backwards_compatible() {
+        // Old requests without use_parent_worktree should still work
+        let body: CreateTaskAttemptByTaskIdBody = serde_json::from_str(
+            r#"{
+            "executor_profile_id": { "executor": "CLAUDE_CODE", "variant": null },
+            "base_branch": "main"
+        }"#,
+        )
+        .unwrap();
+        assert!(body.use_parent_worktree.is_none());
     }
 }

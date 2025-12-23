@@ -404,29 +404,6 @@ export function GeneralSettings() {
                 </p>
               </div>
             </div>
-
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="dev-banner-hide-discord"
-                checked={draft?.dev_banner?.hide_discord_link ?? false}
-                onCheckedChange={(checked: boolean) =>
-                  updateDraft({
-                    dev_banner: {
-                      ...draft!.dev_banner,
-                      hide_discord_link: checked,
-                    },
-                  })
-                }
-              />
-              <div className="space-y-0.5">
-                <Label htmlFor="dev-banner-hide-discord" className="cursor-pointer">
-                  {t('settings.general.devBanner.hideDiscordLink.label')}
-                </Label>
-                <p className="text-sm text-muted-foreground">
-                  {t('settings.general.devBanner.hideDiscordLink.helper')}
-                </p>
-              </div>
-            </div>
           </CardContent>
         </Card>
       )}
@@ -842,45 +819,52 @@ export function GeneralSettings() {
 
       <Card>
         <CardHeader>
-          <CardTitle>{t('settings.general.privacy.title')}</CardTitle>
+          <CardTitle>{t('settings.general.performance.title')}</CardTitle>
           <CardDescription>
-            {t('settings.general.privacy.description')}
+            {t('settings.general.performance.description')}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center space-x-2">
-            <Checkbox
-              id="analytics-enabled"
-              checked={draft?.analytics_enabled ?? false}
-              onCheckedChange={(checked: boolean) =>
-                updateDraft({ analytics_enabled: checked })
+          <div className="space-y-2">
+            <Label htmlFor="initial-load">
+              {t('settings.general.performance.initialLoad.label')}
+            </Label>
+            <Select
+              value={String(draft?.pagination?.initial_load ?? 100)}
+              onValueChange={(value: string) =>
+                updateDraft({
+                  pagination: {
+                    ...draft!.pagination,
+                    initial_load: BigInt(value),
+                  },
+                })
               }
-            />
-            <div className="space-y-0.5">
-              <Label htmlFor="analytics-enabled" className="cursor-pointer">
-                {t('settings.general.privacy.telemetry.label')}
-              </Label>
-              <p className="text-sm text-muted-foreground">
-                {t('settings.general.privacy.telemetry.helper')}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center space-x-2">
-            <Checkbox
-              id="sentry-enabled"
-              checked={draft?.sentry_enabled ?? false}
-              onCheckedChange={(checked: boolean) =>
-                updateDraft({ sentry_enabled: checked })
-              }
-            />
-            <div className="space-y-0.5">
-              <Label htmlFor="sentry-enabled" className="cursor-pointer">
-                {t('settings.general.privacy.errorReporting.label')}
-              </Label>
-              <p className="text-sm text-muted-foreground">
-                {t('settings.general.privacy.errorReporting.helper')}
-              </p>
-            </div>
+            >
+              <SelectTrigger id="initial-load">
+                <SelectValue
+                  placeholder={t(
+                    'settings.general.performance.initialLoad.option100'
+                  )}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="50">
+                  {t('settings.general.performance.initialLoad.option50')}
+                </SelectItem>
+                <SelectItem value="100">
+                  {t('settings.general.performance.initialLoad.option100')}
+                </SelectItem>
+                <SelectItem value="200">
+                  {t('settings.general.performance.initialLoad.option200')}
+                </SelectItem>
+                <SelectItem value="500">
+                  {t('settings.general.performance.initialLoad.option500')}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">
+              {t('settings.general.performance.initialLoad.helper')}
+            </p>
           </div>
         </CardContent>
       </Card>

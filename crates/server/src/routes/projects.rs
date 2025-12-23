@@ -611,19 +611,8 @@ pub async fn link_to_local_folder(
     // Now link it to the remote project
     let client = deployment.remote_client()?;
     let remote_project = client.get_project(payload.remote_project_id).await?;
-    let updated_project = apply_remote_project_link(&deployment, project.id, remote_project).await?;
-
-    // Track the event
-    deployment
-        .track_if_analytics_allowed(
-            "project_created_and_linked_to_remote",
-            serde_json::json!({
-                "project_id": updated_project.id.to_string(),
-                "remote_project_id": payload.remote_project_id.to_string(),
-                "trigger": "link_to_local_folder",
-            }),
-        )
-        .await;
+    let updated_project =
+        apply_remote_project_link(&deployment, project.id, remote_project).await?;
 
     tracing::info!(
         project_id = %updated_project.id,
@@ -798,15 +787,6 @@ async fn apply_remote_project_link(
         }
     }
 
-    deployment
-        .track_if_analytics_allowed(
-            "project_linked_to_remote",
-            serde_json::json!({
-                "project_id": project_id.to_string(),
-            }),
-        )
-        .await;
-
     Ok(updated_project)
 }
 
@@ -914,23 +894,7 @@ pub async fn create_project(
     )
     .await
     {
-        Ok(project) => {
-            // Track project creation event
-            deployment
-                .track_if_analytics_allowed(
-                    "project_created",
-                    serde_json::json!({
-                        "project_id": project.id.to_string(),
-                        "use_existing_repo": use_existing_repo,
-                        "has_setup_script": project.setup_script.is_some(),
-                        "has_dev_script": project.dev_script.is_some(),
-                        "trigger": "manual",
-                    }),
-                )
-                .await;
-
-            Ok(ResponseJson(ApiResponse::success(project)))
-        }
+        Ok(project) => Ok(ResponseJson(ApiResponse::success(project))),
         Err(e) => Err(ProjectError::CreateFailed(e.to_string()).into()),
     }
 }
@@ -950,6 +914,7 @@ pub async fn update_project(
         dev_script,
         cleanup_script,
         copy_files,
+        parallel_setup_script,
     } = payload;
     // If git_repo_path is being changed, check if the new path is already used by another project
     let git_repo_path = if let Some(new_git_repo_path) = git_repo_path.map(|s| expand_tilde(&s))
@@ -986,6 +951,7 @@ pub async fn update_project(
         dev_script,
         cleanup_script,
         copy_files,
+        parallel_setup_script.unwrap_or(existing_project.parallel_setup_script),
     )
     .await
     {
@@ -1006,15 +972,6 @@ pub async fn delete_project(
             if rows_affected == 0 {
                 Err(StatusCode::NOT_FOUND)
             } else {
-                deployment
-                    .track_if_analytics_allowed(
-                        "project_deleted",
-                        serde_json::json!({
-                            "project_id": project.id.to_string(),
-                        }),
-                    )
-                    .await;
-
                 Ok(ResponseJson(ApiResponse::success(())))
             }
         }
@@ -1056,17 +1013,6 @@ pub async fn open_project_in_editor(
                 path.to_string_lossy(),
                 if url.is_some() { " (remote mode)" } else { "" }
             );
-
-            deployment
-                .track_if_analytics_allowed(
-                    "project_editor_opened",
-                    serde_json::json!({
-                        "project_id": project.id.to_string(),
-                        "editor_type": payload.as_ref().and_then(|req| req.editor_type.as_ref()),
-                        "remote_mode": url.is_some(),
-                    }),
-                )
-                .await;
 
             Ok(ResponseJson(ApiResponse::success(OpenEditorResponse {
                 url,

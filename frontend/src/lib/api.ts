@@ -7,6 +7,7 @@ import {
   ApiResponse,
   ArchiveTaskRequest,
   ArchiveTaskResponse,
+  BackupInfo,
   BranchStatus,
   Config,
   CommitInfo,
@@ -18,18 +19,25 @@ import {
   CreateAndStartTaskRequest,
   CreateTaskAttemptBody,
   CreateTag,
+  CreateTaskVariable,
   DirectoryListResponse,
   DirectoryEntry,
+  Direction,
   FileContentResponse,
   ExecutionProcess,
   GitBranch,
+  PaginatedLogs,
+  PreviewExpansionRequest,
+  PreviewExpansionResponse,
   Project,
   CreateProject,
+  ResolvedVariable,
   SearchResult,
   ShareTaskResponse,
   Task,
   TaskAttempt,
   TaskRelationships,
+  TaskVariable,
   Tag,
   TagSearchParams,
   TaskWithAttemptStatus,
@@ -37,6 +45,7 @@ import {
   UpdateProject,
   UpdateTask,
   UpdateTag,
+  UpdateTaskVariable,
   UserSystemInfo,
   UpdateRetryFollowUpDraftRequest,
   McpServerQuery,
@@ -86,6 +95,10 @@ import {
   UnifiedProjectsResponse,
   MergedProjectsResponse,
   CachedNodeStatus,
+  ProcessInfo,
+  ProcessFilter,
+  KillScope,
+  KillResult,
 } from 'shared/types';
 
 // Re-export types for convenience
@@ -539,6 +552,90 @@ export const tasksApi = {
   getChildren: async (taskId: string): Promise<Task[]> => {
     const response = await makeRequest(`/api/tasks/${taskId}/children`);
     return handleApiResponse<Task[]>(response);
+  },
+};
+
+// Task Variables APIs
+export const taskVariablesApi = {
+  /**
+   * Get task's own variables (not including inherited).
+   */
+  list: async (taskId: string): Promise<TaskVariable[]> => {
+    const response = await makeRequest(`/api/tasks/${taskId}/variables`);
+    return handleApiResponse<TaskVariable[]>(response);
+  },
+
+  /**
+   * Get all resolved variables (including inherited from parent tasks).
+   * Child variables override parent variables with the same name.
+   */
+  listResolved: async (taskId: string): Promise<ResolvedVariable[]> => {
+    const response = await makeRequest(`/api/tasks/${taskId}/variables/resolved`);
+    return handleApiResponse<ResolvedVariable[]>(response);
+  },
+
+  /**
+   * Create a new variable for a task.
+   * Variable name must match [A-Z][A-Z0-9_]* pattern.
+   */
+  create: async (
+    taskId: string,
+    data: CreateTaskVariable
+  ): Promise<TaskVariable> => {
+    const response = await makeRequest(`/api/tasks/${taskId}/variables`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    return handleApiResponse<TaskVariable>(response);
+  },
+
+  /**
+   * Update an existing variable.
+   */
+  update: async (
+    taskId: string,
+    variableId: string,
+    data: UpdateTaskVariable
+  ): Promise<TaskVariable> => {
+    const response = await makeRequest(
+      `/api/tasks/${taskId}/variables/${variableId}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<TaskVariable>(response);
+  },
+
+  /**
+   * Delete a variable.
+   */
+  delete: async (taskId: string, variableId: string): Promise<void> => {
+    const response = await makeRequest(
+      `/api/tasks/${taskId}/variables/${variableId}`,
+      {
+        method: 'DELETE',
+      }
+    );
+    return handleApiResponse<void>(response);
+  },
+
+  /**
+   * Preview variable expansion in a text.
+   * Returns expanded text and list of undefined variables.
+   */
+  preview: async (
+    taskId: string,
+    data: PreviewExpansionRequest
+  ): Promise<PreviewExpansionResponse> => {
+    const response = await makeRequest(
+      `/api/tasks/${taskId}/variables/preview`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<PreviewExpansionResponse>(response);
   },
 };
 
@@ -1255,9 +1352,24 @@ export const dashboardApi = {
     const response = await makeRequest('/api/dashboard/summary');
     return handleApiResponse<DashboardSummary>(response);
   },
-  getActivityFeed: async (): Promise<ActivityFeed> => {
-    const response = await makeRequest('/api/dashboard/activity');
+  getActivityFeed: async (includeDismissed = false): Promise<ActivityFeed> => {
+    const queryParam = includeDismissed ? '?include_dismissed=true' : '';
+    const response = await makeRequest(`/api/dashboard/activity${queryParam}`);
     return handleApiResponse<ActivityFeed>(response);
+  },
+  dismissActivityItem: async (taskId: string): Promise<void> => {
+    const response = await makeRequest('/api/dashboard/activity/dismiss', {
+      method: 'POST',
+      body: JSON.stringify({ task_id: taskId }),
+    });
+    return handleApiResponse<void>(response);
+  },
+  undismissActivityItem: async (taskId: string): Promise<void> => {
+    const response = await makeRequest(
+      `/api/dashboard/activity/dismiss/${encodeURIComponent(taskId)}`,
+      { method: 'DELETE' }
+    );
+    return handleApiResponse<void>(response);
   },
 };
 
@@ -1320,3 +1432,146 @@ export const nodesApi = {
   },
 };
 
+// === Backups API ===
+export const backupsApi = {
+  /**
+   * List all available database backups, sorted newest first.
+   */
+  list: async (): Promise<BackupInfo[]> => {
+    const response = await makeRequest('/api/backups');
+    return handleApiResponse<BackupInfo[]>(response);
+  },
+
+  /**
+   * Create a new database backup.
+   */
+  create: async (): Promise<BackupInfo> => {
+    const response = await makeRequest('/api/backups', { method: 'POST' });
+    return handleApiResponse<BackupInfo>(response);
+  },
+
+  /**
+   * Delete a database backup by filename.
+   */
+  delete: async (filename: string): Promise<void> => {
+    const response = await makeRequest(`/api/backups/${encodeURIComponent(filename)}`, {
+      method: 'DELETE',
+    });
+    return handleApiResponse<void>(response);
+  },
+
+  /**
+   * Get the download URL for a backup file.
+   * The browser will handle the download when navigated to this URL.
+   */
+  getDownloadUrl: (filename: string): string => {
+    return `/api/backups/${encodeURIComponent(filename)}/download`;
+  },
+
+  /**
+   * Restore database from an uploaded backup file.
+   * Returns a message indicating the application needs to be restarted.
+   */
+  restore: async (file: File): Promise<string> => {
+    const formData = new FormData();
+    formData.append('backup', file);
+    const response = await fetch('/api/backups/restore', {
+      method: 'POST',
+      body: formData,
+    });
+    const result: ApiResponse<string> = await response.json();
+    if (!response.ok || !result.success) {
+      throw new Error(result.message || 'Failed to restore backup');
+    }
+    return result.data!;
+  },
+};
+
+// === Processes API ===
+export const processesApi = {
+  /**
+   * List all vibe-kanban related processes with optional filtering.
+   */
+  list: async (filter?: ProcessFilter): Promise<ProcessInfo[]> => {
+    const params = new URLSearchParams();
+    if (filter?.project_id) {
+      params.set('project_id', filter.project_id);
+    }
+    if (filter?.task_id) {
+      params.set('task_id', filter.task_id);
+    }
+    if (filter?.task_attempt_id) {
+      params.set('task_attempt_id', filter.task_attempt_id);
+    }
+    if (filter?.executors_only) {
+      params.set('executors_only', 'true');
+    }
+    const queryString = params.toString();
+    const url = queryString ? `/api/processes?${queryString}` : '/api/processes';
+    const response = await makeRequest(url);
+    return handleApiResponse<ProcessInfo[]>(response);
+  },
+
+  /**
+   * Kill processes by scope.
+   */
+  kill: async (scope: KillScope, force: boolean = false): Promise<KillResult> => {
+    const response = await makeRequest('/api/processes/kill', {
+      method: 'POST',
+      body: JSON.stringify({ scope, force }),
+    });
+    return handleApiResponse<KillResult>(response);
+  },
+};
+
+// === Logs API (Unified Log Access) ===
+export interface LogsPaginationParams {
+  limit?: number;
+  cursor?: bigint;
+  direction?: Direction;
+}
+
+export const logsApi = {
+  /**
+   * Get paginated logs for an execution process.
+   * Uses cursor-based pagination for efficient scrolling.
+   *
+   * @param executionId - The execution process ID
+   * @param params - Pagination parameters (limit, cursor, direction)
+   */
+  getPaginated: async (
+    executionId: string,
+    params?: LogsPaginationParams
+  ): Promise<PaginatedLogs> => {
+    const queryParams = new URLSearchParams();
+    if (params?.limit !== undefined) {
+      queryParams.set('limit', params.limit.toString());
+    }
+    if (params?.cursor !== undefined) {
+      queryParams.set('cursor', params.cursor.toString());
+    }
+    if (params?.direction !== undefined) {
+      queryParams.set('direction', params.direction);
+    }
+    const queryString = queryParams.toString();
+    const url = queryString
+      ? `/api/logs/${executionId}?${queryString}`
+      : `/api/logs/${executionId}`;
+    const response = await makeRequest(url);
+    return handleApiResponse<PaginatedLogs>(response);
+  },
+
+  /**
+   * Get the WebSocket URL for live log streaming.
+   * Use this to subscribe to new log entries as they are produced.
+   *
+   * @param executionId - The execution process ID
+   * @param token - Optional connection token for external access
+   */
+  getLiveStreamUrl: (executionId: string, token?: string): string => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+    return `${protocol}//${host}/api/logs/${executionId}/live${tokenParam}`;
+  },
+};

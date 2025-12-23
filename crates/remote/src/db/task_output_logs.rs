@@ -3,6 +3,7 @@
 use chrono::{DateTime, Utc};
 use sqlx::{FromRow, PgPool};
 use thiserror::Error;
+use utils::unified_log::{Direction, LogEntry, OutputType, PaginatedLogs};
 use uuid::Uuid;
 
 #[derive(Debug, Error)]
@@ -204,5 +205,141 @@ impl<'a> TaskOutputLogRepository<'a> {
         .await?;
 
         Ok(result.rows_affected())
+    }
+
+    /// Get paginated output logs for an assignment with cursor-based pagination.
+    ///
+    /// Returns logs in a unified format matching the local server's pagination API.
+    ///
+    /// # Arguments
+    /// * `assignment_id` - The assignment (execution) ID to fetch logs for
+    /// * `cursor` - Entry ID to start from (exclusive). None for initial fetch.
+    /// * `limit` - Maximum entries to return
+    /// * `direction` - Forward (oldest first, id > cursor) or Backward (newest first, id < cursor)
+    pub async fn find_paginated(
+        &self,
+        assignment_id: Uuid,
+        cursor: Option<i64>,
+        limit: i64,
+        direction: Direction,
+    ) -> Result<PaginatedLogs, TaskOutputLogError> {
+        // Fetch one more than requested to determine if there are more entries
+        let fetch_limit = limit + 1;
+
+        let logs = match (direction, cursor) {
+            // Backward (newest first): ORDER BY id DESC, fetch id < cursor
+            (Direction::Backward, Some(cursor_id)) => {
+                sqlx::query_as::<_, TaskOutputLog>(
+                    r#"
+                    SELECT id, assignment_id, output_type, content, timestamp, created_at
+                    FROM node_task_output_logs
+                    WHERE assignment_id = $1 AND id < $2
+                    ORDER BY id DESC
+                    LIMIT $3
+                    "#,
+                )
+                .bind(assignment_id)
+                .bind(cursor_id)
+                .bind(fetch_limit)
+                .fetch_all(self.pool)
+                .await?
+            }
+            // Backward without cursor: newest entries first
+            (Direction::Backward, None) => {
+                sqlx::query_as::<_, TaskOutputLog>(
+                    r#"
+                    SELECT id, assignment_id, output_type, content, timestamp, created_at
+                    FROM node_task_output_logs
+                    WHERE assignment_id = $1
+                    ORDER BY id DESC
+                    LIMIT $2
+                    "#,
+                )
+                .bind(assignment_id)
+                .bind(fetch_limit)
+                .fetch_all(self.pool)
+                .await?
+            }
+            // Forward (oldest first): ORDER BY id ASC, fetch id > cursor
+            (Direction::Forward, Some(cursor_id)) => {
+                sqlx::query_as::<_, TaskOutputLog>(
+                    r#"
+                    SELECT id, assignment_id, output_type, content, timestamp, created_at
+                    FROM node_task_output_logs
+                    WHERE assignment_id = $1 AND id > $2
+                    ORDER BY id ASC
+                    LIMIT $3
+                    "#,
+                )
+                .bind(assignment_id)
+                .bind(cursor_id)
+                .bind(fetch_limit)
+                .fetch_all(self.pool)
+                .await?
+            }
+            // Forward without cursor: oldest entries first
+            (Direction::Forward, None) => {
+                sqlx::query_as::<_, TaskOutputLog>(
+                    r#"
+                    SELECT id, assignment_id, output_type, content, timestamp, created_at
+                    FROM node_task_output_logs
+                    WHERE assignment_id = $1
+                    ORDER BY id ASC
+                    LIMIT $2
+                    "#,
+                )
+                .bind(assignment_id)
+                .bind(fetch_limit)
+                .fetch_all(self.pool)
+                .await?
+            }
+        };
+
+        // Determine if there are more entries
+        let has_more = logs.len() as i64 > limit;
+
+        // Take only the requested number of entries
+        let entries: Vec<LogEntry> = logs
+            .into_iter()
+            .take(limit as usize)
+            .map(|log| {
+                LogEntry::new(
+                    log.id,
+                    log.content,
+                    OutputType::from_remote_str(&log.output_type),
+                    log.timestamp,
+                    log.assignment_id,
+                )
+            })
+            .collect();
+
+        // Calculate next cursor based on direction
+        let next_cursor = if has_more {
+            entries.last().map(|e| e.id)
+        } else {
+            None
+        };
+
+        Ok(PaginatedLogs::new(entries, next_cursor, has_more, None))
+    }
+
+    /// Get paginated logs with total count.
+    ///
+    /// This method also fetches the total count of logs for the assignment,
+    /// useful for UI display.
+    pub async fn find_paginated_with_count(
+        &self,
+        assignment_id: Uuid,
+        cursor: Option<i64>,
+        limit: i64,
+        direction: Direction,
+    ) -> Result<PaginatedLogs, TaskOutputLogError> {
+        // Get paginated logs and count in parallel
+        let (paginated, count) = tokio::try_join!(
+            self.find_paginated(assignment_id, cursor, limit, direction),
+            self.count_by_assignment(assignment_id)
+        )?;
+
+        Ok(paginated.with_total_count(count))
     }
 }

@@ -116,7 +116,13 @@ impl SharePublisher {
             .assign_shared_task(shared_task.id, &payload)
             .await?;
 
-        let input = convert_remote_task(&remote_task, user.as_ref(), None);
+        // For newly assigned shared tasks, use the remote task's updated_at as activity_at
+        let input = convert_remote_task(
+            &remote_task,
+            user.as_ref(),
+            None,
+            Some(remote_task.updated_at),
+        );
         let record = SharedTask::upsert(&self.db.pool, input).await?;
         Ok(record)
     }
@@ -158,7 +164,13 @@ impl SharePublisher {
             .await?
             .ok_or(ShareError::ProjectNotFound(task.project_id))?;
 
-        let input = convert_remote_task(remote_task, user.as_ref(), None);
+        // For newly created shared tasks, use the remote task's updated_at as activity_at
+        let input = convert_remote_task(
+            remote_task,
+            user.as_ref(),
+            None,
+            Some(remote_task.updated_at),
+        );
         SharedTask::upsert(&self.db.pool, input).await?;
         Task::set_shared_task_id(&self.db.pool, task.id, Some(remote_task.id)).await?;
         Ok(())

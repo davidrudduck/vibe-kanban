@@ -9,21 +9,25 @@ import enSettings from './locales/en/settings.json';
 import enProjects from './locales/en/projects.json';
 import enTasks from './locales/en/tasks.json';
 import enOrganization from './locales/en/organization.json';
+import enProcesses from './locales/en/processes.json';
 import jaCommon from './locales/ja/common.json';
 import jaSettings from './locales/ja/settings.json';
 import jaProjects from './locales/ja/projects.json';
 import jaTasks from './locales/ja/tasks.json';
 import jaOrganization from './locales/ja/organization.json';
+import jaProcesses from './locales/ja/processes.json';
 import esCommon from './locales/es/common.json';
 import esSettings from './locales/es/settings.json';
 import esProjects from './locales/es/projects.json';
 import esTasks from './locales/es/tasks.json';
 import esOrganization from './locales/es/organization.json';
+import esProcesses from './locales/es/processes.json';
 import koCommon from './locales/ko/common.json';
 import koSettings from './locales/ko/settings.json';
 import koProjects from './locales/ko/projects.json';
 import koTasks from './locales/ko/tasks.json';
 import koOrganization from './locales/ko/organization.json';
+import koProcesses from './locales/ko/processes.json';
 
 const resources = {
   en: {
@@ -32,6 +36,7 @@ const resources = {
     projects: enProjects,
     tasks: enTasks,
     organization: enOrganization,
+    processes: enProcesses,
   },
   ja: {
     common: jaCommon,
@@ -39,6 +44,7 @@ const resources = {
     projects: jaProjects,
     tasks: jaTasks,
     organization: jaOrganization,
+    processes: jaProcesses,
   },
   es: {
     common: esCommon,
@@ -46,6 +52,7 @@ const resources = {
     projects: esProjects,
     tasks: esTasks,
     organization: esOrganization,
+    processes: esProcesses,
   },
   ko: {
     common: koCommon,
@@ -53,6 +60,7 @@ const resources = {
     projects: koProjects,
     tasks: koTasks,
     organization: koOrganization,
+    processes: koProcesses,
   },
 };
 

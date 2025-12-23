@@ -23,6 +23,8 @@ pub struct SharedTask {
     pub created_at: DateTime<Utc>,
     #[ts(type = "Date")]
     pub updated_at: DateTime<Utc>,
+    #[ts(type = "Date | null")]
+    pub activity_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone)]
@@ -40,6 +42,7 @@ pub struct SharedTaskInput {
     pub last_event_seq: Option<i64>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub activity_at: Option<DateTime<Utc>>,
 }
 
 impl SharedTask {
@@ -63,7 +66,8 @@ impl SharedTask {
                 version                    AS "version!: i64",
                 last_event_seq             AS "last_event_seq: i64",
                 created_at                 AS "created_at!: DateTime<Utc>",
-                updated_at                 AS "updated_at!: DateTime<Utc>"
+                updated_at                 AS "updated_at!: DateTime<Utc>",
+                activity_at                AS "activity_at: DateTime<Utc>"
             FROM shared_tasks
             WHERE remote_project_id = $1
             ORDER BY updated_at DESC
@@ -95,10 +99,11 @@ impl SharedTask {
                 version,
                 last_event_seq,
                 created_at,
-                updated_at
+                updated_at,
+                activity_at
             )
             VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
             )
             ON CONFLICT(id) DO UPDATE SET
                 remote_project_id   = excluded.remote_project_id,
@@ -112,7 +117,8 @@ impl SharedTask {
                 version             = excluded.version,
                 last_event_seq      = excluded.last_event_seq,
                 created_at          = excluded.created_at,
-                updated_at          = excluded.updated_at
+                updated_at          = excluded.updated_at,
+                activity_at         = excluded.activity_at
             RETURNING
                 id                         AS "id!: Uuid",
                 remote_project_id          AS "remote_project_id!: Uuid",
@@ -126,7 +132,8 @@ impl SharedTask {
                 version                    AS "version!: i64",
                 last_event_seq             AS "last_event_seq: i64",
                 created_at                 AS "created_at!: DateTime<Utc>",
-                updated_at                 AS "updated_at!: DateTime<Utc>"
+                updated_at                 AS "updated_at!: DateTime<Utc>",
+                activity_at                AS "activity_at: DateTime<Utc>"
             "#,
             data.id,
             data.remote_project_id,
@@ -140,7 +147,8 @@ impl SharedTask {
             data.version,
             data.last_event_seq,
             data.created_at,
-            data.updated_at
+            data.updated_at,
+            data.activity_at
         )
         .fetch_one(executor)
         .await
@@ -163,7 +171,8 @@ impl SharedTask {
                 version                    AS "version!: i64",
                 last_event_seq             AS "last_event_seq: i64",
                 created_at                 AS "created_at!: DateTime<Utc>",
-                updated_at                 AS "updated_at!: DateTime<Utc>"
+                updated_at                 AS "updated_at!: DateTime<Utc>",
+                activity_at                AS "activity_at: DateTime<Utc>"
             FROM shared_tasks
             WHERE id = $1
             "#,
@@ -220,7 +229,8 @@ impl SharedTask {
                 version                    AS "version!: i64",
                 last_event_seq             AS "last_event_seq: i64",
                 created_at                 AS "created_at!: DateTime<Utc>",
-                updated_at                 AS "updated_at!: DateTime<Utc>"
+                updated_at                 AS "updated_at!: DateTime<Utc>",
+                activity_at                AS "activity_at: DateTime<Utc>"
             FROM shared_tasks
             WHERE rowid = $1
             "#,
