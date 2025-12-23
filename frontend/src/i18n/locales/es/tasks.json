@@ -388,6 +388,7 @@
     "titlePlaceholder": "Título de la tarea",
     "descriptionPlaceholder": "Agrega más detalles (opcional). Escribe @ para buscar archivos.",
     "statusLabel": "Estado",
+    "labelsLabel": "Etiquetas",
     "statusOptions": {
       "todo": "Por Hacer",
       "inprogress": "En Progreso",
