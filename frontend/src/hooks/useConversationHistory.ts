@@ -159,24 +159,21 @@ export const useConversationHistory = ({
       // Cap at 500 which is the server-side maximum
       const pageSize = Math.min(effectiveLimit, 500);
 
-      // Fetch only the first page with newest entries first
-      // This provides instant display instead of waiting for all pages
+      // Fetch only the first page with oldest entries first
+      // JSON patches MUST be applied in chronological order (oldest first)
+      // because they build state incrementally - each patch assumes previous state exists
       const result = await logsApi.getPaginated(executionProcess.id, {
         limit: pageSize,
-        direction: 'backward', // Newest first for fast initial display
+        direction: 'forward', // Oldest first - required for JSON patches to work
       });
 
       if (result.entries.length === 0) {
         return [];
       }
 
-      // IMPORTANT: Reverse entries BEFORE applying patches!
-      // JSON patches must be applied in chronological order (oldest first)
-      // because they build state incrementally. Backward fetch returns newest-first.
-      const chronologicalEntries = [...result.entries].reverse();
-
       // Convert LogEntry[] to PatchType[] by applying patches in correct order
-      const patches = logEntriesToPatches(chronologicalEntries, executionProcess.id);
+      // No reverse needed - forward direction already returns chronological order
+      const patches = logEntriesToPatches(result.entries, executionProcess.id);
 
       // Extract just the PatchType (without keys) for this internal use
       const entries = patches.map(p => {
