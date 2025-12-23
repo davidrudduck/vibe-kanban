@@ -185,7 +185,7 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
               <Button
                 variant="outline"
                 size="icon"
-                className="absolute top-4 left-4 z-10 rounded-full shadow-lg bg-background/90 backdrop-blur-sm hover:bg-background"
+                className="absolute top-16 right-4 z-10 rounded-full shadow-lg bg-background/90 backdrop-blur-sm hover:bg-background"
                 aria-label={t('conversation.pagination.label')}
               >
                 <Settings2 className="h-4 w-4" />
