@@ -58,13 +58,18 @@ export function LabelPicker({
     let newLabels: Label[];
 
     if (isSelected) {
-      newLabels = selectedLabels.filter((l) => l.id !== label.id);
+      // Deselect = remove all labels (single-select behavior)
+      newLabels = [];
     } else {
-      newLabels = [...selectedLabels, label];
+      // Select = replace with single label (single-select behavior)
+      newLabels = [label];
     }
 
     // Optimistically update UI
     onLabelsChange(newLabels);
+
+    // Close popover after selection
+    setOpen(false);
 
     // Persist to backend
     try {
