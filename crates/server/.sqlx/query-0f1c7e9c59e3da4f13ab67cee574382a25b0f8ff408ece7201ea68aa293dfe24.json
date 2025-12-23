@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                l.id as \"id!: Uuid\",\n                l.project_id as \"project_id: Uuid\",\n                l.name,\n                l.icon,\n                l.color,\n                l.created_at as \"created_at!: DateTime<Utc>\",\n                l.updated_at as \"updated_at!: DateTime<Utc>\"\n            FROM labels l\n            INNER JOIN task_labels tl ON l.id = tl.label_id\n            WHERE tl.task_id = $1\n            ORDER BY l.name ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "project_id: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "name",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "icon",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "color",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: DateTime<Utc>",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: DateTime<Utc>",
+        "ordinal": 6,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "0f1c7e9c59e3da4f13ab67cee574382a25b0f8ff408ece7201ea68aa293dfe24"
+}

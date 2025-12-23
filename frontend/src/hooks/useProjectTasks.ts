@@ -134,18 +134,38 @@ export const useProjectTasks = (
       byStatus[task.status]?.push(task);
     });
 
+    // Helper: get activity time (fallback to created_at)
+    const getActivityTime = (task: TaskWithAttemptStatus) =>
+      new Date(
+        ((task.activity_at ?? task.created_at) as string | Date).toString()
+      ).getTime();
+
     const sorted = Object.values(merged).sort(
-      (a, b) =>
-        new Date(b.created_at as string).getTime() -
-        new Date(a.created_at as string).getTime()
+      (a, b) => getActivityTime(b) - getActivityTime(a)
     );
 
-    (Object.values(byStatus) as TaskWithAttemptStatus[][]).forEach((list) => {
-      list.sort(
-        (a, b) =>
-          new Date(b.created_at as string).getTime() -
-          new Date(a.created_at as string).getTime()
-      );
+    // Apply status-aware sorting:
+    // - Todo: oldest first (FIFO queue - prevents older tasks from being buried)
+    // - All others: most recent activity first
+    const TASK_STATUSES: TaskStatus[] = [
+      'todo',
+      'inprogress',
+      'inreview',
+      'done',
+      'cancelled',
+    ];
+    TASK_STATUSES.forEach((status) => {
+      if (status === 'todo') {
+        // Todo: oldest first (ascending by activity_at)
+        byStatus[status].sort(
+          (a, b) => getActivityTime(a) - getActivityTime(b)
+        );
+      } else {
+        // All others: most recent first (descending by activity_at)
+        byStatus[status].sort(
+          (a, b) => getActivityTime(b) - getActivityTime(a)
+        );
+      }
     });
 
     return { tasks: sorted, tasksById: merged, tasksByStatus: byStatus };
@@ -178,12 +198,32 @@ export const useProjectTasks = (
       grouped[sharedTask.status]?.push(sharedTask);
     });
 
-    (Object.values(grouped) as SharedTaskRecord[][]).forEach((list) => {
-      list.sort(
-        (a, b) =>
-          new Date(b.created_at as string).getTime() -
-          new Date(a.created_at as string).getTime()
-      );
+    // Helper: get activity time for shared tasks (fallback to created_at)
+    const getSharedActivityTime = (task: SharedTaskRecord) =>
+      new Date(
+        ((task.activity_at ?? task.created_at) as string | Date).toString()
+      ).getTime();
+
+    // Apply same status-aware sorting as local tasks
+    const TASK_STATUSES: TaskStatus[] = [
+      'todo',
+      'inprogress',
+      'inreview',
+      'done',
+      'cancelled',
+    ];
+    TASK_STATUSES.forEach((status) => {
+      if (status === 'todo') {
+        // Todo: oldest first (ascending by activity_at)
+        grouped[status].sort(
+          (a, b) => getSharedActivityTime(a) - getSharedActivityTime(b)
+        );
+      } else {
+        // All others: most recent first (descending by activity_at)
+        grouped[status].sort(
+          (a, b) => getSharedActivityTime(b) - getSharedActivityTime(a)
+        );
+      }
     });
 
     return grouped;
