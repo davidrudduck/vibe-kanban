@@ -17,6 +17,8 @@ interface UseTerminalTabsReturn {
   addTab: (workingDir: string, label?: string) => string | null;
   removeTab: (tabId: string) => void;
   setActiveTab: (tabId: string) => void;
+  navigateToPreviousTab: () => void;
+  navigateToNextTab: () => void;
   getTab: (tabId: string) => TerminalTab | undefined;
   hasTab: (workingDir: string) => boolean;
   findTabByWorkingDir: (workingDir: string) => TerminalTab | undefined;
@@ -112,6 +114,20 @@ export function useTerminalTabs(
     setActiveTabId(tabId);
   }, []);
 
+  const navigateToPreviousTab = useCallback(() => {
+    if (tabs.length <= 1) return;
+    const currentIndex = tabs.findIndex((t) => t.id === activeTabId);
+    if (currentIndex <= 0) return; // Already at first tab
+    setActiveTabId(tabs[currentIndex - 1].id);
+  }, [tabs, activeTabId]);
+
+  const navigateToNextTab = useCallback(() => {
+    if (tabs.length <= 1) return;
+    const currentIndex = tabs.findIndex((t) => t.id === activeTabId);
+    if (currentIndex === -1 || currentIndex >= tabs.length - 1) return; // Already at last tab
+    setActiveTabId(tabs[currentIndex + 1].id);
+  }, [tabs, activeTabId]);
+
   const getTab = useCallback(
     (tabId: string): TerminalTab | undefined => {
       return tabs.find((t) => t.id === tabId);
@@ -140,6 +156,8 @@ export function useTerminalTabs(
       addTab,
       removeTab,
       setActiveTab,
+      navigateToPreviousTab,
+      navigateToNextTab,
       getTab,
       hasTab,
       findTabByWorkingDir,
@@ -150,6 +168,8 @@ export function useTerminalTabs(
       addTab,
       removeTab,
       setActiveTab,
+      navigateToPreviousTab,
+      navigateToNextTab,
       getTab,
       hasTab,
       findTabByWorkingDir,

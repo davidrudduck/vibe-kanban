@@ -6,6 +6,7 @@ import {
   useTerminalWebSocket,
   ConnectionState,
 } from '@/hooks/useTerminalWebSocket';
+import { getTerminalSettings } from '@/hooks/useTerminalSettings';
 import { Loader2, RefreshCw, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -54,7 +55,7 @@ function TerminalView({
     setLocalConnectionState(state);
   }, []);
 
-  const { sendInput, sendResize, connectionState, reconnect } =
+  const { sendInput, sendResize, connectionState, reconnect, retryCount } =
     useTerminalWebSocket({
       sessionId,
       onOutput: handleOutput,
@@ -72,10 +73,14 @@ function TerminalView({
   useEffect(() => {
     if (!containerRef.current) return;
 
+    // Load settings at terminal creation time
+    const terminalSettings = getTerminalSettings();
+
     const terminal = new Terminal({
-      cursorBlink: true,
-      fontSize: 14,
-      fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+      cursorBlink: terminalSettings.cursorBlink,
+      fontSize: terminalSettings.fontSize,
+      fontFamily: terminalSettings.fontFamily,
+      scrollSensitivity: terminalSettings.scrollSensitivity,
       theme: {
         background: '#1a1b26',
         foreground: '#a9b1d6',
@@ -176,28 +181,41 @@ function TerminalView({
               ) : (
                 <>
                   <Loader2 className="h-8 w-8 animate-spin" />
-                  <span>Connecting...</span>
+                  <span>
+                    {retryCount > 0
+                      ? `Retrying connection... (${retryCount}/6)`
+                      : 'Connecting...'}
+                  </span>
                 </>
               )}
             </div>
           )}
           {(localConnectionState === 'error' ||
             localConnectionState === 'disconnected') && (
-            <div className="flex flex-col items-center gap-3 text-muted-foreground">
-              <AlertCircle className="h-8 w-8 text-destructive" />
-              <span>
-                {localConnectionState === 'error'
-                  ? 'Connection failed'
-                  : 'Disconnected'}
-              </span>
+            <div className="flex flex-col items-center gap-3 text-center px-4 max-w-sm">
+              <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
+                <AlertCircle className="h-6 w-6 text-destructive" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="font-medium text-foreground">
+                  {localConnectionState === 'error'
+                    ? 'Connection Failed'
+                    : 'Disconnected'}
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  {localConnectionState === 'error'
+                    ? 'Unable to connect to the terminal session. The session may have expired or the server may be unreachable.'
+                    : 'The terminal connection was lost. You can try to reconnect.'}
+                </p>
+              </div>
               <Button
-                variant="outline"
+                variant="default"
                 size="sm"
                 onClick={reconnect}
-                className="gap-2"
+                className="gap-2 mt-1"
               >
                 <RefreshCw className="h-4 w-4" />
-                Reconnect
+                Try Again
               </Button>
             </div>
           )}

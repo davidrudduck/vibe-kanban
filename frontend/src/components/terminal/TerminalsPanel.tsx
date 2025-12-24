@@ -1,7 +1,8 @@
-import { useEffect, useCallback, memo } from 'react';
-import { X, Plus, Terminal, Loader2, AlertCircle } from 'lucide-react';
+import { useEffect, useCallback, memo, useMemo } from 'react';
+import { X, Plus, Terminal, Loader2, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAttemptWorktreePath } from '@/hooks/useTerminalSession';
 import { useTerminalTabs, TerminalTab } from '@/hooks/useTerminalTabs';
+import { useSwipe } from '@/hooks/useSwipe';
 import TerminalContainer from './TerminalContainer';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -105,8 +106,29 @@ export function TerminalsPanel({
     error,
   } = useAttemptWorktreePath(attemptId);
 
-  const { tabs, activeTabId, addTab, removeTab, setActiveTab } =
-    useTerminalTabs({ maxTabs: 5 });
+  const {
+    tabs,
+    activeTabId,
+    addTab,
+    removeTab,
+    setActiveTab,
+    navigateToPreviousTab,
+    navigateToNextTab,
+  } = useTerminalTabs({ maxTabs: 5 });
+
+  // Swipe handlers for mobile navigation between tabs
+  const swipeHandlers = useSwipe({
+    onSwipeLeft: navigateToNextTab,
+    onSwipeRight: navigateToPreviousTab,
+  });
+
+  // Determine if navigation buttons should be shown (for mobile when multiple tabs exist)
+  const activeTabIndex = useMemo(
+    () => tabs.findIndex((t) => t.id === activeTabId),
+    [tabs, activeTabId]
+  );
+  const canNavigatePrevious = activeTabIndex > 0;
+  const canNavigateNext = activeTabIndex < tabs.length - 1;
 
   // Auto-create first terminal when worktree path is available
   useEffect(() => {
@@ -189,6 +211,20 @@ export function TerminalsPanel({
     <div className={cn('flex flex-col h-full', className)}>
       {/* Tab bar */}
       <div className="flex items-center border-b bg-muted/30 shrink-0">
+        {/* Mobile navigation - previous tab */}
+        {tabs.length > 1 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={navigateToPreviousTab}
+            disabled={!canNavigatePrevious}
+            className="h-8 px-1.5 shrink-0 md:hidden"
+            aria-label="Previous terminal"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+        )}
+
         <div
           role="tablist"
           aria-label="Terminal tabs"
@@ -204,13 +240,51 @@ export function TerminalsPanel({
             />
           ))}
         </div>
+
+        {/* Mobile navigation - next tab */}
+        {tabs.length > 1 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={navigateToNextTab}
+            disabled={!canNavigateNext}
+            className="h-8 px-1.5 shrink-0 md:hidden"
+            aria-label="Next terminal"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        )}
+
         <div className="flex items-center px-2 shrink-0">
           <AddTabButton onClick={handleAddTab} disabled={tabs.length >= 5} />
         </div>
       </div>
 
-      {/* Terminal content area */}
-      <div className="flex-1 min-h-0 relative">
+      {/* Mobile tab indicator (dots) */}
+      {tabs.length > 1 && (
+        <div className="flex items-center justify-center gap-1.5 py-1 bg-muted/20 md:hidden">
+          {tabs.map((tab, index) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                'w-2 h-2 rounded-full transition-colors',
+                index === activeTabIndex
+                  ? 'bg-primary'
+                  : 'bg-muted-foreground/30 hover:bg-muted-foreground/50'
+              )}
+              aria-label={`Switch to ${tab.label}`}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Terminal content area - swipeable on mobile */}
+      <div
+        className="flex-1 min-h-0 relative"
+        onTouchStart={swipeHandlers.onTouchStart}
+        onTouchEnd={swipeHandlers.onTouchEnd}
+      >
         {tabs.map((tab) => (
           <div
             key={tab.id}

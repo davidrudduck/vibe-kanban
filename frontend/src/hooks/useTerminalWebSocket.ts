@@ -16,6 +16,7 @@ export interface UseTerminalWebSocketResult {
   sendResize: (cols: number, rows: number) => void;
   connectionState: ConnectionState;
   reconnect: () => void;
+  retryCount: number;
 }
 
 export function useTerminalWebSocket({
@@ -27,7 +28,7 @@ export function useTerminalWebSocket({
 }: UseTerminalWebSocketOptions): UseTerminalWebSocketResult {
   const wsRef = useRef<WebSocket | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
-  const retryCountRef = useRef<number>(0);
+  const [retryCount, setRetryCount] = useState<number>(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isIntentionallyClosed = useRef<boolean>(false);
 
@@ -57,7 +58,7 @@ export function useTerminalWebSocket({
 
     ws.onopen = () => {
       updateConnectionState('connected');
-      retryCountRef.current = 0;
+      setRetryCount(0);
     };
 
     ws.onmessage = (event) => {
@@ -95,15 +96,17 @@ export function useTerminalWebSocket({
 
       // Retry connection with exponential backoff
       if (event.code !== 1000) {
-        const next = retryCountRef.current + 1;
-        retryCountRef.current = next;
-        if (next <= 6) {
-          const delay = Math.min(3000, 250 * 2 ** (next - 1));
-          updateConnectionState('connecting');
-          retryTimerRef.current = setTimeout(() => connect(), delay);
-        } else {
-          updateConnectionState('error');
-        }
+        setRetryCount((prev) => {
+          const next = prev + 1;
+          if (next <= 6) {
+            const delay = Math.min(3000, 250 * 2 ** (next - 1));
+            updateConnectionState('connecting');
+            retryTimerRef.current = setTimeout(() => connect(), delay);
+          } else {
+            updateConnectionState('error');
+          }
+          return next;
+        });
       } else {
         updateConnectionState('disconnected');
       }
@@ -147,7 +150,7 @@ export function useTerminalWebSocket({
 
   const reconnect = useCallback(() => {
     disconnect();
-    retryCountRef.current = 0;
+    setRetryCount(0);
     connect();
   }, [disconnect, connect]);
 
@@ -156,5 +159,6 @@ export function useTerminalWebSocket({
     sendResize,
     connectionState,
     reconnect,
+    retryCount,
   };
 }
