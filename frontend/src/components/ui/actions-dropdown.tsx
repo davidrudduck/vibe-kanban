@@ -8,7 +8,22 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { MoreHorizontal } from 'lucide-react';
+import {
+  MoreHorizontal,
+  ExternalLink,
+  Activity,
+  Link2,
+  Plus,
+  GitBranch,
+  GitMerge,
+  Tag,
+  UserPlus,
+  Archive,
+  ArchiveRestore,
+  Pencil,
+  Copy,
+  Trash2,
+} from 'lucide-react';
 import type { TaskWithAttemptStatus, TaskAttempt } from 'shared/types';
 import { useOpenInEditor } from '@/hooks/useOpenInEditor';
 import { ArchiveTaskConfirmationDialog } from '@/components/dialogs/tasks/ArchiveTaskConfirmationDialog';
@@ -223,12 +238,14 @@ export function ActionsDropdown({
                 disabled={!attempt?.id}
                 onClick={handleOpenInEditor}
               >
+                <ExternalLink className="mr-2 h-4 w-4" />
                 {t('actionsMenu.openInIde')}
               </DropdownMenuItem>
               <DropdownMenuItem
                 disabled={!attempt?.id}
                 onClick={handleViewProcesses}
               >
+                <Activity className="mr-2 h-4 w-4" />
                 {t('actionsMenu.viewProcesses')}
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -240,6 +257,7 @@ export function ActionsDropdown({
                     : undefined
                 }
               >
+                <Plus className="mr-2 h-4 w-4" />
                 {t('actionsMenu.createNewAttempt')}
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -251,6 +269,7 @@ export function ActionsDropdown({
                     : undefined
                 }
               >
+                <GitMerge className="mr-2 h-4 w-4" />
                 {t('actionsMenu.gitActions')}
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -262,6 +281,7 @@ export function ActionsDropdown({
                     : undefined
                 }
               >
+                <Tag className="mr-2 h-4 w-4" />
                 {t('actionsMenu.editBranchName')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -275,6 +295,7 @@ export function ActionsDropdown({
                 disabled={!canReassign}
                 onClick={handleReassign}
               >
+                <UserPlus className="mr-2 h-4 w-4" />
                 {t('actionsMenu.reassign')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -282,6 +303,7 @@ export function ActionsDropdown({
                 disabled={!task?.id || !projectId}
                 onClick={handleViewRelatedTasks}
               >
+                <Link2 className="mr-2 h-4 w-4" />
                 {t('actionsMenu.viewRelatedTasks')}
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -298,6 +320,7 @@ export function ActionsDropdown({
                       : undefined
                 }
               >
+                <GitBranch className="mr-2 h-4 w-4" />
                 {t('actionsMenu.createSubtask')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -311,6 +334,7 @@ export function ActionsDropdown({
                       : undefined
                   }
                 >
+                  <Archive className="mr-2 h-4 w-4" />
                   {t('actionsMenu.archive')}
                 </DropdownMenuItem>
               )}
@@ -324,6 +348,7 @@ export function ActionsDropdown({
                       : undefined
                   }
                 >
+                  <ArchiveRestore className="mr-2 h-4 w-4" />
                   {t('actionsMenu.unarchive')}
                 </DropdownMenuItem>
               )}
@@ -331,9 +356,11 @@ export function ActionsDropdown({
                 disabled={!projectId || !canModifyTask}
                 onClick={handleEdit}
               >
+                <Pencil className="mr-2 h-4 w-4" />
                 {t('common:buttons.edit')}
               </DropdownMenuItem>
               <DropdownMenuItem disabled={!projectId} onClick={handleDuplicate}>
+                <Copy className="mr-2 h-4 w-4" />
                 {t('actionsMenu.duplicate')}
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -341,6 +368,7 @@ export function ActionsDropdown({
                 onClick={handleDelete}
                 className="text-destructive"
               >
+                <Trash2 className="mr-2 h-4 w-4" />
                 {t('common:buttons.delete')}
               </DropdownMenuItem>
             </>
@@ -355,6 +383,7 @@ export function ActionsDropdown({
                 disabled={!canReassign}
                 onClick={handleReassign}
               >
+                <UserPlus className="mr-2 h-4 w-4" />
                 {t('actionsMenu.reassign')}
               </DropdownMenuItem>
             </>
