@@ -9,6 +9,7 @@ pub mod execution_process_logs;
 pub mod executor_session;
 pub mod image;
 pub mod label;
+pub mod log_entry;
 pub mod merge;
 pub mod project;
 pub mod shared_task;
