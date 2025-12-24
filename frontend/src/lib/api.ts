@@ -103,6 +103,9 @@ import {
   ProcessFilter,
   KillScope,
   KillResult,
+  SessionInfo,
+  CreateSessionResponse,
+  WorktreePathResponse,
 } from 'shared/types';
 
 // Re-export types for convenience
@@ -883,6 +886,13 @@ export const attemptsApi = {
     );
     return handleApiResponse<ExecutionProcess, GhCliSetupError>(response);
   },
+
+  getWorktreePath: async (attemptId: string): Promise<WorktreePathResponse> => {
+    const response = await makeRequest(
+      `/api/task-attempts/${attemptId}/worktree-path`
+    );
+    return handleApiResponse<WorktreePathResponse>(response);
+  },
 };
 
 // Extra helpers
@@ -1636,5 +1646,45 @@ export const logsApi = {
     const host = window.location.host;
     const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
     return `${protocol}//${host}/api/logs/${executionId}/live${tokenParam}`;
+  },
+};
+
+// Terminal API
+export interface CreateTerminalSessionRequest {
+  working_dir: string;
+}
+
+export const terminalApi = {
+  createSession: async (
+    workingDir: string
+  ): Promise<CreateSessionResponse> => {
+    const response = await makeRequest('/api/terminal/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ working_dir: workingDir }),
+    });
+    return handleApiResponse<CreateSessionResponse>(response);
+  },
+
+  listSessions: async (): Promise<SessionInfo[]> => {
+    const response = await makeRequest('/api/terminal/sessions');
+    return handleApiResponse<SessionInfo[]>(response);
+  },
+
+  getSession: async (sessionId: string): Promise<SessionInfo> => {
+    const response = await makeRequest(`/api/terminal/sessions/${sessionId}`);
+    return handleApiResponse<SessionInfo>(response);
+  },
+
+  deleteSession: async (sessionId: string): Promise<void> => {
+    const response = await makeRequest(`/api/terminal/sessions/${sessionId}`, {
+      method: 'DELETE',
+    });
+    return handleApiResponse<void>(response);
+  },
+
+  getWebSocketUrl: (sessionId: string): string => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    return `${protocol}//${host}/api/terminal/ws/${sessionId}`;
   },
 };

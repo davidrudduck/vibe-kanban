@@ -26,6 +26,7 @@ pub mod process_service;
 pub mod project_detector;
 pub mod remote_client;
 pub mod share;
+pub mod terminal_session;
 pub mod unified_logs;
 pub mod variable_expander;
 pub mod worktree_manager;

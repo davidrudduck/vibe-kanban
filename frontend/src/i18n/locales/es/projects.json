@@ -48,6 +48,7 @@
   "linkedToOrganizationTooltip": "Este proyecto está vinculado a un proyecto remoto para colaboración",
   "viewProject": "Ver Proyecto",
   "openInIDE": "Abrir en IDE",
+  "openTerminal": "Abrir Terminal",
   "createdDate": "Creado {{date}}",
   "statusBanner": {
     "title": "Tareas Activas",
