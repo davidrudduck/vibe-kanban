@@ -32,6 +32,21 @@ interface PendingApprovalEntryProps {
   pendingStatus: Extract<ToolStatus, { status: 'pending_approval' }>;
   executionProcessId?: string;
   children: ReactNode;
+  toolName?: string;
+  toolArguments?: unknown;
+}
+
+// Type for AskUserQuestion arguments
+interface AskUserQuestionArgs {
+  questions?: Array<{
+    question: string;
+    header?: string;
+    multiSelect?: boolean;
+    options?: Array<{
+      label: string;
+      description?: string;
+    }>;
+  }>;
 }
 
 function useApprovalCountdown(
@@ -169,11 +184,73 @@ function DenyReasonForm({
   );
 }
 
+// ---------- Debug Component for AskUserQuestion ----------
+function AskUserQuestionDebug({ args }: { args: AskUserQuestionArgs }) {
+  const questions = args?.questions;
+  if (!questions || !Array.isArray(questions)) {
+    return (
+      <pre className="text-xs overflow-auto max-h-40 p-2 bg-background rounded">
+        {JSON.stringify(args, null, 2)}
+      </pre>
+    );
+  }
+
+  return (
+    <>
+      {/* Formatted question display */}
+      <div className="space-y-3 mb-3">
+        {questions.map((q, idx) => (
+          <div key={idx} className="text-sm">
+            <div className="font-medium text-foreground">{q.question}</div>
+            {q.options && q.options.length > 0 && (
+              <div className="ml-2 mt-1.5 space-y-1">
+                {q.options.map((opt, optIdx) => (
+                  <div
+                    key={optIdx}
+                    className="text-xs text-muted-foreground flex items-start gap-1.5"
+                  >
+                    <span className="text-amber-600 dark:text-amber-400">•</span>
+                    <span>
+                      <span className="font-medium">{opt.label}</span>
+                      {opt.description && (
+                        <span className="ml-1 opacity-75">
+                          — {opt.description}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {q.multiSelect && (
+              <div className="ml-2 mt-1 text-xs text-amber-600 dark:text-amber-400">
+                (Multiple selections allowed)
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Collapsible raw JSON */}
+      <details className="text-xs">
+        <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+          Show raw JSON
+        </summary>
+        <pre className="mt-2 p-2 bg-background rounded overflow-auto max-h-40 text-xs">
+          {JSON.stringify(args, null, 2)}
+        </pre>
+      </details>
+    </>
+  );
+}
+
 // ---------- Main Component ----------
 const PendingApprovalEntry = ({
   pendingStatus,
   executionProcessId,
   children,
+  toolName,
+  toolArguments,
 }: PendingApprovalEntryProps) => {
   const [isResponding, setIsResponding] = useState(false);
   const [hasResponded, setHasResponded] = useState(false);
@@ -329,6 +406,21 @@ const PendingApprovalEntry = ({
 
         <div className="border-t bg-background px-2 py-1.5 text-xs sm:text-sm">
           <TooltipProvider>
+            {/* AskUserQuestion debug display */}
+            {toolName === 'AskUserQuestion' &&
+              toolArguments !== undefined &&
+              toolArguments !== null && (
+                <div className="mb-3 mx-2 p-3 bg-amber-50 dark:bg-amber-950/30 rounded border border-amber-200 dark:border-amber-800">
+                  <div className="text-xs font-semibold mb-2 text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                    <span>AskUserQuestion</span>
+                    <span className="font-normal opacity-75">(Debug View)</span>
+                  </div>
+                  <AskUserQuestionDebug
+                    args={toolArguments as AskUserQuestionArgs}
+                  />
+                </div>
+              )}
+
             <div className="flex items-center justify-between gap-1.5 pl-4">
               <div className="flex items-center gap-1.5">
                 {!isEnteringReason && (
