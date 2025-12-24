@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useJsonPatchWsStream } from './useJsonPatchWsStream';
 import {
   useRegisterOptimisticCallback,
@@ -91,6 +91,14 @@ export const useProjectTasks = (
     initialData
   );
 
+  // Track optimistic archived_at overrides that persist across WebSocket updates
+  // Key: taskId, Value: { archivedAt: string | null, timestamp: number }
+  // The timestamp helps us determine when to clear the override (after server confirms)
+  const [optimisticArchivedOverrides, setOptimisticArchivedOverrides] =
+    useState<Map<string, { archivedAt: string | null; timestamp: number }>>(
+      () => new Map()
+    );
+
   // Optimistically add a task to local state via JSON Patch
   const addTaskOptimistically = useCallback(
     (task: TaskWithAttemptStatus) => {
@@ -119,18 +127,18 @@ export const useProjectTasks = (
     [patchData]
   );
 
-  // Optimistically update a task's archived_at via JSON Patch
+  // Optimistically update a task's archived_at
+  // This uses a separate state to persist across WebSocket updates
   const updateTaskArchivedOptimistically = useCallback(
     (taskId: string, archivedAt: string | null) => {
-      patchData([
-        {
-          op: 'replace',
-          path: `/tasks/${taskId}/archived_at`,
-          value: archivedAt,
-        },
-      ]);
+      // Store the optimistic override
+      setOptimisticArchivedOverrides((prev) => {
+        const next = new Map(prev);
+        next.set(taskId, { archivedAt, timestamp: Date.now() });
+        return next;
+      });
     },
-    [patchData]
+    []
   );
 
   // Register callbacks globally so modals/other components can access them
@@ -138,7 +146,57 @@ export const useProjectTasks = (
   useRegisterStatusCallback(projectId, updateTaskStatusOptimistically);
   useRegisterArchivedCallback(projectId, updateTaskArchivedOptimistically);
 
-  const localTasksById = useMemo(() => data?.tasks ?? {}, [data?.tasks]);
+  // Merge WebSocket data with optimistic overrides
+  const localTasksById = useMemo(() => {
+    const tasks = data?.tasks ?? {};
+
+    // If no overrides, return tasks as-is
+    if (optimisticArchivedOverrides.size === 0) {
+      return tasks;
+    }
+
+    // Apply optimistic overrides
+    const merged: Record<string, TaskWithAttemptStatus> = {};
+    for (const [taskId, task] of Object.entries(tasks)) {
+      const override = optimisticArchivedOverrides.get(taskId);
+      if (override) {
+        // Check if server has confirmed our change
+        // If server's archived_at matches our override (both null or both truthy), clear override
+        const serverArchivedAt = task.archived_at;
+        const optimisticArchivedAt = override.archivedAt;
+        const serverConfirmed =
+          (serverArchivedAt === null && optimisticArchivedAt === null) ||
+          (serverArchivedAt !== null && optimisticArchivedAt !== null);
+
+        if (serverConfirmed) {
+          // Server confirmed, use server value and schedule override cleanup
+          merged[taskId] = task;
+          // Clean up this override asynchronously
+          setTimeout(() => {
+            setOptimisticArchivedOverrides((prev) => {
+              const next = new Map(prev);
+              // Only delete if it's the same override (hasn't been updated since)
+              if (next.get(taskId)?.timestamp === override.timestamp) {
+                next.delete(taskId);
+              }
+              return next;
+            });
+          }, 0);
+        } else {
+          // Apply optimistic override
+          // Convert string to Date if truthy, keep null as null
+          const archivedAtValue = optimisticArchivedAt
+            ? new Date(optimisticArchivedAt)
+            : null;
+          merged[taskId] = { ...task, archived_at: archivedAtValue };
+        }
+      } else {
+        merged[taskId] = task;
+      }
+    }
+
+    return merged;
+  }, [data?.tasks, optimisticArchivedOverrides]);
   const sharedTasksById = useMemo(
     () => data?.shared_tasks ?? {},
     [data?.shared_tasks]
