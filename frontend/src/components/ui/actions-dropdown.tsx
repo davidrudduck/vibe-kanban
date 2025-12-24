@@ -23,6 +23,7 @@ import {
   Pencil,
   Copy,
   Trash2,
+  X,
 } from 'lucide-react';
 import type { TaskWithAttemptStatus, TaskAttempt } from 'shared/types';
 import { useOpenInEditor } from '@/hooks/useOpenInEditor';
@@ -39,9 +40,13 @@ import { openTaskForm } from '@/lib/openTaskForm';
 
 import { useNavigate } from 'react-router-dom';
 import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
-import { useAuth, useTaskUsesSharedWorktree } from '@/hooks';
+import { useAuth, useTaskUsesSharedWorktree, useIsMobile } from '@/hooks';
 import { tasksApi } from '@/lib/api';
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
+import { motion, AnimatePresence, useDragControls } from 'framer-motion';
+import type { PanInfo } from 'framer-motion';
+import { cn } from '@/lib/utils';
 
 interface ActionsDropdownProps {
   task?: TaskWithAttemptStatus | null;
@@ -61,6 +66,50 @@ export function ActionsDropdown({
   const openInEditor = useOpenInEditor(attempt?.id);
   const navigate = useNavigate();
   const { userId } = useAuth();
+  const isMobile = useIsMobile();
+
+  // Mobile sheet state
+  const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
+  const dragControls = useDragControls();
+
+  const closeMobileSheet = useCallback(() => {
+    setMobileSheetOpen(false);
+  }, []);
+
+  // Handle drag end to determine if should close
+  const handleDragEnd = useCallback(
+    (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+      if (info.offset.y > 100 || info.velocity.y > 500) {
+        closeMobileSheet();
+      }
+    },
+    [closeMobileSheet]
+  );
+
+  // Handle escape key for mobile sheet
+  useEffect(() => {
+    if (!mobileSheetOpen) return;
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        closeMobileSheet();
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [mobileSheetOpen, closeMobileSheet]);
+
+  // Prevent body scroll when mobile sheet is open
+  useEffect(() => {
+    if (!mobileSheetOpen) return;
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [mobileSheetOpen]);
 
   const hasAttemptActions = Boolean(attempt);
   const hasTaskActions = Boolean(task);
@@ -216,180 +265,406 @@ export function ActionsDropdown({
   const hasSharedOnlyActions =
     !hasTaskActions && Boolean(sharedTask) && isOrgAdmin;
 
+  // Mobile menu item component with 48px touch target
+  const MobileMenuItem = ({
+    icon: Icon,
+    label,
+    onClick,
+    disabled,
+    destructive,
+  }: {
+    icon: React.ComponentType<{ className?: string }>;
+    label: string;
+    onClick: (e: React.MouseEvent) => void;
+    disabled?: boolean;
+    destructive?: boolean;
+  }) => (
+    <button
+      className={cn(
+        'flex items-center w-full min-h-[48px] px-4 py-3 text-left transition-colors',
+        'hover:bg-accent active:bg-accent/80',
+        disabled && 'opacity-50 pointer-events-none',
+        destructive && 'text-destructive'
+      )}
+      onClick={(e) => {
+        onClick(e);
+        closeMobileSheet();
+      }}
+      disabled={disabled}
+    >
+      <Icon className="mr-3 h-5 w-5 flex-shrink-0" />
+      <span className="text-sm font-medium">{label}</span>
+    </button>
+  );
+
+  // Mobile section label component
+  const MobileSectionLabel = ({ children }: { children: React.ReactNode }) => (
+    <div className="px-4 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+      {children}
+    </div>
+  );
+
+  // Mobile separator component
+  const MobileSeparator = () => (
+    <div className="h-px bg-border my-1" />
+  );
+
+  // Trigger button (shared between mobile and desktop)
+  const triggerButton = (
+    <Button
+      variant="icon"
+      aria-label="Actions"
+      onPointerDown={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (isMobile) {
+          setMobileSheetOpen(true);
+        }
+      }}
+    >
+      <MoreHorizontal className="h-4 w-4" />
+    </Button>
+  );
+
+  // Mobile: Bottom sheet
+  if (isMobile) {
+    return (
+      <>
+        {triggerButton}
+
+        {createPortal(
+          <AnimatePresence>
+            {mobileSheetOpen && (
+              <>
+                {/* Backdrop */}
+                <motion.div
+                  className="fixed inset-0 z-50 bg-black/50"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  onClick={closeMobileSheet}
+                />
+
+                {/* Sheet */}
+                <motion.div
+                  className="fixed bottom-0 left-0 right-0 z-50 bg-popover text-popover-foreground rounded-t-xl shadow-lg max-h-[85vh] overflow-hidden"
+                  initial={{ y: '100%' }}
+                  animate={{ y: 0 }}
+                  exit={{ y: '100%' }}
+                  transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+                  drag="y"
+                  dragControls={dragControls}
+                  dragConstraints={{ top: 0, bottom: 0 }}
+                  dragElastic={{ top: 0, bottom: 0.5 }}
+                  onDragEnd={handleDragEnd}
+                >
+                {/* Drag handle */}
+                <div
+                  className="flex justify-center py-3 cursor-grab active:cursor-grabbing touch-none"
+                  onPointerDown={(e) => dragControls.start(e)}
+                >
+                  <div className="w-10 h-1 bg-muted-foreground/30 rounded-full" />
+                </div>
+
+                {/* Content */}
+                <div className="overflow-y-auto max-h-[calc(85vh-44px)] pb-safe">
+                  {hasAttemptActions && (
+                    <>
+                      <MobileSectionLabel>
+                        {t('actionsMenu.attempt')}
+                      </MobileSectionLabel>
+                      <MobileMenuItem
+                        icon={ExternalLink}
+                        label={t('actionsMenu.openInIde')}
+                        onClick={handleOpenInEditor}
+                        disabled={!attempt?.id}
+                      />
+                      <MobileMenuItem
+                        icon={Activity}
+                        label={t('actionsMenu.viewProcesses')}
+                        onClick={handleViewProcesses}
+                        disabled={!attempt?.id}
+                      />
+                      <MobileMenuItem
+                        icon={Plus}
+                        label={t('actionsMenu.createNewAttempt')}
+                        onClick={handleCreateNewAttempt}
+                        disabled={isRemote}
+                      />
+                      <MobileMenuItem
+                        icon={GitMerge}
+                        label={t('actionsMenu.gitActions')}
+                        onClick={handleGitActions}
+                        disabled={!attempt?.id || !task || isRemote}
+                      />
+                      <MobileMenuItem
+                        icon={Tag}
+                        label={t('actionsMenu.editBranchName')}
+                        onClick={handleEditBranchName}
+                        disabled={!attempt?.id || isRemote}
+                      />
+                      <MobileSeparator />
+                    </>
+                  )}
+
+                  {hasTaskActions && (
+                    <>
+                      <MobileSectionLabel>
+                        {t('actionsMenu.task')}
+                      </MobileSectionLabel>
+                      <MobileMenuItem
+                        icon={UserPlus}
+                        label={t('actionsMenu.reassign')}
+                        onClick={handleReassign}
+                        disabled={!canReassign}
+                      />
+                      <MobileSeparator />
+                      <MobileMenuItem
+                        icon={Link2}
+                        label={t('actionsMenu.viewRelatedTasks')}
+                        onClick={handleViewRelatedTasks}
+                        disabled={!task?.id || !projectId}
+                      />
+                      <MobileMenuItem
+                        icon={GitBranch}
+                        label={t('actionsMenu.createSubtask')}
+                        onClick={handleCreateSubtask}
+                        disabled={!projectId || !task || isRemote || usesSharedWorktree}
+                      />
+                      <MobileSeparator />
+                      {!task?.archived_at && (
+                        <MobileMenuItem
+                          icon={Archive}
+                          label={t('actionsMenu.archive')}
+                          onClick={handleArchive}
+                          disabled={!projectId || !canModifyTask || isRemote}
+                        />
+                      )}
+                      {task?.archived_at && (
+                        <MobileMenuItem
+                          icon={ArchiveRestore}
+                          label={t('actionsMenu.unarchive')}
+                          onClick={handleUnarchive}
+                          disabled={!canModifyTask || isRemote || isUnarchiving}
+                        />
+                      )}
+                      <MobileMenuItem
+                        icon={Pencil}
+                        label={t('common:buttons.edit')}
+                        onClick={handleEdit}
+                        disabled={!projectId || !canModifyTask}
+                      />
+                      <MobileMenuItem
+                        icon={Copy}
+                        label={t('actionsMenu.duplicate')}
+                        onClick={handleDuplicate}
+                        disabled={!projectId}
+                      />
+                      <MobileMenuItem
+                        icon={Trash2}
+                        label={t('common:buttons.delete')}
+                        onClick={handleDelete}
+                        disabled={!projectId || !canModifyTask}
+                        destructive
+                      />
+                    </>
+                  )}
+
+                  {hasSharedOnlyActions && (
+                    <>
+                      <MobileSectionLabel>
+                        {t('actionsMenu.sharedTask')}
+                      </MobileSectionLabel>
+                      <MobileMenuItem
+                        icon={UserPlus}
+                        label={t('actionsMenu.reassign')}
+                        onClick={handleReassign}
+                        disabled={!canReassign}
+                      />
+                    </>
+                  )}
+
+                  {/* Cancel button */}
+                  <div className="p-4 border-t border-border mt-2">
+                    <button
+                      className="flex items-center justify-center w-full min-h-[48px] px-4 py-3 bg-muted hover:bg-muted/80 active:bg-muted/60 rounded-lg transition-colors"
+                      onClick={closeMobileSheet}
+                    >
+                      <X className="mr-2 h-4 w-4" />
+                      <span className="text-sm font-medium">
+                        {t('common:buttons.cancel')}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>,
+          document.body
+        )}
+      </>
+    );
+  }
+
+  // Desktop: Dropdown menu
   return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="icon"
-            aria-label="Actions"
-            onPointerDown={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <MoreHorizontal className="h-4 w-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          {hasAttemptActions && (
-            <>
-              <DropdownMenuLabel>{t('actionsMenu.attempt')}</DropdownMenuLabel>
-              <DropdownMenuItem
-                disabled={!attempt?.id}
-                onClick={handleOpenInEditor}
-              >
-                <ExternalLink className="mr-2 h-4 w-4" />
-                {t('actionsMenu.openInIde')}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={!attempt?.id}
-                onClick={handleViewProcesses}
-              >
-                <Activity className="mr-2 h-4 w-4" />
-                {t('actionsMenu.viewProcesses')}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={isRemote}
-                onClick={handleCreateNewAttempt}
-                title={
-                  isRemote
-                    ? t('actionsMenu.remoteTaskCannotExecute')
-                    : undefined
-                }
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                {t('actionsMenu.createNewAttempt')}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={!attempt?.id || !task || isRemote}
-                onClick={handleGitActions}
-                title={
-                  isRemote
-                    ? t('actionsMenu.remoteTaskCannotExecute')
-                    : undefined
-                }
-              >
-                <GitMerge className="mr-2 h-4 w-4" />
-                {t('actionsMenu.gitActions')}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={!attempt?.id || isRemote}
-                onClick={handleEditBranchName}
-                title={
-                  isRemote
-                    ? t('actionsMenu.remoteTaskCannotExecute')
-                    : undefined
-                }
-              >
-                <Tag className="mr-2 h-4 w-4" />
-                {t('actionsMenu.editBranchName')}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-            </>
-          )}
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>{triggerButton}</DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {hasAttemptActions && (
+          <>
+            <DropdownMenuLabel>{t('actionsMenu.attempt')}</DropdownMenuLabel>
+            <DropdownMenuItem
+              disabled={!attempt?.id}
+              onClick={handleOpenInEditor}
+            >
+              <ExternalLink className="mr-2 h-4 w-4" />
+              {t('actionsMenu.openInIde')}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!attempt?.id}
+              onClick={handleViewProcesses}
+            >
+              <Activity className="mr-2 h-4 w-4" />
+              {t('actionsMenu.viewProcesses')}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={isRemote}
+              onClick={handleCreateNewAttempt}
+              title={
+                isRemote ? t('actionsMenu.remoteTaskCannotExecute') : undefined
+              }
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              {t('actionsMenu.createNewAttempt')}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!attempt?.id || !task || isRemote}
+              onClick={handleGitActions}
+              title={
+                isRemote ? t('actionsMenu.remoteTaskCannotExecute') : undefined
+              }
+            >
+              <GitMerge className="mr-2 h-4 w-4" />
+              {t('actionsMenu.gitActions')}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!attempt?.id || isRemote}
+              onClick={handleEditBranchName}
+              title={
+                isRemote ? t('actionsMenu.remoteTaskCannotExecute') : undefined
+              }
+            >
+              <Tag className="mr-2 h-4 w-4" />
+              {t('actionsMenu.editBranchName')}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
 
-          {hasTaskActions && (
-            <>
-              <DropdownMenuLabel>{t('actionsMenu.task')}</DropdownMenuLabel>
+        {hasTaskActions && (
+          <>
+            <DropdownMenuLabel>{t('actionsMenu.task')}</DropdownMenuLabel>
+            <DropdownMenuItem
+              disabled={!canReassign}
+              onClick={handleReassign}
+            >
+              <UserPlus className="mr-2 h-4 w-4" />
+              {t('actionsMenu.reassign')}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              disabled={!task?.id || !projectId}
+              onClick={handleViewRelatedTasks}
+            >
+              <Link2 className="mr-2 h-4 w-4" />
+              {t('actionsMenu.viewRelatedTasks')}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!projectId || !task || isRemote || usesSharedWorktree}
+              onClick={handleCreateSubtask}
+              title={
+                isRemote
+                  ? t('actionsMenu.remoteTaskCannotExecute')
+                  : usesSharedWorktree
+                    ? t(
+                        'actionsMenu.sharedWorktreeNoSubtask',
+                        'Cannot create subtasks for tasks using a shared worktree'
+                      )
+                    : undefined
+              }
+            >
+              <GitBranch className="mr-2 h-4 w-4" />
+              {t('actionsMenu.createSubtask')}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {!task?.archived_at && (
               <DropdownMenuItem
-                disabled={!canReassign}
-                onClick={handleReassign}
-              >
-                <UserPlus className="mr-2 h-4 w-4" />
-                {t('actionsMenu.reassign')}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                disabled={!task?.id || !projectId}
-                onClick={handleViewRelatedTasks}
-              >
-                <Link2 className="mr-2 h-4 w-4" />
-                {t('actionsMenu.viewRelatedTasks')}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={!projectId || !task || isRemote || usesSharedWorktree}
-                onClick={handleCreateSubtask}
+                disabled={!projectId || !canModifyTask || isRemote}
+                onClick={handleArchive}
                 title={
                   isRemote
                     ? t('actionsMenu.remoteTaskCannotExecute')
-                    : usesSharedWorktree
-                      ? t(
-                          'actionsMenu.sharedWorktreeNoSubtask',
-                          'Cannot create subtasks for tasks using a shared worktree'
-                        )
-                      : undefined
+                    : undefined
                 }
               >
-                <GitBranch className="mr-2 h-4 w-4" />
-                {t('actionsMenu.createSubtask')}
+                <Archive className="mr-2 h-4 w-4" />
+                {t('actionsMenu.archive')}
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              {!task?.archived_at && (
-                <DropdownMenuItem
-                  disabled={!projectId || !canModifyTask || isRemote}
-                  onClick={handleArchive}
-                  title={
-                    isRemote
-                      ? t('actionsMenu.remoteTaskCannotExecute')
-                      : undefined
-                  }
-                >
-                  <Archive className="mr-2 h-4 w-4" />
-                  {t('actionsMenu.archive')}
-                </DropdownMenuItem>
-              )}
-              {task?.archived_at && (
-                <DropdownMenuItem
-                  disabled={!canModifyTask || isRemote || isUnarchiving}
-                  onClick={handleUnarchive}
-                  title={
-                    isRemote
-                      ? t('actionsMenu.remoteTaskCannotExecute')
-                      : undefined
-                  }
-                >
-                  <ArchiveRestore className="mr-2 h-4 w-4" />
-                  {t('actionsMenu.unarchive')}
-                </DropdownMenuItem>
-              )}
+            )}
+            {task?.archived_at && (
               <DropdownMenuItem
-                disabled={!projectId || !canModifyTask}
-                onClick={handleEdit}
+                disabled={!canModifyTask || isRemote || isUnarchiving}
+                onClick={handleUnarchive}
+                title={
+                  isRemote
+                    ? t('actionsMenu.remoteTaskCannotExecute')
+                    : undefined
+                }
               >
-                <Pencil className="mr-2 h-4 w-4" />
-                {t('common:buttons.edit')}
+                <ArchiveRestore className="mr-2 h-4 w-4" />
+                {t('actionsMenu.unarchive')}
               </DropdownMenuItem>
-              <DropdownMenuItem disabled={!projectId} onClick={handleDuplicate}>
-                <Copy className="mr-2 h-4 w-4" />
-                {t('actionsMenu.duplicate')}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={!projectId || !canModifyTask}
-                onClick={handleDelete}
-                className="text-destructive"
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                {t('common:buttons.delete')}
-              </DropdownMenuItem>
-            </>
-          )}
+            )}
+            <DropdownMenuItem
+              disabled={!projectId || !canModifyTask}
+              onClick={handleEdit}
+            >
+              <Pencil className="mr-2 h-4 w-4" />
+              {t('common:buttons.edit')}
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled={!projectId} onClick={handleDuplicate}>
+              <Copy className="mr-2 h-4 w-4" />
+              {t('actionsMenu.duplicate')}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!projectId || !canModifyTask}
+              onClick={handleDelete}
+              className="text-destructive"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              {t('common:buttons.delete')}
+            </DropdownMenuItem>
+          </>
+        )}
 
-          {hasSharedOnlyActions && (
-            <>
-              <DropdownMenuLabel>
-                {t('actionsMenu.sharedTask')}
-              </DropdownMenuLabel>
-              <DropdownMenuItem
-                disabled={!canReassign}
-                onClick={handleReassign}
-              >
-                <UserPlus className="mr-2 h-4 w-4" />
-                {t('actionsMenu.reassign')}
-              </DropdownMenuItem>
-            </>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </>
+        {hasSharedOnlyActions && (
+          <>
+            <DropdownMenuLabel>
+              {t('actionsMenu.sharedTask')}
+            </DropdownMenuLabel>
+            <DropdownMenuItem
+              disabled={!canReassign}
+              onClick={handleReassign}
+            >
+              <UserPlus className="mr-2 h-4 w-4" />
+              {t('actionsMenu.reassign')}
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
