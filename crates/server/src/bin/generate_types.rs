@@ -227,6 +227,12 @@ fn generate_types_content() -> String {
         services::services::process_service::KillScope::decl(),
         services::services::process_service::KillResult::decl(),
         services::services::process_service::KillFailure::decl(),
+        // Terminal session types
+        services::services::terminal_session::SessionInfo::decl(),
+        server::routes::terminal::CreateSessionResponse::decl(),
+        server::routes::terminal::TerminalMessage::decl(),
+        // Worktree path type
+        server::routes::task_attempts::WorktreePathResponse::decl(),
     ];
 
     let body = decls
