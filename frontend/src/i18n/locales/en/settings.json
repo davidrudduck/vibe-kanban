@@ -69,6 +69,47 @@
           "helper": "Choose your preferred language. Browser Default follows your system language."
         }
       },
+      "fonts": {
+        "title": "Typography",
+        "description": "Customize the fonts used throughout the application.",
+        "uiFont": {
+          "label": "UI Font",
+          "placeholder": "Select font",
+          "helper": "Font used for menus, buttons, and general interface text."
+        },
+        "codeFont": {
+          "label": "Code Font",
+          "placeholder": "Select font",
+          "helper": "Font used for code blocks, terminal output, and technical content."
+        },
+        "proseFont": {
+          "label": "Prose Font",
+          "placeholder": "Select font",
+          "helper": "Font used for task descriptions and long-form text."
+        },
+        "disableLigatures": {
+          "label": "Disable Ligatures",
+          "helper": "Turn off programming ligatures (like => and !==) in code fonts."
+        },
+        "preview": {
+          "title": "Preview",
+          "uiSample": "The quick brown fox jumps over the lazy dog.",
+          "codeSample": "const fn = () => { return !== === };",
+          "proseSample": "Task descriptions and documentation appear like this."
+        },
+        "fontNames": {
+          "inter": "Inter",
+          "roboto": "Roboto",
+          "publicSans": "Public Sans",
+          "chivoMono": "Chivo Mono",
+          "system": "System Default",
+          "jetBrainsMono": "JetBrains Mono",
+          "cascadiaMono": "Cascadia Mono",
+          "hack": "Hack",
+          "ibmPlexMono": "IBM Plex Mono",
+          "georgia": "Georgia"
+        }
+      },
       "devBanner": {
         "title": "Development Banner",
         "description": "Customize the appearance of the development mode banner.",

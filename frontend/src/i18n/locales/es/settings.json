@@ -39,6 +39,47 @@
           "helper": "Elige tu idioma preferido. El predeterminado del navegador sigue el idioma de tu sistema."
         }
       },
+      "fonts": {
+        "title": "Tipografía",
+        "description": "Personaliza las fuentes utilizadas en toda la aplicación.",
+        "uiFont": {
+          "label": "Fuente de UI",
+          "placeholder": "Seleccionar fuente",
+          "helper": "Fuente utilizada para menús, botones y texto general de la interfaz."
+        },
+        "codeFont": {
+          "label": "Fuente de Código",
+          "placeholder": "Seleccionar fuente",
+          "helper": "Fuente utilizada para bloques de código, salida de terminal y contenido técnico."
+        },
+        "proseFont": {
+          "label": "Fuente de Prosa",
+          "placeholder": "Seleccionar fuente",
+          "helper": "Fuente utilizada para descripciones de tareas y texto largo."
+        },
+        "disableLigatures": {
+          "label": "Desactivar Ligaduras",
+          "helper": "Desactiva las ligaduras de programación (como => y !==) en fuentes de código."
+        },
+        "preview": {
+          "title": "Vista Previa",
+          "uiSample": "El veloz murciélago hindú comía feliz cardillo y kiwi.",
+          "codeSample": "const fn = () => { return !== === };",
+          "proseSample": "Las descripciones de tareas y la documentación aparecen así."
+        },
+        "fontNames": {
+          "inter": "Inter",
+          "roboto": "Roboto",
+          "publicSans": "Public Sans",
+          "chivoMono": "Chivo Mono",
+          "system": "Predeterminado del Sistema",
+          "jetBrainsMono": "JetBrains Mono",
+          "cascadiaMono": "Cascadia Mono",
+          "hack": "Hack",
+          "ibmPlexMono": "IBM Plex Mono",
+          "georgia": "Georgia"
+        }
+      },
       "taskExecution": {
         "title": "Ejecución de Tareas",
         "description": "Configura cómo se ejecutan y procesan las tareas.",
