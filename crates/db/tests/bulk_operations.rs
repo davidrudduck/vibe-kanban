@@ -23,13 +23,11 @@ async fn setup_test_pool() -> (SqlitePool, TempDir) {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let db_path = temp_dir.path().join("test.db");
 
-    let options = SqliteConnectOptions::from_str(&format!(
-        "sqlite://{}",
-        db_path.to_string_lossy()
-    ))
-    .expect("Invalid database URL")
-    .create_if_missing(true)
-    .journal_mode(SqliteJournalMode::Wal);
+    let options =
+        SqliteConnectOptions::from_str(&format!("sqlite://{}", db_path.to_string_lossy()))
+            .expect("Invalid database URL")
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal);
 
     let pool = SqlitePool::connect_with(options)
         .await
@@ -124,7 +122,10 @@ async fn test_archive_many_bulk_update() {
     // Verify none are archived
     for &id in &task_ids {
         let task = Task::find_by_id(&pool, id).await.unwrap().unwrap();
-        assert!(task.archived_at.is_none(), "Task should not be archived initially");
+        assert!(
+            task.archived_at.is_none(),
+            "Task should not be archived initially"
+        );
     }
 
     // Archive all 5 tasks
@@ -273,7 +274,10 @@ async fn test_delete_stale_remote_tasks_empty_active_list_noop() {
         .await
         .expect("delete_stale_remote_tasks with empty list should not fail");
 
-    assert_eq!(rows_deleted, 0, "Should return 0 for empty active list (safety)");
+    assert_eq!(
+        rows_deleted, 0,
+        "Should return 0 for empty active list (safety)"
+    );
 
     // Both tasks should still exist
     assert!(Task::find_by_id(&pool, task1.id).await.unwrap().is_some());
@@ -303,13 +307,19 @@ async fn test_delete_stale_remote_tasks_only_affects_remote_tasks() {
 
     // Local task should still exist
     assert!(
-        Task::find_by_id(&pool, local_task.id).await.unwrap().is_some(),
+        Task::find_by_id(&pool, local_task.id)
+            .await
+            .unwrap()
+            .is_some(),
         "Local task should not be affected"
     );
 
     // Remote task should be deleted
     assert!(
-        Task::find_by_id(&pool, remote_task.id).await.unwrap().is_none(),
+        Task::find_by_id(&pool, remote_task.id)
+            .await
+            .unwrap()
+            .is_none(),
         "Remote task should be deleted"
     );
 }
@@ -408,11 +418,17 @@ async fn test_delete_stale_remote_projects_bulk_delete() {
 
     // Verify remaining projects
     assert!(
-        Project::find_by_id(&pool, project2.id).await.unwrap().is_some(),
+        Project::find_by_id(&pool, project2.id)
+            .await
+            .unwrap()
+            .is_some(),
         "Project 2 should still exist"
     );
     assert!(
-        Project::find_by_id(&pool, project4.id).await.unwrap().is_some(),
+        Project::find_by_id(&pool, project4.id)
+            .await
+            .unwrap()
+            .is_some(),
         "Project 4 should still exist"
     );
 }
@@ -433,11 +449,24 @@ async fn test_delete_stale_remote_projects_empty_active_list_noop() {
         .await
         .expect("delete_stale_remote_projects with empty list should not fail");
 
-    assert_eq!(rows_deleted, 0, "Should return 0 for empty active list (safety)");
+    assert_eq!(
+        rows_deleted, 0,
+        "Should return 0 for empty active list (safety)"
+    );
 
     // Both projects should still exist
-    assert!(Project::find_by_id(&pool, project1.id).await.unwrap().is_some());
-    assert!(Project::find_by_id(&pool, project2.id).await.unwrap().is_some());
+    assert!(
+        Project::find_by_id(&pool, project1.id)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        Project::find_by_id(&pool, project2.id)
+            .await
+            .unwrap()
+            .is_some()
+    );
 }
 
 #[tokio::test]
@@ -462,13 +491,19 @@ async fn test_delete_stale_remote_projects_only_affects_remote() {
 
     // Local project should still exist
     assert!(
-        Project::find_by_id(&pool, local_project.id).await.unwrap().is_some(),
+        Project::find_by_id(&pool, local_project.id)
+            .await
+            .unwrap()
+            .is_some(),
         "Local project should not be affected"
     );
 
     // Remote project should be deleted
     assert!(
-        Project::find_by_id(&pool, remote_project.id).await.unwrap().is_none(),
+        Project::find_by_id(&pool, remote_project.id)
+            .await
+            .unwrap()
+            .is_none(),
         "Remote project should be deleted"
     );
 }
