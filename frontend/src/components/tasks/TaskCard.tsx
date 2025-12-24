@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { KanbanCard } from '@/components/ui/shadcn-io/kanban';
 import {
-  Archive,
   CheckCircle,
   Link,
   Loader2,
@@ -12,7 +11,6 @@ import {
 import type { TaskWithAttemptStatus } from 'shared/types';
 import { ActionsDropdown } from '@/components/ui/actions-dropdown';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { useNavigateWithSearch, useIsOrgAdmin } from '@/hooks';
 import { useTaskLabels } from '@/hooks/useTaskLabels';
 import { paths } from '@/lib/paths';
@@ -214,15 +212,6 @@ export function TaskCard({
           }
           right={
             <>
-              {isArchived && (
-                <Badge
-                  variant="secondary"
-                  className="gap-1 px-1.5 py-0.5 text-xs"
-                >
-                  <Archive className="h-3 w-3" />
-                  {t('badges.archived')}
-                </Badge>
-              )}
               {task.has_in_progress_attempt && (
                 <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
               )}
@@ -258,14 +247,6 @@ export function TaskCard({
               : task.description}
           </p>
         )}
-        {/* Labels */}
-        {labels && labels.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {labels.map((label) => (
-              <LabelBadge key={label.id} label={label} size="sm" />
-            ))}
-          </div>
-        )}
         {/* Owner and node info */}
         {(ownerName || shortNodeName) && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -283,8 +264,13 @@ export function TaskCard({
             )}
           </div>
         )}
-        {/* Archive toggle icon */}
-        <div className="flex justify-end mt-1">
+        {/* Labels and Archive Icon - same line */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-1 flex-1 min-w-0">
+            {labels?.map((label) => (
+              <LabelBadge key={label.id} label={label} size="sm" />
+            ))}
+          </div>
           <ArchiveToggleIcon
             isArchived={isArchived}
             onArchive={handleArchive}
