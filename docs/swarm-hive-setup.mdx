@@ -73,6 +73,10 @@ GITHUB_OAUTH_CLIENT_SECRET=your_github_client_secret
 # OAuth - Google (create at https://console.cloud.google.com/apis/credentials)
 GOOGLE_OAUTH_CLIENT_ID=your_google_client_id
 GOOGLE_OAUTH_CLIENT_SECRET=your_google_client_secret
+
+# PostgreSQL Connection Pool (optional, default: 20)
+# Increase for production with many connected nodes
+# VK_PG_MAX_CONNECTIONS=30
 ```
 
 <Note>
@@ -482,6 +486,9 @@ GOOGLE_OAUTH_CLIENT_SECRET=your_google_client_secret
 
 # Email
 LOOPS_EMAIL_API_KEY=your_loops_api_key
+
+# Connection Pool (optional - increase for many nodes)
+# VK_PG_MAX_CONNECTIONS=30
 EOF
 
 # Start hive with Docker

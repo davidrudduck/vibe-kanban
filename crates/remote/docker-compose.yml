@@ -54,6 +54,8 @@ services:
       SERVER_PUBLIC_BASE_URL: ${SERVER_PUBLIC_BASE_URL:-http://localhost:3000}
       VITE_APP_BASE_URL: ${VITE_APP_BASE_URL:-http://localhost:3000}
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3000}
+      # PostgreSQL connection pool size (default: 20, increase for many nodes)
+      VK_PG_MAX_CONNECTIONS: ${VK_PG_MAX_CONNECTIONS:-20}
     ports:
       - "0.0.0.0:3000:8081"
     restart: unless-stopped
