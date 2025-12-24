@@ -12,7 +12,7 @@ pub mod label;
 pub mod merge;
 pub mod project;
 pub mod shared_task;
-pub mod template;
 pub mod task;
 pub mod task_attempt;
 pub mod task_variable;
+pub mod template;
