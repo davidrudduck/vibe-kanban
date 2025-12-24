@@ -106,6 +106,7 @@ import {
   KillResult,
   SessionInfo,
   CreateSessionResponse,
+  WorktreePathResponse,
 } from 'shared/types';
 
 // Re-export types for convenience
@@ -899,6 +900,13 @@ export const attemptsApi = {
       }
     );
     return handleApiResponse<ExecutionProcess, GhCliSetupError>(response);
+  },
+
+  getWorktreePath: async (attemptId: string): Promise<WorktreePathResponse> => {
+    const response = await makeRequest(
+      `/api/task-attempts/${attemptId}/worktree-path`
+    );
+    return handleApiResponse<WorktreePathResponse>(response);
   },
 };
 

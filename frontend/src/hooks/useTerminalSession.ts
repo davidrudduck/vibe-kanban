@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { terminalApi } from '@/lib/api';
+import { terminalApi, attemptsApi } from '@/lib/api';
 import type { SessionInfo, CreateSessionResponse } from 'shared/types';
 
 export interface UseTerminalSessionOptions {
@@ -87,4 +87,17 @@ export function useTerminalSessionForPath(
     },
     shouldAutoCreate: shouldCreate,
   };
+}
+
+/**
+ * Hook to get the worktree path for a task attempt.
+ * Used to create a terminal session in the attempt's working directory.
+ */
+export function useAttemptWorktreePath(attemptId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['attempt', 'worktree-path', attemptId],
+    queryFn: () => attemptsApi.getWorktreePath(attemptId!),
+    enabled: !!attemptId,
+    staleTime: Infinity, // Worktree path doesn't change
+  });
 }

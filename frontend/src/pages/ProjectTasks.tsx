@@ -53,6 +53,7 @@ import { TasksLayout, type LayoutMode } from '@/components/layout/TasksLayout';
 import { PreviewPanel } from '@/components/panels/PreviewPanel';
 import { DiffsPanel } from '@/components/panels/DiffsPanel';
 import { FilesPanel } from '@/components/files';
+import { TerminalPanel } from '@/components/terminal';
 import TaskAttemptPanel from '@/components/panels/TaskAttemptPanel';
 import TaskPanel from '@/components/panels/TaskPanel';
 import SharedTaskPanel from '@/components/panels/SharedTaskPanel';
@@ -282,7 +283,7 @@ export function ProjectTasks() {
 
   const rawMode = searchParams.get('view') as LayoutMode;
   const mode: LayoutMode =
-    rawMode === 'preview' || rawMode === 'diffs' || rawMode === 'files'
+    rawMode === 'preview' || rawMode === 'diffs' || rawMode === 'files' || rawMode === 'terminal'
       ? rawMode
       : null;
 
@@ -1020,6 +1021,12 @@ export function ProjectTasks() {
             attemptId={attempt.id}
             projectId={projectId!}
             compact={isMobile}
+          />
+        )}
+        {mode === 'terminal' && (
+          <TerminalPanel
+            attemptId={attempt.id}
+            onClose={() => setMode(null)}
           />
         )}
       </div>

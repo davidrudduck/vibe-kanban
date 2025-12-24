@@ -959,3 +959,9 @@ session_id: string,
 session: SessionInfo, };
 
 export type TerminalMessage = { "type": "input", data: string, } | { "type": "resize", cols: number, rows: number, } | { "type": "output", data: string, } | { "type": "exit", code: number | null, } | { "type": "error", message: string, };
+
+export type WorktreePathResponse = { 
+/**
+ * Absolute path to the worktree directory
+ */
+path: string, };
