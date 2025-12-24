@@ -34,7 +34,6 @@ import {
   CreateProject,
   ResolvedVariable,
   SearchResult,
-  ShareTaskResponse,
   Task,
   TaskAttempt,
   TaskRelationships,
@@ -483,13 +482,6 @@ export const tasksApi = {
     return handleApiResponse<void>(response);
   },
 
-  share: async (taskId: string): Promise<ShareTaskResponse> => {
-    const response = await makeRequest(`/api/tasks/${taskId}/share`, {
-      method: 'POST',
-    });
-    return handleApiResponse<ShareTaskResponse>(response);
-  },
-
   reassign: async (
     sharedTaskId: string,
     data: { new_assignee_user_id: string | null; version?: number | null }
@@ -508,13 +500,6 @@ export const tasksApi = {
     );
 
     return handleApiResponse<AssignSharedTaskResponse>(response);
-  },
-
-  unshare: async (sharedTaskId: string): Promise<void> => {
-    const response = await makeRequest(`/api/shared-tasks/${sharedTaskId}`, {
-      method: 'DELETE',
-    });
-    return handleApiResponse<void>(response);
   },
 
   /** Get list of nodes where this task's project exists (for remote attempt start). */

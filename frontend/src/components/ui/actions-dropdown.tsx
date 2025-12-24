@@ -18,9 +18,7 @@ import { ViewRelatedTasksDialog } from '@/components/dialogs/tasks/ViewRelatedTa
 import { CreateAttemptDialog } from '@/components/dialogs/tasks/CreateAttemptDialog';
 import { GitActionsDialog } from '@/components/dialogs/tasks/GitActionsDialog';
 import { EditBranchNameDialog } from '@/components/dialogs/tasks/EditBranchNameDialog';
-import { ShareDialog } from '@/components/dialogs/tasks/ShareDialog';
 import { ReassignDialog } from '@/components/dialogs/tasks/ReassignDialog';
-import { StopShareTaskDialog } from '@/components/dialogs/tasks/StopShareTaskDialog';
 import { useProject } from '@/contexts/ProjectContext';
 import { openTaskForm } from '@/lib/openTaskForm';
 
@@ -147,22 +145,11 @@ export function ActionsDropdown({
       currentBranchName: attempt.branch,
     });
   };
-  const handleShare = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!task || isShared) return;
-    ShareDialog.show({ task });
-  };
 
   const handleReassign = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!sharedTask) return;
     ReassignDialog.show({ sharedTask, isOrgAdmin });
-  };
-
-  const handleStopShare = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!sharedTask) return;
-    StopShareTaskDialog.show({ sharedTask });
   };
 
   const [isUnarchiving, setIsUnarchiving] = useState(false);
@@ -210,7 +197,6 @@ export function ActionsDropdown({
     Boolean(sharedTask) &&
     (Boolean(task) || isOrgAdmin) &&
     (isAssignee || isOrgAdmin);
-  const canStopShare = Boolean(sharedTask) && (isAssignee || isOrgAdmin);
   // Show shared task actions section when we only have a sharedTask (no local task)
   const hasSharedOnlyActions =
     !hasTaskActions && Boolean(sharedTask) && isOrgAdmin;
@@ -286,23 +272,10 @@ export function ActionsDropdown({
             <>
               <DropdownMenuLabel>{t('actionsMenu.task')}</DropdownMenuLabel>
               <DropdownMenuItem
-                disabled={!task || isShared}
-                onClick={handleShare}
-              >
-                {t('actionsMenu.share')}
-              </DropdownMenuItem>
-              <DropdownMenuItem
                 disabled={!canReassign}
                 onClick={handleReassign}
               >
                 {t('actionsMenu.reassign')}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={!canStopShare}
-                onClick={handleStopShare}
-                className="text-destructive"
-              >
-                {t('actionsMenu.stopShare')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -383,13 +356,6 @@ export function ActionsDropdown({
                 onClick={handleReassign}
               >
                 {t('actionsMenu.reassign')}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={!canStopShare}
-                onClick={handleStopShare}
-                className="text-destructive"
-              >
-                {t('actionsMenu.stopShare')}
               </DropdownMenuItem>
             </>
           )}
