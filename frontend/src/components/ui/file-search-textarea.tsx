@@ -103,10 +103,15 @@ export const FileSearchTextarea = forwardRef<
         // Fetch all templates and filter client-side
         const templates = await templatesApi.list();
         const filteredTemplates = templates.filter((template) =>
-          template.template_name.toLowerCase().includes(searchQuery.toLowerCase())
+          template.template_name
+            .toLowerCase()
+            .includes(searchQuery.toLowerCase())
         );
         results.push(
-          ...filteredTemplates.map((template) => ({ type: 'template' as const, template }))
+          ...filteredTemplates.map((template) => ({
+            type: 'template' as const,
+            template,
+          }))
         );
 
         // Fetch files (if projectId is available and query has content)
@@ -503,7 +508,9 @@ export const FileSearchTextarea = forwardRef<
                 {/* Files Section */}
                 {fileResults.length > 0 && (
                   <>
-                    {templateResults.length > 0 && <div className="border-t my-1" />}
+                    {templateResults.length > 0 && (
+                      <div className="border-t my-1" />
+                    )}
                     <div className="px-3 py-1 text-xs font-semibold text-muted-foreground uppercase">
                       Files
                     </div>

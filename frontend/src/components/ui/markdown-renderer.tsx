@@ -17,7 +17,8 @@ import type { ImageResponse } from 'shared/types';
 const HIGHLIGHT_LINK =
   'rounded-sm bg-muted/50 px-1 py-0.5 underline-offset-2 transition-colors';
 const HIGHLIGHT_LINK_HOVER = 'hover:bg-muted';
-const HIGHLIGHT_CODE = 'rounded-sm bg-muted/50 px-1 py-0.5 font-mono text-[0.9em]';
+const HIGHLIGHT_CODE =
+  'rounded-sm bg-muted/50 px-1 py-0.5 font-mono text-[0.9em]';
 
 function sanitizeHref(href?: string): string | undefined {
   if (typeof href !== 'string') return undefined;

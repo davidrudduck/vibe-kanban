@@ -491,11 +491,16 @@ const ToolCallCard: React.FC<{
   // File read with .claude/ path detection for view file link
   const isFileRead = actionType?.action === 'file_read';
   const fileReadPath = isFileRead ? actionType.path : null;
-  const claudeRelativePath = fileReadPath ? getClaudeRelativePath(fileReadPath) : null;
+  const claudeRelativePath = fileReadPath
+    ? getClaudeRelativePath(fileReadPath)
+    : null;
 
   const handleViewFile = () => {
     if (fileReadPath && claudeRelativePath) {
-      void FileViewDialog.show({ filePath: fileReadPath, relativePath: claudeRelativePath });
+      void FileViewDialog.show({
+        filePath: fileReadPath,
+        relativePath: claudeRelativePath,
+      });
     }
   };
 

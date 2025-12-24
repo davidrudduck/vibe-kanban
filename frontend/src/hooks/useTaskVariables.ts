@@ -143,13 +143,15 @@ export function useTaskVariableMutations(
  * @param taskId - The task ID context for variable resolution
  */
 export function usePreviewExpansion(taskId: string) {
-  return useMutation<PreviewExpansionResponse, unknown, PreviewExpansionRequest>(
-    {
-      mutationFn: (data: PreviewExpansionRequest) =>
-        taskVariablesApi.preview(taskId, data),
-      onError: (err) => {
-        console.error('Failed to preview variable expansion:', err);
-      },
-    }
-  );
+  return useMutation<
+    PreviewExpansionResponse,
+    unknown,
+    PreviewExpansionRequest
+  >({
+    mutationFn: (data: PreviewExpansionRequest) =>
+      taskVariablesApi.preview(taskId, data),
+    onError: (err) => {
+      console.error('Failed to preview variable expansion:', err);
+    },
+  });
 }

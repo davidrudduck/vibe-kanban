@@ -374,7 +374,10 @@ export function GeneralSettings() {
                 }
               />
               <div className="space-y-0.5">
-                <Label htmlFor="dev-banner-show-hostname" className="cursor-pointer">
+                <Label
+                  htmlFor="dev-banner-show-hostname"
+                  className="cursor-pointer"
+                >
                   {t('settings.general.devBanner.showHostname.label')}
                 </Label>
                 <p className="text-sm text-muted-foreground">
@@ -397,7 +400,10 @@ export function GeneralSettings() {
                 }
               />
               <div className="space-y-0.5">
-                <Label htmlFor="dev-banner-show-os-info" className="cursor-pointer">
+                <Label
+                  htmlFor="dev-banner-show-os-info"
+                  className="cursor-pointer"
+                >
                   {t('settings.general.devBanner.showOsInfo.label')}
                 </Label>
                 <p className="text-sm text-muted-foreground">

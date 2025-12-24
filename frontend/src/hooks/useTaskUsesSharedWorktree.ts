@@ -30,7 +30,8 @@ export function useTaskUsesSharedWorktree(
       refetchInterval: false,
     });
 
-  const isLoading = isLoadingTask || isLoadingTaskAttempts || isLoadingParentAttempts;
+  const isLoading =
+    isLoadingTask || isLoadingTaskAttempts || isLoadingParentAttempts;
 
   const usesSharedWorktree = useMemo(() => {
     // No parent means cannot use shared worktree

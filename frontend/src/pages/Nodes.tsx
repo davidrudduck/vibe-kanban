@@ -60,10 +60,12 @@ function NodesPageContent() {
 export function Nodes() {
   const { nodeId } = useParams<{ nodeId: string }>();
   const navigate = useNavigate();
-  const { data: organizations, isLoading: orgsLoading } = useUserOrganizations();
-  const { selectedOrgId, selectedOrg, handleOrgSelect } = useOrganizationSelection({
-    organizations,
-  });
+  const { data: organizations, isLoading: orgsLoading } =
+    useUserOrganizations();
+  const { selectedOrgId, selectedOrg, handleOrgSelect } =
+    useOrganizationSelection({
+      organizations,
+    });
 
   // If viewing a specific node, show detail view (TODO: implement NodeDetail)
   if (nodeId) {
@@ -100,7 +102,8 @@ export function Nodes() {
         <div className="flex items-center gap-4">
           {orgsLoading ? (
             <Loader2 className="h-4 w-4 animate-spin" />
-          ) : organizations?.organizations && organizations.organizations.length > 1 ? (
+          ) : organizations?.organizations &&
+            organizations.organizations.length > 1 ? (
             <Select value={selectedOrgId} onValueChange={handleOrgSelect}>
               <SelectTrigger className="w-[200px]">
                 <SelectValue placeholder="Select organization" />
@@ -114,7 +117,9 @@ export function Nodes() {
               </SelectContent>
             </Select>
           ) : selectedOrg ? (
-            <span className="text-sm text-muted-foreground">{selectedOrg.name}</span>
+            <span className="text-sm text-muted-foreground">
+              {selectedOrg.name}
+            </span>
           ) : null}
         </div>
       </div>

@@ -224,7 +224,9 @@ export function useUnifiedLogs({
           // Handle LogMsg types from the backend
           if ('JsonPatch' in data) {
             // JsonPatch contains an array of patches with log content
-            const patches = data.JsonPatch as Array<{ value?: { type: string; content: string } }>;
+            const patches = data.JsonPatch as Array<{
+              value?: { type: string; content: string };
+            }>;
             const newEntries: LogEntry[] = [];
 
             patches.forEach((patch) => {
@@ -233,7 +235,8 @@ export function useUnifiedLogs({
 
               // Map LogMsg types to LogEntry
               if (value.type === 'STDOUT' || value.type === 'STDERR') {
-                const outputType: OutputType = value.type === 'STDOUT' ? 'stdout' : 'stderr';
+                const outputType: OutputType =
+                  value.type === 'STDOUT' ? 'stdout' : 'stderr';
                 const entry: LogEntry = {
                   id: BigInt(Date.now()), // Use timestamp as temporary ID for live entries
                   content: value.content,
@@ -315,11 +318,22 @@ export function useUnifiedLogs({
         retryTimerRef.current = null;
       }
     };
-  }, [executionId, enableLiveStream, isLoading, connectionToken, invalidateCache]);
+  }, [
+    executionId,
+    enableLiveStream,
+    isLoading,
+    connectionToken,
+    invalidateCache,
+  ]);
 
   // Load more historical entries (for scroll-to-top pagination)
   const loadMore = useCallback(async () => {
-    if (!executionId || !hasMore || isLoadingMoreRef.current || nextCursorRef.current === null) {
+    if (
+      !executionId ||
+      !hasMore ||
+      isLoadingMoreRef.current ||
+      nextCursorRef.current === null
+    ) {
       return;
     }
 
@@ -342,7 +356,12 @@ export function useUnifiedLogs({
 
       // Update cache with the additional older entries (only if not live streaming)
       if (!isLive) {
-        appendOlderEntries(executionId, olderEntries, result.next_cursor, result.has_more);
+        appendOlderEntries(
+          executionId,
+          olderEntries,
+          result.next_cursor,
+          result.has_more
+        );
       }
     } catch (err) {
       if (!mountedRef.current) return;
@@ -421,13 +440,8 @@ export function useUnifiedLogsWithConfig({
   enableLiveStream = true,
   connectionToken,
 }: UseUnifiedLogsWithConfigOptions): UseUnifiedLogsWithConfigResult {
-  const {
-    effectiveLimit,
-    globalLimit,
-    override,
-    setOverride,
-    hasOverride,
-  } = useEffectivePagination(executionId);
+  const { effectiveLimit, globalLimit, override, setOverride, hasOverride } =
+    useEffectivePagination(executionId);
 
   const result = useUnifiedLogs({
     executionId,

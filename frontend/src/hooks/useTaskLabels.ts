@@ -25,7 +25,7 @@ export function useSetTaskLabels(taskId: string) {
   return useMutation({
     mutationFn: (labelIds: string[]) =>
       labelsApi.setTaskLabels(taskId, { label_ids: labelIds }),
-    onMutate: async (_labelIds) => {
+    onMutate: async () => {
       // Cancel any outgoing refetches
       await queryClient.cancelQueries({ queryKey: ['taskLabels', taskId] });
 

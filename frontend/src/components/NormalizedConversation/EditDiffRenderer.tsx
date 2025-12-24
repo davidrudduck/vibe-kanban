@@ -99,7 +99,10 @@ function EditDiffRenderer({
 
   const handleViewFile = () => {
     if (claudeRelativePath) {
-      void FileViewDialog.show({ filePath: path, relativePath: claudeRelativePath });
+      void FileViewDialog.show({
+        filePath: path,
+        relativePath: claudeRelativePath,
+      });
     }
   };
   const { hunks, hideLineNumbers, additions, deletions, isValidDiff } = useMemo(

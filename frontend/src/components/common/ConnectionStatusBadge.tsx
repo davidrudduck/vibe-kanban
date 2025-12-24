@@ -81,7 +81,10 @@ export function ConnectionStatusBadge({
               className
             )}
           >
-            <Icon className={cn('w-3 h-3', config.iconColor)} aria-hidden="true" />
+            <Icon
+              className={cn('w-3 h-3', config.iconColor)}
+              aria-hidden="true"
+            />
             {config.label}
           </span>
         </TooltipTrigger>

@@ -1,6 +1,13 @@
 import { type FileChange } from 'shared/types';
 import { useUserSystem } from '@/components/ConfigProvider';
-import { Trash2, FilePlus2, ArrowRight, FileX, FileClock, ExternalLink } from 'lucide-react';
+import {
+  Trash2,
+  FilePlus2,
+  ArrowRight,
+  FileX,
+  FileClock,
+  ExternalLink,
+} from 'lucide-react';
 import { getHighLightLanguageFromPath } from '@/utils/extToLanguage';
 import { getActualTheme } from '@/utils/theme';
 import EditDiffRenderer from './EditDiffRenderer';
@@ -74,7 +81,10 @@ const FileChangeRenderer = ({
   const claudeRelativePath = getClaudeRelativePath(path);
   const handleViewFile = () => {
     if (claudeRelativePath) {
-      void FileViewDialog.show({ filePath: path, relativePath: claudeRelativePath });
+      void FileViewDialog.show({
+        filePath: path,
+        relativePath: claudeRelativePath,
+      });
     }
   };
 

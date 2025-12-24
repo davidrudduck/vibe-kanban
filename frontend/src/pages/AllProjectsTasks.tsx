@@ -85,14 +85,10 @@ export function AllProjectsTasks() {
     TASK_STATUSES.forEach((status) => {
       if (status === 'todo') {
         // Todo: oldest first (ascending by activity_at)
-        columns[status].sort(
-          (a, b) => getActivityTime(a) - getActivityTime(b)
-        );
+        columns[status].sort((a, b) => getActivityTime(a) - getActivityTime(b));
       } else {
         // All others: most recent first (descending by activity_at)
-        columns[status].sort(
-          (a, b) => getActivityTime(b) - getActivityTime(a)
-        );
+        columns[status].sort((a, b) => getActivityTime(b) - getActivityTime(a));
       }
     });
 

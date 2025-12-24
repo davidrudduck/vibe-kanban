@@ -66,7 +66,10 @@ interface LogCacheState {
    */
   setCached: (
     executionId: string,
-    data: Pick<CachedLogData, 'entries' | 'nextCursor' | 'hasMore' | 'totalCount'>,
+    data: Pick<
+      CachedLogData,
+      'entries' | 'nextCursor' | 'hasMore' | 'totalCount'
+    >,
     isRunning?: boolean
   ) => void;
 
@@ -94,14 +97,19 @@ interface LogCacheState {
   /**
    * Get cache statistics for debugging.
    */
-  getStats: () => { size: number; entries: Array<{ id: string; age: number; hits: number }> };
+  getStats: () => {
+    size: number;
+    entries: Array<{ id: string; age: number; hits: number }>;
+  };
 }
 
 /**
  * Perform LRU eviction to maintain max cache size.
  * Removes the least recently accessed entry.
  */
-function evictLRU(cache: Record<string, CachedLogData>): Record<string, CachedLogData> {
+function evictLRU(
+  cache: Record<string, CachedLogData>
+): Record<string, CachedLogData> {
   const entries = Object.entries(cache);
   if (entries.length <= MAX_CACHE_SIZE) {
     return cache;
