@@ -795,10 +795,18 @@ function DisplayConversationEntry({
     );
 
     if (isPendingApprovalStatus(status)) {
+      // Extract tool arguments for debug display (especially for AskUserQuestion)
+      const toolArgs =
+        toolEntry.action_type.action === 'tool'
+          ? toolEntry.action_type.arguments
+          : undefined;
+
       return (
         <PendingApprovalEntry
           pendingStatus={status}
           executionProcessId={executionProcessId}
+          toolName={toolEntry.tool_name}
+          toolArguments={toolArgs}
         >
           {content}
         </PendingApprovalEntry>
