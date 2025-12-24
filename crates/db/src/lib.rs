@@ -9,6 +9,7 @@ use utils::assets::asset_dir;
 
 pub mod backup;
 pub mod models;
+pub mod validation;
 
 pub use backup::{BackupInfo, BackupService};
 
