@@ -99,14 +99,19 @@ pub async fn create_session(
 
     let manager = terminal_state.manager.read().await;
 
-    let session_id = manager.create_session(working_dir).await.map_err(|e| match e {
-        TerminalError::SessionAlreadyExists(id) => {
-            // Return conflict to indicate session already exists
-            // This allows client to reconnect to existing sessions
-            ApiError::Conflict(format!("Session already exists: {}", id))
+    // Try to create session, or get existing one if it already exists
+    let session_id = match manager.create_session(working_dir).await {
+        Ok(id) => id,
+        Err(TerminalError::SessionAlreadyExists(id)) => {
+            // Session already exists - return it instead of erroring
+            // This enables seamless reconnection after page refresh
+            tracing::info!(session_id = %id, "Reusing existing terminal session");
+            id
         }
-        _ => ApiError::BadRequest(e.to_string()),
-    })?;
+        Err(e) => {
+            return Err(ApiError::BadRequest(e.to_string()));
+        }
+    };
 
     let session = manager.get_session(&session_id).await.ok_or_else(|| {
         ApiError::BadRequest("Failed to get session info after creation".to_string())

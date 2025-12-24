@@ -5,18 +5,21 @@
 //! through a WebSocket interface.
 
 use std::{
+    io::Read,
+    io::Write,
     path::{Path, PathBuf},
     process::Stdio,
     sync::Arc,
 };
 
 use dashmap::DashMap;
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    process::{Child, Command},
+    io::{AsyncBufReadExt, BufReader},
+    process::Command,
     sync::{broadcast, mpsc, RwLock},
 };
 use tracing::{debug, error, info, warn};
@@ -82,10 +85,14 @@ enum SessionBackend {
         /// Reader process for capturing output
         reader_handle: Option<tokio::task::JoinHandle<()>>,
     },
-    /// PTY-based session (ephemeral)
+    /// PTY-based session using portable-pty (ephemeral)
     Pty {
-        child: Child,
+        /// Writer channel to send input to the PTY
         writer: mpsc::Sender<Vec<u8>>,
+        /// Handle to the reader task
+        reader_handle: tokio::task::JoinHandle<()>,
+        /// Handle to resize the PTY
+        pty_master: Arc<std::sync::Mutex<Box<dyn portable_pty::MasterPty + Send>>>,
     },
 }
 
@@ -152,12 +159,18 @@ impl TerminalSessionManager {
 
     /// Initialize the manager by detecting tmux availability.
     pub async fn init(&mut self) -> &mut Self {
-        self.use_tmux = Self::detect_tmux_internal().await.is_some();
-        if self.use_tmux {
+        // TODO: Re-enable tmux once output capture is fixed
+        // The pipe-pane approach doesn't work correctly for capturing output
+        // For now, use PTY mode which provides reliable I/O
+        let tmux_available = Self::detect_tmux_internal().await.is_some();
+        if tmux_available {
             self.tmux_path = Self::detect_tmux_internal().await;
-            info!("Tmux detected and will be used for terminal sessions");
+            // Temporarily disable tmux to use PTY mode instead
+            // tmux output capture via pipe-pane needs rework
+            self.use_tmux = false;
+            info!("Tmux detected but using PTY mode for reliable I/O (tmux support coming soon)");
         } else {
-            info!("Tmux not available, will use PTY fallback");
+            info!("Tmux not available, using PTY mode");
         }
         self
     }
@@ -364,84 +377,98 @@ impl TerminalSessionManager {
         })
     }
 
-    /// Create a PTY-based session (fallback when tmux is not available).
+    /// Create a PTY-based session using portable-pty.
     async fn create_pty_session(
         &self,
         working_dir: &Path,
-        _cols: u16,
-        _rows: u16,
+        cols: u16,
+        rows: u16,
         output_tx: broadcast::Sender<TerminalOutput>,
     ) -> Result<SessionBackend, TerminalError> {
         // Get the user's default shell
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+        let working_dir = working_dir.to_path_buf();
 
-        let mut child = Command::new(&shell)
-            .current_dir(working_dir)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
+        // Create PTY in a blocking context since portable-pty is synchronous
+        let (pty_master, writer_tx, reader_handle) = tokio::task::spawn_blocking(move || {
+            // Create the PTY system
+            let pty_system = native_pty_system();
 
-        let (writer_tx, mut writer_rx) = mpsc::channel::<Vec<u8>>(256);
+            // Create a new PTY pair
+            let pair = pty_system.openpty(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            }).map_err(|e| TerminalError::CreateFailed(format!("Failed to create PTY: {}", e)))?;
 
-        // Take stdin for writing
-        let mut stdin = child.stdin.take().ok_or_else(|| {
-            TerminalError::CreateFailed("Failed to get stdin handle".to_string())
-        })?;
+            // Build the command
+            let mut cmd = CommandBuilder::new(&shell);
+            cmd.cwd(&working_dir);
 
-        // Spawn writer task
-        tokio::spawn(async move {
-            while let Some(data) = writer_rx.recv().await {
-                if stdin.write_all(&data).await.is_err() {
-                    break;
+            // Spawn the shell in the PTY
+            let _child = pair.slave.spawn_command(cmd)
+                .map_err(|e| TerminalError::CreateFailed(format!("Failed to spawn shell: {}", e)))?;
+
+            // Get the master for reading/writing
+            let master = pair.master;
+
+            // Create a channel for writing
+            let (writer_tx, mut writer_rx) = mpsc::channel::<Vec<u8>>(256);
+
+            // Get a writer from the master
+            let mut writer = master.take_writer()
+                .map_err(|e| TerminalError::CreateFailed(format!("Failed to get PTY writer: {}", e)))?;
+
+            // Spawn writer task (blocking)
+            std::thread::spawn(move || {
+                while let Some(data) = writer_rx.blocking_recv() {
+                    if writer.write_all(&data).is_err() {
+                        break;
+                    }
+                    let _ = writer.flush();
                 }
-                let _ = stdin.flush().await;
-            }
+            });
+
+            // Get a reader from the master
+            let mut reader = master.try_clone_reader()
+                .map_err(|e| TerminalError::CreateFailed(format!("Failed to get PTY reader: {}", e)))?;
+
+            // Spawn reader task in a thread (blocking I/O)
+            let reader_handle = std::thread::spawn(move || {
+                let mut buf = [0u8; 4096];
+                loop {
+                    match reader.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            let data = String::from_utf8_lossy(&buf[..n]).to_string();
+                            if output_tx.send(TerminalOutput { data }).is_err() {
+                                // No receivers, but keep reading
+                            }
+                        }
+                        Err(e) => {
+                            debug!(error = ?e, "PTY read error");
+                            break;
+                        }
+                    }
+                }
+            });
+
+            // Wrap the master for later use (resize, etc.)
+            let pty_master = Arc::new(std::sync::Mutex::new(master));
+
+            Ok::<_, TerminalError>((pty_master, writer_tx, reader_handle))
+        }).await.map_err(|e| TerminalError::CreateFailed(format!("Task join error: {}", e)))??;
+
+        // Convert the std thread handle to a tokio JoinHandle by spawning a task
+        let reader_handle = tokio::task::spawn_blocking(move || {
+            let _ = reader_handle.join();
         });
 
-        // Spawn reader task for stdout
-        if let Some(stdout) = child.stdout.take() {
-            let tx = output_tx.clone();
-            tokio::spawn(async move {
-                let mut reader = BufReader::new(stdout);
-                let mut buf = vec![0u8; 4096];
-
-                loop {
-                    match tokio::io::AsyncReadExt::read(&mut reader, &mut buf).await {
-                        Ok(0) => break,
-                        Ok(n) => {
-                            let data = String::from_utf8_lossy(&buf[..n]).to_string();
-                            let _ = tx.send(TerminalOutput { data });
-                        }
-                        Err(_) => break,
-                    }
-                }
-            });
-        }
-
-        // Spawn reader task for stderr
-        if let Some(stderr) = child.stderr.take() {
-            let tx = output_tx;
-            tokio::spawn(async move {
-                let mut reader = BufReader::new(stderr);
-                let mut buf = vec![0u8; 4096];
-
-                loop {
-                    match tokio::io::AsyncReadExt::read(&mut reader, &mut buf).await {
-                        Ok(0) => break,
-                        Ok(n) => {
-                            let data = String::from_utf8_lossy(&buf[..n]).to_string();
-                            let _ = tx.send(TerminalOutput { data });
-                        }
-                        Err(_) => break,
-                    }
-                }
-            });
-        }
-
         Ok(SessionBackend::Pty {
-            child,
             writer: writer_tx,
+            reader_handle,
+            pty_master,
         })
     }
 
@@ -532,15 +559,23 @@ impl TerminalSessionManager {
                     );
                 }
             }
-            SessionBackend::Pty { .. } => {
-                // PTY resize would require platform-specific ioctl
-                // For now, just update the stored dimensions
-                debug!(
-                    session_id = %session_id,
-                    cols = cols,
-                    rows = rows,
-                    "PTY resize not fully implemented"
-                );
+            SessionBackend::Pty { pty_master, .. } => {
+                // Resize the PTY using portable-pty
+                if let Ok(master) = pty_master.lock() {
+                    let size = PtySize {
+                        rows,
+                        cols,
+                        pixel_width: 0,
+                        pixel_height: 0,
+                    };
+                    if let Err(e) = master.resize(size) {
+                        warn!(
+                            session_id = %session_id,
+                            error = ?e,
+                            "PTY resize failed"
+                        );
+                    }
+                }
             }
         }
 
@@ -572,17 +607,9 @@ impl TerminalSessionManager {
                         .await;
                 }
             }
-            SessionBackend::Pty { child, .. } => {
-                // Kill the child process using the kill command
-                if let Some(pid) = child.id() {
-                    let _ = Command::new("kill")
-                        .arg("-TERM")
-                        .arg(pid.to_string())
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status()
-                        .await;
-                }
+            SessionBackend::Pty { reader_handle, .. } => {
+                // Abort the reader task - this will cause the PTY to close
+                reader_handle.abort();
             }
         }
 
@@ -730,7 +757,7 @@ mod tests {
         // The result depends on whether tmux is installed
         let result = TerminalSessionManager::detect_tmux().await;
         // Just verify it doesn't panic and returns a bool
-        assert!(result || !result);
+        let _ = result;
     }
 
     #[tokio::test]
