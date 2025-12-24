@@ -67,7 +67,11 @@ impl ProtocolPeer {
                                 .await;
                         }
                         Ok(CLIMessage::ControlResponse { .. }) => {}
-                        Ok(CLIMessage::Result(_)) => {
+                        Ok(CLIMessage::Result(value)) => {
+                            tracing::info!(
+                                result_value = ?value,
+                                "Claude protocol: Received Result message, breaking read loop"
+                            );
                             client.on_non_control(line).await?;
                             break;
                         }
