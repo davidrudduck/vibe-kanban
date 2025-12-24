@@ -47,6 +47,7 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import { useFeedback } from '@/hooks/useFeedback';
 import { TemplateManager } from '@/components/TemplateManager';
 import { LabelManager } from '@/components/LabelManager';
+import { useTerminalSettings } from '@/hooks/useTerminalSettings';
 
 export function GeneralSettings() {
   const { t } = useTranslation(['settings', 'common']);
@@ -84,6 +85,13 @@ export function GeneralSettings() {
   const agentAvailability = useAgentAvailability(
     draft?.executor_profile?.executor
   );
+
+  // Terminal settings (stored in localStorage, separate from config)
+  const {
+    settings: terminalSettings,
+    updateSettings: updateTerminalSettings,
+    resetSettings: resetTerminalSettings,
+  } = useTerminalSettings();
 
   const validateBranchPrefix = useCallback(
     (prefix: string): string | null => {
@@ -668,6 +676,71 @@ export function GeneralSettings() {
               )}
             </>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('settings.general.terminal.title')}</CardTitle>
+          <CardDescription>
+            {t('settings.general.terminal.description')}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="terminal-font-size">
+              {t('settings.general.terminal.fontSize.label')}
+            </Label>
+            <Select
+              value={String(terminalSettings.fontSize)}
+              onValueChange={(value: string) =>
+                updateTerminalSettings({ fontSize: Number(value) })
+              }
+            >
+              <SelectTrigger id="terminal-font-size">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="10">10px</SelectItem>
+                <SelectItem value="12">12px</SelectItem>
+                <SelectItem value="14">14px (default)</SelectItem>
+                <SelectItem value="16">16px</SelectItem>
+                <SelectItem value="18">18px</SelectItem>
+                <SelectItem value="20">20px</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">
+              {t('settings.general.terminal.fontSize.helper')}
+            </p>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="terminal-cursor-blink"
+              checked={terminalSettings.cursorBlink}
+              onCheckedChange={(checked: boolean) =>
+                updateTerminalSettings({ cursorBlink: checked })
+              }
+            />
+            <div className="space-y-0.5">
+              <Label htmlFor="terminal-cursor-blink" className="cursor-pointer">
+                {t('settings.general.terminal.cursorBlink.label')}
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                {t('settings.general.terminal.cursorBlink.helper')}
+              </p>
+            </div>
+          </div>
+
+          <div className="pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={resetTerminalSettings}
+            >
+              {t('settings.general.terminal.reset')}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

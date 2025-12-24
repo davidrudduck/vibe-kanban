@@ -48,6 +48,7 @@
   "linkedToOrganizationTooltip": "이 프로젝트는 협업을 위해 원격 프로젝트에 연결되어 있습니다",
   "viewProject": "프로젝트 보기",
   "openInIDE": "IDE에서 열기",
+  "openTerminal": "터미널 열기",
   "createdDate": "생성일 {{date}}",
   "statusBanner": {
     "title": "활성 작업",

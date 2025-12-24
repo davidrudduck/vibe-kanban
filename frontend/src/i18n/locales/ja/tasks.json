@@ -112,7 +112,9 @@
   },
   "attemptHeaderActions": {
     "diffs": "Diffs",
+    "files": "ファイル",
     "preview": "Preview",
+    "terminal": "ターミナル",
     "relatedTasks": "Related tasks"
   },
   "branches": {
