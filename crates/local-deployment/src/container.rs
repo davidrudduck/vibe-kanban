@@ -344,6 +344,16 @@ impl LocalContainerService {
             }
 
             if let Ok(ctx) = ExecutionProcess::load_context(&db.pool, exec_id).await {
+                // Diagnostic logging for exit monitor context
+                tracing::info!(
+                    exec_id = %exec_id,
+                    exit_code = ?exit_code,
+                    process_status = ?ctx.execution_process.status,
+                    run_reason = ?ctx.execution_process.run_reason,
+                    task_attempt_id = %ctx.task_attempt.id,
+                    "Exit monitor: Process exited, evaluating next steps"
+                );
+
                 // Update executor session summary if available
                 if let Err(e) = container.update_executor_session_summary(&exec_id).await {
                     tracing::warn!("Failed to update executor session summary: {}", e);
@@ -363,6 +373,14 @@ impl LocalContainerService {
                 );
 
                 if success || cleanup_done {
+                    tracing::info!(
+                        exec_id = %exec_id,
+                        success = success,
+                        cleanup_done = cleanup_done,
+                        "Exit monitor: Process eligible for commit/next-action (success={} OR cleanup_done={})",
+                        success, cleanup_done
+                    );
+
                     // Commit changes (if any) and get feedback about whether changes were made
                     let changes_committed = match container.try_commit_changes(&ctx).await {
                         Ok(committed) => committed,
@@ -373,30 +391,18 @@ impl LocalContainerService {
                         }
                     };
 
-                    let should_start_next = if matches!(
-                        ctx.execution_process.run_reason,
-                        ExecutionProcessRunReason::CodingAgent
-                    ) {
-                        changes_committed
-                    } else {
-                        true
-                    };
+                    tracing::info!(
+                        exec_id = %exec_id,
+                        changes_committed = changes_committed,
+                        run_reason = ?ctx.execution_process.run_reason,
+                        "Exit monitor: Process completed, proceeding to next action"
+                    );
 
-                    if should_start_next {
-                        // If the process exited successfully, start the next action
-                        if let Err(e) = container.try_start_next_action(&ctx).await {
-                            tracing::error!("Failed to start next action after completion: {}", e);
-                        }
-                    } else {
-                        tracing::info!(
-                            "Skipping cleanup script for task attempt {} - no changes made by coding agent",
-                            ctx.task_attempt.id
-                        );
-
-                        // Manually finalize task since we're bypassing normal execution flow
-                        container
-                            .finalize_task(&container.config, publisher.as_ref().ok(), &ctx)
-                            .await;
+                    // Always proceed to next action (cleanup script) regardless of whether
+                    // changes were committed. The agent may have done valuable work that
+                    // doesn't involve file changes (e.g., browser testing, running tests).
+                    if let Err(e) = container.try_start_next_action(&ctx).await {
+                        tracing::error!("Failed to start next action after completion: {}", e);
                     }
                 }
 
