@@ -487,7 +487,11 @@ sentry_enabled: boolean, workspace_dir: string | null, last_app_version: string 
 /**
  * Pagination settings for log display
  */
-pagination: PaginationConfig, };
+pagination: PaginationConfig, 
+/**
+ * Font settings for UI, code, and prose contexts
+ */
+fonts: FontConfig, };
 
 export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, };
 
@@ -532,6 +536,30 @@ initial_load: bigint,
  * Maximum entries per page request (default: 500)
  */
 max_limit: bigint, };
+
+export type FontConfig = { 
+/**
+ * Font for UI elements (buttons, menus, navigation)
+ */
+ui_font: UiFont, 
+/**
+ * Font for code blocks and monospace text
+ */
+code_font: CodeFont, 
+/**
+ * Font for prose/reading content (task descriptions, markdown)
+ */
+prose_font: ProseFont, 
+/**
+ * Disable font ligatures in code contexts
+ */
+disable_ligatures: boolean, };
+
+export type UiFont = "INTER" | "ROBOTO" | "PUBLIC_SANS" | "CHIVO_MONO" | "SYSTEM";
+
+export type CodeFont = "JET_BRAINS_MONO" | "CASCADIA_MONO" | "HACK" | "IBM_PLEX_MONO" | "CHIVO_MONO" | "SYSTEM";
+
+export type ProseFont = "INTER" | "ROBOTO" | "GEORGIA" | "CHIVO_MONO" | "SYSTEM";
 
 export type GitBranch = { name: string, is_current: boolean, is_remote: boolean, last_commit_date: Date, };
 

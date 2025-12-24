@@ -17,16 +17,20 @@ pub enum ConfigError {
     ValidationError(String),
 }
 
-pub type Config = versions::v9::Config;
-pub type NotificationConfig = versions::v9::NotificationConfig;
-pub type EditorConfig = versions::v9::EditorConfig;
-pub type ThemeMode = versions::v9::ThemeMode;
-pub type SoundFile = versions::v9::SoundFile;
-pub type EditorType = versions::v9::EditorType;
-pub type GitHubConfig = versions::v9::GitHubConfig;
-pub type UiLanguage = versions::v9::UiLanguage;
-pub type DevBannerConfig = versions::v9::DevBannerConfig;
-pub type PaginationConfig = versions::v9::PaginationConfig;
+pub type Config = versions::v10::Config;
+pub type NotificationConfig = versions::v10::NotificationConfig;
+pub type EditorConfig = versions::v10::EditorConfig;
+pub type ThemeMode = versions::v10::ThemeMode;
+pub type SoundFile = versions::v10::SoundFile;
+pub type EditorType = versions::v10::EditorType;
+pub type GitHubConfig = versions::v10::GitHubConfig;
+pub type UiLanguage = versions::v10::UiLanguage;
+pub type DevBannerConfig = versions::v10::DevBannerConfig;
+pub type PaginationConfig = versions::v10::PaginationConfig;
+pub type FontConfig = versions::v10::FontConfig;
+pub type UiFont = versions::v10::UiFont;
+pub type CodeFont = versions::v10::CodeFont;
+pub type ProseFont = versions::v10::ProseFont;
 
 /// Will always return config, trying old schemas or eventually returning default
 pub async fn load_config_from_file(config_path: &PathBuf) -> Config {
