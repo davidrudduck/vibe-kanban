@@ -293,6 +293,19 @@
           }
         }
       },
+      "terminal": {
+        "title": "Terminal",
+        "description": "Customize the in-browser terminal appearance and behavior.",
+        "fontSize": {
+          "label": "Font Size",
+          "helper": "Terminal font size in pixels. Changes apply to new terminals."
+        },
+        "cursorBlink": {
+          "label": "Cursor Blink",
+          "helper": "Enable cursor blinking in the terminal."
+        },
+        "reset": "Reset to Defaults"
+      },
       "performance": {
         "title": "Performance",
         "description": "Configure log loading and display settings for optimal performance.",

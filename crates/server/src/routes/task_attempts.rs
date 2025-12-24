@@ -2118,6 +2118,35 @@ pub async fn read_worktree_file(
     }
 }
 
+/// Response for getting the worktree path
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
+pub struct WorktreePathResponse {
+    /// Absolute path to the worktree directory
+    pub path: String,
+}
+
+/// Get the worktree path for a task attempt
+///
+/// GET /api/task-attempts/{id}/worktree-path
+///
+/// Returns the absolute path to the worktree directory for the given task attempt.
+/// This is useful for opening a terminal in the worktree directory.
+pub async fn get_worktree_path(
+    Extension(task_attempt): Extension<TaskAttempt>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<WorktreePathResponse>>, ApiError> {
+    let worktree_path = ensure_worktree_path(&deployment, &task_attempt).await?;
+    let path_string = worktree_path
+        .to_str()
+        .ok_or_else(|| ApiError::BadRequest("Invalid worktree path".to_string()))?
+        .to_string();
+
+    Ok(ResponseJson(ApiResponse::success(WorktreePathResponse {
+        path: path_string,
+    })))
+}
+
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let task_attempt_id_router = Router::new()
         .route("/", get(get_task_attempt))
@@ -2148,6 +2177,8 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/stop", post(stop_task_attempt_execution))
         .route("/change-target-branch", post(change_target_branch))
         .route("/rename-branch", post(rename_branch))
+        // Worktree path endpoint (for terminal sessions)
+        .route("/worktree-path", get(get_worktree_path))
         // File browser endpoints (directory listing only - wildcard route is separate)
         .route("/files", get(list_worktree_files))
         .layer(from_fn_with_state(
