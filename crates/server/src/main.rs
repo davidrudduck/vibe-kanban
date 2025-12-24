@@ -3,6 +3,7 @@ use deployment::{Deployment, DeploymentError};
 use server::{DeploymentImpl, routes};
 use services::services::container::ContainerService;
 use sqlx::Error as SqlxError;
+use std::process::{Child, Command, Stdio};
 use strip_ansi_escapes::strip;
 use thiserror::Error;
 use tracing_subscriber::{EnvFilter, prelude::*};
@@ -92,6 +93,9 @@ async fn main() -> Result<(), VibeKanbanError> {
 
     tracing::info!("Server running on http://{host}:{actual_port}");
 
+    // Spawn MCP HTTP server if MCP_PORT is set
+    let mut mcp_child = spawn_mcp_http_server(actual_port, &host);
+
     if !cfg!(debug_assertions) {
         tracing::info!("Opening browser...");
         tokio::spawn(async move {
@@ -108,6 +112,18 @@ async fn main() -> Result<(), VibeKanbanError> {
     axum::serve(listener, app_router)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
+
+    // Terminate MCP child process if it was spawned
+    if let Some(ref mut child) = mcp_child {
+        tracing::info!("[MCP] Terminating HTTP server (PID: {})", child.id());
+        if let Err(e) = child.kill() {
+            tracing::warn!("[MCP] Failed to kill HTTP server: {}", e);
+        } else {
+            // Wait for the child to fully exit
+            let _ = child.wait();
+            tracing::info!("[MCP] HTTP server terminated");
+        }
+    }
 
     perform_cleanup_actions(&deployment).await;
 
@@ -156,4 +172,58 @@ pub async fn perform_cleanup_actions(deployment: &DeploymentImpl) {
         .kill_all_running_processes()
         .await
         .expect("Failed to cleanly kill running execution processes");
+}
+
+/// Spawns the MCP HTTP server as a child process if MCP_PORT is set.
+/// Returns the child process handle for cleanup on shutdown.
+pub fn spawn_mcp_http_server(backend_port: u16, host: &str) -> Option<Child> {
+    let mcp_port = match std::env::var("MCP_PORT") {
+        Ok(port_str) => match port_str.trim().parse::<u16>() {
+            Ok(port) => port,
+            Err(e) => {
+                tracing::warn!("Invalid MCP_PORT value '{}': {}", port_str, e);
+                return None;
+            }
+        },
+        Err(_) => return None,
+    };
+
+    let backend_url = format!("http://{}:{}", host, backend_port);
+    let mcp_url = format!("http://{}:{}/mcp", host, mcp_port);
+
+    // Find the mcp_task_server binary - check debug and release paths
+    let binary_path = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|p| p.to_path_buf()))
+        .map(|dir| dir.join("mcp_task_server"))
+        .filter(|path| path.exists());
+
+    let binary_path = match binary_path {
+        Some(path) => path,
+        None => {
+            tracing::warn!(
+                "[MCP] mcp_task_server binary not found. Build with: cargo build --bin mcp_task_server"
+            );
+            return None;
+        }
+    };
+
+    tracing::info!("[MCP] Spawning HTTP server at {}", mcp_url);
+
+    match Command::new(&binary_path)
+        .args(["--http", "--port", &mcp_port.to_string()])
+        .env("VIBE_BACKEND_URL", &backend_url)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn()
+    {
+        Ok(child) => {
+            tracing::info!("[MCP] HTTP server started (PID: {})", child.id());
+            Some(child)
+        }
+        Err(e) => {
+            tracing::error!("[MCP] Failed to spawn HTTP server: {}", e);
+            None
+        }
+    }
 }
