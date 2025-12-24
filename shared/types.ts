@@ -956,7 +956,11 @@ session_id: string,
 /**
  * Information about the created session.
  */
-session: SessionInfo, };
+session: SessionInfo, 
+/**
+ * Whether this was a reconnection to an existing session.
+ */
+is_reconnect: boolean, };
 
 export type TerminalMessage = { "type": "input", data: string, } | { "type": "resize", cols: number, rows: number, } | { "type": "output", data: string, } | { "type": "exit", code: number | null, } | { "type": "error", message: string, };
 

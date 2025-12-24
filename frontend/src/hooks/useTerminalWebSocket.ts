@@ -42,6 +42,11 @@ export function useTerminalWebSocket({
   const connect = useCallback(() => {
     if (!sessionId) return;
 
+    // Prevent duplicate connections - if we already have a connection, don't create another
+    if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
+      return;
+    }
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     const ws = new WebSocket(`${protocol}//${host}/api/terminal/ws/${sessionId}`);

@@ -39,6 +39,8 @@ pub struct CreateSessionResponse {
     pub session_id: String,
     /// Information about the created session.
     pub session: SessionInfo,
+    /// Whether this was a reconnection to an existing session.
+    pub is_reconnect: bool,
 }
 
 /// WebSocket message types for terminal I/O.
@@ -100,13 +102,13 @@ pub async fn create_session(
     let manager = terminal_state.manager.read().await;
 
     // Try to create session, or recreate if unhealthy, or get existing healthy one
-    let session_id = match manager.create_or_recreate_session(working_dir).await {
-        Ok(id) => id,
+    let (session_id, is_reconnect) = match manager.create_or_recreate_session(working_dir).await {
+        Ok(id) => (id, false), // New session created
         Err(TerminalError::SessionAlreadyExists(id)) => {
             // Session already exists and is healthy - return it
             // This enables seamless reconnection after page refresh
             tracing::info!(session_id = %id, "Reusing existing healthy terminal session");
-            id
+            (id, true) // Reconnecting to existing session
         }
         Err(e) => {
             return Err(ApiError::BadRequest(e.to_string()));
@@ -120,6 +122,7 @@ pub async fn create_session(
     let response = CreateSessionResponse {
         session_id,
         session,
+        is_reconnect,
     };
 
     Ok(ResponseJson(ApiResponse::success(response)))
@@ -465,10 +468,31 @@ mod tests {
                 rows: 24,
                 active: true,
             },
+            is_reconnect: false,
         };
 
         let json = serde_json::to_string(&response).unwrap();
         assert!(json.contains("\"session_id\":\"vk-abc12345\""));
         assert!(json.contains("\"is_tmux\":true"));
+        assert!(json.contains("\"is_reconnect\":false"));
+    }
+
+    #[test]
+    fn test_create_session_response_reconnect_serialization() {
+        let response = CreateSessionResponse {
+            session_id: "vk-abc12345".to_string(),
+            session: SessionInfo {
+                id: "vk-abc12345".to_string(),
+                working_dir: "/home/user/project".to_string(),
+                is_tmux: true,
+                cols: 80,
+                rows: 24,
+                active: true,
+            },
+            is_reconnect: true,
+        };
+
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(json.contains("\"is_reconnect\":true"));
     }
 }

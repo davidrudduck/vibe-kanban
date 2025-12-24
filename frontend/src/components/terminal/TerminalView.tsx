@@ -12,17 +12,25 @@ import { cn } from '@/lib/utils';
 
 interface TerminalViewProps {
   sessionId: string;
+  /** Whether this is a reconnection to an existing session */
+  isReconnect?: boolean;
   className?: string;
   onClose?: () => void;
 }
 
-function TerminalView({ sessionId, className, onClose }: TerminalViewProps) {
+function TerminalView({
+  sessionId,
+  isReconnect = false,
+  className,
+  onClose,
+}: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const [localConnectionState, setLocalConnectionState] =
     useState<ConnectionState>('connecting');
+  const [showReconnectBanner, setShowReconnectBanner] = useState(false);
 
   const handleOutput = useCallback((data: string) => {
     terminalRef.current?.write(data);
@@ -142,15 +150,35 @@ function TerminalView({ sessionId, className, onClose }: TerminalViewProps) {
     }
   }, [localConnectionState]);
 
+  // Show reconnect banner briefly when reconnecting to existing session
+  useEffect(() => {
+    if (isReconnect && localConnectionState === 'connected') {
+      setShowReconnectBanner(true);
+      const timer = setTimeout(() => {
+        setShowReconnectBanner(false);
+      }, 2000); // Hide after 2 seconds
+      return () => clearTimeout(timer);
+    }
+  }, [isReconnect, localConnectionState]);
+
   return (
-    <div className={cn('flex flex-col h-full w-full', className)}>
+    <div className={cn('flex flex-col h-full w-full relative', className)}>
       {/* Connection status overlay */}
       {localConnectionState !== 'connected' && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
           {localConnectionState === 'connecting' && (
             <div className="flex flex-col items-center gap-2 text-muted-foreground">
-              <Loader2 className="h-8 w-8 animate-spin" />
-              <span>Connecting...</span>
+              {isReconnect ? (
+                <>
+                  <RefreshCw className="h-8 w-8 animate-spin" />
+                  <span>Reconnecting to session...</span>
+                </>
+              ) : (
+                <>
+                  <Loader2 className="h-8 w-8 animate-spin" />
+                  <span>Connecting...</span>
+                </>
+              )}
             </div>
           )}
           {(localConnectionState === 'error' ||
@@ -173,6 +201,14 @@ function TerminalView({ sessionId, className, onClose }: TerminalViewProps) {
               </Button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Reconnection success banner */}
+      {showReconnectBanner && (
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded-md bg-green-600/90 text-white text-sm font-medium flex items-center gap-2 animate-in fade-in slide-in-from-top-2 duration-200">
+          <RefreshCw className="h-4 w-4" />
+          Session restored
         </div>
       )}
 

@@ -4,6 +4,7 @@ import TerminalView from './TerminalView';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import type { CreateSessionResponse } from 'shared/types';
 
 interface TerminalContainerProps {
   workingDir: string;
@@ -19,15 +20,18 @@ function TerminalContainer({
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [isReconnect, setIsReconnect] = useState(false);
 
-  const handleCreateSuccess = useCallback((response: { session_id: string }) => {
+  const handleCreateSuccess = useCallback((response: CreateSessionResponse) => {
     setSessionId(response.session_id);
+    setIsReconnect(response.is_reconnect);
     setError(null);
     setIsCreating(false);
   }, []);
 
   const handleCreateError = useCallback((err: unknown) => {
-    const message = err instanceof Error ? err.message : 'Failed to create terminal session';
+    const message =
+      err instanceof Error ? err.message : 'Failed to create terminal session';
     setError(message);
     setIsCreating(false);
   }, []);
@@ -41,20 +45,37 @@ function TerminalContainer({
   const createSessionRef = useRef(createSession);
   createSessionRef.current = createSession;
 
+  // Track if a mutation is already in flight to prevent StrictMode double-invocation
+  const mutationInFlightRef = useRef(false);
+
   // Create session on mount - use workingDir as key to detect changes
   useEffect(() => {
+    // Prevent double invocation from React StrictMode
+    if (mutationInFlightRef.current) {
+      return;
+    }
+
     // Reset state when workingDir changes
     setSessionId(null);
     setError(null);
     setIsCreating(true);
+    setIsReconnect(false);
 
+    mutationInFlightRef.current = true;
     createSessionRef.current.mutate(workingDir);
+
+    return () => {
+      // Allow new mutations after cleanup
+      mutationInFlightRef.current = false;
+    };
   }, [workingDir]);
 
   const handleRetry = () => {
     setError(null);
     setSessionId(null);
     setIsCreating(true);
+    setIsReconnect(false);
+    mutationInFlightRef.current = true;
     createSession.mutate(workingDir);
   };
 
@@ -86,6 +107,7 @@ function TerminalContainer({
   return (
     <TerminalView
       sessionId={sessionId}
+      isReconnect={isReconnect}
       className={className}
       onClose={onClose}
     />
