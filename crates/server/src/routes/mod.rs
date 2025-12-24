@@ -28,11 +28,15 @@ pub mod processes;
 pub mod projects;
 pub mod shared_tasks;
 pub mod templates;
+pub mod terminal;
 pub mod task_attempts;
 pub mod task_variables;
 pub mod tasks;
 
-pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
+pub async fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
+    // Create terminal router with its own state
+    let terminal_router = terminal::router_with_state(&deployment).await;
+
     // Create routers with different middleware layers
     let base_routes = Router::new()
         .route("/health", get(health::health_check))
@@ -58,6 +62,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(approvals::router())
         .merge(backups::router())
         .merge(logs::router(&deployment))
+        .merge(terminal_router)
         .nest("/images", images::routes())
         .with_state(deployment);
 

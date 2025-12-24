@@ -66,7 +66,7 @@ async fn main() -> Result<(), VibeKanbanError> {
         }
     });
 
-    let app_router = routes::router(deployment.clone());
+    let app_router = routes::router(deployment.clone()).await;
 
     let port = std::env::var("BACKEND_PORT")
         .or_else(|_| std::env::var("PORT"))

@@ -925,3 +925,47 @@ pid: number,
  * Error message
  */
 error: string, };
+
+export type SessionInfo = { 
+/**
+ * Unique session identifier
+ */
+id: string, 
+/**
+ * Working directory of the session
+ */
+working_dir: string, 
+/**
+ * Whether this session uses tmux
+ */
+is_tmux: boolean, 
+/**
+ * Current terminal dimensions
+ */
+cols: number, rows: number, 
+/**
+ * Whether the session is still active
+ */
+active: boolean, };
+
+export type CreateSessionResponse = { 
+/**
+ * The session ID to use for WebSocket connection.
+ */
+session_id: string, 
+/**
+ * Information about the created session.
+ */
+session: SessionInfo, 
+/**
+ * Whether this was a reconnection to an existing session.
+ */
+is_reconnect: boolean, };
+
+export type TerminalMessage = { "type": "input", data: string, } | { "type": "resize", cols: number, rows: number, } | { "type": "output", data: string, } | { "type": "exit", code: number | null, } | { "type": "error", message: string, };
+
+export type WorktreePathResponse = { 
+/**
+ * Absolute path to the worktree directory
+ */
+path: string, };

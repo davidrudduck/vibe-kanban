@@ -290,6 +290,8 @@
   "attemptHeaderActions": {
     "preview": "Preview",
     "diffs": "Diffs",
+    "files": "Files",
+    "terminal": "Terminal",
     "relatedTasks": "Related tasks"
   },
   "actionsMenu": {
