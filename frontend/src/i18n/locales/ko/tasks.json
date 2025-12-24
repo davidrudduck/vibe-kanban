@@ -16,9 +16,7 @@
     "createNewAttempt": "새 시도 생성",
     "createSubtask": "하위 작업 생성",
     "sharedWorktreeNoSubtask": "하위 작업을 생성할 수 없습니다: 이 작업은 공유 워크트리를 사용합니다",
-    "share": "작업 공유",
     "reassign": "재할당",
-    "stopShare": "공유 중지",
     "archive": "아카이브",
     "unarchive": "아카이브 해제",
     "duplicate": "복제",
@@ -85,41 +83,6 @@
     "runSetup": "설정 실행",
     "setupHelpText": "{{agent}}이(가) 올바르게 설정되지 않았습니다. '설정 실행'을 클릭하여 설치하고 로그인하세요.",
     "devScriptMissingTooltip": "To start the dev server, add a dev script to this project"
-  },
-  "stopShareDialog": {
-    "title": "작업 공유 중지",
-    "description": "\"{{title}}\" 작업의 공유를 조직에서 중지하시겠습니까?",
-    "warning": "작업 공유는 중지되지만 로컬 작업은 유지됩니다.",
-    "confirm": "작업 공유 중지",
-    "inProgress": "공유 중지 중…",
-    "genericError": "작업 공유를 중지하지 못했습니다. 다시 시도해 주세요."
-  },
-  "shareDialog": {
-    "title": "작업 공유",
-    "description": "\"{{title}}\" 작업을 조직과 공유하시겠습니까?",
-    "success": "작업이 성공적으로 공유되었습니다.",
-    "genericError": "작업을 공유하지 못했습니다. 다시 시도해 주세요.",
-    "loadingSystem": "계정 상태를 불러오는 중…",
-    "loginRequired": {
-      "title": "계속하려면 로그인하세요",
-      "description": "작업을 공유하려면 로그인해야 합니다. 로그인 페이지로 이동합니다.",
-      "action": "로그인으로 이동"
-    },
-    "githubRequired": {
-      "title": "GitHub 연결",
-      "description": "공유 작업을 게시하려면 GitHub 계정을 연결하세요.",
-      "action": "GitHub 연결"
-    },
-    "linkProjectRequired": {
-      "description": "작업을 공유하기 전에 이 프로젝트를 조직에 연결하세요.",
-      "action": "프로젝트 연결"
-    },
-    "confirmationTitle": "공유 확인",
-    "confirmationBody": "작업을 공유하면 공유 작업 공간에 게시됩니다.",
-    "cancel": "취소",
-    "confirm": "작업 공유",
-    "inProgress": "공유 중…",
-    "closeButton": "닫기"
   },
   "createPrDialog": {
     "title": "GitHub Pull Request 생성",
