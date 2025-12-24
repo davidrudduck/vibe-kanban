@@ -943,7 +943,8 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
 
         let mut builder = QueryBuilder::<Sqlite>::new("DELETE FROM tasks WHERE project_id = ");
         builder.push_bind(project_id);
-        builder.push(" AND is_remote = 1 AND shared_task_id IS NOT NULL AND shared_task_id NOT IN (");
+        builder
+            .push(" AND is_remote = 1 AND shared_task_id IS NOT NULL AND shared_task_id NOT IN (");
         {
             let mut separated = builder.separated(", ");
             for id in active_shared_task_ids {

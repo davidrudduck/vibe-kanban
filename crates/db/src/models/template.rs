@@ -73,7 +73,10 @@ impl Template {
             .await?
             .ok_or(sqlx::Error::RowNotFound)?;
 
-        let template_name = data.template_name.as_ref().unwrap_or(&existing.template_name);
+        let template_name = data
+            .template_name
+            .as_ref()
+            .unwrap_or(&existing.template_name);
         let content = data.content.as_ref().unwrap_or(&existing.content);
 
         sqlx::query_as!(
