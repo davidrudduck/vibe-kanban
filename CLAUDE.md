@@ -455,6 +455,9 @@ Runtime:
 - `HOST`: Backend host (default: 127.0.0.1)
 - `DISABLE_WORKTREE_ORPHAN_CLEANUP`: Debug flag for worktrees
 
+MCP Server:
+- `MCP_PORT`: Port for HTTP MCP server. If set, backend auto-spawns MCP HTTP server at `http://{HOST}:{MCP_PORT}/mcp`. This allows executors to connect to a locally running MCP server instead of the published npm package.
+
 Swarm/Hive Node Configuration (see `docs/swarm-hive-setup.md` for full guide):
 - `VK_HIVE_URL`: WebSocket URL of the hive server (e.g., `wss://hive.example.com`)
 - `VK_NODE_API_KEY`: API key for authenticating with the hive
