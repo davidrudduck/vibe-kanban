@@ -149,7 +149,9 @@
   },
   "attemptHeaderActions": {
     "diffs": "Diffs",
+    "files": "Archivos",
     "preview": "Preview",
+    "terminal": "Terminal",
     "relatedTasks": "Related tasks"
   },
   "branches": {
