@@ -1,5 +1,10 @@
 import * as React from 'react';
-import { motion, AnimatePresence, PanInfo, useDragControls } from 'framer-motion';
+import {
+  motion,
+  AnimatePresence,
+  PanInfo,
+  useDragControls,
+} from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import {

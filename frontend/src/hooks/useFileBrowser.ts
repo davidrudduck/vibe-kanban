@@ -71,7 +71,11 @@ export function useFileContent(
 export function isMarkdownFile(filePath: string | null | undefined): boolean {
   if (!filePath) return false;
   const lower = filePath.toLowerCase();
-  return lower.endsWith('.md') || lower.endsWith('.markdown') || lower.endsWith('.mdx');
+  return (
+    lower.endsWith('.md') ||
+    lower.endsWith('.markdown') ||
+    lower.endsWith('.mdx')
+  );
 }
 
 /**

@@ -29,7 +29,10 @@ export function FileBreadcrumb({
 
   return (
     <nav
-      className={cn('flex items-center gap-1 min-w-0 overflow-x-auto', className)}
+      className={cn(
+        'flex items-center gap-1 min-w-0 overflow-x-auto',
+        className
+      )}
       aria-label="File path breadcrumb"
     >
       {/* Root/Home button */}

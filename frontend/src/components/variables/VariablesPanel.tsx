@@ -58,7 +58,10 @@ function VariablesPanel({ taskId, taskDescription }: Props) {
   const ownCount = resolvedVariables.length - inheritedCount;
 
   // Don't render if no task or no variables
-  if (!taskId || (resolvedVariables.length === 0 && undefinedVariables.length === 0)) {
+  if (
+    !taskId ||
+    (resolvedVariables.length === 0 && undefinedVariables.length === 0)
+  ) {
     return null;
   }
 
@@ -174,10 +177,7 @@ function VariablesPanel({ taskId, taskDescription }: Props) {
                   {resolvedVariables
                     .filter((v) => v.inherited)
                     .map((variable) => (
-                      <VariableRow
-                        key={variable.name}
-                        variable={variable}
-                      />
+                      <VariableRow key={variable.name} variable={variable} />
                     ))}
                 </ul>
               </div>
@@ -200,11 +200,7 @@ function VariablesPanel({ taskId, taskDescription }: Props) {
 /**
  * Single variable row in the panel
  */
-function VariableRow({
-  variable,
-}: {
-  variable: ResolvedVariable;
-}) {
+function VariableRow({ variable }: { variable: ResolvedVariable }) {
   const { t } = useTranslation('tasks');
 
   return (

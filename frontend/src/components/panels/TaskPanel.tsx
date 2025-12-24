@@ -135,7 +135,9 @@ const TaskPanel = ({ task }: TaskPanelProps) => {
                 <Button
                   variant="link"
                   className="h-auto p-0"
-                  onClick={() => navigate(paths.task(projectId, task.parent_task_id!))}
+                  onClick={() =>
+                    navigate(paths.task(projectId, task.parent_task_id!))
+                  }
                 >
                   {t('taskPanel.viewParent')}
                 </Button>

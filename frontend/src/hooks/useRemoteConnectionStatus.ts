@@ -33,7 +33,8 @@ export function useRemoteConnectionStatus(
   const isRemote = Boolean(task?.is_remote && task?.shared_task_id);
   const taskId = task?.id;
 
-  const [connectionInfo, setConnectionInfo] = useState<TaskStreamConnectionInfoResponse | null>(null);
+  const [connectionInfo, setConnectionInfo] =
+    useState<TaskStreamConnectionInfoResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -60,7 +61,9 @@ export function useRemoteConnectionStatus(
         if (!cancelled) {
           console.error('Failed to fetch connection status:', e);
           setError(
-            e instanceof Error ? e.message : 'Failed to determine connection status'
+            e instanceof Error
+              ? e.message
+              : 'Failed to determine connection status'
           );
           setConnectionInfo(null);
         }

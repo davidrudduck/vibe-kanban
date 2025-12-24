@@ -84,9 +84,7 @@ const ArchiveTaskConfirmationDialogImpl =
             </DialogDescription>
           </DialogHeader>
 
-          <Alert className="mb-4">
-            {t('archiveDialog.info')}
-          </Alert>
+          <Alert className="mb-4">{t('archiveDialog.info')}</Alert>
 
           {!loadingChildren && hasChildren && (
             <div className="flex items-center space-x-2 mb-4">
@@ -121,7 +119,9 @@ const ArchiveTaskConfirmationDialogImpl =
               onClick={handleConfirmArchive}
               disabled={isArchiving || loadingChildren}
             >
-              {isArchiving ? t('archiveDialog.archiving') : t('archiveDialog.confirm')}
+              {isArchiving
+                ? t('archiveDialog.archiving')
+                : t('archiveDialog.confirm')}
             </Button>
           </DialogFooter>
         </DialogContent>

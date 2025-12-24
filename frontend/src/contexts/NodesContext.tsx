@@ -27,7 +27,10 @@ interface NodesProviderProps {
   organizationId: string | undefined;
 }
 
-export function NodesProvider({ children, organizationId }: NodesProviderProps) {
+export function NodesProvider({
+  children,
+  organizationId,
+}: NodesProviderProps) {
   const queryClient = useQueryClient();
 
   const query = useQuery({
