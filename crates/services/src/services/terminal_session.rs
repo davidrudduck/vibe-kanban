@@ -656,6 +656,54 @@ impl TerminalSessionManager {
         self.sessions.contains_key(session_id)
     }
 
+    /// Check if a session is healthy (PTY channel is still open).
+    /// Returns true if the session exists and is healthy, false otherwise.
+    pub async fn is_session_healthy(&self, session_id: &str) -> bool {
+        let Some(session) = self.sessions.get(session_id) else {
+            return false;
+        };
+
+        let session = session.read().await;
+        match &session.backend {
+            SessionBackend::Tmux { .. } => {
+                // Tmux sessions are considered healthy if they exist
+                // (tmux manages persistence)
+                true
+            }
+            SessionBackend::Pty { writer, .. } => {
+                // Check if the writer channel is still open
+                !writer.is_closed()
+            }
+        }
+    }
+
+    /// Create a session or recreate it if it exists but is unhealthy.
+    /// Returns the session ID on success.
+    pub async fn create_or_recreate_session(
+        &self,
+        working_dir: &Path,
+    ) -> Result<String, TerminalError> {
+        let session_id = Self::generate_session_id(working_dir);
+
+        // Check if session exists
+        if self.session_exists(&session_id) {
+            // Check if it's healthy
+            if self.is_session_healthy(&session_id).await {
+                // Session exists and is healthy - return existing
+                return Err(TerminalError::SessionAlreadyExists(session_id));
+            } else {
+                // Session exists but is unhealthy - kill and recreate
+                info!(session_id = %session_id, "Killing unhealthy session before recreating");
+                if let Err(e) = self.kill_session(&session_id).await {
+                    warn!(session_id = %session_id, error = ?e, "Failed to kill unhealthy session");
+                }
+            }
+        }
+
+        // Create new session
+        self.create_session(working_dir).await
+    }
+
     /// Get the number of active sessions.
     pub fn session_count(&self) -> usize {
         self.sessions.len()

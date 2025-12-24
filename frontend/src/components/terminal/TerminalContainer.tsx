@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTerminalSessionMutations } from '@/hooks/useTerminalSession';
 import TerminalView from './TerminalView';
 import { Loader2, AlertCircle } from 'lucide-react';
@@ -19,7 +19,6 @@ function TerminalContainer({
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
-  const hasInitialized = useRef(false);
 
   const handleCreateSuccess = useCallback((response: { session_id: string }) => {
     setSessionId(response.session_id);
@@ -38,14 +37,19 @@ function TerminalContainer({
     onCreateError: handleCreateError,
   });
 
-  // Create session on mount - only once
-  useEffect(() => {
-    if (hasInitialized.current) return;
-    hasInitialized.current = true;
+  // Use ref to avoid dependency on createSession which changes on each render
+  const createSessionRef = useRef(createSession);
+  createSessionRef.current = createSession;
 
+  // Create session on mount - use workingDir as key to detect changes
+  useEffect(() => {
+    // Reset state when workingDir changes
+    setSessionId(null);
+    setError(null);
     setIsCreating(true);
-    createSession.mutate(workingDir);
-  }, [workingDir, createSession]);
+
+    createSessionRef.current.mutate(workingDir);
+  }, [workingDir]);
 
   const handleRetry = () => {
     setError(null);

@@ -19,6 +19,7 @@ import {
   FolderOpen,
   Link2,
   MoreHorizontal,
+  Terminal,
   Trash2,
   Unlink,
 } from 'lucide-react';
@@ -28,6 +29,7 @@ import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
 import { useNavigateWithSearch } from '@/hooks';
 import { projectsApi } from '@/lib/api';
 import { LinkProjectDialog } from '@/components/dialogs/projects/LinkProjectDialog';
+import { TerminalDialog } from '@/components/dialogs/terminal/TerminalDialog';
 import { useTranslation } from 'react-i18next';
 import { useProjectMutations } from '@/hooks/useProjectMutations';
 
@@ -113,6 +115,17 @@ function ProjectCard({
     }
   };
 
+  const handleOpenTerminal = async () => {
+    try {
+      await TerminalDialog.show({
+        workingDir: project.git_repo_path,
+        title: `Terminal - ${project.name}`,
+      });
+    } catch (error) {
+      console.error('Failed to open terminal:', error);
+    }
+  };
+
   return (
     <Card
       className={`hover:shadow-md transition-shadow cursor-pointer focus:ring-2 focus:ring-primary outline-none border`}
@@ -159,6 +172,15 @@ function ProjectCard({
                 >
                   <FolderOpen className="mr-2 h-4 w-4" />
                   {t('openInIDE')}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenTerminal();
+                  }}
+                >
+                  <Terminal className="mr-2 h-4 w-4" />
+                  {t('openTerminal')}
                 </DropdownMenuItem>
                 {project.remote_project_id ? (
                   <DropdownMenuItem

@@ -99,13 +99,13 @@ pub async fn create_session(
 
     let manager = terminal_state.manager.read().await;
 
-    // Try to create session, or get existing one if it already exists
-    let session_id = match manager.create_session(working_dir).await {
+    // Try to create session, or recreate if unhealthy, or get existing healthy one
+    let session_id = match manager.create_or_recreate_session(working_dir).await {
         Ok(id) => id,
         Err(TerminalError::SessionAlreadyExists(id)) => {
-            // Session already exists - return it instead of erroring
+            // Session already exists and is healthy - return it
             // This enables seamless reconnection after page refresh
-            tracing::info!(session_id = %id, "Reusing existing terminal session");
+            tracing::info!(session_id = %id, "Reusing existing healthy terminal session");
             id
         }
         Err(e) => {
