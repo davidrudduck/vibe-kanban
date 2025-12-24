@@ -2,11 +2,20 @@
 -- This migration sets up PostgreSQL for Electric sync service
 
 -- Create a dedicated role for Electric replication
--- Note: In production, use a secure password via environment variable
-CREATE ROLE electric_sync WITH LOGIN REPLICATION;
+-- Default password is 'electric_sync' - override via ELECTRIC_ROLE_PASSWORD env var in docker-compose
+-- In production, change the password: ALTER ROLE electric_sync WITH PASSWORD 'secure_password';
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'electric_sync') THEN
+        CREATE ROLE electric_sync WITH LOGIN REPLICATION PASSWORD 'electric_sync';
+    END IF;
+END $$;
 
--- Grant database connection permission
-GRANT CONNECT ON DATABASE remote TO electric_sync;
+-- Grant database connection permission dynamically using current database
+DO $$
+BEGIN
+    EXECUTE format('GRANT CONNECT ON DATABASE %I TO electric_sync', current_database());
+END $$;
 
 -- Grant schema usage permission
 GRANT USAGE ON SCHEMA public TO electric_sync;
