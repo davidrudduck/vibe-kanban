@@ -76,7 +76,6 @@ async fn create_test_task(
         parent_task_id,
         image_ids: None,
         shared_task_id: None,
-        validation_steps: None,
     };
     Task::create(pool, &data, task_id)
         .await
