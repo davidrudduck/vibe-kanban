@@ -2398,6 +2398,7 @@ mod tests {
         let config: ClaudeCode = serde_json::from_str(json).unwrap();
         assert!(config.interactive_questions, "Default should be true");
 
+        // Both true and false should be serialized (no skip_serializing_if)
         let serialized = serde_json::to_value(&config).unwrap();
         assert_eq!(
             serialized.get("interactive_questions"),
