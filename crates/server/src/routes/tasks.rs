@@ -32,7 +32,7 @@ use remote::routes::{
 use serde::{Deserialize, Serialize};
 use services::services::{
     container::ContainerService,
-    share::{ShareError, status as task_status},
+    share::status as task_status,
     worktree_manager::{WorktreeCleanup, WorktreeManager},
 };
 use sqlx::Error as SqlxError;
@@ -666,30 +666,6 @@ async fn delete_remote_task(
     Ok((StatusCode::ACCEPTED, ResponseJson(ApiResponse::success(()))))
 }
 
-#[derive(Debug, Serialize, Deserialize, TS)]
-pub struct ShareTaskResponse {
-    pub shared_task_id: Uuid,
-}
-
-pub async fn share_task(
-    Extension(task): Extension<Task>,
-    State(deployment): State<DeploymentImpl>,
-) -> Result<ResponseJson<ApiResponse<ShareTaskResponse>>, ApiError> {
-    let Ok(publisher) = deployment.share_publisher() else {
-        return Err(ShareError::MissingConfig("share publisher unavailable").into());
-    };
-    let profile = deployment
-        .auth_context()
-        .cached_profile()
-        .await
-        .ok_or(ShareError::MissingAuth)?;
-    let shared_task_id = publisher.share_task(task.id, Some(profile.user_id)).await?;
-
-    Ok(ResponseJson(ApiResponse::success(ShareTaskResponse {
-        shared_task_id,
-    })))
-}
-
 /// Get list of nodes where this task's project exists (for remote attempt start).
 ///
 /// Returns nodes that have the task's project linked, allowing the frontend
@@ -973,7 +949,6 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let task_actions_router = Router::new()
         .route("/", put(update_task))
         .route("/", delete(delete_task))
-        .route("/share", post(share_task))
         .route("/archive", post(archive_task))
         .route("/unarchive", post(unarchive_task))
         .route("/children", get(get_task_children))
