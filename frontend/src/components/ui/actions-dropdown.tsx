@@ -24,8 +24,13 @@ import {
   Copy,
   Trash2,
   X,
+  Play,
+  Eye,
+  CheckCircle,
+  XCircle,
+  Circle,
 } from 'lucide-react';
-import type { TaskWithAttemptStatus, TaskAttempt } from 'shared/types';
+import type { TaskWithAttemptStatus, TaskAttempt, TaskStatus } from 'shared/types';
 import { useOpenInEditor } from '@/hooks/useOpenInEditor';
 import { ArchiveTaskConfirmationDialog } from '@/components/dialogs/tasks/ArchiveTaskConfirmationDialog';
 import { DeleteTaskConfirmationDialog } from '@/components/dialogs/tasks/DeleteTaskConfirmationDialog';
@@ -36,6 +41,7 @@ import { GitActionsDialog } from '@/components/dialogs/tasks/GitActionsDialog';
 import { EditBranchNameDialog } from '@/components/dialogs/tasks/EditBranchNameDialog';
 import { ReassignDialog } from '@/components/dialogs/tasks/ReassignDialog';
 import { useProject } from '@/contexts/ProjectContext';
+import { getStatusCallback } from '@/contexts/TaskOptimisticContext';
 import { openTaskForm } from '@/lib/openTaskForm';
 
 import { useNavigate } from 'react-router-dom';
@@ -244,6 +250,38 @@ export function ActionsDropdown({
     }
   };
 
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+
+  const handleStatusChange = async (
+    e: React.MouseEvent,
+    newStatus: TaskStatus
+  ) => {
+    e.stopPropagation();
+    if (!task || !projectId || isUpdatingStatus) return;
+
+    setIsUpdatingStatus(true);
+    try {
+      // Call the API to update status - pass null for all other fields
+      await tasksApi.update(task.id, {
+        title: null,
+        description: null,
+        status: newStatus,
+        parent_task_id: null,
+        image_ids: null,
+        validation_steps: null,
+      });
+      // Optimistically update the local state
+      const statusCallback = getStatusCallback(projectId);
+      if (statusCallback) {
+        statusCallback(task.id, newStatus);
+      }
+    } catch (err) {
+      console.error('Failed to update task status:', err);
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
   const isAssignee = sharedTask?.assignee_user_id === userId;
   const isRemoteAssignee = task?.remote_assignee_user_id === userId;
 
@@ -413,6 +451,48 @@ export function ActionsDropdown({
                       <MobileSectionLabel>
                         {t('actionsMenu.task')}
                       </MobileSectionLabel>
+                      {/* Quick status change actions */}
+                      {task?.status !== 'inprogress' && (
+                        <MobileMenuItem
+                          icon={Play}
+                          label={t('actionsMenu.moveToInProgress')}
+                          onClick={(e) => handleStatusChange(e, 'inprogress')}
+                          disabled={!canModifyTask || isUpdatingStatus}
+                        />
+                      )}
+                      {task?.status !== 'inreview' && (
+                        <MobileMenuItem
+                          icon={Eye}
+                          label={t('actionsMenu.moveToInReview')}
+                          onClick={(e) => handleStatusChange(e, 'inreview')}
+                          disabled={!canModifyTask || isUpdatingStatus}
+                        />
+                      )}
+                      {task?.status !== 'done' && (
+                        <MobileMenuItem
+                          icon={CheckCircle}
+                          label={t('actionsMenu.moveToDone')}
+                          onClick={(e) => handleStatusChange(e, 'done')}
+                          disabled={!canModifyTask || isUpdatingStatus}
+                        />
+                      )}
+                      {task?.status !== 'cancelled' && (
+                        <MobileMenuItem
+                          icon={XCircle}
+                          label={t('actionsMenu.cancelTask')}
+                          onClick={(e) => handleStatusChange(e, 'cancelled')}
+                          disabled={!canModifyTask || isUpdatingStatus}
+                        />
+                      )}
+                      {task?.status !== 'todo' && (
+                        <MobileMenuItem
+                          icon={Circle}
+                          label={t('actionsMenu.moveToTodo')}
+                          onClick={(e) => handleStatusChange(e, 'todo')}
+                          disabled={!canModifyTask || isUpdatingStatus}
+                        />
+                      )}
+                      <MobileSeparator />
                       <MobileMenuItem
                         icon={UserPlus}
                         label={t('actionsMenu.reassign')}
@@ -567,6 +647,53 @@ export function ActionsDropdown({
         {hasTaskActions && (
           <>
             <DropdownMenuLabel>{t('actionsMenu.task')}</DropdownMenuLabel>
+            {/* Quick status change actions */}
+            {task?.status !== 'inprogress' && (
+              <DropdownMenuItem
+                disabled={!canModifyTask || isUpdatingStatus}
+                onClick={(e) => handleStatusChange(e, 'inprogress')}
+              >
+                <Play className="mr-2 h-4 w-4" />
+                {t('actionsMenu.moveToInProgress')}
+              </DropdownMenuItem>
+            )}
+            {task?.status !== 'inreview' && (
+              <DropdownMenuItem
+                disabled={!canModifyTask || isUpdatingStatus}
+                onClick={(e) => handleStatusChange(e, 'inreview')}
+              >
+                <Eye className="mr-2 h-4 w-4" />
+                {t('actionsMenu.moveToInReview')}
+              </DropdownMenuItem>
+            )}
+            {task?.status !== 'done' && (
+              <DropdownMenuItem
+                disabled={!canModifyTask || isUpdatingStatus}
+                onClick={(e) => handleStatusChange(e, 'done')}
+              >
+                <CheckCircle className="mr-2 h-4 w-4" />
+                {t('actionsMenu.moveToDone')}
+              </DropdownMenuItem>
+            )}
+            {task?.status !== 'cancelled' && (
+              <DropdownMenuItem
+                disabled={!canModifyTask || isUpdatingStatus}
+                onClick={(e) => handleStatusChange(e, 'cancelled')}
+              >
+                <XCircle className="mr-2 h-4 w-4" />
+                {t('actionsMenu.cancelTask')}
+              </DropdownMenuItem>
+            )}
+            {task?.status !== 'todo' && (
+              <DropdownMenuItem
+                disabled={!canModifyTask || isUpdatingStatus}
+                onClick={(e) => handleStatusChange(e, 'todo')}
+              >
+                <Circle className="mr-2 h-4 w-4" />
+                {t('actionsMenu.moveToTodo')}
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
             <DropdownMenuItem
               disabled={!canReassign}
               onClick={handleReassign}

@@ -24,6 +24,10 @@ pub struct RemoteServerConfig {
     pub activity_broadcast_capacity: usize,
     pub activity_catchup_batch_size: i64,
     pub auth: AuthConfig,
+    /// URL of the Electric sync service (e.g., "http://localhost:3001")
+    pub electric_url: Option<String>,
+    /// Optional secret for authenticating with the Electric service
+    pub electric_secret: Option<SecretString>,
 }
 
 #[derive(Debug, Error)]
@@ -73,6 +77,12 @@ impl RemoteServerConfig {
 
         let auth = AuthConfig::from_env()?;
 
+        // Electric sync service configuration (optional)
+        let electric_url = env::var("ELECTRIC_URL").ok();
+        let electric_secret = env::var("ELECTRIC_SECRET")
+            .ok()
+            .map(|s| SecretString::new(s.into()));
+
         Ok(Self {
             database_url,
             listen_addr,
@@ -84,6 +94,8 @@ impl RemoteServerConfig {
             activity_broadcast_capacity,
             activity_catchup_batch_size,
             auth,
+            electric_url,
+            electric_secret,
         })
     }
 }

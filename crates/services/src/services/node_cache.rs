@@ -1,4 +1,4 @@
-//! Node cache service for syncing node/project data from the hive.
+//! Node cache service for syncing node/project data from the hive (legacy implementation).
 //!
 //! This service fetches all nodes and their projects from the hive
 //! and caches them locally in SQLite. This allows the frontend to show a unified
@@ -8,6 +8,30 @@
 //! - On user login (to sync their organizations)
 //! - Periodically as a background task
 //! - On-demand when the user views the unified projects page
+//!
+//! # DEPRECATION NOTICE
+//!
+//! This module is a candidate for deprecation in a future release. It will be
+//! replaced by ElectricSQL-based real-time sync for node/project data.
+//!
+//! ## Future Migration Path
+//!
+//! When Electric sync is extended to include node data:
+//! - Electric shapes for `nodes` and `node_projects` tables
+//! - Real-time updates via PostgreSQL logical replication
+//! - No periodic polling required
+//!
+//! ## Current Status
+//!
+//! This implementation is still active and required for node discovery.
+//! The Electric proxy route (`/api/electric/v1/shape`) is already set up
+//! and can be extended to include node shapes.
+//!
+//! ## See Also
+//!
+//! - `crates/remote/migrations/20251225000000_electric_support.sql` - nodes table in publication
+//! - `crates/remote/src/routes/electric_proxy.rs` - Electric proxy with auth
+//! - `frontend/src/lib/electric/collections.ts` - TanStack DB collections (includes nodes)
 
 use std::sync::Arc;
 use std::time::Duration;

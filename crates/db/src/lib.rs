@@ -1,16 +1,40 @@
 use std::{str::FromStr, sync::Arc};
 
 use sqlx::{
-    Error, Pool, Sqlite, SqlitePool,
-    sqlite::{SqliteConnectOptions, SqliteConnection, SqliteJournalMode, SqlitePoolOptions},
+    Error, Executor, Pool, Sqlite,
+    sqlite::{
+        SqliteConnectOptions, SqliteConnection, SqliteJournalMode, SqlitePoolOptions,
+        SqliteSynchronous,
+    },
 };
 use tracing::warn;
 use utils::assets::asset_dir;
 
 pub mod backup;
 pub mod models;
+pub mod validation;
 
 pub use backup::{BackupInfo, BackupService};
+
+/// Apply performance pragmas to a SQLite connection.
+/// These pragmas are applied on every new connection via `after_connect`.
+///
+/// Pragmas applied:
+/// - `temp_store = MEMORY` (2): Store temporary tables in memory
+/// - `mmap_size = 256MB`: Memory-mapped I/O for faster reads
+/// - `cache_size = -64000`: 64MB page cache (negative = KB)
+async fn apply_performance_pragmas(conn: &mut SqliteConnection) -> Result<(), Error> {
+    // temp_store = MEMORY (2)
+    conn.execute("PRAGMA temp_store = 2").await?;
+
+    // mmap_size = 256MB
+    conn.execute("PRAGMA mmap_size = 268435456").await?;
+
+    // cache_size = -64000 (64MB, negative means KB)
+    conn.execute("PRAGMA cache_size = -64000").await?;
+
+    Ok(())
+}
 
 #[derive(Clone)]
 pub struct DBService {
@@ -24,8 +48,15 @@ impl DBService {
         let options = SqliteConnectOptions::from_str(&database_url)?
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
+            .synchronous(SqliteSynchronous::Normal)
             .busy_timeout(std::time::Duration::from_secs(30));
-        let pool = SqlitePool::connect_with(options).await?;
+
+        let pool = SqlitePoolOptions::new()
+            .after_connect(|conn, _meta| {
+                Box::pin(async move { apply_performance_pragmas(conn).await })
+            })
+            .connect_with(options)
+            .await?;
 
         // Create pre-migration backup for safety
         if let Err(e) = BackupService::backup_before_migration(&db_path) {
@@ -70,6 +101,7 @@ impl DBService {
         let options = SqliteConnectOptions::from_str(&database_url)?
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
+            .synchronous(SqliteSynchronous::Normal)
             .busy_timeout(std::time::Duration::from_secs(30));
 
         let pool = if let Some(hook) = after_connect {
@@ -77,6 +109,9 @@ impl DBService {
                 .after_connect(move |conn, _meta| {
                     let hook = hook.clone();
                     Box::pin(async move {
+                        // Apply performance pragmas first
+                        apply_performance_pragmas(conn).await?;
+                        // Then run user-provided hook
                         hook(conn).await?;
                         Ok(())
                     })
@@ -84,7 +119,12 @@ impl DBService {
                 .connect_with(options)
                 .await?
         } else {
-            SqlitePool::connect_with(options).await?
+            SqlitePoolOptions::new()
+                .after_connect(|conn, _meta| {
+                    Box::pin(async move { apply_performance_pragmas(conn).await })
+                })
+                .connect_with(options)
+                .await?
         };
 
         // Create pre-migration backup for safety

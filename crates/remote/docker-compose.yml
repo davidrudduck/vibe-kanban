@@ -10,6 +10,8 @@
 services:
   remote-db:
     image: postgres:16-alpine
+    # Enable logical replication for ElectricSQL
+    command: [ "postgres", "-c", "wal_level=logical" ]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-vibe_remote}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -25,6 +27,34 @@ services:
     ports:
       - "${POSTGRES_PORT:-5434}:5432"
 
+  electric:
+    image: electricsql/electric:latest
+    working_dir: /app
+    environment:
+      # Connect as the electric_sync role created by the migration
+      # Password defaults to 'electric_sync' if not set via ELECTRIC_ROLE_PASSWORD
+      DATABASE_URL: postgresql://electric_sync:${ELECTRIC_ROLE_PASSWORD:-electric_sync}@remote-db:5432/${POSTGRES_DB:-vibe_remote}?sslmode=disable
+      # Electric configuration
+      PG_PROXY_PORT: 65432
+      LOGICAL_PUBLISHER_HOST: electric
+      AUTH_MODE: insecure
+      ELECTRIC_INSECURE: true
+      ELECTRIC_MANUAL_TABLE_PUBLISHING: true
+      ELECTRIC_USAGE_REPORTING: false
+    volumes:
+      - electric-data:/app/persistent
+    depends_on:
+      remote-db:
+        condition: service_healthy
+    ports:
+      - "${ELECTRIC_PORT:-3001}:3000"
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -sf http://localhost:3000/v1/health || exit 1" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   remote-server:
     build:
       context: ../..
@@ -38,6 +68,8 @@ services:
         VK_GIT_BRANCH: ${VK_GIT_BRANCH:-unknown}
     depends_on:
       remote-db:
+        condition: service_healthy
+      electric:
         condition: service_healthy
     environment:
       # Database URL for runtime - connects to the remote-db service
@@ -56,9 +88,12 @@ services:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3000}
       # PostgreSQL connection pool size (default: 20, increase for many nodes)
       VK_PG_MAX_CONNECTIONS: ${VK_PG_MAX_CONNECTIONS:-20}
+      # ElectricSQL sync service URL (internal Docker network)
+      ELECTRIC_URL: http://electric:3000
     ports:
       - "0.0.0.0:3000:8081"
     restart: unless-stopped
 
 volumes:
   remote-db-data:
+  electric-data:
