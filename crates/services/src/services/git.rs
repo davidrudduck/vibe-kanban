@@ -38,6 +38,10 @@ pub enum GitServiceError {
     WorktreeDirty(String, String),
     #[error("Rebase in progress; resolve or abort it before retrying")]
     RebaseInProgress,
+    #[error("Nothing to stash: working tree is clean")]
+    NothingToStash,
+    #[error("Stash is empty: no stashed changes to pop")]
+    StashEmpty,
 }
 /// Service for managing Git operations in task execution workflows
 #[derive(Clone)]
@@ -1835,5 +1839,79 @@ impl GitService {
         }
 
         Ok(stats)
+    }
+
+    /// Stash uncommitted changes in the working tree.
+    ///
+    /// This function stashes all uncommitted changes (including untracked files)
+    /// to allow operations like merge or rebase to proceed without conflicts.
+    ///
+    /// Returns the stash reference (e.g., "stash@{0}") on success.
+    /// Returns `NothingToStash` error if the working tree is clean.
+    pub fn stash_changes(
+        &self,
+        worktree_path: &Path,
+        message: Option<&str>,
+    ) -> Result<String, GitServiceError> {
+        let git = GitCli::new();
+
+        // Check if there are any changes to stash
+        if !git
+            .has_changes(worktree_path)
+            .map_err(|e| GitServiceError::InvalidRepository(format!("git status failed: {e}")))?
+        {
+            return Err(GitServiceError::NothingToStash);
+        }
+
+        // Perform the stash
+        let stash_ref = git.stash_push(worktree_path, message).map_err(|e| {
+            GitServiceError::InvalidRepository(format!("git stash push failed: {e}"))
+        })?;
+
+        tracing::info!(
+            worktree_path = %worktree_path.display(),
+            stash_ref = %stash_ref,
+            "Changes stashed successfully"
+        );
+
+        Ok(stash_ref)
+    }
+
+    /// Pop the most recent stash entry, restoring changes to the working tree.
+    ///
+    /// Returns `StashEmpty` error if there are no stashed changes.
+    pub fn pop_stash(&self, worktree_path: &Path) -> Result<(), GitServiceError> {
+        let git = GitCli::new();
+
+        // Check if there are any stashes
+        let stashes = git.stash_list(worktree_path).map_err(|e| {
+            GitServiceError::InvalidRepository(format!("git stash list failed: {e}"))
+        })?;
+
+        if stashes.is_empty() {
+            return Err(GitServiceError::StashEmpty);
+        }
+
+        // Pop the stash
+        git.stash_pop(worktree_path).map_err(|e| {
+            GitServiceError::InvalidRepository(format!("git stash pop failed: {e}"))
+        })?;
+
+        tracing::info!(
+            worktree_path = %worktree_path.display(),
+            "Stash popped successfully"
+        );
+
+        Ok(())
+    }
+
+    /// Get a list of files with uncommitted changes (dirty files).
+    ///
+    /// This is useful for displaying to users which files have changes
+    /// that would be affected by operations like stash.
+    pub fn get_dirty_files(&self, worktree_path: &Path) -> Result<Vec<String>, GitServiceError> {
+        let git = GitCli::new();
+        git.get_dirty_files(worktree_path)
+            .map_err(|e| GitServiceError::InvalidRepository(format!("git status failed: {e}")))
     }
 }
