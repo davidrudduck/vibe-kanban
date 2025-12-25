@@ -58,10 +58,6 @@ export type ScanConfigRequest = { repo_path: string, };
 
 export type ScanConfigResponse = { suggestions: Array<ProjectConfigSuggestion>, };
 
-export type CreateRemoteProjectRequest = { organization_id: string, name: string, };
-
-export type LinkToExistingRequest = { remote_project_id: string, };
-
 export type LinkToLocalFolderRequest = { 
 /**
  * The remote project ID to link to (from the Hive)
@@ -420,8 +416,6 @@ export type OpenEditorResponse = { url: string | null, };
 export type AssignSharedTaskRequest = { new_assignee_user_id: string | null, version: bigint | null, };
 
 export type AssignSharedTaskResponse = { shared_task: SharedTask, };
-
-export type ShareTaskResponse = { shared_task_id: string, };
 
 export type CreateAndStartTaskRequest = { task: CreateTask, executor_profile_id: ExecutorProfileId, base_branch: string, };
 
