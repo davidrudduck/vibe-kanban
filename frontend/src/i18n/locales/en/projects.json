@@ -131,5 +131,38 @@
       "showMore": "Show {{count}} more repositories",
       "showLess": "Show less"
     }
+  },
+  "github": {
+    "title": "GitHub Integration",
+    "description": "Enable to display issue and PR counts for this project",
+    "enabled": "Show GitHub Counts",
+    "enabledDescription": "Display issue and PR counts in the project header",
+    "owner": "Repository Owner",
+    "ownerPlaceholder": "e.g., anthropics",
+    "repo": "Repository Name",
+    "repoPlaceholder": "e.g., claude-code",
+    "repoFormat": "{{owner}}/{{repo}}",
+    "lastSynced": "Last synced {{time}}",
+    "neverSynced": "Never synced",
+    "syncing": "Syncing...",
+    "syncNow": "Sync Now",
+    "openIssues": "Issues",
+    "openPRs": "PRs",
+    "openIssuesCount_one": "{{count}} Issue",
+    "openIssuesCount_other": "{{count}} Issues",
+    "openPRsCount_one": "{{count}} PR",
+    "openPRsCount_other": "{{count}} PRs",
+    "settings": "GitHub Settings",
+    "errors": {
+      "ownerRequired": "Repository owner is required",
+      "repoRequired": "Repository name is required",
+      "updateFailed": "Failed to update GitHub settings",
+      "syncFailed": "Failed to sync GitHub counts"
+    },
+    "success": {
+      "enabled": "GitHub integration enabled",
+      "disabled": "GitHub integration disabled",
+      "synced": "GitHub counts synced"
+    }
   }
 }

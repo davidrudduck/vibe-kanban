@@ -17,6 +17,7 @@ import {
   Edit,
   ExternalLink,
   FolderOpen,
+  Github,
   Link2,
   MoreHorizontal,
   Terminal,
@@ -29,9 +30,11 @@ import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
 import { useNavigateWithSearch } from '@/hooks';
 import { projectsApi } from '@/lib/api';
 import { LinkProjectDialog } from '@/components/dialogs/projects/LinkProjectDialog';
+import { GitHubSettingsDialog } from '@/components/dialogs/projects/GitHubSettingsDialog';
 import { TerminalDialog } from '@/components/dialogs/terminal/TerminalDialog';
 import { useTranslation } from 'react-i18next';
 import { useProjectMutations } from '@/hooks/useProjectMutations';
+import { GitHubBadges } from './GitHubBadges';
 
 type Props = {
   project: Project;
@@ -126,6 +129,22 @@ function ProjectCard({
     }
   };
 
+  const handleGitHubSettings = async () => {
+    try {
+      const result = await GitHubSettingsDialog.show({
+        project,
+        onProjectUpdate: () => {
+          fetchProjects();
+        },
+      });
+      if (result.action === 'saved') {
+        fetchProjects();
+      }
+    } catch (error) {
+      console.error('Failed to open GitHub settings:', error);
+    }
+  };
+
   return (
     <Card
       className={`hover:shadow-md transition-shadow cursor-pointer focus:ring-2 focus:ring-primary outline-none border`}
@@ -135,16 +154,23 @@ function ProjectCard({
     >
       <CardHeader>
         <div className="flex items-start justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <CardTitle className="text-lg">{project.name}</CardTitle>
             {project.remote_project_id && (
               <span
-                className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-blue-50 text-blue-700 border border-blue-200"
+                className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800"
                 title={t('linkedToOrganizationTooltip')}
               >
                 <Cloud className="h-3 w-3" />
                 {t('linked')}
               </span>
+            )}
+            {project.github_enabled && (
+              <GitHubBadges
+                project={project}
+                compact
+                onClick={handleGitHubSettings}
+              />
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -181,6 +207,15 @@ function ProjectCard({
                 >
                   <Terminal className="mr-2 h-4 w-4" />
                   {t('openTerminal')}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleGitHubSettings();
+                  }}
+                >
+                  <Github className="mr-2 h-4 w-4" />
+                  {t('github.settings')}
                 </DropdownMenuItem>
                 {project.remote_project_id ? (
                   <DropdownMenuItem
