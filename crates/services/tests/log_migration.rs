@@ -324,8 +324,8 @@ async fn test_migrate_preserves_order() {
     assert_eq!(entries.len(), 10);
 
     // Verify order is preserved
-    for i in 0..10 {
-        assert_eq!(entries[i].content, format!("Message {}", i));
+    for (i, entry) in entries.iter().enumerate().take(10) {
+        assert_eq!(entry.content, format!("Message {}", i));
     }
 }
 

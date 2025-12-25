@@ -1,7 +1,23 @@
+//! Database models for Vibe Kanban.
+//!
+//! # Electric SQL Integration (New)
+//!
+//! The following models support the new ElectricSQL-based sync:
+//!
+//! - [`log_entry`] - Row-level log storage (replaces JSONL in execution_process_logs)
+//!
+//! # Legacy Sync Models (Deprecated)
+//!
+//! The following models use polling/WebSocket-based sync and are being replaced:
+//!
+//! - [`shared_task`] - **DEPRECATED** - Will sync via Electric shapes
+//! - [`cached_node`] - **DEPRECATED** - Will sync via Electric shapes
+//!
+//! See individual module documentation for migration guidance.
+
 pub mod activity_dismissal;
 pub mod activity_feed;
 pub mod all_tasks;
-pub mod cached_node;
 pub mod dashboard;
 pub mod draft;
 pub mod execution_process;
@@ -9,11 +25,17 @@ pub mod execution_process_logs;
 pub mod executor_session;
 pub mod image;
 pub mod label;
-pub mod log_entry;
 pub mod merge;
 pub mod project;
-pub mod shared_task;
 pub mod task;
 pub mod task_attempt;
 pub mod task_variable;
 pub mod template;
+
+// === Electric SQL Integration (New) ===
+pub mod log_entry;
+
+// === Legacy Sync Models (Deprecated) ===
+// These are being replaced by Electric-based sync
+pub mod cached_node;
+pub mod shared_task;
