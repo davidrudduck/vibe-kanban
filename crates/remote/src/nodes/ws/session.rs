@@ -315,18 +315,29 @@ async fn wait_for_auth(
         .await
         .map_err(|e| AuthError::RegistrationFailed(e.to_string()))?;
 
-    // Get linked projects
-    let linked_projects = service
-        .list_node_projects(node.id)
+    // Get ALL projects in the organization (not just this node's linked projects)
+    // This enables full visibility across the swarm
+    let org_projects = service
+        .list_organization_projects(node.organization_id)
         .await
-        .map_err(|e| AuthError::RegistrationFailed(e.to_string()))?
+        .map_err(|e| AuthError::RegistrationFailed(e.to_string()))?;
+
+    // Convert to LinkedProjectInfo with ownership info
+    let linked_projects = org_projects
         .into_iter()
-        .map(|p| LinkedProjectInfo {
-            link_id: p.id,
-            project_id: p.project_id,
-            local_project_id: p.local_project_id,
-            git_repo_path: p.git_repo_path,
-            default_branch: p.default_branch,
+        .map(|p| {
+            let is_owned = p.source_node_id == node.id;
+            LinkedProjectInfo {
+                link_id: p.link_id,
+                project_id: p.project_id,
+                local_project_id: p.local_project_id,
+                git_repo_path: p.git_repo_path,
+                default_branch: p.default_branch,
+                project_name: p.project_name,
+                source_node_id: p.source_node_id,
+                source_node_name: p.source_node_name,
+                is_owned,
+            }
         })
         .collect();
 
@@ -830,46 +841,33 @@ async fn send_message(
     }
 }
 
-/// Broadcast a node's linked projects to all other nodes in the organization.
+/// Broadcast a node's owned projects to all other nodes in the organization.
 ///
 /// This is called when a node connects to notify other nodes about the newly
-/// connected node's available projects.
+/// connected node's available projects. Only projects owned by this node
+/// (is_owned == true) are broadcast.
 async fn broadcast_node_projects(
     node_id: Uuid,
     organization_id: Uuid,
     node_name: &str,
     node_public_url: Option<&str>,
     linked_projects: &[LinkedProjectInfo],
-    pool: &PgPool,
+    _pool: &PgPool,
     connections: &ConnectionManager,
 ) {
-    use crate::db::projects::ProjectRepository;
+    // Only broadcast projects owned by this node
+    let owned_projects: Vec<_> = linked_projects.iter().filter(|p| p.is_owned).collect();
 
-    if linked_projects.is_empty() {
+    if owned_projects.is_empty() {
         return;
     }
 
-    for project_info in linked_projects {
-        // Try to get the project name from the database
-        let project_name = match ProjectRepository::fetch_by_id(pool, project_info.project_id).await
-        {
-            Ok(Some(project)) => project.name,
-            _ => {
-                // Fallback to using the git_repo_path as the name
-                project_info
-                    .git_repo_path
-                    .rsplit('/')
-                    .next()
-                    .unwrap_or(&project_info.git_repo_path)
-                    .to_string()
-            }
-        };
-
+    for project_info in &owned_projects {
         let sync_msg = HiveMessage::ProjectSync(ProjectSyncMessage {
             message_id: Uuid::new_v4(),
             link_id: project_info.link_id,
             project_id: project_info.project_id,
-            project_name,
+            project_name: project_info.project_name.clone(),
             local_project_id: project_info.local_project_id,
             git_repo_path: project_info.git_repo_path.clone(),
             default_branch: project_info.default_branch.clone(),
@@ -895,7 +893,7 @@ async fn broadcast_node_projects(
 
     tracing::info!(
         node_id = %node_id,
-        project_count = linked_projects.len(),
-        "broadcast node projects to organization"
+        owned_project_count = owned_projects.len(),
+        "broadcast node's owned projects to organization"
     );
 }

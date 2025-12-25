@@ -238,4 +238,51 @@ impl<'a> NodeProjectRepository<'a> {
 
         Ok(())
     }
+
+    /// List all project links for an organization with node ownership info.
+    ///
+    /// Returns projects linked to ANY node in the organization, with info about
+    /// which node owns each project. Used to provide full project visibility
+    /// to all nodes in the swarm.
+    pub async fn list_by_organization(
+        &self,
+        organization_id: Uuid,
+    ) -> Result<Vec<OrgProjectInfo>, NodeProjectError> {
+        let projects = sqlx::query_as::<_, OrgProjectInfo>(
+            r#"
+            SELECT
+                np.id as link_id,
+                np.project_id,
+                np.local_project_id,
+                np.git_repo_path,
+                np.default_branch,
+                p.name as project_name,
+                n.id as source_node_id,
+                n.name as source_node_name
+            FROM node_projects np
+            JOIN nodes n ON np.node_id = n.id
+            JOIN projects p ON np.project_id = p.id
+            WHERE n.organization_id = $1
+            ORDER BY np.created_at DESC
+            "#,
+        )
+        .bind(organization_id)
+        .fetch_all(self.pool)
+        .await?;
+
+        Ok(projects)
+    }
+}
+
+/// Project info with ownership details for organization-wide visibility.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct OrgProjectInfo {
+    pub link_id: Uuid,
+    pub project_id: Uuid,
+    pub local_project_id: Uuid,
+    pub git_repo_path: String,
+    pub default_branch: String,
+    pub project_name: String,
+    pub source_node_id: Uuid,
+    pub source_node_name: String,
 }

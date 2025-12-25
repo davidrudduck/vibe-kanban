@@ -13,25 +13,20 @@ import {
 import { Button } from '@/components/ui/button.tsx';
 import {
   Calendar,
-  Cloud,
   Edit,
   ExternalLink,
   FolderOpen,
-  Link2,
   MoreHorizontal,
   Terminal,
   Trash2,
-  Unlink,
 } from 'lucide-react';
 import { Project } from 'shared/types';
 import { useEffect, useRef } from 'react';
 import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
 import { useNavigateWithSearch } from '@/hooks';
 import { projectsApi } from '@/lib/api';
-import { LinkProjectDialog } from '@/components/dialogs/projects/LinkProjectDialog';
 import { TerminalDialog } from '@/components/dialogs/terminal/TerminalDialog';
 import { useTranslation } from 'react-i18next';
-import { useProjectMutations } from '@/hooks/useProjectMutations';
 
 type Props = {
   project: Project;
@@ -52,16 +47,6 @@ function ProjectCard({
   const ref = useRef<HTMLDivElement>(null);
   const handleOpenInEditor = useOpenProjectInEditor(project);
   const { t } = useTranslation('projects');
-
-  const { unlinkProject } = useProjectMutations({
-    onUnlinkSuccess: () => {
-      fetchProjects();
-    },
-    onUnlinkError: (error) => {
-      console.error('Failed to unlink project:', error);
-      setError('Failed to unlink project');
-    },
-  });
 
   useEffect(() => {
     if (isFocused && ref.current) {
@@ -95,26 +80,6 @@ function ProjectCard({
     handleOpenInEditor();
   };
 
-  const handleLinkProject = async () => {
-    try {
-      await LinkProjectDialog.show({
-        projectId: project.id,
-        projectName: project.name,
-      });
-    } catch (error) {
-      console.error('Failed to link project:', error);
-    }
-  };
-
-  const handleUnlinkProject = () => {
-    const confirmed = window.confirm(
-      `Are you sure you want to unlink "${project.name}"? The local project will remain, but it will no longer be linked to the remote project.`
-    );
-    if (confirmed) {
-      unlinkProject.mutate(project.id);
-    }
-  };
-
   const handleOpenTerminal = async () => {
     try {
       await TerminalDialog.show({
@@ -137,15 +102,6 @@ function ProjectCard({
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2">
             <CardTitle className="text-lg">{project.name}</CardTitle>
-            {project.remote_project_id && (
-              <span
-                className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-blue-50 text-blue-700 border border-blue-200"
-                title={t('linkedToOrganizationTooltip')}
-              >
-                <Cloud className="h-3 w-3" />
-                {t('linked')}
-              </span>
-            )}
           </div>
           <div className="flex items-center gap-2">
             <DropdownMenu>
@@ -182,27 +138,6 @@ function ProjectCard({
                   <Terminal className="mr-2 h-4 w-4" />
                   {t('openTerminal')}
                 </DropdownMenuItem>
-                {project.remote_project_id ? (
-                  <DropdownMenuItem
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleUnlinkProject();
-                    }}
-                  >
-                    <Unlink className="mr-2 h-4 w-4" />
-                    {t('unlinkFromOrganization')}
-                  </DropdownMenuItem>
-                ) : (
-                  <DropdownMenuItem
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleLinkProject();
-                    }}
-                  >
-                    <Link2 className="mr-2 h-4 w-4" />
-                    {t('linkToOrganization')}
-                  </DropdownMenuItem>
-                )}
                 <DropdownMenuItem
                   onClick={(e) => {
                     e.stopPropagation();

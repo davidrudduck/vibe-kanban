@@ -15,7 +15,6 @@ use db::models::{
         CreateProject, Project, ProjectError, ScanConfigRequest, ScanConfigResponse,
         SearchMatchType, SearchResult, UpdateProject,
     },
-    task::Task,
 };
 use deployment::Deployment;
 use ignore::WalkBuilder;
@@ -26,7 +25,6 @@ use services::services::{
     filesystem::{DirectoryListResponse, FileContentResponse, FilesystemError},
     git::GitBranch,
     project_detector::ProjectDetector,
-    remote_client::CreateRemoteProjectPayload,
     share::{link_shared_tasks_to_project, share_existing_tasks_to_hive},
 };
 use ts_rs::TS;
@@ -74,17 +72,6 @@ fn check_remote_proxy(
         }
         None => Ok(None),
     }
-}
-
-#[derive(Deserialize, TS)]
-pub struct LinkToExistingRequest {
-    pub remote_project_id: Uuid,
-}
-
-#[derive(Deserialize, TS)]
-pub struct CreateRemoteProjectRequest {
-    pub organization_id: Uuid,
-    pub name: String,
 }
 
 /// Request to link a local folder to a remote project
@@ -487,49 +474,6 @@ pub async fn get_project_branches(
     Ok(ResponseJson(ApiResponse::success(branches)))
 }
 
-pub async fn link_project_to_existing_remote(
-    Path(project_id): Path<Uuid>,
-    State(deployment): State<DeploymentImpl>,
-    Json(payload): Json<LinkToExistingRequest>,
-) -> Result<ResponseJson<ApiResponse<Project>>, ApiError> {
-    let client = deployment.remote_client()?;
-
-    let remote_project = client.get_project(payload.remote_project_id).await?;
-
-    let updated_project =
-        apply_remote_project_link(&deployment, project_id, remote_project).await?;
-
-    Ok(ResponseJson(ApiResponse::success(updated_project)))
-}
-
-pub async fn create_and_link_remote_project(
-    Path(project_id): Path<Uuid>,
-    State(deployment): State<DeploymentImpl>,
-    Json(payload): Json<CreateRemoteProjectRequest>,
-) -> Result<ResponseJson<ApiResponse<Project>>, ApiError> {
-    let repo_name = payload.name.trim().to_string();
-    if repo_name.trim().is_empty() {
-        return Err(ApiError::Conflict(
-            "Remote project name cannot be empty.".to_string(),
-        ));
-    }
-
-    let client = deployment.remote_client()?;
-
-    let remote_project = client
-        .create_project(&CreateRemoteProjectPayload {
-            organization_id: payload.organization_id,
-            name: repo_name,
-            metadata: None,
-        })
-        .await?;
-
-    let updated_project =
-        apply_remote_project_link(&deployment, project_id, remote_project).await?;
-
-    Ok(ResponseJson(ApiResponse::success(updated_project)))
-}
-
 /// Create a new local project at a specified folder path and link it to a remote project.
 /// This is used when a user wants to link a remote-only project to a local folder.
 pub async fn link_to_local_folder(
@@ -620,55 +564,6 @@ pub async fn link_to_local_folder(
         path = %path.display(),
         "Created local project and linked to remote"
     );
-
-    Ok(ResponseJson(ApiResponse::success(updated_project)))
-}
-
-pub async fn unlink_project(
-    Extension(project): Extension<Project>,
-    State(deployment): State<DeploymentImpl>,
-) -> Result<ResponseJson<ApiResponse<Project>>, ApiError> {
-    let pool = &deployment.db().pool;
-
-    if let Some(remote_project_id) = project.remote_project_id {
-        let mut tx = pool.begin().await?;
-
-        Task::clear_shared_task_ids_for_remote_project(&mut *tx, remote_project_id).await?;
-
-        Project::set_remote_project_id_tx(&mut *tx, project.id, None).await?;
-
-        tx.commit().await?;
-
-        // Notify the hive about the unlink if we're connected as a node
-        if let Some(ctx) = deployment.node_runner_context() {
-            use services::services::hive_client::UnlinkProjectMessage;
-
-            if ctx.is_connected().await {
-                let unlink_msg = UnlinkProjectMessage {
-                    project_id: remote_project_id,
-                };
-
-                if let Err(e) = ctx.send_unlink_project(unlink_msg).await {
-                    tracing::warn!(
-                        project_id = %project.id,
-                        remote_project_id = %remote_project_id,
-                        error = %e,
-                        "failed to send unlink_project to hive"
-                    );
-                } else {
-                    tracing::info!(
-                        project_id = %project.id,
-                        remote_project_id = %remote_project_id,
-                        "sent unlink_project to hive"
-                    );
-                }
-            }
-        }
-    }
-
-    let updated_project = Project::find_by_id(pool, project.id)
-        .await?
-        .ok_or(ProjectError::ProjectNotFound)?;
 
     Ok(ResponseJson(ApiResponse::success(updated_project)))
 }
@@ -879,10 +774,10 @@ pub async fn create_project(
         }
     }
 
-    match Project::create(
+    let project = match Project::create(
         &deployment.db().pool,
         &CreateProject {
-            name,
+            name: name.clone(),
             git_repo_path: path.to_string_lossy().to_string(),
             use_existing_repo,
             setup_script,
@@ -894,8 +789,116 @@ pub async fn create_project(
     )
     .await
     {
-        Ok(project) => Ok(ResponseJson(ApiResponse::success(project))),
-        Err(e) => Err(ProjectError::CreateFailed(e.to_string()).into()),
+        Ok(project) => project,
+        Err(e) => return Err(ProjectError::CreateFailed(e.to_string()).into()),
+    };
+
+    // Auto-link to hive if connected
+    let final_project = auto_link_project_to_hive(&deployment, project, &name, &path).await;
+
+    Ok(ResponseJson(ApiResponse::success(final_project)))
+}
+
+/// Automatically link a newly created project to the hive if connected.
+/// This creates a remote project and links it so all nodes in the swarm can see it.
+async fn auto_link_project_to_hive(
+    deployment: &DeploymentImpl,
+    project: Project,
+    name: &str,
+    path: &std::path::Path,
+) -> Project {
+    use services::services::remote_client::CreateRemoteProjectPayload;
+
+    // Check if we're connected to a hive
+    let ctx = match deployment.node_runner_context() {
+        Some(ctx) => ctx,
+        None => {
+            tracing::debug!(
+                project_id = %project.id,
+                "No node runner context, skipping auto-link"
+            );
+            return project;
+        }
+    };
+
+    if !ctx.is_connected().await {
+        tracing::debug!(
+            project_id = %project.id,
+            "Not connected to hive, skipping auto-link"
+        );
+        return project;
+    }
+
+    // Get the organization ID from the hive connection
+    let organization_id = match ctx.organization_id().await {
+        Some(org_id) => org_id,
+        None => {
+            tracing::warn!(
+                project_id = %project.id,
+                "Connected to hive but no organization_id available, skipping auto-link"
+            );
+            return project;
+        }
+    };
+
+    // Get the remote client
+    let client = match deployment.remote_client() {
+        Ok(client) => client,
+        Err(e) => {
+            tracing::warn!(
+                project_id = %project.id,
+                error = %e,
+                "Failed to get remote client for auto-link"
+            );
+            return project;
+        }
+    };
+
+    // Create a remote project in the hive
+    let remote_project = match client
+        .create_project(&CreateRemoteProjectPayload {
+            organization_id,
+            name: name.to_string(),
+            metadata: None,
+        })
+        .await
+    {
+        Ok(remote_project) => remote_project,
+        Err(e) => {
+            tracing::warn!(
+                project_id = %project.id,
+                error = %e,
+                "Failed to create remote project in hive for auto-link"
+            );
+            return project;
+        }
+    };
+
+    tracing::info!(
+        project_id = %project.id,
+        remote_project_id = %remote_project.id,
+        "Created remote project in hive, now linking"
+    );
+
+    // Link the local project to the remote project
+    match apply_remote_project_link(deployment, project.id, remote_project).await {
+        Ok(updated_project) => {
+            tracing::info!(
+                project_id = %updated_project.id,
+                remote_project_id = ?updated_project.remote_project_id,
+                path = %path.display(),
+                "Auto-linked new project to hive"
+            );
+            updated_project
+        }
+        Err(e) => {
+            tracing::warn!(
+                project_id = %project.id,
+                error = %e,
+                "Failed to apply remote project link during auto-link"
+            );
+            project
+        }
     }
 }
 
@@ -1481,11 +1484,6 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/open-editor", post(open_project_in_editor))
         // File browser endpoints
         .route("/files", get(list_project_files))
-        .route(
-            "/link",
-            post(link_project_to_existing_remote).delete(unlink_project),
-        )
-        .route("/link/create", post(create_and_link_remote_project))
         .layer(from_fn_with_state(
             deployment.clone(),
             load_project_middleware,
