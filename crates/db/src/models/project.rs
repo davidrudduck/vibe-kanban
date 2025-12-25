@@ -45,9 +45,6 @@ pub struct Project {
     pub source_node_status: Option<String>,
     #[ts(type = "Date | null")]
     pub remote_last_synced_at: Option<DateTime<Utc>>,
-    // Validation steps for Anthropic Harness pattern
-    /// JSON array of default validation steps for new tasks in this project
-    pub default_validation_steps: Option<String>,
 }
 
 #[derive(Debug, Deserialize, TS)]
@@ -147,8 +144,7 @@ impl Project {
                       source_node_name,
                       source_node_public_url,
                       source_node_status,
-                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
-                      default_validation_steps
+                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>"
                FROM projects
                ORDER BY created_at DESC"#
         )
@@ -168,8 +164,7 @@ impl Project {
                    p.is_remote as "is_remote!: bool",
                    p.source_node_id as "source_node_id: Uuid",
                    p.source_node_name, p.source_node_public_url, p.source_node_status,
-                   p.remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
-                   p.default_validation_steps
+                   p.remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>"
             FROM projects p
             WHERE p.id IN (
                 SELECT DISTINCT t.project_id
@@ -204,8 +199,7 @@ impl Project {
                       source_node_name,
                       source_node_public_url,
                       source_node_status,
-                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
-                      default_validation_steps
+                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>"
                FROM projects
                WHERE id = $1"#,
             id
@@ -236,8 +230,7 @@ impl Project {
                       source_node_name,
                       source_node_public_url,
                       source_node_status,
-                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
-                      default_validation_steps
+                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>"
                FROM projects
                WHERE remote_project_id = $1
                LIMIT 1"#,
@@ -269,8 +262,7 @@ impl Project {
                       source_node_name,
                       source_node_public_url,
                       source_node_status,
-                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
-                      default_validation_steps
+                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>"
                FROM projects
                WHERE git_repo_path = $1"#,
             git_repo_path
@@ -302,8 +294,7 @@ impl Project {
                       source_node_name,
                       source_node_public_url,
                       source_node_status,
-                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
-                      default_validation_steps
+                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>"
                FROM projects
                WHERE git_repo_path = $1 AND id != $2"#,
             git_repo_path,
@@ -347,8 +338,7 @@ impl Project {
                           source_node_name,
                           source_node_public_url,
                           source_node_status,
-                          remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
-                          default_validation_steps"#,
+                          remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>""#,
             project_id,
             data.name,
             data.git_repo_path,
@@ -400,8 +390,7 @@ impl Project {
                          source_node_name,
                          source_node_public_url,
                          source_node_status,
-                         remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
-                         default_validation_steps"#,
+                         remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>""#,
             id,
             name,
             git_repo_path,
@@ -497,8 +486,7 @@ impl Project {
                       source_node_name,
                       source_node_public_url,
                       source_node_status,
-                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
-                      default_validation_steps
+                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>"
                FROM projects
                WHERE is_remote = 1
                ORDER BY name"#
@@ -527,8 +515,7 @@ impl Project {
                       source_node_name,
                       source_node_public_url,
                       source_node_status,
-                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
-                      default_validation_steps
+                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>"
                FROM projects
                WHERE is_remote = 0
                ORDER BY created_at DESC"#
@@ -592,8 +579,7 @@ impl Project {
                           source_node_name,
                           source_node_public_url,
                           source_node_status,
-                          remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
-                          default_validation_steps"#,
+                          remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>""#,
             local_id,
             name,
             git_repo_path,
@@ -702,7 +688,6 @@ impl Project {
                 p.source_node_public_url,
                 p.source_node_status,
                 p.remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
-                p.default_validation_steps,
                 MAX(ta.updated_at) as "last_attempt_at: DateTime<Utc>"
             FROM projects p
             LEFT JOIN tasks t ON t.project_id = p.id
@@ -736,7 +721,6 @@ impl Project {
                     source_node_public_url: row.source_node_public_url,
                     source_node_status: row.source_node_status,
                     remote_last_synced_at: row.remote_last_synced_at,
-                    default_validation_steps: row.default_validation_steps,
                 };
                 (project, row.last_attempt_at)
             })
