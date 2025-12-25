@@ -730,9 +730,8 @@ pub trait ContainerService {
                 .as_ref()
                 .ok_or_else(|| ContainerError::Other(anyhow!("Container ref not found")))?,
         );
-        // Use enhanced prompt to include validation steps (Anthropic Harness pattern)
         let prompt =
-            ImageService::canonicalise_image_paths(&task.to_enhanced_prompt(), &worktree_path);
+            ImageService::canonicalise_image_paths(&task.to_prompt(), &worktree_path);
 
         // Expand task variables ($VAR and ${VAR} syntax) in the prompt
         let prompt = {

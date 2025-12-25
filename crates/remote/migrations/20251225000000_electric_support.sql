@@ -20,9 +20,14 @@ END $$;
 -- Grant schema usage permission
 GRANT USAGE ON SCHEMA public TO electric_sync;
 
--- Create publication for Electric
+-- Create publication for Electric (if not already created by init-db)
 -- Electric uses PostgreSQL logical replication to capture changes
-CREATE PUBLICATION electric_publication_default;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_publication WHERE pubname = 'electric_publication_default') THEN
+        CREATE PUBLICATION electric_publication_default;
+    END IF;
+END $$;
 
 -- Helper function to enable a table for Electric sync
 -- This function:
