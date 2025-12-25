@@ -421,8 +421,6 @@ export type AssignSharedTaskRequest = { new_assignee_user_id: string | null, ver
 
 export type AssignSharedTaskResponse = { shared_task: SharedTask, };
 
-export type ShareTaskResponse = { shared_task_id: string, };
-
 export type CreateAndStartTaskRequest = { task: CreateTask, executor_profile_id: ExecutorProfileId, base_branch: string, };
 
 export type ArchiveTaskRequest = { 
@@ -997,3 +995,9 @@ export type WorktreePathResponse = {
  * Absolute path to the worktree directory
  */
 path: string, };
+
+export type DirtyFilesResponse = { files: Array<string>, };
+
+export type StashChangesRequest = { message: string | null, };
+
+export type StashChangesResponse = { stash_ref: string, };
