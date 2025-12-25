@@ -28,10 +28,6 @@ export {
   type ProjectEditorSelectionDialogProps,
 } from './projects/ProjectEditorSelectionDialog';
 export {
-  LinkProjectDialog,
-  type LinkProjectResult,
-} from './projects/LinkProjectDialog';
-export {
   GitHubSettingsDialog,
   type GitHubSettingsDialogProps,
   type GitHubSettingsResult,

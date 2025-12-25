@@ -14,6 +14,11 @@ interface UseProjectMutationsOptions {
   onUpdateError?: (err: unknown) => void;
   onLinkLocalFolderSuccess?: (project: Project) => void;
   onLinkLocalFolderError?: (err: unknown) => void;
+  // Legacy link/unlink options (deprecated - API not implemented)
+  onLinkSuccess?: () => void;
+  onLinkError?: (err: unknown) => void;
+  onUnlinkSuccess?: () => void;
+  onUnlinkError?: (err: unknown) => void;
 }
 
 export function useProjectMutations(options?: UseProjectMutationsOptions) {
@@ -93,9 +98,43 @@ export function useProjectMutations(options?: UseProjectMutationsOptions) {
     },
   });
 
+  // Stub mutations for link/unlink (API not yet implemented)
+  // These are referenced by OrganizationSettings but don't work
+  const linkToExisting = useMutation({
+    mutationKey: ['linkToExisting'],
+    mutationFn: async (data: {
+      localProjectId: string;
+      data: { remote_project_id: string };
+    }) => {
+      console.warn(
+        'Link to existing API not implemented',
+        data.localProjectId
+      );
+      throw new Error('Link to existing API not implemented');
+    },
+    onError: (err) => {
+      console.error('Link to existing not implemented:', err);
+      options?.onLinkError?.(err);
+    },
+  });
+
+  const unlinkProject = useMutation({
+    mutationKey: ['unlinkProject'],
+    mutationFn: async (projectId: string) => {
+      console.warn('Unlink project API not implemented', projectId);
+      throw new Error('Unlink project API not implemented');
+    },
+    onError: (err) => {
+      console.error('Unlink project not implemented:', err);
+      options?.onUnlinkError?.(err);
+    },
+  });
+
   return {
     createProject,
     updateProject,
     linkLocalFolder,
+    linkToExisting,
+    unlinkProject,
   };
 }
