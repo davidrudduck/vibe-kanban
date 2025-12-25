@@ -42,9 +42,6 @@ pub struct Task {
     pub remote_last_synced_at: Option<DateTime<Utc>>,
     pub remote_stream_node_id: Option<Uuid>,
     pub remote_stream_url: Option<String>,
-    // Validation steps for enhanced prompt (Anthropic Harness pattern)
-    /// JSON array of validation step strings, e.g. ["Run tests", "Check E2E in browser"]
-    pub validation_steps: Option<String>,
     /// Timestamp when task was archived. NULL means not archived.
     #[ts(type = "Date | null")]
     pub archived_at: Option<DateTime<Utc>>,
@@ -94,7 +91,6 @@ pub struct CreateTask {
     pub parent_task_id: Option<Uuid>,
     pub image_ids: Option<Vec<Uuid>>,
     pub shared_task_id: Option<Uuid>,
-    pub validation_steps: Option<String>,
 }
 
 impl CreateTask {
@@ -111,7 +107,6 @@ impl CreateTask {
             parent_task_id: None,
             image_ids: None,
             shared_task_id: None,
-            validation_steps: None,
         }
     }
 
@@ -130,7 +125,6 @@ impl CreateTask {
             parent_task_id: None,
             image_ids: None,
             shared_task_id: Some(shared_task_id),
-            validation_steps: None,
         }
     }
 }
@@ -152,7 +146,6 @@ pub struct UpdateTask {
     pub status: Option<TaskStatus>,
     pub parent_task_id: Option<Uuid>,
     pub image_ids: Option<Vec<Uuid>>,
-    pub validation_steps: Option<String>,
 }
 
 impl Task {
@@ -161,65 +154,6 @@ impl Task {
             format!("{}\n\n{}", &self.title, description)
         } else {
             self.title.clone()
-        }
-    }
-
-    /// Generate an enhanced prompt that includes validation steps.
-    /// This follows the Anthropic Harness pattern for quality-focused agent work.
-    ///
-    /// Format:
-    /// ```text
-    /// <task_title>
-    ///
-    /// <task_description>
-    ///
-    /// === VALIDATION REQUIREMENTS ===
-    /// Before marking this task complete, verify:
-    /// 1. <step 1>
-    /// 2. <step 2>
-    /// ...
-    /// ```
-    pub fn to_enhanced_prompt(&self) -> String {
-        let base_prompt = self.to_prompt();
-
-        // Parse validation_steps JSON (array of strings)
-        let steps: Vec<String> = self
-            .validation_steps
-            .as_ref()
-            .and_then(|json| serde_json::from_str(json).ok())
-            .unwrap_or_default();
-
-        if steps.is_empty() {
-            return base_prompt;
-        }
-
-        let numbered_steps: String = steps
-            .iter()
-            .enumerate()
-            .map(|(i, step)| format!("{}. {}", i + 1, step))
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        format!(
-            "{}\n\n=== VALIDATION REQUIREMENTS ===\nBefore marking this task complete, verify:\n{}",
-            base_prompt, numbered_steps
-        )
-    }
-
-    /// Get the validation steps as a Vec<String>
-    pub fn get_validation_steps(&self) -> Vec<String> {
-        self.validation_steps
-            .as_ref()
-            .and_then(|json| serde_json::from_str(json).ok())
-            .unwrap_or_default()
-    }
-
-    /// Set validation steps from a Vec<String>, serializing to JSON
-    pub fn validation_steps_to_json(steps: &[String]) -> Option<String> {
-        if steps.is_empty() {
-            None
-        } else {
-            serde_json::to_string(steps).ok()
         }
     }
 
@@ -251,7 +185,6 @@ impl Task {
   t.remote_last_synced_at         AS "remote_last_synced_at: DateTime<Utc>",
   t.remote_stream_node_id         AS "remote_stream_node_id: Uuid",
   t.remote_stream_url,
-  t.validation_steps,
   t.archived_at                   AS "archived_at: DateTime<Utc>",
   t.activity_at                   AS "activity_at: DateTime<Utc>",
 
@@ -316,7 +249,6 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                     remote_last_synced_at: rec.remote_last_synced_at,
                     remote_stream_node_id: rec.remote_stream_node_id,
                     remote_stream_url: rec.remote_stream_url,
-                    validation_steps: rec.validation_steps,
                     archived_at: rec.archived_at,
                     activity_at: rec.activity_at,
                 },
@@ -342,7 +274,6 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                       remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                       remote_stream_node_id as "remote_stream_node_id: Uuid",
                       remote_stream_url,
-                      validation_steps,
                       archived_at as "archived_at: DateTime<Utc>",
                       activity_at as "activity_at: DateTime<Utc>"
                FROM tasks
@@ -365,7 +296,6 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                       remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                       remote_stream_node_id as "remote_stream_node_id: Uuid",
                       remote_stream_url,
-                      validation_steps,
                       archived_at as "archived_at: DateTime<Utc>",
                       activity_at as "activity_at: DateTime<Utc>"
                FROM tasks
@@ -392,7 +322,6 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                       remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                       remote_stream_node_id as "remote_stream_node_id: Uuid",
                       remote_stream_url,
-                      validation_steps,
                       archived_at as "archived_at: DateTime<Utc>",
                       activity_at as "activity_at: DateTime<Utc>"
                FROM tasks
@@ -422,7 +351,6 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                       remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                       remote_stream_node_id as "remote_stream_node_id: Uuid",
                       remote_stream_url,
-                      validation_steps,
                       archived_at as "archived_at: DateTime<Utc>",
                       activity_at as "activity_at: DateTime<Utc>"
                FROM tasks
@@ -442,8 +370,8 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
         let status = data.status.clone().unwrap_or_default();
         sqlx::query_as!(
             Task,
-            r#"INSERT INTO tasks (id, project_id, title, description, status, parent_task_id, shared_task_id, validation_steps)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            r#"INSERT INTO tasks (id, project_id, title, description, status, parent_task_id, shared_task_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)
                RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", shared_task_id as "shared_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
                          is_remote as "is_remote!: bool",
                          remote_assignee_user_id as "remote_assignee_user_id: Uuid",
@@ -453,7 +381,6 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                          remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                          remote_stream_node_id as "remote_stream_node_id: Uuid",
                          remote_stream_url,
-                         validation_steps,
                          archived_at as "archived_at: DateTime<Utc>",
                          activity_at as "activity_at: DateTime<Utc>""#,
             task_id,
@@ -462,14 +389,12 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
             data.description,
             status,
             data.parent_task_id,
-            data.shared_task_id,
-            data.validation_steps
+            data.shared_task_id
         )
         .fetch_one(pool)
         .await
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn update(
         pool: &SqlitePool,
         id: Uuid,
@@ -478,12 +403,11 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
         description: Option<String>,
         status: TaskStatus,
         parent_task_id: Option<Uuid>,
-        validation_steps: Option<String>,
     ) -> Result<Self, sqlx::Error> {
         sqlx::query_as!(
             Task,
             r#"UPDATE tasks
-               SET title = $3, description = $4, status = $5, parent_task_id = $6, validation_steps = $7
+               SET title = $3, description = $4, status = $5, parent_task_id = $6
                WHERE id = $1 AND project_id = $2
                RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", shared_task_id as "shared_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
                          is_remote as "is_remote!: bool",
@@ -494,7 +418,6 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                          remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                          remote_stream_node_id as "remote_stream_node_id: Uuid",
                          remote_stream_url,
-                         validation_steps,
                          archived_at as "archived_at: DateTime<Utc>",
                          activity_at as "activity_at: DateTime<Utc>""#,
             id,
@@ -502,8 +425,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
             title,
             description,
             status,
-            parent_task_id,
-            validation_steps
+            parent_task_id
         )
         .fetch_one(pool)
         .await
@@ -683,7 +605,6 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                       remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                       remote_stream_node_id as "remote_stream_node_id: Uuid",
                       remote_stream_url,
-                      validation_steps,
                       archived_at as "archived_at: DateTime<Utc>",
                       activity_at as "activity_at: DateTime<Utc>"
                FROM tasks
@@ -737,7 +658,6 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                       remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                       remote_stream_node_id as "remote_stream_node_id: Uuid",
                       remote_stream_url,
-                      validation_steps,
                       archived_at as "archived_at: DateTime<Utc>",
                       activity_at as "activity_at: DateTime<Utc>"
                FROM tasks
@@ -809,7 +729,6 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                           remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                           remote_stream_node_id as "remote_stream_node_id: Uuid",
                           remote_stream_url,
-                          validation_steps,
                           archived_at as "archived_at: DateTime<Utc>",
                           activity_at as "activity_at: DateTime<Utc>""#,
             local_id,
@@ -846,7 +765,6 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                          remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                          remote_stream_node_id as "remote_stream_node_id: Uuid",
                          remote_stream_url,
-                         validation_steps,
                          archived_at as "archived_at: DateTime<Utc>",
                          activity_at as "activity_at: DateTime<Utc>""#,
             id
@@ -872,7 +790,6 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                          remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
                          remote_stream_node_id as "remote_stream_node_id: Uuid",
                          remote_stream_url,
-                         validation_steps,
                          archived_at as "archived_at: DateTime<Utc>",
                          activity_at as "activity_at: DateTime<Utc>""#,
             id
