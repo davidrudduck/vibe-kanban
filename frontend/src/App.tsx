@@ -22,6 +22,7 @@ import {
 } from '@/pages/settings/';
 import { UserSystemProvider, useUserSystem } from '@/components/ConfigProvider';
 import { ThemeProvider } from '@/components/ThemeProvider';
+import { FontProvider } from '@/components/FontProvider';
 import { SearchProvider } from '@/contexts/SearchContext';
 
 import { HotkeysProvider } from 'react-hotkeys-hook';
@@ -98,55 +99,57 @@ function AppContent() {
   return (
     <I18nextProvider i18n={i18n}>
       <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>
-        <SearchProvider>
-          <div className="h-screen flex flex-col bg-background">
-            <Routes>
-              {/* VS Code full-page logs route (outside NormalLayout for minimal UI) */}
-              <Route
-                path="/projects/:projectId/tasks/:taskId/attempts/:attemptId/full"
-                element={<FullAttemptLogsPage />}
-              />
+        <FontProvider initialFonts={config?.fonts}>
+          <SearchProvider>
+            <div className="h-screen flex flex-col bg-background">
+              <Routes>
+                {/* VS Code full-page logs route (outside NormalLayout for minimal UI) */}
+                <Route
+                  path="/projects/:projectId/tasks/:taskId/attempts/:attemptId/full"
+                  element={<FullAttemptLogsPage />}
+                />
 
-              <Route element={<NormalLayout />}>
-                <Route path="/" element={<Projects />} />
-                <Route path="/projects" element={<Projects />} />
-                <Route path="/projects/:projectId" element={<Projects />} />
-                <Route path="/nodes" element={<Nodes />} />
-                <Route path="/nodes/:nodeId" element={<Nodes />} />
-                <Route path="/processes" element={<Processes />} />
-                <Route path="/tasks/all" element={<AllProjectsTasks />} />
-                <Route
-                  path="/projects/:projectId/tasks"
-                  element={<ProjectTasks />}
-                />
-                <Route path="/settings/*" element={<SettingsLayout />}>
-                  <Route index element={<Navigate to="general" replace />} />
-                  <Route path="general" element={<GeneralSettings />} />
-                  <Route path="projects" element={<ProjectSettings />} />
+                <Route element={<NormalLayout />}>
+                  <Route path="/" element={<Projects />} />
+                  <Route path="/projects" element={<Projects />} />
+                  <Route path="/projects/:projectId" element={<Projects />} />
+                  <Route path="/nodes" element={<Nodes />} />
+                  <Route path="/nodes/:nodeId" element={<Nodes />} />
+                  <Route path="/processes" element={<Processes />} />
+                  <Route path="/tasks/all" element={<AllProjectsTasks />} />
                   <Route
-                    path="organizations"
-                    element={<OrganizationSettings />}
+                    path="/projects/:projectId/tasks"
+                    element={<ProjectTasks />}
                   />
-                  <Route path="agents" element={<AgentSettings />} />
-                  <Route path="mcp" element={<McpSettings />} />
-                  <Route path="backups" element={<BackupSettings />} />
+                  <Route path="/settings/*" element={<SettingsLayout />}>
+                    <Route index element={<Navigate to="general" replace />} />
+                    <Route path="general" element={<GeneralSettings />} />
+                    <Route path="projects" element={<ProjectSettings />} />
+                    <Route
+                      path="organizations"
+                      element={<OrganizationSettings />}
+                    />
+                    <Route path="agents" element={<AgentSettings />} />
+                    <Route path="mcp" element={<McpSettings />} />
+                    <Route path="backups" element={<BackupSettings />} />
+                  </Route>
+                  <Route
+                    path="/mcp-servers"
+                    element={<Navigate to="/settings/mcp" replace />}
+                  />
+                  <Route
+                    path="/projects/:projectId/tasks/:taskId"
+                    element={<ProjectTasks />}
+                  />
+                  <Route
+                    path="/projects/:projectId/tasks/:taskId/attempts/:attemptId"
+                    element={<ProjectTasks />}
+                  />
                 </Route>
-                <Route
-                  path="/mcp-servers"
-                  element={<Navigate to="/settings/mcp" replace />}
-                />
-                <Route
-                  path="/projects/:projectId/tasks/:taskId"
-                  element={<ProjectTasks />}
-                />
-                <Route
-                  path="/projects/:projectId/tasks/:taskId/attempts/:attemptId"
-                  element={<ProjectTasks />}
-                />
-              </Route>
-            </Routes>
-          </div>
-        </SearchProvider>
+              </Routes>
+            </div>
+          </SearchProvider>
+        </FontProvider>
       </ThemeProvider>
     </I18nextProvider>
   );
