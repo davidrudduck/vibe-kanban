@@ -1,8 +1,13 @@
+[[bin]]
+name = "vks-hive-server"
+path = "src/main.rs"
+
 [package]
 name = "remote"
 version = "0.0.125"
 edition = "2024"
 publish = false
+default-run = "vks-hive-server"
 
 [dependencies]
 anyhow = { workspace = true }

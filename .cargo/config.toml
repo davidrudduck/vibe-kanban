@@ -31,3 +31,17 @@ rustflags = ["-C", "link-arg=/DEBUG:FASTLINK"]
 
 [target.aarch64-pc-windows-msvc]
 rustflags = ["-C", "link-arg=/DEBUG:FASTLINK"]
+
+# Linux targets - Optional mold linker for faster linking
+# To enable mold linker (2-3x faster linking):
+# 1. Install mold: sudo apt install mold clang (Debian/Ubuntu)
+#                  or: sudo dnf install mold clang (Fedora)
+# 2. Uncomment the sections below
+#
+# [target.x86_64-unknown-linux-gnu]
+# linker = "clang"
+# rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+#
+# [target.aarch64-unknown-linux-gnu]
+# linker = "clang"
+# rustflags = ["-C", "link-arg=-fuse-ld=mold"]
