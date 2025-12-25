@@ -17,6 +17,7 @@ pub mod git;
 pub mod github;
 pub mod hive_client;
 pub mod image;
+pub mod log_migration;
 pub mod node_cache;
 pub mod node_proxy_client;
 pub mod node_runner;
