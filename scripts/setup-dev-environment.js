@@ -292,6 +292,19 @@ if (require.main === module) {
       console.log(process.env.HOST || "127.0.0.1");
       break;
 
+    case "env":
+      // Output env vars for backend dev server, respecting .env first
+      // loadEnvFile() already called at top of script
+      // Default DISABLE_WORKTREE_ORPHAN_CLEANUP to "1" (disabled) for dev if not set
+      {
+        const disableCleanup = process.env.DISABLE_WORKTREE_ORPHAN_CLEANUP ?? "1";
+        const rustLog = process.env.RUST_LOG ?? "debug";
+        // Output in format suitable for shell eval
+        console.log(`export DISABLE_WORKTREE_ORPHAN_CLEANUP=${disableCleanup}`);
+        console.log(`export RUST_LOG=${rustLog}`);
+      }
+      break;
+
     default:
       console.log("Usage:");
       console.log(
@@ -305,6 +318,9 @@ if (require.main === module) {
       );
       console.log(
         "  node setup-dev-environment.js host     - Get host binding (from .env or default)"
+      );
+      console.log(
+        "  node setup-dev-environment.js env      - Get backend env vars (for shell eval)"
       );
       console.log(
         "  node setup-dev-environment.js clear    - Clear saved ports"
