@@ -2,6 +2,10 @@
 name = "vks-node-server"
 path = "src/main.rs"
 
+[[bin]]
+name = "vks-mcp-server"
+path = "src/bin/mcp_task_server.rs"
+
 [package]
 name = "server"
 version = "0.0.125"
