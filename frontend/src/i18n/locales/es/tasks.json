@@ -26,7 +26,12 @@
     "task": "Tarea",
     "viewProcesses": "Ver procesos",
     "viewRelatedTasks": "Ver tareas relacionadas",
-    "remoteTaskCannotExecute": "Las tareas remotas se ejecutan en su nodo de origen"
+    "remoteTaskCannotExecute": "Las tareas remotas se ejecutan en su nodo de origen",
+    "moveToInProgress": "Mover a En Progreso",
+    "moveToInReview": "Mover a En Revisión",
+    "moveToDone": "Mover a Completada",
+    "cancelTask": "Cancelar Tarea",
+    "moveToTodo": "Mover a Por Hacer"
   },
   "archiveDialog": {
     "title": "Archivar Tarea",

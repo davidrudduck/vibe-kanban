@@ -92,6 +92,16 @@ impl Server {
             auth_config.jwt_secret().clone(),
         ));
 
+        // Create HTTP client for proxying requests (e.g., to Electric)
+        let http_client = reqwest::Client::builder()
+            .user_agent(concat!(
+                env!("CARGO_PKG_NAME"),
+                "/",
+                env!("CARGO_PKG_VERSION")
+            ))
+            .build()
+            .context("failed to create HTTP client")?;
+
         let state = AppState::new(
             pool.clone(),
             broker.clone(),
@@ -103,6 +113,7 @@ impl Server {
             server_public_base_url,
             node_connections,
             connection_token,
+            http_client,
         );
 
         let listener =
