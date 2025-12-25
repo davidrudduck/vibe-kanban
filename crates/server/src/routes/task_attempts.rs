@@ -1773,7 +1773,10 @@ pub async fn get_dirty_files(
             "Proxying get_dirty_files to remote node"
         );
 
-        let path = format!("/task-attempts/by-task-id/{}/stash/dirty-files", shared_task_id);
+        let path = format!(
+            "/task-attempts/by-task-id/{}/stash/dirty-files",
+            shared_task_id
+        );
         let response: ApiResponse<DirtyFilesResponse> = deployment
             .node_proxy_client()
             .proxy_get(&node_url, &path, node_id)

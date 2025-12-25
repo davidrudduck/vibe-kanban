@@ -491,4 +491,45 @@ impl TaskAttempt {
 
         Ok(result.exists)
     }
+
+    /// Find active task attempts that don't have a PR merge record.
+    /// "Active" means the parent task is NOT in done/cancelled status.
+    /// Returns tuples of (attempt_id, branch, github_owner, github_repo).
+    ///
+    /// This is used by the PR monitor to discover PRs that were created by
+    /// agents but not yet tracked in our database.
+    pub async fn find_active_without_pr(
+        pool: &SqlitePool,
+    ) -> Result<Vec<(Uuid, String, String, String)>, sqlx::Error> {
+        let records = sqlx::query!(
+            r#"
+            SELECT
+                ta.id as "attempt_id!: Uuid",
+                ta.branch as "branch!",
+                p.github_owner as "github_owner!",
+                p.github_repo as "github_repo!"
+            FROM task_attempts ta
+            JOIN tasks t ON ta.task_id = t.id
+            JOIN projects p ON t.project_id = p.id
+            LEFT JOIN merges m ON ta.id = m.task_attempt_id AND m.merge_type = 'pr'
+            WHERE
+                -- Only for tasks not in terminal states
+                t.status NOT IN ('done', 'cancelled')
+                -- Only for projects with GitHub enabled
+                AND p.github_enabled = TRUE
+                AND p.github_owner IS NOT NULL
+                AND p.github_repo IS NOT NULL
+                -- Only for attempts that don't have a PR merge record
+                AND m.id IS NULL
+            ORDER BY ta.created_at DESC
+            "#
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(records
+            .into_iter()
+            .map(|r| (r.attempt_id, r.branch, r.github_owner, r.github_repo))
+            .collect())
+    }
 }
