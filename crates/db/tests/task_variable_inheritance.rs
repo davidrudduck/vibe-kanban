@@ -49,6 +49,7 @@ async fn create_test_project(pool: &SqlitePool) -> Project {
         name: "Test Project".to_string(),
         git_repo_path: "/tmp/test-repo".to_string(),
         use_existing_repo: true,
+        clone_url: None,
         setup_script: None,
         dev_script: None,
         cleanup_script: None,

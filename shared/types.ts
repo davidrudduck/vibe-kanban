@@ -40,7 +40,11 @@ parallel_setup_script: boolean, remote_project_id: string | null, created_at: Da
  */
 default_validation_steps: string | null, };
 
-export type CreateProject = { name: string, git_repo_path: string, use_existing_repo: boolean, setup_script: string | null, dev_script: string | null, cleanup_script: string | null, copy_files: string | null, };
+export type CreateProject = { name: string, git_repo_path: string, use_existing_repo: boolean, 
+/**
+ * URL to clone repository from (mutually exclusive with use_existing_repo=true)
+ */
+clone_url: string | null, setup_script: string | null, dev_script: string | null, cleanup_script: string | null, copy_files: string | null, };
 
 export type UpdateProject = { name: string | null, git_repo_path: string | null, setup_script: string | null, dev_script: string | null, cleanup_script: string | null, copy_files: string | null, parallel_setup_script: boolean | null, };
 

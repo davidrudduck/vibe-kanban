@@ -42,6 +42,10 @@ pub enum GitServiceError {
     NothingToStash,
     #[error("Stash is empty: no stashed changes to pop")]
     StashEmpty,
+    #[error("Clone failed: {0}")]
+    CloneFailed(String),
+    #[error("Destination not empty: {0}")]
+    DestinationNotEmpty(String),
 }
 /// Service for managing Git operations in task execution workflows
 #[derive(Clone)]
@@ -1913,5 +1917,48 @@ impl GitService {
         let git = GitCli::new();
         git.get_dirty_files(worktree_path)
             .map_err(|e| GitServiceError::InvalidRepository(format!("git status failed: {e}")))
+    }
+
+    /// Clone a repository from a URL to a destination path.
+    ///
+    /// This function uses the Git CLI with native authentication (SSH agent,
+    /// credential helpers, etc.) for reliable cross-platform support.
+    ///
+    /// # Arguments
+    /// * `clone_url` - The repository URL (https://, git@, file://, etc.)
+    /// * `dest_path` - The target directory to clone into
+    ///
+    /// # Errors
+    /// * `DestinationNotEmpty` - If the destination directory exists and is not empty
+    /// * `CloneFailed` - If the git clone command fails
+    pub fn clone_repo(&self, clone_url: &str, dest_path: &Path) -> Result<(), GitServiceError> {
+        // Check if destination exists and is not empty
+        if dest_path.exists() {
+            // Check if directory is non-empty
+            let is_empty = std::fs::read_dir(dest_path)
+                .map(|mut dir| dir.next().is_none())
+                .unwrap_or(false);
+
+            if !is_empty {
+                return Err(GitServiceError::DestinationNotEmpty(
+                    dest_path.display().to_string(),
+                ));
+            }
+        }
+
+        // Perform the clone using Git CLI
+        let git = GitCli::new();
+        git.clone(clone_url, dest_path).map_err(|e| {
+            // Map CLI errors to CloneFailed with descriptive message
+            GitServiceError::CloneFailed(e.to_string())
+        })?;
+
+        tracing::info!(
+            clone_url = %clone_url,
+            dest_path = %dest_path.display(),
+            "Repository cloned successfully"
+        );
+
+        Ok(())
     }
 }

@@ -595,6 +595,7 @@ pub async fn link_to_local_folder(
         name: project_name.clone(),
         git_repo_path: path.to_string_lossy().to_string(),
         use_existing_repo: true,
+        clone_url: None,
         setup_script: None,
         dev_script: None,
         cleanup_script: None,
@@ -803,6 +804,7 @@ pub async fn create_project(
         cleanup_script,
         copy_files,
         use_existing_repo,
+        clone_url,
     } = payload;
     tracing::debug!("Creating project '{}'", name);
 
@@ -825,7 +827,25 @@ pub async fn create_project(
         }
     }
 
-    if use_existing_repo {
+    // Handle repository setup based on mode
+    if let Some(url) = clone_url.as_ref() {
+        // Clone from URL mode
+        if use_existing_repo {
+            return Ok(ResponseJson(ApiResponse::error(
+                "Cannot use both clone_url and use_existing_repo",
+            )));
+        }
+
+        tracing::info!(clone_url = %url, dest = %path.display(), "Cloning repository");
+
+        if let Err(e) = deployment.git().clone_repo(url, &path) {
+            tracing::error!("Failed to clone repository: {}", e);
+            return Ok(ResponseJson(ApiResponse::error(&format!(
+                "Failed to clone repository: {}",
+                e
+            ))));
+        }
+    } else if use_existing_repo {
         // For existing repos, validate that the path exists and is a git repository
         if !path.exists() {
             return Ok(ResponseJson(ApiResponse::error(
@@ -885,6 +905,7 @@ pub async fn create_project(
             name,
             git_repo_path: path.to_string_lossy().to_string(),
             use_existing_repo,
+            clone_url,
             setup_script,
             dev_script,
             cleanup_script,

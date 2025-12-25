@@ -361,6 +361,7 @@ mod tests {
             name: "Test Project".to_string(),
             git_repo_path: format!("/tmp/test-repo-{}", project_id),
             use_existing_repo: true,
+            clone_url: None,
             setup_script: None,
             dev_script: None,
             cleanup_script: None,

@@ -152,6 +152,7 @@ pub trait Deployment: Clone + Send + Sync + 'static {
                         name: project_name,
                         git_repo_path: repo.path.to_string_lossy().to_string(),
                         use_existing_repo: true,
+                        clone_url: None,
                         setup_script: None,
                         dev_script: None,
                         cleanup_script: None,
