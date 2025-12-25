@@ -203,18 +203,18 @@ pub fn spawn_mcp_http_server(backend_port: u16, host: &str) -> Option<Child> {
     let backend_url = format!("http://{}:{}", host, backend_port);
     let mcp_url = format!("http://{}:{}/mcp", host, mcp_port);
 
-    // Find the mcp_task_server binary - check debug and release paths
+    // Find the vks-mcp-server binary - check debug and release paths
     let binary_path = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(|p| p.to_path_buf()))
-        .map(|dir| dir.join("mcp_task_server"))
+        .map(|dir| dir.join("vks-mcp-server"))
         .filter(|path| path.exists());
 
     let binary_path = match binary_path {
         Some(path) => path,
         None => {
             tracing::warn!(
-                "[MCP] mcp_task_server binary not found. Build with: cargo build --bin mcp_task_server"
+                "[MCP] vks-mcp-server binary not found. Build with: cargo build --bin vks-mcp-server"
             );
             return None;
         }
