@@ -47,7 +47,6 @@ export {
   DeleteTaskConfirmationDialog,
   type DeleteTaskConfirmationDialogProps,
 } from './tasks/DeleteTaskConfirmationDialog';
-export { ShareDialog, type ShareDialogProps } from './tasks/ShareDialog';
 export {
   TemplateEditDialog,
   type TemplateEditDialogProps,
@@ -84,10 +83,6 @@ export {
   ReassignDialog,
   type ReassignDialogProps,
 } from './tasks/ReassignDialog';
-export {
-  StopShareTaskDialog,
-  type StopShareTaskDialogProps,
-} from './tasks/StopShareTaskDialog';
 export {
   EditBranchNameDialog,
   type EditBranchNameDialogResult,

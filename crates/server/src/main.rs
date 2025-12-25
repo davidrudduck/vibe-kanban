@@ -1,4 +1,5 @@
 use anyhow::{self, Error as AnyhowError};
+use db::models::task::Task;
 use deployment::{Deployment, DeploymentError};
 use server::{DeploymentImpl, routes};
 use services::services::container::ContainerService;
@@ -53,6 +54,17 @@ async fn main() -> Result<(), VibeKanbanError> {
         .await
         .map_err(DeploymentError::from)?;
     deployment.spawn_pr_monitor_service().await;
+
+    // Clean up orphaned shared task IDs (tasks shared to Hive but project no longer linked)
+    match Task::clear_orphaned_shared_task_ids(&deployment.db().pool).await {
+        Ok(count) if count > 0 => {
+            tracing::info!("Cleared {} orphaned shared_task_id(s) from tasks", count);
+        }
+        Ok(_) => {}
+        Err(e) => {
+            tracing::warn!("Failed to clear orphaned shared_task_ids: {}", e);
+        }
+    }
 
     // Pre-warm file search cache for most active projects
     let deployment_for_cache = deployment.clone();

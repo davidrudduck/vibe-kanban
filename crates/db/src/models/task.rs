@@ -971,4 +971,28 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
             .await?;
         Ok(())
     }
+
+    /// Clear shared_task_id for orphaned tasks.
+    ///
+    /// An orphaned task is one that has a shared_task_id but belongs to a project
+    /// that is not linked to the Hive (remote_project_id IS NULL).
+    /// This can happen if a project was previously linked but then unlinked.
+    ///
+    /// Returns the number of tasks that had their shared_task_id cleared.
+    pub async fn clear_orphaned_shared_task_ids(
+        pool: &SqlitePool,
+    ) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query(
+            r#"UPDATE tasks
+               SET shared_task_id = NULL, updated_at = CURRENT_TIMESTAMP
+               WHERE shared_task_id IS NOT NULL
+               AND project_id IN (
+                   SELECT id FROM projects WHERE remote_project_id IS NULL AND is_remote = 0
+               )"#,
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
 }
