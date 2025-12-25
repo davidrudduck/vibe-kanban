@@ -1,3 +1,37 @@
+//! Task sharing service for syncing tasks between nodes and hive (legacy implementation).
+//!
+//! # DEPRECATION NOTICE
+//!
+//! This module is deprecated and will be removed in a future release. It is being
+//! replaced by ElectricSQL-based real-time sync which provides:
+//!
+//! - Real-time updates via PostgreSQL logical replication
+//! - Reduced network overhead with incremental shape updates
+//! - Simpler architecture (no WebSocket activity streams needed for sync)
+//!
+//! ## Migration Path
+//!
+//! **Backend (Node Runner):**
+//! - Use [`super::electric_task_sync::ElectricTaskSyncService`] for task synchronization
+//! - The Electric service fetches tasks via HTTP Shape API from the hive's Electric proxy
+//!
+//! **Frontend:**
+//! - Use the `useElectricTasks` hook from `frontend/src/hooks/useElectricTasks.ts`
+//! - This connects to the Electric proxy at `/api/electric/v1/shape/shared_tasks`
+//!
+//! ## Current Status
+//!
+//! The legacy implementation remains active for backwards compatibility. During the
+//! transition period, both sync mechanisms can run in parallel:
+//! - This module: WebSocket-based activity stream processing
+//! - Electric: HTTP Shape API with incremental updates
+//!
+//! ## See Also
+//!
+//! - `crates/services/src/services/electric_task_sync.rs` - Electric-based task sync
+//! - `crates/remote/src/routes/electric_proxy.rs` - Electric proxy with auth
+//! - `frontend/src/hooks/useElectricTasks.ts` - React hook for Electric tasks
+
 mod config;
 mod processor;
 mod publisher;

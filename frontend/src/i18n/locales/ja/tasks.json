@@ -26,7 +26,12 @@
     "task": "タスク",
     "viewProcesses": "プロセスを表示",
     "viewRelatedTasks": "関連タスクを表示",
-    "remoteTaskCannotExecute": "リモートタスクは元のノードで実行されます"
+    "remoteTaskCannotExecute": "リモートタスクは元のノードで実行されます",
+    "moveToInProgress": "進行中に移動",
+    "moveToInReview": "レビュー中に移動",
+    "moveToDone": "完了に移動",
+    "cancelTask": "タスクをキャンセル",
+    "moveToTodo": "未着手に移動"
   },
   "archiveDialog": {
     "title": "タスクをアーカイブ",

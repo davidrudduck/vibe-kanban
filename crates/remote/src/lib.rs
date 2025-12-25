@@ -8,6 +8,7 @@ pub mod nodes;
 pub mod routes;
 pub mod services;
 mod state;
+pub mod validated_where;
 pub mod ws;
 
 use std::env;

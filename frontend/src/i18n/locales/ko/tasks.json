@@ -26,7 +26,12 @@
     "task": "작업",
     "viewProcesses": "프로세스 보기",
     "viewRelatedTasks": "관련 작업 보기",
-    "remoteTaskCannotExecute": "원격 작업은 원본 노드에서 실행됩니다"
+    "remoteTaskCannotExecute": "원격 작업은 원본 노드에서 실행됩니다",
+    "moveToInProgress": "진행 중으로 이동",
+    "moveToInReview": "검토 중으로 이동",
+    "moveToDone": "완료로 이동",
+    "cancelTask": "작업 취소",
+    "moveToTodo": "할 일로 이동"
   },
   "archiveDialog": {
     "title": "작업 아카이브",
