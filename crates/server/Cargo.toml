@@ -1,8 +1,12 @@
+[[bin]]
+name = "vks-node-server"
+path = "src/main.rs"
+
 [package]
 name = "server"
 version = "0.0.125"
 edition = "2024"
-default-run = "server"
+default-run = "vks-node-server"
 
 [lints.clippy]
 uninlined-format-args = "allow"
