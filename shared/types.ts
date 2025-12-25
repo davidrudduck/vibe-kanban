@@ -487,7 +487,7 @@ export type ClaudeCode = { append_prompt: AppendPrompt, no_context?: boolean | n
  * When disabled, questions fall back to text-based prompts.
  * Defaults to true.
  */
-interactive_questions?: boolean, base_command_override?: string | null, additional_params?: Array<string> | null, };
+interactive_questions: boolean, base_command_override?: string | null, additional_params?: Array<string> | null, };
 
 export type Gemini = { append_prompt: AppendPrompt, no_context?: boolean | null, model?: string | null, yolo?: boolean | null, base_command_override?: string | null, additional_params?: Array<string> | null, };
 

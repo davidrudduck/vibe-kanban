@@ -102,8 +102,30 @@ impl Approvals {
         let is_question = request.questions.is_some();
 
         if let Some(store) = self.msg_store_by_id(&request.execution_process_id).await {
-            // Find the matching tool use entry by name and input
-            let matching_tool = find_matching_tool_use(store.clone(), &request.tool_call_id);
+            // Retry with exponential backoff to handle async log processor timing
+            let matching_tool = {
+                let mut result = None;
+                let delays = [50, 100, 200, 400]; // Total: 750ms max wait
+                for (attempt, delay_ms) in delays.iter().enumerate() {
+                    result = find_matching_tool_use(store.clone(), &request.tool_call_id);
+                    if result.is_some() {
+                        tracing::debug!(
+                            "Found matching tool use entry on attempt {} for '{}'",
+                            attempt + 1,
+                            request.tool_call_id
+                        );
+                        break;
+                    }
+                    tracing::debug!(
+                        "Attempt {} failed, waiting {}ms for tool call '{}'",
+                        attempt + 1,
+                        delay_ms,
+                        request.tool_call_id
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(*delay_ms)).await;
+                }
+                result
+            };
 
             if let Some((idx, matching_tool)) = matching_tool {
                 // Use PendingQuestion status for AskUserQuestion, PendingApproval otherwise
