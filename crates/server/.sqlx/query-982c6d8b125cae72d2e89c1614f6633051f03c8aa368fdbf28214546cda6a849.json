@@ -1,0 +1,44 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                            id as \"id!\",\n                            execution_id as \"execution_id!: Uuid\",\n                            output_type,\n                            content,\n                            timestamp as \"timestamp!: DateTime<Utc>\"\n                           FROM log_entries\n                           WHERE execution_id = $1\n                           ORDER BY id ASC\n                           LIMIT $2",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "execution_id!: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "output_type",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "content",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "timestamp!: DateTime<Utc>",
+        "ordinal": 4,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "982c6d8b125cae72d2e89c1614f6633051f03c8aa368fdbf28214546cda6a849"
+}

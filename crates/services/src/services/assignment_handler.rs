@@ -78,7 +78,6 @@ impl<C: ContainerService + Sync> AssignmentHandler<C> {
                 parent_task_id: None,
                 image_ids: None,
                 shared_task_id: Some(assignment.task_id), // Link to the shared task
-                validation_steps: None,
             },
             task_id,
         )
