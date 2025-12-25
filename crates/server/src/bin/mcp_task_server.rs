@@ -1,8 +1,7 @@
-use rmcp::{ServiceExt, transport::stdio};
 use rmcp::transport::streamable_http_server::{
-    StreamableHttpServerConfig, StreamableHttpService,
-    session::local::LocalSessionManager,
+    StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
+use rmcp::{ServiceExt, transport::stdio};
 use server::mcp::task_server::TaskServer;
 use std::sync::Arc;
 use tracing_subscriber::{EnvFilter, prelude::*};
