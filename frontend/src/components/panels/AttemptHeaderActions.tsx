@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Eye, FileDiff, FolderTree, X } from 'lucide-react';
+import { Eye, FileDiff, FolderTree, Terminal, X } from 'lucide-react';
 import { Button } from '../ui/button';
 import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group';
 import {
@@ -11,7 +11,6 @@ import {
 import type { LayoutMode } from '../layout/TasksLayout';
 import type { TaskAttempt, TaskWithAttemptStatus } from 'shared/types';
 import { ActionsDropdown } from '../ui/actions-dropdown';
-import { usePostHog } from 'posthog-js/react';
 import { useIsOrgAdmin, useRemoteConnectionStatus } from '@/hooks';
 import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
 import { ConnectionStatusBadge } from '@/components/common/ConnectionStatusBadge';
@@ -23,6 +22,7 @@ interface AttemptHeaderActionsProps {
   task: TaskWithAttemptStatus;
   attempt?: TaskAttempt | null;
   sharedTask?: SharedTaskRecord;
+  isMobile?: boolean;
 }
 
 export const AttemptHeaderActions = ({
@@ -32,9 +32,9 @@ export const AttemptHeaderActions = ({
   task,
   attempt,
   sharedTask,
+  isMobile,
 }: AttemptHeaderActionsProps) => {
   const { t } = useTranslation('tasks');
-  const posthog = usePostHog();
   const isOrgAdmin = useIsOrgAdmin();
   const { status: connectionStatus } = useRemoteConnectionStatus(task, {
     enabled: Boolean(attempt),
@@ -52,43 +52,13 @@ export const AttemptHeaderActions = ({
           <div className="h-4 w-px bg-border" />
         </>
       )}
-      {typeof mode !== 'undefined' && onModeChange && (
+      {!isMobile && typeof mode !== 'undefined' && onModeChange && (
         <TooltipProvider>
           <ToggleGroup
             type="single"
             value={mode ?? ''}
             onValueChange={(v) => {
               const newMode = (v as LayoutMode) || null;
-
-              // Track view navigation
-              if (newMode === 'preview') {
-                posthog?.capture('preview_navigated', {
-                  trigger: 'button',
-                  timestamp: new Date().toISOString(),
-                  source: 'frontend',
-                });
-              } else if (newMode === 'diffs') {
-                posthog?.capture('diffs_navigated', {
-                  trigger: 'button',
-                  timestamp: new Date().toISOString(),
-                  source: 'frontend',
-                });
-              } else if (newMode === 'files') {
-                posthog?.capture('files_navigated', {
-                  trigger: 'button',
-                  timestamp: new Date().toISOString(),
-                  source: 'frontend',
-                });
-              } else if (newMode === null) {
-                // Closing the view (clicked active button)
-                posthog?.capture('view_closed', {
-                  trigger: 'button',
-                  from_view: mode ?? 'attempt',
-                  timestamp: new Date().toISOString(),
-                  source: 'frontend',
-                });
-              }
-
               onModeChange(newMode);
             }}
             className="inline-flex gap-4"
@@ -138,13 +108,33 @@ export const AttemptHeaderActions = ({
                 {t('attemptHeaderActions.files', { defaultValue: 'Files' })}
               </TooltipContent>
             </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <ToggleGroupItem
+                  value="terminal"
+                  aria-label="Terminal"
+                  active={mode === 'terminal'}
+                >
+                  <Terminal className="h-4 w-4" />
+                </ToggleGroupItem>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {t('attemptHeaderActions.terminal', { defaultValue: 'Terminal' })}
+              </TooltipContent>
+            </Tooltip>
           </ToggleGroup>
         </TooltipProvider>
       )}
-      {typeof mode !== 'undefined' && onModeChange && (
+      {!isMobile && typeof mode !== 'undefined' && onModeChange && (
         <div className="h-4 w-px bg-border" />
       )}
-      <ActionsDropdown task={task} attempt={attempt} sharedTask={sharedTask} isOrgAdmin={isOrgAdmin} />
+      <ActionsDropdown
+        task={task}
+        attempt={attempt}
+        sharedTask={sharedTask}
+        isOrgAdmin={isOrgAdmin}
+      />
       <Button variant="icon" aria-label="Close" onClick={onClose}>
         <X size={16} />
       </Button>

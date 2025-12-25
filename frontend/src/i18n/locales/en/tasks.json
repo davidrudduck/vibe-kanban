@@ -269,7 +269,9 @@
     "selectBranch": "Select branch",
     "error": "Failed to create attempt. Please try again.",
     "creating": "Creating...",
-    "start": "Start"
+    "start": "Start",
+    "useParentWorktree": "Use parent worktree",
+    "useParentWorktreeHelp": "Continue work in same worktree and branch as parent task"
   },
   "viewProcessesDialog": {
     "title": "Execution processes"
@@ -288,6 +290,8 @@
   "attemptHeaderActions": {
     "preview": "Preview",
     "diffs": "Diffs",
+    "files": "Files",
+    "terminal": "Terminal",
     "relatedTasks": "Related tasks"
   },
   "actionsMenu": {
@@ -297,13 +301,12 @@
     "viewRelatedTasks": "View related tasks",
     "createNewAttempt": "Create new attempt",
     "createSubtask": "Create subtask",
+    "sharedWorktreeNoSubtask": "Cannot create subtask: this task uses a shared worktree",
     "gitActions": "Git actions",
     "editBranchName": "Edit branch name",
     "task": "Task",
     "sharedTask": "Shared Task",
-    "share": "Share",
     "reassign": "Reassign",
-    "stopShare": "Stop share",
     "archive": "Archive",
     "unarchive": "Unarchive",
     "duplicate": "Duplicate",
@@ -328,41 +331,6 @@
       "renaming": "Renaming...",
       "action": "Rename Branch"
     }
-  },
-  "stopShareDialog": {
-    "title": "Stop Sharing Task",
-    "description": "Stop sharing \"{{title}}\" with your organization?",
-    "warning": "Stops sharing the task with your organization, but keeps your local task.",
-    "confirm": "Stop share task",
-    "inProgress": "Stop sharing...",
-    "genericError": "Failed to stop sharing task. Please try again."
-  },
-  "shareDialog": {
-    "title": "Share Task",
-    "description": "Share \"{{title}}\" with your organization?",
-    "success": "Task shared successfully.",
-    "genericError": "Failed to share task. Please try again.",
-    "loadingSystem": "Loading account status...",
-    "loginRequired": {
-      "title": "Sign in to continue",
-      "description": "You need to sign in before you can share tasks. We will redirect you to the sign-in page.",
-      "action": "Go to sign in"
-    },
-    "githubRequired": {
-      "title": "Connect GitHub",
-      "description": "Connect your GitHub account to share tasks. This project must have a remote repository on GitHub.",
-      "action": "Connect GitHub"
-    },
-    "linkProjectRequired": {
-      "description": "Link this project to an organization before sharing tasks.",
-      "action": "Link Project"
-    },
-    "confirmationTitle": "Confirm sharing",
-    "confirmationBody": "Sharing will publish this task to your shared workspace.",
-    "cancel": "Cancel",
-    "confirm": "Share task",
-    "inProgress": "Sharing...",
-    "closeButton": "Close"
   },
   "createPrDialog": {
     "title": "Create GitHub Pull Request",
@@ -390,41 +358,13 @@
       "action": "Sign in"
     }
   },
-  "showcases": {
-    "taskPanel": {
-      "companion": {
-        "title": "Vibe Kanban Companion Point-and-Click",
-        "description": "Click any UI component in the preview window to select it precisely. The coding agent receives exact DOM selectors and component hierarchy, eliminating ambiguous feedback."
-      },
-      "installation": {
-        "title": "Dev Server & Companion Installation",
-        "description": "Set a dev server command for previews, with a setup script configurable in settings. Use a coding agent to automatically install the Vibe Kanban web companion."
-      },
-      "codeReview": {
-        "title": "Built-in Code Review",
-        "description": "Add line-specific comments directly in the diffs view with the plus icon. All feedback is collected and sent as a complete review to the coding agent."
-      },
-      "pullRequest": {
-        "title": "Create PR from Task",
-        "description": "Merge your changes or create pull requests directly from task attempts. The PR dialog pre-fills title and description from your task details for streamlined workflows."
-      },
-      "tags": {
-        "title": "Custom Prompt Tags",
-        "description": "Save custom prompts as tags and embed them within new tasks or follow-up messages. Reuse common instructions to maintain consistency across your workflow."
-      }
-    },
-    "buttons": {
-      "previous": "Previous",
-      "next": "Next",
-      "finish": "Finish"
-    }
-  },
   "taskFormDialog": {
     "createTitle": "Create New Task",
     "editTitle": "Edit Task",
     "titlePlaceholder": "Task title",
     "descriptionPlaceholder": "Add more details (optional). Type @ to search files.",
     "statusLabel": "Status",
+    "labelsLabel": "Labels",
     "statusOptions": {
       "todo": "To Do",
       "inprogress": "In Progress",
@@ -445,6 +385,33 @@
       "description": "You have unsaved changes. Are you sure you want to discard them?",
       "continueEditing": "Continue Editing",
       "discardChanges": "Discard Changes"
+    }
+  },
+  "variables": {
+    "title": "Variables",
+    "panelTitle": "Variables ({{count}})",
+    "add": "Add",
+    "empty": "No variables defined",
+    "inherited": "Inherited",
+    "inheritedTooltip": "From parent task",
+    "inheritedCount": "{{count}} inherited",
+    "inheritedVariables": "Inherited",
+    "ownVariables": "This Task",
+    "emptyValue": "(empty)",
+    "override": "Override",
+    "hint": "Variables can be used in task descriptions with $VAR_NAME or ${VAR_NAME} syntax.",
+    "panelHint": "Variables are expanded when the task is sent to an executor.",
+    "undefinedWarning": "{{count}} undefined variable(s)",
+    "undefinedTitle": "Undefined Variables",
+    "undefinedDescription": "These variables are referenced in the task description but not defined:",
+    "namePlaceholder": "VARIABLE_NAME",
+    "valuePlaceholder": "Value",
+    "deleteConfirm": "Delete variable \"{{name}}\"?",
+    "errors": {
+      "nameRequired": "Variable name is required",
+      "invalidName": "Name must start with uppercase letter, contain only A-Z, 0-9, and underscores",
+      "nameExists": "A variable with this name already exists",
+      "saveFailed": "Failed to save variable"
     }
   }
 }

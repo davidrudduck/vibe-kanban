@@ -12,21 +12,20 @@
     "archived": "아카이브됨"
   },
   "actionsMenu": {
-    "attempt": "Attempt",
-    "createNewAttempt": "Create new attempt",
-    "createSubtask": "Create subtask",
-    "share": "작업 공유",
+    "attempt": "시도",
+    "createNewAttempt": "새 시도 생성",
+    "createSubtask": "하위 작업 생성",
+    "sharedWorktreeNoSubtask": "하위 작업을 생성할 수 없습니다: 이 작업은 공유 워크트리를 사용합니다",
     "reassign": "재할당",
-    "stopShare": "공유 중지",
     "archive": "아카이브",
     "unarchive": "아카이브 해제",
-    "duplicate": "Duplicate",
+    "duplicate": "복제",
     "editBranchName": "브랜치 이름 편집",
     "gitActions": "Git 작업",
-    "openInIde": "Open attempt in IDE",
-    "task": "Task",
-    "viewProcesses": "View processes",
-    "viewRelatedTasks": "View related tasks",
+    "openInIde": "IDE에서 시도 열기",
+    "task": "작업",
+    "viewProcesses": "프로세스 보기",
+    "viewRelatedTasks": "관련 작업 보기",
     "remoteTaskCannotExecute": "원격 작업은 원본 노드에서 실행됩니다"
   },
   "archiveDialog": {
@@ -85,41 +84,6 @@
     "setupHelpText": "{{agent}}이(가) 올바르게 설정되지 않았습니다. '설정 실행'을 클릭하여 설치하고 로그인하세요.",
     "devScriptMissingTooltip": "To start the dev server, add a dev script to this project"
   },
-  "stopShareDialog": {
-    "title": "작업 공유 중지",
-    "description": "\"{{title}}\" 작업의 공유를 조직에서 중지하시겠습니까?",
-    "warning": "작업 공유는 중지되지만 로컬 작업은 유지됩니다.",
-    "confirm": "작업 공유 중지",
-    "inProgress": "공유 중지 중…",
-    "genericError": "작업 공유를 중지하지 못했습니다. 다시 시도해 주세요."
-  },
-  "shareDialog": {
-    "title": "작업 공유",
-    "description": "\"{{title}}\" 작업을 조직과 공유하시겠습니까?",
-    "success": "작업이 성공적으로 공유되었습니다.",
-    "genericError": "작업을 공유하지 못했습니다. 다시 시도해 주세요.",
-    "loadingSystem": "계정 상태를 불러오는 중…",
-    "loginRequired": {
-      "title": "계속하려면 로그인하세요",
-      "description": "작업을 공유하려면 로그인해야 합니다. 로그인 페이지로 이동합니다.",
-      "action": "로그인으로 이동"
-    },
-    "githubRequired": {
-      "title": "GitHub 연결",
-      "description": "공유 작업을 게시하려면 GitHub 계정을 연결하세요.",
-      "action": "GitHub 연결"
-    },
-    "linkProjectRequired": {
-      "description": "작업을 공유하기 전에 이 프로젝트를 조직에 연결하세요.",
-      "action": "프로젝트 연결"
-    },
-    "confirmationTitle": "공유 확인",
-    "confirmationBody": "작업을 공유하면 공유 작업 공간에 게시됩니다.",
-    "cancel": "취소",
-    "confirm": "작업 공유",
-    "inProgress": "공유 중…",
-    "closeButton": "닫기"
-  },
   "createPrDialog": {
     "title": "GitHub Pull Request 생성",
     "description": "이 작업 시도에 대한 Pull Request를 GitHub에서 생성합니다.",
@@ -148,7 +112,9 @@
   },
   "attemptHeaderActions": {
     "diffs": "Diffs",
+    "files": "파일",
     "preview": "Preview",
+    "terminal": "터미널",
     "relatedTasks": "Related tasks"
   },
   "branches": {
@@ -163,14 +129,16 @@
     }
   },
   "createAttemptDialog": {
-    "baseBranch": "Base branch",
-    "creating": "Creating...",
-    "description": "Start a new attempt with a coding agent. A git worktree and task branch will be created.",
-    "error": "Failed to create attempt. Please try again.",
-    "loadingBranches": "Loading branches...",
-    "selectBranch": "Select branch",
-    "start": "Start",
-    "title": "Create Attempt"
+    "baseBranch": "기본 브랜치",
+    "creating": "생성 중...",
+    "description": "코딩 에이전트로 새 시도를 시작합니다. git 워크트리와 작업 브랜치가 생성됩니다.",
+    "error": "시도 생성에 실패했습니다. 다시 시도해 주세요.",
+    "loadingBranches": "브랜치 로딩 중...",
+    "selectBranch": "브랜치 선택",
+    "start": "시작",
+    "title": "시도 생성",
+    "useParentWorktree": "상위 워크트리 사용",
+    "useParentWorktreeHelp": "상위 작업과 동일한 워크트리 및 브랜치에서 작업 계속"
   },
   "diff": {
     "collapseAll": "Collapse all diffs",
@@ -379,41 +347,13 @@
       "status": "Status"
     }
   },
-  "showcases": {
-    "taskPanel": {
-      "companion": {
-        "title": "Vibe Kanban Companion 포인트 앤 클릭",
-        "description": "미리보기 창에서 UI 구성 요소를 클릭하여 정확하게 선택하세요. 코딩 에이전트는 정확한 DOM 선택자와 구성 요소 계층을 수신하여 모호한 피드백을 제거합니다."
-      },
-      "installation": {
-        "title": "개발 서버 및 Companion 설치",
-        "description": "미리보기를 위한 개발 서버 명령을 설정하고 설정에서 구성 가능한 설정 스크립트를 사용하세요. 코딩 에이전트를 사용하여 Vibe Kanban 웹 컴패니언을 자동으로 설치합니다."
-      },
-      "codeReview": {
-        "title": "내장 코드 리뷰",
-        "description": "더하기 아이콘을 사용하여 차이점 보기에서 직접 줄별 주석을 추가하세요. 모든 피드백이 수집되어 완전한 리뷰로 코딩 에이전트에게 전송됩니다."
-      },
-      "pullRequest": {
-        "title": "작업에서 PR 생성",
-        "description": "작업 시도에서 직접 변경사항을 병합하거나 풀 리퀘스트를 생성하세요. PR 대화상자는 작업 세부정보에서 제목과 설명을 미리 채워 워크플로를 간소화합니다."
-      },
-      "tags": {
-        "title": "맞춤 프롬프트 태그",
-        "description": "맞춤 프롬프트를 태그로 저장하고 새 작업이나 후속 메시지에 삽입하세요. 공통 지침을 재사용하여 워크플로의 일관성을 유지합니다."
-      }
-    },
-    "buttons": {
-      "previous": "이전",
-      "next": "다음",
-      "finish": "완료"
-    }
-  },
   "taskFormDialog": {
     "createTitle": "새 작업 만들기",
     "editTitle": "작업 수정",
     "titlePlaceholder": "작업 제목",
     "descriptionPlaceholder": "세부 정보 추가 (선택 사항). @를 입력하여 파일을 검색합니다.",
     "statusLabel": "상태",
+    "labelsLabel": "라벨",
     "statusOptions": {
       "todo": "할 일",
       "inprogress": "진행 중",
@@ -434,6 +374,33 @@
       "description": "저장하지 않은 변경사항이 있습니다. 정말 버리시겠습니까?",
       "continueEditing": "계속 수정",
       "discardChanges": "변경사항 버리기"
+    }
+  },
+  "variables": {
+    "title": "변수",
+    "panelTitle": "변수 ({{count}})",
+    "add": "추가",
+    "empty": "정의된 변수 없음",
+    "inherited": "상속됨",
+    "inheritedTooltip": "상위 작업에서 상속됨",
+    "inheritedCount": "{{count}}개 상속됨",
+    "inheritedVariables": "상속됨",
+    "ownVariables": "이 작업",
+    "emptyValue": "(비어있음)",
+    "override": "재정의",
+    "hint": "변수는 $VAR_NAME 또는 ${VAR_NAME} 구문으로 작업 설명에서 사용할 수 있습니다.",
+    "panelHint": "변수는 작업이 실행기에 전송될 때 확장됩니다.",
+    "undefinedWarning": "{{count}}개의 정의되지 않은 변수",
+    "undefinedTitle": "정의되지 않은 변수",
+    "undefinedDescription": "이 변수들은 작업 설명에서 참조되지만 정의되지 않았습니다:",
+    "namePlaceholder": "변수_이름",
+    "valuePlaceholder": "값",
+    "deleteConfirm": "\"{{name}}\" 변수를 삭제하시겠습니까?",
+    "errors": {
+      "nameRequired": "변수 이름은 필수입니다",
+      "invalidName": "이름은 대문자로 시작하고 A-Z, 0-9, 밑줄만 포함해야 합니다",
+      "nameExists": "이 이름의 변수가 이미 존재합니다",
+      "saveFailed": "변수 저장 실패"
     }
   }
 }

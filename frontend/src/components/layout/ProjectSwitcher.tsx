@@ -95,10 +95,10 @@ export function ProjectSwitcher({ className }: ProjectSwitcherProps) {
   // Determine display value
   const displayValue = isAllProjectsRoute
     ? 'All Projects'
-    : project?.name ?? 'Select a Project';
+    : (project?.name ?? 'Select a Project');
 
   // Current selected value for checkmark display
-  const selectedValue = isAllProjectsRoute ? 'all' : projectId ?? '';
+  const selectedValue = isAllProjectsRoute ? 'all' : (projectId ?? '');
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -123,10 +123,7 @@ export function ProjectSwitcher({ className }: ProjectSwitcherProps) {
           <CommandList>
             <CommandEmpty>No projects found.</CommandEmpty>
             <CommandGroup>
-              <CommandItem
-                value="all"
-                onSelect={() => handleSelect('all')}
-              >
+              <CommandItem value="all" onSelect={() => handleSelect('all')}>
                 <Check
                   className={cn(
                     'mr-2 h-4 w-4',

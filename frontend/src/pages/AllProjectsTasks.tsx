@@ -73,13 +73,23 @@ export function AllProjectsTasks() {
       columns[statusKey].push(task);
     });
 
-    // Sort by updated_at (most recent first)
+    // Helper: get activity time (fallback to created_at)
+    const getActivityTime = (task: TaskWithProjectInfo) =>
+      new Date(
+        ((task.activity_at ?? task.created_at) as string | Date).toString()
+      ).getTime();
+
+    // Apply status-aware sorting:
+    // - Todo: oldest first (FIFO queue - prevents older tasks from being buried)
+    // - All others: most recent activity first
     TASK_STATUSES.forEach((status) => {
-      columns[status].sort(
-        (a, b) =>
-          new Date(b.updated_at as string).getTime() -
-          new Date(a.updated_at as string).getTime()
-      );
+      if (status === 'todo') {
+        // Todo: oldest first (ascending by activity_at)
+        columns[status].sort((a, b) => getActivityTime(a) - getActivityTime(b));
+      } else {
+        // All others: most recent first (descending by activity_at)
+        columns[status].sort((a, b) => getActivityTime(b) - getActivityTime(a));
+      }
     });
 
     return columns;

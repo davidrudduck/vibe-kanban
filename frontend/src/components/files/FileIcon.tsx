@@ -41,7 +41,24 @@ export function FileIcon({
 
   // Code files
   if (
-    ['ts', 'tsx', 'js', 'jsx', 'py', 'rb', 'go', 'rs', 'java', 'c', 'cpp', 'h', 'cs', 'php', 'swift', 'kt'].includes(ext)
+    [
+      'ts',
+      'tsx',
+      'js',
+      'jsx',
+      'py',
+      'rb',
+      'go',
+      'rs',
+      'java',
+      'c',
+      'cpp',
+      'h',
+      'cs',
+      'php',
+      'swift',
+      'kt',
+    ].includes(ext)
   ) {
     return <FileCode className={cn(iconClass, 'text-blue-400')} />;
   }
@@ -57,14 +74,23 @@ export function FileIcon({
   }
 
   // Image files
-  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'bmp'].includes(ext)) {
+  if (
+    ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'bmp'].includes(ext)
+  ) {
     return <Image className={cn(iconClass, 'text-purple-400')} />;
   }
 
   // Config/dotfiles
   if (
     lower.startsWith('.') ||
-    ['env', 'gitignore', 'dockerignore', 'editorconfig', 'prettierrc', 'eslintrc'].includes(ext) ||
+    [
+      'env',
+      'gitignore',
+      'dockerignore',
+      'editorconfig',
+      'prettierrc',
+      'eslintrc',
+    ].includes(ext) ||
     ['Dockerfile', 'Makefile', 'Gemfile', 'Rakefile'].includes(name)
   ) {
     return <Settings className={cn(iconClass, 'text-gray-400')} />;

@@ -18,7 +18,9 @@ import {
   CreateTask,
   CreateAndStartTaskRequest,
   CreateTaskAttemptBody,
-  CreateTag,
+  CreateTemplate,
+  CreateLabel,
+  CreateTaskVariable,
   DirectoryListResponse,
   DirectoryEntry,
   Direction,
@@ -26,20 +28,28 @@ import {
   ExecutionProcess,
   GitBranch,
   PaginatedLogs,
+  PreviewExpansionRequest,
+  PreviewExpansionResponse,
   Project,
   CreateProject,
+  ResolvedVariable,
   SearchResult,
-  ShareTaskResponse,
   Task,
   TaskAttempt,
   TaskRelationships,
-  Tag,
-  TagSearchParams,
+  TaskVariable,
+  Template,
+  TemplateSearchParams,
+  Label,
+  LabelQueryParams,
+  SetTaskLabels,
   TaskWithAttemptStatus,
   AssignSharedTaskResponse,
   UpdateProject,
   UpdateTask,
-  UpdateTag,
+  UpdateTemplate,
+  UpdateLabel,
+  UpdateTaskVariable,
   UserSystemInfo,
   UpdateRetryFollowUpDraftRequest,
   McpServerQuery,
@@ -93,6 +103,9 @@ import {
   ProcessFilter,
   KillScope,
   KillResult,
+  SessionInfo,
+  CreateSessionResponse,
+  WorktreePathResponse,
 } from 'shared/types';
 
 // Re-export types for convenience
@@ -472,13 +485,6 @@ export const tasksApi = {
     return handleApiResponse<void>(response);
   },
 
-  share: async (taskId: string): Promise<ShareTaskResponse> => {
-    const response = await makeRequest(`/api/tasks/${taskId}/share`, {
-      method: 'POST',
-    });
-    return handleApiResponse<ShareTaskResponse>(response);
-  },
-
   reassign: async (
     sharedTaskId: string,
     data: { new_assignee_user_id: string | null; version?: number | null }
@@ -497,13 +503,6 @@ export const tasksApi = {
     );
 
     return handleApiResponse<AssignSharedTaskResponse>(response);
-  },
-
-  unshare: async (sharedTaskId: string): Promise<void> => {
-    const response = await makeRequest(`/api/shared-tasks/${sharedTaskId}`, {
-      method: 'DELETE',
-    });
-    return handleApiResponse<void>(response);
   },
 
   /** Get list of nodes where this task's project exists (for remote attempt start). */
@@ -546,6 +545,92 @@ export const tasksApi = {
   getChildren: async (taskId: string): Promise<Task[]> => {
     const response = await makeRequest(`/api/tasks/${taskId}/children`);
     return handleApiResponse<Task[]>(response);
+  },
+};
+
+// Task Variables APIs
+export const taskVariablesApi = {
+  /**
+   * Get task's own variables (not including inherited).
+   */
+  list: async (taskId: string): Promise<TaskVariable[]> => {
+    const response = await makeRequest(`/api/tasks/${taskId}/variables`);
+    return handleApiResponse<TaskVariable[]>(response);
+  },
+
+  /**
+   * Get all resolved variables (including inherited from parent tasks).
+   * Child variables override parent variables with the same name.
+   */
+  listResolved: async (taskId: string): Promise<ResolvedVariable[]> => {
+    const response = await makeRequest(
+      `/api/tasks/${taskId}/variables/resolved`
+    );
+    return handleApiResponse<ResolvedVariable[]>(response);
+  },
+
+  /**
+   * Create a new variable for a task.
+   * Variable name must match [A-Z][A-Z0-9_]* pattern.
+   */
+  create: async (
+    taskId: string,
+    data: CreateTaskVariable
+  ): Promise<TaskVariable> => {
+    const response = await makeRequest(`/api/tasks/${taskId}/variables`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    return handleApiResponse<TaskVariable>(response);
+  },
+
+  /**
+   * Update an existing variable.
+   */
+  update: async (
+    taskId: string,
+    variableId: string,
+    data: UpdateTaskVariable
+  ): Promise<TaskVariable> => {
+    const response = await makeRequest(
+      `/api/tasks/${taskId}/variables/${variableId}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<TaskVariable>(response);
+  },
+
+  /**
+   * Delete a variable.
+   */
+  delete: async (taskId: string, variableId: string): Promise<void> => {
+    const response = await makeRequest(
+      `/api/tasks/${taskId}/variables/${variableId}`,
+      {
+        method: 'DELETE',
+      }
+    );
+    return handleApiResponse<void>(response);
+  },
+
+  /**
+   * Preview variable expansion in a text.
+   * Returns expanded text and list of undefined variables.
+   */
+  preview: async (
+    taskId: string,
+    data: PreviewExpansionRequest
+  ): Promise<PreviewExpansionResponse> => {
+    const response = await makeRequest(
+      `/api/tasks/${taskId}/variables/preview`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<PreviewExpansionResponse>(response);
   },
 };
 
@@ -801,6 +886,13 @@ export const attemptsApi = {
     );
     return handleApiResponse<ExecutionProcess, GhCliSetupError>(response);
   },
+
+  getWorktreePath: async (attemptId: string): Promise<WorktreePathResponse> => {
+    const response = await makeRequest(
+      `/api/task-attempts/${attemptId}/worktree-path`
+    );
+    return handleApiResponse<WorktreePathResponse>(response);
+  },
 };
 
 // Extra helpers
@@ -912,7 +1004,9 @@ export const fileBrowserApi = {
   },
 
   // Read file content from ~/.claude/ directory (security-restricted)
-  readClaudeFile: async (relativePath: string): Promise<FileContentResponse> => {
+  readClaudeFile: async (
+    relativePath: string
+  ): Promise<FileContentResponse> => {
     const response = await makeRequest(
       `/api/filesystem/claude-file?path=${encodeURIComponent(relativePath)}`
     );
@@ -951,37 +1045,98 @@ export const configApi = {
   },
 };
 
-// Task Tags APIs (all tags are global)
-export const tagsApi = {
-  list: async (params?: TagSearchParams): Promise<Tag[]> => {
+// Templates APIs (renamed from Tags - used for @mentions in descriptions)
+export const templatesApi = {
+  list: async (params?: TemplateSearchParams): Promise<Template[]> => {
     const queryParam = params?.search
       ? `?search=${encodeURIComponent(params.search)}`
       : '';
-    const response = await makeRequest(`/api/tags${queryParam}`);
-    return handleApiResponse<Tag[]>(response);
+    const response = await makeRequest(`/api/templates${queryParam}`);
+    return handleApiResponse<Template[]>(response);
   },
 
-  create: async (data: CreateTag): Promise<Tag> => {
-    const response = await makeRequest('/api/tags', {
+  create: async (data: CreateTemplate): Promise<Template> => {
+    const response = await makeRequest('/api/templates', {
       method: 'POST',
       body: JSON.stringify(data),
     });
-    return handleApiResponse<Tag>(response);
+    return handleApiResponse<Template>(response);
   },
 
-  update: async (tagId: string, data: UpdateTag): Promise<Tag> => {
-    const response = await makeRequest(`/api/tags/${tagId}`, {
+  update: async (
+    templateId: string,
+    data: UpdateTemplate
+  ): Promise<Template> => {
+    const response = await makeRequest(`/api/templates/${templateId}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
-    return handleApiResponse<Tag>(response);
+    return handleApiResponse<Template>(response);
   },
 
-  delete: async (tagId: string): Promise<void> => {
-    const response = await makeRequest(`/api/tags/${tagId}`, {
+  delete: async (templateId: string): Promise<void> => {
+    const response = await makeRequest(`/api/templates/${templateId}`, {
       method: 'DELETE',
     });
     return handleApiResponse<void>(response);
+  },
+};
+
+// Labels APIs (visual task categorization)
+export const labelsApi = {
+  /** List labels. If projectId provided, returns global + project-specific labels */
+  list: async (params?: LabelQueryParams): Promise<Label[]> => {
+    const queryParam = params?.project_id
+      ? `?project_id=${encodeURIComponent(params.project_id)}`
+      : '';
+    const response = await makeRequest(`/api/labels${queryParam}`);
+    return handleApiResponse<Label[]>(response);
+  },
+
+  get: async (labelId: string): Promise<Label> => {
+    const response = await makeRequest(`/api/labels/${labelId}`);
+    return handleApiResponse<Label>(response);
+  },
+
+  create: async (data: CreateLabel): Promise<Label> => {
+    const response = await makeRequest('/api/labels', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    return handleApiResponse<Label>(response);
+  },
+
+  update: async (labelId: string, data: UpdateLabel): Promise<Label> => {
+    const response = await makeRequest(`/api/labels/${labelId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+    return handleApiResponse<Label>(response);
+  },
+
+  delete: async (labelId: string): Promise<void> => {
+    const response = await makeRequest(`/api/labels/${labelId}`, {
+      method: 'DELETE',
+    });
+    return handleApiResponse<void>(response);
+  },
+
+  /** Get labels for a specific task */
+  getTaskLabels: async (taskId: string): Promise<Label[]> => {
+    const response = await makeRequest(`/api/tasks/${taskId}/labels`);
+    return handleApiResponse<Label[]>(response);
+  },
+
+  /** Set labels for a task (replaces existing) */
+  setTaskLabels: async (
+    taskId: string,
+    data: SetTaskLabels
+  ): Promise<Label[]> => {
+    const response = await makeRequest(`/api/tasks/${taskId}/labels`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+    return handleApiResponse<Label[]>(response);
   },
 };
 
@@ -1262,9 +1417,24 @@ export const dashboardApi = {
     const response = await makeRequest('/api/dashboard/summary');
     return handleApiResponse<DashboardSummary>(response);
   },
-  getActivityFeed: async (): Promise<ActivityFeed> => {
-    const response = await makeRequest('/api/dashboard/activity');
+  getActivityFeed: async (includeDismissed = false): Promise<ActivityFeed> => {
+    const queryParam = includeDismissed ? '?include_dismissed=true' : '';
+    const response = await makeRequest(`/api/dashboard/activity${queryParam}`);
     return handleApiResponse<ActivityFeed>(response);
+  },
+  dismissActivityItem: async (taskId: string): Promise<void> => {
+    const response = await makeRequest('/api/dashboard/activity/dismiss', {
+      method: 'POST',
+      body: JSON.stringify({ task_id: taskId }),
+    });
+    return handleApiResponse<void>(response);
+  },
+  undismissActivityItem: async (taskId: string): Promise<void> => {
+    const response = await makeRequest(
+      `/api/dashboard/activity/dismiss/${encodeURIComponent(taskId)}`,
+      { method: 'DELETE' }
+    );
+    return handleApiResponse<void>(response);
   },
 };
 
@@ -1349,9 +1519,12 @@ export const backupsApi = {
    * Delete a database backup by filename.
    */
   delete: async (filename: string): Promise<void> => {
-    const response = await makeRequest(`/api/backups/${encodeURIComponent(filename)}`, {
-      method: 'DELETE',
-    });
+    const response = await makeRequest(
+      `/api/backups/${encodeURIComponent(filename)}`,
+      {
+        method: 'DELETE',
+      }
+    );
     return handleApiResponse<void>(response);
   },
 
@@ -1402,7 +1575,9 @@ export const processesApi = {
       params.set('executors_only', 'true');
     }
     const queryString = params.toString();
-    const url = queryString ? `/api/processes?${queryString}` : '/api/processes';
+    const url = queryString
+      ? `/api/processes?${queryString}`
+      : '/api/processes';
     const response = await makeRequest(url);
     return handleApiResponse<ProcessInfo[]>(response);
   },
@@ -1410,7 +1585,10 @@ export const processesApi = {
   /**
    * Kill processes by scope.
    */
-  kill: async (scope: KillScope, force: boolean = false): Promise<KillResult> => {
+  kill: async (
+    scope: KillScope,
+    force: boolean = false
+  ): Promise<KillResult> => {
     const response = await makeRequest('/api/processes/kill', {
       method: 'POST',
       body: JSON.stringify({ scope, force }),
@@ -1468,5 +1646,45 @@ export const logsApi = {
     const host = window.location.host;
     const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
     return `${protocol}//${host}/api/logs/${executionId}/live${tokenParam}`;
+  },
+};
+
+// Terminal API
+export interface CreateTerminalSessionRequest {
+  working_dir: string;
+}
+
+export const terminalApi = {
+  createSession: async (
+    workingDir: string
+  ): Promise<CreateSessionResponse> => {
+    const response = await makeRequest('/api/terminal/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ working_dir: workingDir }),
+    });
+    return handleApiResponse<CreateSessionResponse>(response);
+  },
+
+  listSessions: async (): Promise<SessionInfo[]> => {
+    const response = await makeRequest('/api/terminal/sessions');
+    return handleApiResponse<SessionInfo[]>(response);
+  },
+
+  getSession: async (sessionId: string): Promise<SessionInfo> => {
+    const response = await makeRequest(`/api/terminal/sessions/${sessionId}`);
+    return handleApiResponse<SessionInfo>(response);
+  },
+
+  deleteSession: async (sessionId: string): Promise<void> => {
+    const response = await makeRequest(`/api/terminal/sessions/${sessionId}`, {
+      method: 'DELETE',
+    });
+    return handleApiResponse<void>(response);
+  },
+
+  getWebSocketUrl: (sessionId: string): string => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    return `${protocol}//${host}/api/terminal/ws/${sessionId}`;
   },
 };

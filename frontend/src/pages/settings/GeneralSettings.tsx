@@ -29,12 +29,20 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { ChevronDown, Loader2, Volume2 } from 'lucide-react';
 import {
   BaseCodingAgent,
+  CodeFont,
   EditorType,
   ExecutorProfileId,
+  ProseFont,
   SoundFile,
   ThemeMode,
+  UiFont,
   UiLanguage,
 } from 'shared/types';
+
+// Font option arrays (since ts-rs generates string literal unions, not enums)
+const UI_FONTS: UiFont[] = ['INTER', 'ROBOTO', 'PUBLIC_SANS', 'CHIVO_MONO', 'SYSTEM'];
+const CODE_FONTS: CodeFont[] = ['JET_BRAINS_MONO', 'CASCADIA_MONO', 'HACK', 'IBM_PLEX_MONO', 'CHIVO_MONO', 'SYSTEM'];
+const PROSE_FONTS: ProseFont[] = ['INTER', 'ROBOTO', 'GEORGIA', 'CHIVO_MONO', 'SYSTEM'];
 import { getLanguageOptions } from '@/i18n/languages';
 
 import { toPrettyCase } from '@/utils/string';
@@ -45,7 +53,17 @@ import { AgentAvailabilityIndicator } from '@/components/AgentAvailabilityIndica
 import { useTheme } from '@/components/ThemeProvider';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { useFeedback } from '@/hooks/useFeedback';
-import { TagManager } from '@/components/TagManager';
+import { useFonts } from '@/components/FontProvider';
+import { TemplateManager } from '@/components/TemplateManager';
+import { LabelManager } from '@/components/LabelManager';
+import { FontPreview } from '@/components/settings';
+import {
+  loadFont,
+  getUiFontUrl,
+  getCodeFontUrl,
+  getProseFontUrl,
+} from '@/lib/fonts';
+import { useTerminalSettings } from '@/hooks/useTerminalSettings';
 
 export function GeneralSettings() {
   const { t } = useTranslation(['settings', 'common']);
@@ -75,6 +93,7 @@ export function GeneralSettings() {
     null
   );
   const { setTheme } = useTheme();
+  const { setFonts } = useFonts();
 
   // Check editor availability when draft editor changes
   const editorAvailability = useEditorAvailability(draft?.editor.editor_type);
@@ -83,6 +102,13 @@ export function GeneralSettings() {
   const agentAvailability = useAgentAvailability(
     draft?.executor_profile?.executor
   );
+
+  // Terminal settings (stored in localStorage, separate from config)
+  const {
+    settings: terminalSettings,
+    updateSettings: updateTerminalSettings,
+    resetSettings: resetTerminalSettings,
+  } = useTerminalSettings();
 
   const validateBranchPrefix = useCallback(
     (prefix: string): string | null => {
@@ -168,6 +194,7 @@ export function GeneralSettings() {
     try {
       await updateAndSaveConfig(draft); // Atomically apply + persist
       setTheme(draft.theme);
+      setFonts(draft.fonts);
       setDirty(false);
       showSuccess();
     } catch (err) {
@@ -299,6 +326,163 @@ export function GeneralSettings() {
         </CardContent>
       </Card>
 
+      {/* Typography Settings */}
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('settings.general.fonts.title')}</CardTitle>
+          <CardDescription>
+            {t('settings.general.fonts.description')}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="ui-font">
+              {t('settings.general.fonts.uiFont.label')}
+            </Label>
+            <Select
+              value={draft?.fonts.ui_font}
+              onValueChange={(value: UiFont) => {
+                // Preload the font when selected
+                loadFont(getUiFontUrl(value));
+                updateDraft({
+                  fonts: { ...draft!.fonts, ui_font: value },
+                });
+              }}
+            >
+              <SelectTrigger id="ui-font">
+                <SelectValue
+                  placeholder={t(
+                    'settings.general.fonts.uiFont.placeholder'
+                  )}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {UI_FONTS.map((font) => (
+                  <SelectItem key={font} value={font}>
+                    {t(`settings.general.fonts.fontNames.${
+                      font === 'INTER' ? 'inter' :
+                      font === 'ROBOTO' ? 'roboto' :
+                      font === 'PUBLIC_SANS' ? 'publicSans' :
+                      font === 'CHIVO_MONO' ? 'chivoMono' :
+                      'system'
+                    }`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">
+              {t('settings.general.fonts.uiFont.helper')}
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="code-font">
+              {t('settings.general.fonts.codeFont.label')}
+            </Label>
+            <Select
+              value={draft?.fonts.code_font}
+              onValueChange={(value: CodeFont) => {
+                // Preload the font when selected
+                loadFont(getCodeFontUrl(value));
+                updateDraft({
+                  fonts: { ...draft!.fonts, code_font: value },
+                });
+              }}
+            >
+              <SelectTrigger id="code-font">
+                <SelectValue
+                  placeholder={t(
+                    'settings.general.fonts.codeFont.placeholder'
+                  )}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {CODE_FONTS.map((font) => (
+                  <SelectItem key={font} value={font}>
+                    {t(`settings.general.fonts.fontNames.${
+                      font === 'JET_BRAINS_MONO' ? 'jetBrainsMono' :
+                      font === 'CASCADIA_MONO' ? 'cascadiaMono' :
+                      font === 'HACK' ? 'hack' :
+                      font === 'IBM_PLEX_MONO' ? 'ibmPlexMono' :
+                      font === 'CHIVO_MONO' ? 'chivoMono' :
+                      'system'
+                    }`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">
+              {t('settings.general.fonts.codeFont.helper')}
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="prose-font">
+              {t('settings.general.fonts.proseFont.label')}
+            </Label>
+            <Select
+              value={draft?.fonts.prose_font}
+              onValueChange={(value: ProseFont) => {
+                // Preload the font when selected
+                loadFont(getProseFontUrl(value));
+                updateDraft({
+                  fonts: { ...draft!.fonts, prose_font: value },
+                });
+              }}
+            >
+              <SelectTrigger id="prose-font">
+                <SelectValue
+                  placeholder={t(
+                    'settings.general.fonts.proseFont.placeholder'
+                  )}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {PROSE_FONTS.map((font) => (
+                  <SelectItem key={font} value={font}>
+                    {t(`settings.general.fonts.fontNames.${
+                      font === 'INTER' ? 'inter' :
+                      font === 'ROBOTO' ? 'roboto' :
+                      font === 'GEORGIA' ? 'georgia' :
+                      font === 'CHIVO_MONO' ? 'chivoMono' :
+                      'system'
+                    }`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">
+              {t('settings.general.fonts.proseFont.helper')}
+            </p>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="disable-ligatures"
+              checked={draft?.fonts.disable_ligatures}
+              onCheckedChange={(checked: boolean) =>
+                updateDraft({
+                  fonts: {
+                    ...draft!.fonts,
+                    disable_ligatures: checked,
+                  },
+                })
+              }
+            />
+            <div className="space-y-0.5">
+              <Label htmlFor="disable-ligatures" className="cursor-pointer">
+                {t('settings.general.fonts.disableLigatures.label')}
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                {t('settings.general.fonts.disableLigatures.helper')}
+              </p>
+            </div>
+          </div>
+
+          {draft?.fonts && <FontPreview fonts={draft.fonts} />}
+        </CardContent>
+      </Card>
+
       {/* Dev Banner Settings - only show when in dev mode */}
       {environment?.is_dev_mode && (
         <Card>
@@ -373,7 +557,10 @@ export function GeneralSettings() {
                 }
               />
               <div className="space-y-0.5">
-                <Label htmlFor="dev-banner-show-hostname" className="cursor-pointer">
+                <Label
+                  htmlFor="dev-banner-show-hostname"
+                  className="cursor-pointer"
+                >
                   {t('settings.general.devBanner.showHostname.label')}
                 </Label>
                 <p className="text-sm text-muted-foreground">
@@ -396,34 +583,14 @@ export function GeneralSettings() {
                 }
               />
               <div className="space-y-0.5">
-                <Label htmlFor="dev-banner-show-os-info" className="cursor-pointer">
+                <Label
+                  htmlFor="dev-banner-show-os-info"
+                  className="cursor-pointer"
+                >
                   {t('settings.general.devBanner.showOsInfo.label')}
                 </Label>
                 <p className="text-sm text-muted-foreground">
                   {t('settings.general.devBanner.showOsInfo.helper')}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="dev-banner-hide-discord"
-                checked={draft?.dev_banner?.hide_discord_link ?? false}
-                onCheckedChange={(checked: boolean) =>
-                  updateDraft({
-                    dev_banner: {
-                      ...draft!.dev_banner,
-                      hide_discord_link: checked,
-                    },
-                  })
-                }
-              />
-              <div className="space-y-0.5">
-                <Label htmlFor="dev-banner-hide-discord" className="cursor-pointer">
-                  {t('settings.general.devBanner.hideDiscordLink.label')}
-                </Label>
-                <p className="text-sm text-muted-foreground">
-                  {t('settings.general.devBanner.hideDiscordLink.helper')}
                 </p>
               </div>
             </div>
@@ -689,6 +856,71 @@ export function GeneralSettings() {
 
       <Card>
         <CardHeader>
+          <CardTitle>{t('settings.general.terminal.title')}</CardTitle>
+          <CardDescription>
+            {t('settings.general.terminal.description')}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="terminal-font-size">
+              {t('settings.general.terminal.fontSize.label')}
+            </Label>
+            <Select
+              value={String(terminalSettings.fontSize)}
+              onValueChange={(value: string) =>
+                updateTerminalSettings({ fontSize: Number(value) })
+              }
+            >
+              <SelectTrigger id="terminal-font-size">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="10">10px</SelectItem>
+                <SelectItem value="12">12px</SelectItem>
+                <SelectItem value="14">14px (default)</SelectItem>
+                <SelectItem value="16">16px</SelectItem>
+                <SelectItem value="18">18px</SelectItem>
+                <SelectItem value="20">20px</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">
+              {t('settings.general.terminal.fontSize.helper')}
+            </p>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="terminal-cursor-blink"
+              checked={terminalSettings.cursorBlink}
+              onCheckedChange={(checked: boolean) =>
+                updateTerminalSettings({ cursorBlink: checked })
+              }
+            />
+            <div className="space-y-0.5">
+              <Label htmlFor="terminal-cursor-blink" className="cursor-pointer">
+                {t('settings.general.terminal.cursorBlink.label')}
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                {t('settings.general.terminal.cursorBlink.helper')}
+              </p>
+            </div>
+          </div>
+
+          <div className="pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={resetTerminalSettings}
+            >
+              {t('settings.general.terminal.reset')}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>{t('settings.general.git.title')}</CardTitle>
           <CardDescription>
             {t('settings.general.git.description')}
@@ -894,58 +1126,25 @@ export function GeneralSettings() {
 
       <Card>
         <CardHeader>
-          <CardTitle>{t('settings.general.privacy.title')}</CardTitle>
-          <CardDescription>
-            {t('settings.general.privacy.description')}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center space-x-2">
-            <Checkbox
-              id="analytics-enabled"
-              checked={draft?.analytics_enabled ?? false}
-              onCheckedChange={(checked: boolean) =>
-                updateDraft({ analytics_enabled: checked })
-              }
-            />
-            <div className="space-y-0.5">
-              <Label htmlFor="analytics-enabled" className="cursor-pointer">
-                {t('settings.general.privacy.telemetry.label')}
-              </Label>
-              <p className="text-sm text-muted-foreground">
-                {t('settings.general.privacy.telemetry.helper')}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center space-x-2">
-            <Checkbox
-              id="sentry-enabled"
-              checked={draft?.sentry_enabled ?? false}
-              onCheckedChange={(checked: boolean) =>
-                updateDraft({ sentry_enabled: checked })
-              }
-            />
-            <div className="space-y-0.5">
-              <Label htmlFor="sentry-enabled" className="cursor-pointer">
-                {t('settings.general.privacy.errorReporting.label')}
-              </Label>
-              <p className="text-sm text-muted-foreground">
-                {t('settings.general.privacy.errorReporting.helper')}
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
           <CardTitle>{t('settings.general.taskTemplates.title')}</CardTitle>
           <CardDescription>
             {t('settings.general.taskTemplates.description')}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <TagManager />
+          <TemplateManager />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('settings.general.labels.title')}</CardTitle>
+          <CardDescription>
+            {t('settings.general.labels.description')}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <LabelManager />
         </CardContent>
       </Card>
 

@@ -179,9 +179,7 @@ const ReassignDialogImpl = NiceModal.create<ReassignDialogProps>(
           <div className="space-y-3">
             <Select
               disabled={
-                !canReassign ||
-                membersQuery.isPending ||
-                Boolean(membersError)
+                !canReassign || membersQuery.isPending || Boolean(membersError)
               }
               value={selection}
               onValueChange={(value) => {

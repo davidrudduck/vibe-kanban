@@ -38,7 +38,7 @@ fn base_command(claude_code_router: bool) -> &'static str {
     if claude_code_router {
         "npx -y @musistudio/claude-code-router@1.0.66 code"
     } else {
-        "npx -y @anthropic-ai/claude-code@2.0.54"
+        "npx -y @anthropic-ai/claude-code@2.0.75"
     }
 }
 
@@ -2393,6 +2393,7 @@ mod tests {
     #[test]
     fn test_interactive_questions_serialization() {
         // Test using JSON deserialization to create a valid ClaudeCode
+        // Default (true) should now be serialized (not skipped)
         let json = r#"{}"#;
         let config: ClaudeCode = serde_json::from_str(json).unwrap();
         assert!(config.interactive_questions, "Default should be true");
@@ -2405,6 +2406,7 @@ mod tests {
             "interactive_questions=true should be serialized"
         );
 
+        // False should also be serialized
         let json_false = r#"{"interactive_questions": false}"#;
         let config_false: ClaudeCode = serde_json::from_str(json_false).unwrap();
         let serialized_false = serde_json::to_value(&config_false).unwrap();

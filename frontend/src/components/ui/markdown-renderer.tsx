@@ -17,7 +17,8 @@ import type { ImageResponse } from 'shared/types';
 const HIGHLIGHT_LINK =
   'rounded-sm bg-muted/50 px-1 py-0.5 underline-offset-2 transition-colors';
 const HIGHLIGHT_LINK_HOVER = 'hover:bg-muted';
-const HIGHLIGHT_CODE = 'rounded-sm bg-muted/50 px-1 py-0.5 font-mono text-[0.9em]';
+const HIGHLIGHT_CODE =
+  'rounded-sm bg-muted/50 px-1 py-0.5 font-code text-[0.9em]';
 
 function sanitizeHref(href?: string): string | undefined {
   if (typeof href !== 'string') return undefined;
@@ -221,9 +222,9 @@ function MarkdownRenderer({
       img: { component: imageOverride },
       strong: {
         component: ({ children, ...props }: React.ComponentProps<'strong'>) => (
-          <span {...props} className="">
+          <strong {...props} className="font-semibold">
             {children}
-          </span>
+          </strong>
         ),
       },
       em: {
@@ -304,7 +305,7 @@ function MarkdownRenderer({
         component: ({ children, ...props }: React.ComponentProps<'ul'>) => (
           <ul
             {...props}
-            className="list-disc list-outside ps-6 my-3 space-y-1.5"
+            className="list-disc list-outside ps-8 my-3 space-y-1.5"
           >
             {children}
           </ul>
@@ -314,7 +315,7 @@ function MarkdownRenderer({
         component: ({ children, ...props }: React.ComponentProps<'ol'>) => (
           <ol
             {...props}
-            className="list-decimal list-outside ps-6 my-3 space-y-1.5"
+            className="list-decimal list-outside ps-8 my-3 space-y-1.5"
           >
             {children}
           </ol>
@@ -331,7 +332,8 @@ function MarkdownRenderer({
         component: ({ children, ...props }: React.ComponentProps<'pre'>) => (
           <pre
             {...props}
-            className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-sm bg-muted/50 rounded-sm p-2 my-2"
+            className="overflow-x-auto whitespace-pre-wrap break-words font-code text-sm bg-muted rounded-md p-3 my-3 border border-border"
+            style={{ fontVariantLigatures: 'var(--font-ligatures)' }}
           >
             {children}
           </pre>
@@ -395,7 +397,7 @@ function MarkdownRenderer({
           </div>
         </div>
       )}
-      <div className={className}>
+      <div className={`font-prose ${className}`}>
         <Markdown options={{ overrides, disableParsingRawHTML: true }}>
           {processedContent}
         </Markdown>

@@ -2,7 +2,7 @@ use axum::{
     Json, Router,
     extract::{Path, State},
     response::Json as ResponseJson,
-    routing::{delete, post},
+    routing::post,
 };
 use db::models::shared_task::SharedTask;
 use deployment::Deployment;
@@ -28,12 +28,10 @@ pub struct AssignSharedTaskResponse {
 }
 
 pub fn router() -> Router<DeploymentImpl> {
-    Router::new()
-        .route(
-            "/shared-tasks/{shared_task_id}/assign",
-            post(assign_shared_task),
-        )
-        .route("/shared-tasks/{shared_task_id}", delete(delete_shared_task))
+    Router::new().route(
+        "/shared-tasks/{shared_task_id}/assign",
+        post(assign_shared_task),
+    )
 }
 
 pub async fn assign_shared_task(
@@ -57,37 +55,9 @@ pub async fn assign_shared_task(
         )
         .await?;
 
-    let props = serde_json::json!({
-        "shared_task_id": shared_task_id,
-        "new_assignee_user_id": payload.new_assignee_user_id,
-    });
-    deployment
-        .track_if_analytics_allowed("reassign_shared_task", props)
-        .await;
-
     Ok(ResponseJson(ApiResponse::success(
         AssignSharedTaskResponse {
             shared_task: updated_shared_task,
         },
     )))
-}
-
-pub async fn delete_shared_task(
-    Path(shared_task_id): Path<Uuid>,
-    State(deployment): State<DeploymentImpl>,
-) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
-    let Ok(publisher) = deployment.share_publisher() else {
-        return Err(ShareError::MissingConfig("share publisher unavailable").into());
-    };
-
-    publisher.delete_shared_task(shared_task_id).await?;
-
-    let props = serde_json::json!({
-        "shared_task_id": shared_task_id,
-    });
-    deployment
-        .track_if_analytics_allowed("stop_sharing_task", props)
-        .await;
-
-    Ok(ResponseJson(ApiResponse::success(())))
 }

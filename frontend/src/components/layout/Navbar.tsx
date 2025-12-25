@@ -1,6 +1,5 @@
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { useCallback, useState } from 'react';
-import { siDiscord } from 'simple-icons';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -15,7 +14,6 @@ import {
   Settings,
   BookOpen,
   MessageCircleQuestion,
-  MessageCircle,
   Menu,
   Plus,
   LogOut,
@@ -45,7 +43,6 @@ import { openTaskForm } from '@/lib/openTaskForm';
 import { useProject } from '@/contexts/ProjectContext';
 import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
 import { OpenInIdeButton } from '@/components/ide/OpenInIdeButton';
-import { useDiscordOnlineCount } from '@/hooks/useDiscordOnlineCount';
 import { useTranslation } from 'react-i18next';
 import { OAuthDialog } from '@/components/dialogs/global/OAuthDialog';
 import { useUserSystem } from '@/components/ConfigProvider';
@@ -69,11 +66,6 @@ const EXTERNAL_LINKS = [
     icon: MessageCircleQuestion,
     href: 'https://github.com/BloopAI/vibe-kanban/issues',
   },
-  {
-    label: 'Discord',
-    icon: MessageCircle,
-    href: 'https://discord.gg/AC4nwVtJM3',
-  },
 ];
 
 function NavDivider() {
@@ -92,10 +84,7 @@ export function Navbar() {
   const { projectId, project } = useProject();
   const { query, setQuery, active, clear, registerInputRef } = useSearch();
   const handleOpenInEditor = useOpenProjectInEditor(project || null);
-  const { data: onlineCount } = useDiscordOnlineCount();
-  const { loginStatus, reloadSystem, config, environment } = useUserSystem();
-  const hideDiscord =
-    environment?.is_dev_mode && config?.dev_banner?.hide_discord_link;
+  const { loginStatus, reloadSystem } = useUserSystem();
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
   // Archive filter state from URL params
@@ -154,35 +143,7 @@ export function Navbar() {
             <Link to="/projects" className="shrink-0">
               <Logo className="h-4 sm:h-6 w-auto" />
             </Link>
-            <ProjectSwitcher className="ml-2" />
-            {!hideDiscord && (
-              <a
-                href="https://discord.gg/AC4nwVtJM3"
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Join our Discord"
-                className="hidden sm:inline-flex items-center ml-3 text-xs font-medium overflow-hidden border h-6"
-              >
-                <span className="bg-muted text-foreground flex items-center p-2 border-r">
-                  <svg
-                    className="h-4 w-4"
-                    viewBox="0 0 24 24"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path d={siDiscord.path} />
-                  </svg>
-                </span>
-                <span
-                  className=" h-full items-center flex p-2"
-                  aria-live="polite"
-                >
-                  {onlineCount != null
-                    ? `${onlineCount.toLocaleString()} online`
-                    : 'online'}
-                </span>
-              </a>
-            )}
+            <ProjectSwitcher className="ml-2 hidden sm:inline-flex" />
           </div>
 
           {/* Mobile search button - visible on small screens only */}
@@ -235,21 +196,21 @@ export function Navbar() {
           <div className="flex flex-1 items-center justify-end gap-1">
             {projectId ? (
               <>
-                <div className="flex items-center gap-1">
-                  <OpenInIdeButton
-                    onClick={handleOpenInIDE}
-                    className="h-9 w-9"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-9 w-9"
-                    onClick={handleCreateTask}
-                    aria-label="Create new task"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
+                {/* OpenInIdeButton - hidden on mobile to prevent overflow */}
+                <OpenInIdeButton
+                  onClick={handleOpenInIDE}
+                  className="h-9 w-9 hidden sm:inline-flex"
+                />
+                {/* Plus button - always visible for quick task creation */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9"
+                  onClick={handleCreateTask}
+                  aria-label="Create new task"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
                 <NavDivider />
               </>
             ) : null}
@@ -373,9 +334,7 @@ export function Navbar() {
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={
-                project ? `Search ${project.name}...` : 'Search...'
-              }
+              placeholder={project ? `Search ${project.name}...` : 'Search...'}
               className="pl-10 h-10"
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {

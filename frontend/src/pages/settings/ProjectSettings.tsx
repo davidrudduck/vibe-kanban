@@ -435,7 +435,10 @@ export function ProjectSettings() {
                     }
                     disabled={!draft.setup_script}
                   />
-                  <Label htmlFor="parallel-setup" className="text-sm font-normal">
+                  <Label
+                    htmlFor="parallel-setup"
+                    className="text-sm font-normal"
+                  >
                     {t('settings.projects.scripts.parallelSetup.label')}
                   </Label>
                 </div>

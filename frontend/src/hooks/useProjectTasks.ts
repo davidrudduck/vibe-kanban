@@ -1,8 +1,9 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useJsonPatchWsStream } from './useJsonPatchWsStream';
 import {
   useRegisterOptimisticCallback,
   useRegisterStatusCallback,
+  useRegisterArchivedCallback,
 } from '@/contexts/TaskOptimisticContext';
 import type {
   SharedTask,
@@ -47,6 +48,14 @@ export interface UseProjectTasksResult {
    * Call this after successful REST API status update for instant UI feedback.
    */
   updateTaskStatusOptimistically: (taskId: string, status: TaskStatus) => void;
+  /**
+   * Optimistically update a task's archived_at in the local state.
+   * Call this after successful REST API archive/unarchive for instant UI feedback.
+   */
+  updateTaskArchivedOptimistically: (
+    taskId: string,
+    archivedAt: string | null
+  ) => void;
 }
 
 export interface UseProjectTasksOptions {
@@ -82,6 +91,14 @@ export const useProjectTasks = (
     initialData
   );
 
+  // Track optimistic archived_at overrides that persist across WebSocket updates
+  // Key: taskId, Value: { archivedAt: string | null, timestamp: number }
+  // The timestamp helps us determine when to clear the override (after server confirms)
+  const [optimisticArchivedOverrides, setOptimisticArchivedOverrides] =
+    useState<Map<string, { archivedAt: string | null; timestamp: number }>>(
+      () => new Map()
+    );
+
   // Optimistically add a task to local state via JSON Patch
   const addTaskOptimistically = useCallback(
     (task: TaskWithAttemptStatus) => {
@@ -110,11 +127,76 @@ export const useProjectTasks = (
     [patchData]
   );
 
+  // Optimistically update a task's archived_at
+  // This uses a separate state to persist across WebSocket updates
+  const updateTaskArchivedOptimistically = useCallback(
+    (taskId: string, archivedAt: string | null) => {
+      // Store the optimistic override
+      setOptimisticArchivedOverrides((prev) => {
+        const next = new Map(prev);
+        next.set(taskId, { archivedAt, timestamp: Date.now() });
+        return next;
+      });
+    },
+    []
+  );
+
   // Register callbacks globally so modals/other components can access them
   useRegisterOptimisticCallback(projectId, addTaskOptimistically);
   useRegisterStatusCallback(projectId, updateTaskStatusOptimistically);
+  useRegisterArchivedCallback(projectId, updateTaskArchivedOptimistically);
 
-  const localTasksById = useMemo(() => data?.tasks ?? {}, [data?.tasks]);
+  // Merge WebSocket data with optimistic overrides
+  const localTasksById = useMemo(() => {
+    const tasks = data?.tasks ?? {};
+
+    // If no overrides, return tasks as-is
+    if (optimisticArchivedOverrides.size === 0) {
+      return tasks;
+    }
+
+    // Apply optimistic overrides
+    const merged: Record<string, TaskWithAttemptStatus> = {};
+    for (const [taskId, task] of Object.entries(tasks)) {
+      const override = optimisticArchivedOverrides.get(taskId);
+      if (override) {
+        // Check if server has confirmed our change
+        // If server's archived_at matches our override (both null or both truthy), clear override
+        const serverArchivedAt = task.archived_at;
+        const optimisticArchivedAt = override.archivedAt;
+        const serverConfirmed =
+          (serverArchivedAt === null && optimisticArchivedAt === null) ||
+          (serverArchivedAt !== null && optimisticArchivedAt !== null);
+
+        if (serverConfirmed) {
+          // Server confirmed, use server value and schedule override cleanup
+          merged[taskId] = task;
+          // Clean up this override asynchronously
+          setTimeout(() => {
+            setOptimisticArchivedOverrides((prev) => {
+              const next = new Map(prev);
+              // Only delete if it's the same override (hasn't been updated since)
+              if (next.get(taskId)?.timestamp === override.timestamp) {
+                next.delete(taskId);
+              }
+              return next;
+            });
+          }, 0);
+        } else {
+          // Apply optimistic override
+          // Convert string to Date if truthy, keep null as null
+          const archivedAtValue = optimisticArchivedAt
+            ? new Date(optimisticArchivedAt)
+            : null;
+          merged[taskId] = { ...task, archived_at: archivedAtValue };
+        }
+      } else {
+        merged[taskId] = task;
+      }
+    }
+
+    return merged;
+  }, [data?.tasks, optimisticArchivedOverrides]);
   const sharedTasksById = useMemo(
     () => data?.shared_tasks ?? {},
     [data?.shared_tasks]
@@ -134,18 +216,38 @@ export const useProjectTasks = (
       byStatus[task.status]?.push(task);
     });
 
+    // Helper: get activity time (fallback to created_at)
+    const getActivityTime = (task: TaskWithAttemptStatus) =>
+      new Date(
+        ((task.activity_at ?? task.created_at) as string | Date).toString()
+      ).getTime();
+
     const sorted = Object.values(merged).sort(
-      (a, b) =>
-        new Date(b.created_at as string).getTime() -
-        new Date(a.created_at as string).getTime()
+      (a, b) => getActivityTime(b) - getActivityTime(a)
     );
 
-    (Object.values(byStatus) as TaskWithAttemptStatus[][]).forEach((list) => {
-      list.sort(
-        (a, b) =>
-          new Date(b.created_at as string).getTime() -
-          new Date(a.created_at as string).getTime()
-      );
+    // Apply status-aware sorting:
+    // - Todo: oldest first (FIFO queue - prevents older tasks from being buried)
+    // - All others: most recent activity first
+    const TASK_STATUSES: TaskStatus[] = [
+      'todo',
+      'inprogress',
+      'inreview',
+      'done',
+      'cancelled',
+    ];
+    TASK_STATUSES.forEach((status) => {
+      if (status === 'todo') {
+        // Todo: oldest first (ascending by activity_at)
+        byStatus[status].sort(
+          (a, b) => getActivityTime(a) - getActivityTime(b)
+        );
+      } else {
+        // All others: most recent first (descending by activity_at)
+        byStatus[status].sort(
+          (a, b) => getActivityTime(b) - getActivityTime(a)
+        );
+      }
     });
 
     return { tasks: sorted, tasksById: merged, tasksByStatus: byStatus };
@@ -178,12 +280,32 @@ export const useProjectTasks = (
       grouped[sharedTask.status]?.push(sharedTask);
     });
 
-    (Object.values(grouped) as SharedTaskRecord[][]).forEach((list) => {
-      list.sort(
-        (a, b) =>
-          new Date(b.created_at as string).getTime() -
-          new Date(a.created_at as string).getTime()
-      );
+    // Helper: get activity time for shared tasks (fallback to created_at)
+    const getSharedActivityTime = (task: SharedTaskRecord) =>
+      new Date(
+        ((task.activity_at ?? task.created_at) as string | Date).toString()
+      ).getTime();
+
+    // Apply same status-aware sorting as local tasks
+    const TASK_STATUSES: TaskStatus[] = [
+      'todo',
+      'inprogress',
+      'inreview',
+      'done',
+      'cancelled',
+    ];
+    TASK_STATUSES.forEach((status) => {
+      if (status === 'todo') {
+        // Todo: oldest first (ascending by activity_at)
+        grouped[status].sort(
+          (a, b) => getSharedActivityTime(a) - getSharedActivityTime(b)
+        );
+      } else {
+        // All others: most recent first (descending by activity_at)
+        grouped[status].sort(
+          (a, b) => getSharedActivityTime(b) - getSharedActivityTime(a)
+        );
+      }
     });
 
     return grouped;
@@ -202,5 +324,6 @@ export const useProjectTasks = (
     error,
     addTaskOptimistically,
     updateTaskStatusOptimistically,
+    updateTaskArchivedOptimistically,
   };
 };

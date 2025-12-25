@@ -129,8 +129,7 @@ impl LogEntry {
             LogMsg::Stdout(s) => (OutputType::Stdout, s),
             LogMsg::Stderr(s) => (OutputType::Stderr, s),
             LogMsg::JsonPatch(patch) => {
-                let content = serde_json::to_string(&patch)
-                    .unwrap_or_else(|_| "[]".to_string());
+                let content = serde_json::to_string(&patch).unwrap_or_else(|_| "[]".to_string());
                 (OutputType::JsonPatch, content)
             }
             LogMsg::SessionId(s) => (OutputType::SessionId, s),
@@ -459,10 +458,22 @@ mod tests {
         assert_eq!(OutputType::from_remote_str("stdout"), OutputType::Stdout);
         assert_eq!(OutputType::from_remote_str("stderr"), OutputType::Stderr);
         assert_eq!(OutputType::from_remote_str("system"), OutputType::System);
-        assert_eq!(OutputType::from_remote_str("json_patch"), OutputType::JsonPatch);
-        assert_eq!(OutputType::from_remote_str("session_id"), OutputType::SessionId);
-        assert_eq!(OutputType::from_remote_str("finished"), OutputType::Finished);
-        assert_eq!(OutputType::from_remote_str("refresh_required"), OutputType::RefreshRequired);
+        assert_eq!(
+            OutputType::from_remote_str("json_patch"),
+            OutputType::JsonPatch
+        );
+        assert_eq!(
+            OutputType::from_remote_str("session_id"),
+            OutputType::SessionId
+        );
+        assert_eq!(
+            OutputType::from_remote_str("finished"),
+            OutputType::Finished
+        );
+        assert_eq!(
+            OutputType::from_remote_str("refresh_required"),
+            OutputType::RefreshRequired
+        );
         assert_eq!(OutputType::from_remote_str("unknown"), OutputType::System);
     }
 
@@ -508,8 +519,20 @@ mod tests {
     #[test]
     fn test_paginated_logs_new() {
         let entries = vec![
-            LogEntry::new(1, "a".to_string(), OutputType::Stdout, Utc::now(), Uuid::new_v4()),
-            LogEntry::new(2, "b".to_string(), OutputType::Stdout, Utc::now(), Uuid::new_v4()),
+            LogEntry::new(
+                1,
+                "a".to_string(),
+                OutputType::Stdout,
+                Utc::now(),
+                Uuid::new_v4(),
+            ),
+            LogEntry::new(
+                2,
+                "b".to_string(),
+                OutputType::Stdout,
+                Utc::now(),
+                Uuid::new_v4(),
+            ),
         ];
 
         let paginated = PaginatedLogs::new(entries, Some(3), true, Some(100));

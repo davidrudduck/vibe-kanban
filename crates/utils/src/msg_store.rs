@@ -239,7 +239,11 @@ mod tests {
 
         // Should only receive the 3 live messages plus finished
         assert_eq!(received.len(), 4);
-        assert!(received.iter().all(|s| s.starts_with("live_") || s == "finished"));
+        assert!(
+            received
+                .iter()
+                .all(|s| s.starts_with("live_") || s == "finished")
+        );
         assert!(!received.iter().any(|s| s.starts_with("history_")));
     }
 

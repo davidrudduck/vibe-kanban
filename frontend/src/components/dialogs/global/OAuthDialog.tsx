@@ -116,8 +116,7 @@ const OAuthDialogImpl = NiceModal.create<NoProps>(() => {
     setState({ type: 'waiting', provider });
 
     // Get the app base URL from env or fall back to current window location
-    const appBase =
-      import.meta.env.VITE_APP_BASE_URL || window.location.origin;
+    const appBase = import.meta.env.VITE_APP_BASE_URL || window.location.origin;
     const returnTo = `${appBase}/api/auth/handoff/complete`;
 
     // Initialize handoff flow

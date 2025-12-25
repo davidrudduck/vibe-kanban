@@ -31,9 +31,19 @@ export function Processes() {
   // Build filter based on state
   const filter: ProcessFilter | undefined =
     filterMode === 'executors_only'
-      ? { executors_only: true, project_id: null, task_id: null, task_attempt_id: null }
+      ? {
+          executors_only: true,
+          project_id: null,
+          task_id: null,
+          task_attempt_id: null,
+        }
       : filterMode === 'by_project' && selectedProjectId
-        ? { project_id: selectedProjectId, executors_only: false, task_id: null, task_attempt_id: null }
+        ? {
+            project_id: selectedProjectId,
+            executors_only: false,
+            task_id: null,
+            task_attempt_id: null,
+          }
         : undefined;
 
   const { processes, isLoading, error, refetch } = useProcesses(filter);
@@ -148,9 +158,7 @@ export function Processes() {
             <SelectItem value="executors_only">
               {t('filters.executorsOnly')}
             </SelectItem>
-            <SelectItem value="by_project">
-              {t('filters.byProject')}
-            </SelectItem>
+            <SelectItem value="by_project">{t('filters.byProject')}</SelectItem>
           </SelectContent>
         </Select>
 

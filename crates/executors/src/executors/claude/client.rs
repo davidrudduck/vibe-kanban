@@ -225,7 +225,9 @@ impl ClaudeAgentClient {
             })?)
             .await?;
 
-        // Approval service has retry logic with exponential backoff to find the entry
+        // The approval service now has retry logic with exponential backoff
+        // to handle the race condition where the log processor hasn't yet
+        // created the NormalizedEntry
         match approval_service
             .request_question_approval(&questions, &call_id)
             .await

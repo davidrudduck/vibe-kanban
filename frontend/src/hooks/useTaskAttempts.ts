@@ -14,12 +14,16 @@ type Options = {
 
 export function useTaskAttempts(taskId?: string, opts?: Options) {
   const enabled = (opts?.enabled ?? true) && !!taskId;
-  const refetchInterval = opts?.refetchInterval ?? 5000;
+  const baseInterval = opts?.refetchInterval ?? 5000;
 
   return useQuery<TaskAttempt[]>({
     queryKey: taskAttemptKeys.byTask(taskId),
     queryFn: () => attemptsApi.getAll(taskId!),
     enabled,
-    refetchInterval,
+    // Only poll when tab is visible to reduce unnecessary network requests
+    refetchInterval: () => {
+      if (baseInterval === false) return false;
+      return document.hidden ? false : baseInterval;
+    },
   });
 }

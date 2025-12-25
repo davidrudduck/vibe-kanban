@@ -186,13 +186,62 @@ export enum BaseCodingAgent { CLAUDE_CODE = "CLAUDE_CODE", AMP = "AMP", GEMINI =
 
 export type CodingAgent = { "CLAUDE_CODE": ClaudeCode } | { "AMP": Amp } | { "GEMINI": Gemini } | { "CODEX": Codex } | { "OPENCODE": Opencode } | { "CURSOR_AGENT": CursorAgent } | { "QWEN_CODE": QwenCode } | { "COPILOT": Copilot } | { "DROID": Droid };
 
-export type Tag = { id: string, tag_name: string, content: string, created_at: string, updated_at: string, };
+export type Template = { id: string, template_name: string, content: string, created_at: string, updated_at: string, };
 
-export type CreateTag = { tag_name: string, content: string, };
+export type CreateTemplate = { template_name: string, content: string, };
 
-export type UpdateTag = { tag_name: string | null, content: string | null, };
+export type UpdateTemplate = { template_name: string | null, content: string | null, };
 
-export type TagSearchParams = { search: string | null, };
+export type TemplateSearchParams = { search: string | null, };
+
+export type Label = { id: string, 
+/**
+ * Project ID if project-specific, NULL if global
+ */
+project_id: string | null, name: string, 
+/**
+ * Lucide icon name (e.g., "tag", "bug", "code")
+ */
+icon: string, 
+/**
+ * Hex color code (e.g., "#3b82f6")
+ */
+color: string, created_at: string, updated_at: string, };
+
+export type CreateLabel = { 
+/**
+ * Project ID if project-specific, None for global label
+ */
+project_id: string | null, name: string, icon: string, color: string, };
+
+export type UpdateLabel = { name: string | null, icon: string | null, color: string | null, };
+
+export type TaskLabel = { id: string, task_id: string, label_id: string, created_at: string, };
+
+export type SetTaskLabels = { label_ids: Array<string>, };
+
+export type LabelQueryParams = { 
+/**
+ * Filter by project ID. If provided, returns global + project-specific labels.
+ * If not provided, returns only global labels.
+ */
+project_id: string | null, };
+
+export type TaskVariable = { id: string, task_id: string, name: string, value: string, created_at: string, updated_at: string, };
+
+export type CreateTaskVariable = { name: string, value: string, };
+
+export type UpdateTaskVariable = { name: string | null, value: string | null, };
+
+export type ResolvedVariable = { name: string, value: string, 
+/**
+ * The task ID this variable was defined on (may differ from requested task_id for inherited vars)
+ */
+source_task_id: string, 
+/**
+ * True if this variable was inherited from a parent task
+ */
+inherited: boolean, };
 
 export type TaskStatus = "todo" | "inprogress" | "inreview" | "done" | "cancelled";
 
@@ -228,7 +277,11 @@ activity_at: Date | null, };
 
 export type TaskRelationships = { parent_task: Task | null, current_attempt: TaskAttempt, children: Array<Task>, };
 
-export type TaskWithProjectInfo = { id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_task_id: string | null, shared_task_id: string | null, created_at: string, updated_at: string, is_remote: boolean, remote_assignee_user_id: string | null, remote_assignee_name: string | null, remote_assignee_username: string | null, remote_version: bigint, remote_last_synced_at: string | null, remote_stream_node_id: string | null, remote_stream_url: string | null, archived_at: Date | null, assignee_first_name: string | null, assignee_last_name: string | null, assignee_username: string | null, has_in_progress_attempt: boolean, has_merged_attempt: boolean, last_attempt_failed: boolean, executor: string, project_name: string, source_node_name: string | null, };
+export type TaskWithProjectInfo = { id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_task_id: string | null, shared_task_id: string | null, created_at: string, updated_at: string, is_remote: boolean, remote_assignee_user_id: string | null, remote_assignee_name: string | null, remote_assignee_username: string | null, remote_version: bigint, remote_last_synced_at: string | null, remote_stream_node_id: string | null, remote_stream_url: string | null, archived_at: Date | null, 
+/**
+ * Timestamp of last significant activity (status change, execution start).
+ */
+activity_at: Date | null, assignee_first_name: string | null, assignee_last_name: string | null, assignee_username: string | null, has_in_progress_attempt: boolean, has_merged_attempt: boolean, last_attempt_failed: boolean, executor: string, project_name: string, source_node_name: string | null, };
 
 export type AllTasksResponse = { tasks: Array<TaskWithProjectInfo>, };
 
@@ -238,9 +291,17 @@ export type DashboardSummary = { running_tasks: Array<DashboardTask>, in_review_
 
 export type ActivityCategory = "needs_review" | "in_progress" | "completed";
 
-export type ActivityFeedItem = { task_id: string, task_title: string, project_id: string, project_name: string, status: TaskStatus, category: ActivityCategory, executor: string, activity_at: string, };
+export type ActivityFeedItem = { task_id: string, task_title: string, project_id: string, project_name: string, status: TaskStatus, category: ActivityCategory, executor: string, activity_at: string, 
+/**
+ * Whether this item has been dismissed by the user.
+ */
+is_dismissed: boolean, };
 
-export type ActivityCounts = { needs_review: number, in_progress: number, completed: number, };
+export type ActivityCounts = { needs_review: number, in_progress: number, completed: number, 
+/**
+ * Number of dismissed items (across all categories).
+ */
+dismissed: number, };
 
 export type ActivityFeed = { items: Array<ActivityFeedItem>, counts: ActivityCounts, };
 
@@ -380,15 +441,57 @@ task: Task,
  */
 subtasks_archived: bigint, };
 
+export type PreviewExpansionRequest = { 
+/**
+ * The text to expand variables in
+ */
+text: string, };
+
+export type PreviewExpansionResponse = { 
+/**
+ * The text with variables expanded
+ */
+expanded_text: string, 
+/**
+ * Variables that were referenced but not defined
+ */
+undefined_variables: Array<string>, 
+/**
+ * Variables that were successfully expanded
+ */
+expanded_variables: Array<ExpandedVariableInfo>, };
+
+export type ExpandedVariableInfo = { 
+/**
+ * The variable name
+ */
+name: string, 
+/**
+ * The task ID where this variable was defined
+ */
+source_task_id: string | null, };
+
 export type CreateGitHubPrRequest = { title: string, body: string | null, target_branch: string | null, };
 
 export type ImageResponse = { id: string, file_path: string, original_name: string, mime_type: string | null, size_bytes: bigint, hash: string, created_at: string, updated_at: string, };
 
-export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, analytics_enabled: boolean, sentry_enabled: boolean, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, dev_banner: DevBannerConfig, 
+export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, 
+/**
+ * Deprecated: analytics has been removed. Field kept for config compatibility.
+ */
+analytics_enabled: boolean, 
+/**
+ * Deprecated: Sentry error reporting has been removed. Field kept for config compatibility.
+ */
+sentry_enabled: boolean, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, dev_banner: DevBannerConfig, 
 /**
  * Pagination settings for log display
  */
-pagination: PaginationConfig, };
+pagination: PaginationConfig, 
+/**
+ * Font settings for UI, code, and prose contexts
+ */
+fonts: FontConfig, };
 
 export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, };
 
@@ -406,8 +509,6 @@ export enum SoundFile { ABSTRACT_SOUND1 = "ABSTRACT_SOUND1", ABSTRACT_SOUND2 = "
 
 export type UiLanguage = "BROWSER" | "EN" | "JA" | "ES" | "KO";
 
-export type ShowcaseState = { seen_features: Array<string>, };
-
 export type DevBannerConfig = { 
 /**
  * Custom background color (CSS color string), None = default orange
@@ -424,11 +525,7 @@ show_hostname: boolean,
 /**
  * Whether to display the OS type and version in the banner
  */
-show_os_info: boolean, 
-/**
- * Whether to hide the Discord link in the navbar (dev mode only)
- */
-hide_discord_link: boolean, };
+show_os_info: boolean, };
 
 export type PaginationConfig = { 
 /**
@@ -439,6 +536,30 @@ initial_load: bigint,
  * Maximum entries per page request (default: 500)
  */
 max_limit: bigint, };
+
+export type FontConfig = { 
+/**
+ * Font for UI elements (buttons, menus, navigation)
+ */
+ui_font: UiFont, 
+/**
+ * Font for code blocks and monospace text
+ */
+code_font: CodeFont, 
+/**
+ * Font for prose/reading content (task descriptions, markdown)
+ */
+prose_font: ProseFont, 
+/**
+ * Disable font ligatures in code contexts
+ */
+disable_ligatures: boolean, };
+
+export type UiFont = "INTER" | "ROBOTO" | "PUBLIC_SANS" | "CHIVO_MONO" | "SYSTEM";
+
+export type CodeFont = "JET_BRAINS_MONO" | "CASCADIA_MONO" | "HACK" | "IBM_PLEX_MONO" | "CHIVO_MONO" | "SYSTEM";
+
+export type ProseFont = "INTER" | "ROBOTO" | "GEORGIA" | "CHIVO_MONO" | "SYSTEM";
 
 export type GitBranch = { name: string, is_current: boolean, is_remote: boolean, last_commit_date: Date, };
 
@@ -542,7 +663,12 @@ executor_profile_id: ExecutorProfileId, base_branch: string,
  * Target node ID for remote execution (if project exists on multiple nodes).
  * When set, the request will be proxied to the specified node.
  */
-target_node_id: string | null, };
+target_node_id: string | null, 
+/**
+ * When true, reuse the parent task's latest attempt worktree.
+ * Only valid when the task has a parent_task_id.
+ */
+use_parent_worktree: boolean | null, };
 
 export type RunAgentSetupRequest = { executor_profile_id: ExecutorProfileId, };
 
@@ -827,3 +953,47 @@ pid: number,
  * Error message
  */
 error: string, };
+
+export type SessionInfo = { 
+/**
+ * Unique session identifier
+ */
+id: string, 
+/**
+ * Working directory of the session
+ */
+working_dir: string, 
+/**
+ * Whether this session uses tmux
+ */
+is_tmux: boolean, 
+/**
+ * Current terminal dimensions
+ */
+cols: number, rows: number, 
+/**
+ * Whether the session is still active
+ */
+active: boolean, };
+
+export type CreateSessionResponse = { 
+/**
+ * The session ID to use for WebSocket connection.
+ */
+session_id: string, 
+/**
+ * Information about the created session.
+ */
+session: SessionInfo, 
+/**
+ * Whether this was a reconnection to an existing session.
+ */
+is_reconnect: boolean, };
+
+export type TerminalMessage = { "type": "input", data: string, } | { "type": "resize", cols: number, rows: number, } | { "type": "output", data: string, } | { "type": "exit", code: number | null, } | { "type": "error", message: string, };
+
+export type WorktreePathResponse = { 
+/**
+ * Absolute path to the worktree directory
+ */
+path: string, };

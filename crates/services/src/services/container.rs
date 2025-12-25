@@ -17,6 +17,7 @@ use db::{
         executor_session::{CreateExecutorSession, ExecutorSession},
         task::{Task, TaskStatus},
         task_attempt::{TaskAttempt, TaskAttemptError},
+        task_variable::TaskVariable,
     },
 };
 use executors::{
@@ -46,6 +47,7 @@ use crate::services::{
     image::ImageService,
     notification::NotificationService,
     share::SharePublisher,
+    variable_expander,
     worktree_manager::WorktreeError,
 };
 pub type ContainerRef = String;
@@ -697,9 +699,12 @@ pub trait ContainerService {
         &self,
         task_attempt: &TaskAttempt,
         executor_profile_id: ExecutorProfileId,
+        skip_worktree_creation: bool,
     ) -> Result<ExecutionProcess, ContainerError> {
-        // Create container
-        self.create(task_attempt).await?;
+        // Create container (unless skipping for shared worktree scenarios)
+        if !skip_worktree_creation {
+            self.create(task_attempt).await?;
+        }
 
         // Get parent task
         let task = task_attempt
@@ -728,6 +733,48 @@ pub trait ContainerService {
         // Use enhanced prompt to include validation steps (Anthropic Harness pattern)
         let prompt =
             ImageService::canonicalise_image_paths(&task.to_enhanced_prompt(), &worktree_path);
+
+        // Expand task variables ($VAR and ${VAR} syntax) in the prompt
+        let prompt = {
+            // Get resolved variables for this task (including inherited from parent chain)
+            let variables = TaskVariable::get_variable_map(&self.db().pool, task.id)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::warn!(task_id = %task.id, error = ?e, "Failed to fetch task variables");
+                    std::collections::HashMap::new()
+                });
+
+            if variables.is_empty() {
+                prompt
+            } else {
+                // Convert (String, Uuid) to (String, Option<Uuid>) for variable_expander
+                let variables: HashMap<String, (String, Option<Uuid>)> = variables
+                    .into_iter()
+                    .map(|(k, (v, id))| (k, (v, Some(id))))
+                    .collect();
+
+                let result = variable_expander::expand_variables(&prompt, &variables);
+
+                // Log warning if there are undefined variables
+                if !result.undefined_vars.is_empty() {
+                    tracing::warn!(
+                        task_id = %task.id,
+                        undefined_vars = ?result.undefined_vars,
+                        "Task prompt contains undefined variables that were not expanded"
+                    );
+                }
+
+                if !result.expanded_vars.is_empty() {
+                    tracing::info!(
+                        task_id = %task.id,
+                        expanded_count = result.expanded_vars.len(),
+                        "Expanded task variables in prompt"
+                    );
+                }
+
+                result.text
+            }
+        };
 
         let cleanup_action = self.cleanup_action(project.cleanup_script);
 

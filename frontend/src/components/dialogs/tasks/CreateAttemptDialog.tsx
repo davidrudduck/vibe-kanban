@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -62,6 +63,7 @@ const CreateAttemptDialogImpl = NiceModal.create<CreateAttemptDialogProps>(
       null
     );
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+    const [useParentWorktree, setUseParentWorktree] = useState<boolean>(false);
 
     // Fetch available nodes for remote execution
     const { data: availableNodesData, isLoading: isLoadingNodes } =
@@ -121,8 +123,24 @@ const CreateAttemptDialogImpl = NiceModal.create<CreateAttemptDialogProps>(
         setUserSelectedProfile(null);
         setUserSelectedBranch(null);
         setSelectedNodeId(null);
+        setUseParentWorktree(false);
       }
     }, [modal.visible]);
+
+    // Auto-enable "use parent worktree" for child tasks with valid parent attempts
+    useEffect(() => {
+      if (
+        modal.visible &&
+        task?.parent_task_id &&
+        parentLatestAttempt?.container_ref
+      ) {
+        setUseParentWorktree(true);
+      }
+    }, [
+      modal.visible,
+      task?.parent_task_id,
+      parentLatestAttempt?.container_ref,
+    ]);
 
     const defaultProfile: ExecutorProfileId | null = useMemo(() => {
       if (latestAttempt?.executor) {
@@ -181,6 +199,7 @@ const CreateAttemptDialogImpl = NiceModal.create<CreateAttemptDialogProps>(
           profile: effectiveProfile,
           baseBranch: effectiveBranch,
           targetNodeId: selectedNodeId,
+          useParentWorktree: useParentWorktree && !!task?.parent_task_id,
         });
 
         modal.hide();
@@ -237,6 +256,36 @@ const CreateAttemptDialogImpl = NiceModal.create<CreateAttemptDialogProps>(
                 }
               />
             </div>
+
+            {/* Use parent worktree checkbox - shown only for child tasks with valid parent attempts */}
+            {task?.parent_task_id &&
+              parentLatestAttempt?.container_ref &&
+              !parentLatestAttempt.worktree_deleted && (
+                <div className="flex items-start space-x-3 pt-2">
+                  <Checkbox
+                    id="use-parent-worktree"
+                    checked={useParentWorktree}
+                    onCheckedChange={setUseParentWorktree}
+                  />
+                  <div className="flex flex-col gap-1">
+                    <Label
+                      htmlFor="use-parent-worktree"
+                      className="text-sm font-medium cursor-pointer"
+                    >
+                      {t(
+                        'createAttemptDialog.useParentWorktree',
+                        'Use parent worktree'
+                      )}
+                    </Label>
+                    <span className="text-xs text-muted-foreground">
+                      {t(
+                        'createAttemptDialog.useParentWorktreeHelp',
+                        'Continue work in same worktree and branch as parent task'
+                      )}
+                    </span>
+                  </div>
+                </div>
+              )}
 
             {/* Node selector - shown when there are available remote nodes */}
             {hasAvailableNodes && (

@@ -1,7 +1,4 @@
-import {
-  useDiffStream,
-  type RemoteStreamInfo,
-} from '@/hooks/useDiffStream';
+import { useDiffStream, type RemoteStreamInfo } from '@/hooks/useDiffStream';
 import { useMemo, useCallback, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader } from '@/components/ui/loader';
@@ -29,11 +26,7 @@ interface DiffsPanelProps {
   gitOps?: GitOperationsInputs;
 }
 
-export function DiffsPanel({
-  selectedAttempt,
-  task,
-  gitOps,
-}: DiffsPanelProps) {
+export function DiffsPanel({ selectedAttempt, task, gitOps }: DiffsPanelProps) {
   const { t } = useTranslation('tasks');
   const [loading, setLoading] = useState(true);
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());

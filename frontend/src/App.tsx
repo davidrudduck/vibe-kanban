@@ -9,7 +9,6 @@ import { FullAttemptLogsPage } from '@/pages/FullAttemptLogs';
 import { Nodes } from '@/pages/Nodes';
 import { Processes } from '@/pages/Processes';
 import { NormalLayout } from '@/components/layout/NormalLayout';
-import { usePostHog } from 'posthog-js/react';
 import { useAuth } from '@/hooks';
 
 import {
@@ -23,13 +22,13 @@ import {
 } from '@/pages/settings/';
 import { UserSystemProvider, useUserSystem } from '@/components/ConfigProvider';
 import { ThemeProvider } from '@/components/ThemeProvider';
+import { FontProvider } from '@/components/FontProvider';
 import { SearchProvider } from '@/contexts/SearchContext';
 
 import { HotkeysProvider } from 'react-hotkeys-hook';
 
 import { ProjectProvider } from '@/contexts/ProjectContext';
 import { ThemeMode } from 'shared/types';
-import * as Sentry from '@sentry/react';
 import { Loader } from '@/components/ui/loader';
 
 import { DisclaimerDialog } from '@/components/dialogs/global/DisclaimerDialog';
@@ -38,40 +37,9 @@ import { ReleaseNotesDialog } from '@/components/dialogs/global/ReleaseNotesDial
 import { ClickedElementsProvider } from './contexts/ClickedElementsProvider';
 import NiceModal from '@ebay/nice-modal-react';
 
-const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
-
 function AppContent() {
-  const { config, analyticsUserId, updateAndSaveConfig, loading } =
-    useUserSystem();
-  const posthog = usePostHog();
+  const { config, updateAndSaveConfig, loading } = useUserSystem();
   const { isSignedIn } = useAuth();
-
-  // Handle opt-in/opt-out and user identification when config loads
-  useEffect(() => {
-    if (!posthog || !analyticsUserId) return;
-
-    if (config?.analytics_enabled) {
-      posthog.opt_in_capturing();
-      posthog.identify(analyticsUserId);
-      console.log('[Analytics] Analytics enabled and user identified');
-    } else {
-      posthog.opt_out_capturing();
-      console.log('[Analytics] Analytics disabled by user preference');
-    }
-  }, [config?.analytics_enabled, analyticsUserId, posthog]);
-
-  // Handle Sentry opt-in/opt-out when config loads
-  useEffect(() => {
-    const sentryEnabled = config?.sentry_enabled ?? false;
-
-    // Only update and log if the value actually changed
-    if (window.__SENTRY_ENABLED__ !== sentryEnabled) {
-      window.__SENTRY_ENABLED__ = sentryEnabled;
-      console.log(
-        `[Sentry] Error reporting ${sentryEnabled ? 'enabled' : 'disabled by user preference'}`
-      );
-    }
-  }, [config?.sentry_enabled]);
 
   useEffect(() => {
     if (!config) return;
@@ -131,55 +99,57 @@ function AppContent() {
   return (
     <I18nextProvider i18n={i18n}>
       <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>
-        <SearchProvider>
-          <div className="h-screen flex flex-col bg-background">
-            <SentryRoutes>
-              {/* VS Code full-page logs route (outside NormalLayout for minimal UI) */}
-              <Route
-                path="/projects/:projectId/tasks/:taskId/attempts/:attemptId/full"
-                element={<FullAttemptLogsPage />}
-              />
+        <FontProvider initialFonts={config?.fonts}>
+          <SearchProvider>
+            <div className="h-screen flex flex-col bg-background">
+              <Routes>
+                {/* VS Code full-page logs route (outside NormalLayout for minimal UI) */}
+                <Route
+                  path="/projects/:projectId/tasks/:taskId/attempts/:attemptId/full"
+                  element={<FullAttemptLogsPage />}
+                />
 
-              <Route element={<NormalLayout />}>
-                <Route path="/" element={<Projects />} />
-                <Route path="/projects" element={<Projects />} />
-                <Route path="/projects/:projectId" element={<Projects />} />
-                <Route path="/nodes" element={<Nodes />} />
-                <Route path="/nodes/:nodeId" element={<Nodes />} />
-                <Route path="/processes" element={<Processes />} />
-                <Route path="/tasks/all" element={<AllProjectsTasks />} />
-                <Route
-                  path="/projects/:projectId/tasks"
-                  element={<ProjectTasks />}
-                />
-                <Route path="/settings/*" element={<SettingsLayout />}>
-                  <Route index element={<Navigate to="general" replace />} />
-                  <Route path="general" element={<GeneralSettings />} />
-                  <Route path="projects" element={<ProjectSettings />} />
+                <Route element={<NormalLayout />}>
+                  <Route path="/" element={<Projects />} />
+                  <Route path="/projects" element={<Projects />} />
+                  <Route path="/projects/:projectId" element={<Projects />} />
+                  <Route path="/nodes" element={<Nodes />} />
+                  <Route path="/nodes/:nodeId" element={<Nodes />} />
+                  <Route path="/processes" element={<Processes />} />
+                  <Route path="/tasks/all" element={<AllProjectsTasks />} />
                   <Route
-                    path="organizations"
-                    element={<OrganizationSettings />}
+                    path="/projects/:projectId/tasks"
+                    element={<ProjectTasks />}
                   />
-                  <Route path="agents" element={<AgentSettings />} />
-                  <Route path="mcp" element={<McpSettings />} />
-                  <Route path="backups" element={<BackupSettings />} />
+                  <Route path="/settings/*" element={<SettingsLayout />}>
+                    <Route index element={<Navigate to="general" replace />} />
+                    <Route path="general" element={<GeneralSettings />} />
+                    <Route path="projects" element={<ProjectSettings />} />
+                    <Route
+                      path="organizations"
+                      element={<OrganizationSettings />}
+                    />
+                    <Route path="agents" element={<AgentSettings />} />
+                    <Route path="mcp" element={<McpSettings />} />
+                    <Route path="backups" element={<BackupSettings />} />
+                  </Route>
+                  <Route
+                    path="/mcp-servers"
+                    element={<Navigate to="/settings/mcp" replace />}
+                  />
+                  <Route
+                    path="/projects/:projectId/tasks/:taskId"
+                    element={<ProjectTasks />}
+                  />
+                  <Route
+                    path="/projects/:projectId/tasks/:taskId/attempts/:attemptId"
+                    element={<ProjectTasks />}
+                  />
                 </Route>
-                <Route
-                  path="/mcp-servers"
-                  element={<Navigate to="/settings/mcp" replace />}
-                />
-                <Route
-                  path="/projects/:projectId/tasks/:taskId"
-                  element={<ProjectTasks />}
-                />
-                <Route
-                  path="/projects/:projectId/tasks/:taskId/attempts/:attemptId"
-                  element={<ProjectTasks />}
-                />
-              </Route>
-            </SentryRoutes>
-          </div>
-        </SearchProvider>
+              </Routes>
+            </div>
+          </SearchProvider>
+        </FontProvider>
       </ThemeProvider>
     </I18nextProvider>
   );

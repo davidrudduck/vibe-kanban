@@ -32,11 +32,7 @@ const FileViewDialogImpl = NiceModal.create<FileViewDialogProps>(
 
     const isMarkdown = /\.(md|markdown|mdx)$/i.test(filePath);
 
-    const {
-      data,
-      isLoading,
-      error,
-    } = useQuery({
+    const { data, isLoading, error } = useQuery({
       queryKey: ['claude-file', relativePath],
       queryFn: () => fileBrowserApi.readClaudeFile(relativePath),
       enabled: modal.visible,

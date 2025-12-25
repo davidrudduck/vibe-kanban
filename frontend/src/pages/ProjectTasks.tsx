@@ -8,11 +8,6 @@ import { Loader } from '@/components/ui/loader';
 import { tasksApi } from '@/lib/api';
 import type { GitBranch, TaskAttempt, BranchStatus } from 'shared/types';
 import { openTaskForm } from '@/lib/openTaskForm';
-import { FeatureShowcaseDialog } from '@/components/dialogs/global/FeatureShowcaseDialog';
-import { showcases } from '@/config/showcases';
-import { useUserSystem } from '@/components/ConfigProvider';
-import { usePostHog } from 'posthog-js/react';
-
 import { useSearch } from '@/contexts/SearchContext';
 import { useProject } from '@/contexts/ProjectContext';
 import { useTaskAttempts } from '@/hooks/useTaskAttempts';
@@ -58,6 +53,7 @@ import { TasksLayout, type LayoutMode } from '@/components/layout/TasksLayout';
 import { PreviewPanel } from '@/components/panels/PreviewPanel';
 import { DiffsPanel } from '@/components/panels/DiffsPanel';
 import { FilesPanel } from '@/components/files';
+import { TerminalsPanel } from '@/components/terminal';
 import TaskAttemptPanel from '@/components/panels/TaskAttemptPanel';
 import TaskPanel from '@/components/panels/TaskPanel';
 import SharedTaskPanel from '@/components/panels/SharedTaskPanel';
@@ -149,7 +145,6 @@ export function ProjectTasks() {
   const [searchParams, setSearchParams] = useSearchParams();
   const isXL = useMediaQuery('(min-width: 1280px)');
   const isMobile = !isXL;
-  const posthog = usePostHog();
   const [selectedSharedTaskId, setSelectedSharedTaskId] = useState<
     string | null
   >(null);
@@ -192,6 +187,7 @@ export function ProjectTasks() {
     error: streamError,
     addTaskOptimistically,
     updateTaskStatusOptimistically,
+    updateTaskArchivedOptimistically,
   } = useProjectTasks(projectId || '', projectTasksOptions);
 
   const selectedTask = useMemo(
@@ -213,35 +209,6 @@ export function ProjectTasks() {
   const isTaskPanelOpen = Boolean(taskId && selectedTask);
   const isSharedPanelOpen = Boolean(selectedSharedTask);
   const isPanelOpen = isTaskPanelOpen || isSharedPanelOpen;
-
-  const { config, updateAndSaveConfig, loading } = useUserSystem();
-
-  const isLoaded = !loading;
-  const showcaseId = showcases.taskPanel.id;
-  const seenFeatures = useMemo(
-    () => config?.showcases?.seen_features ?? [],
-    [config?.showcases?.seen_features]
-  );
-  const seen = isLoaded && seenFeatures.includes(showcaseId);
-
-  useEffect(() => {
-    if (!isLoaded || !isPanelOpen || seen) return;
-
-    FeatureShowcaseDialog.show({ config: showcases.taskPanel }).finally(() => {
-      FeatureShowcaseDialog.hide();
-      if (seenFeatures.includes(showcaseId)) return;
-      void updateAndSaveConfig({
-        showcases: { seen_features: [...seenFeatures, showcaseId] },
-      });
-    });
-  }, [
-    isLoaded,
-    isPanelOpen,
-    seen,
-    showcaseId,
-    updateAndSaveConfig,
-    seenFeatures,
-  ]);
 
   const isLatest = attemptId === 'latest';
   const { data: attempts = [], isLoading: isAttemptsLoading } = useTaskAttempts(
@@ -316,7 +283,7 @@ export function ProjectTasks() {
 
   const rawMode = searchParams.get('view') as LayoutMode;
   const mode: LayoutMode =
-    rawMode === 'preview' || rawMode === 'diffs' || rawMode === 'files'
+    rawMode === 'preview' || rawMode === 'diffs' || rawMode === 'files' || rawMode === 'terminal'
       ? rawMode
       : null;
 
@@ -406,6 +373,15 @@ export function ProjectTasks() {
       );
     };
 
+    // Archive filter: when showArchived=true, show ONLY archived tasks
+    // when showArchived=false, show ONLY non-archived tasks
+    const matchesArchiveFilter = (
+      archivedAt: string | Date | null
+    ): boolean => {
+      const isArchived = archivedAt !== null;
+      return showArchived ? isArchived : !isArchived;
+    };
+
     tasks.forEach((task) => {
       const statusKey = normalizeStatus(task.status);
       const sharedTask = task.shared_task_id
@@ -413,6 +389,11 @@ export function ProjectTasks() {
         : sharedTasksById[task.id];
 
       if (!matchesSearch(task.title, task.description)) {
+        return;
+      }
+
+      // Apply archive filter
+      if (!matchesArchiveFilter(task.archived_at)) {
         return;
       }
 
@@ -433,39 +414,53 @@ export function ProjectTasks() {
       });
     });
 
-    (
-      Object.entries(sharedOnlyByStatus) as [TaskStatus, SharedTaskRecord[]][]
-    ).forEach(([status, items]) => {
-      if (!columns[status]) {
-        columns[status] = [];
-      }
-      items.forEach((sharedTask) => {
-        if (!matchesSearch(sharedTask.title, sharedTask.description)) {
-          return;
+    // Shared tasks don't have archived_at field, so we exclude them
+    // when showing only archived tasks (they're treated as non-archived)
+    if (!showArchived) {
+      (
+        Object.entries(sharedOnlyByStatus) as [TaskStatus, SharedTaskRecord[]][]
+      ).forEach(([status, items]) => {
+        if (!columns[status]) {
+          columns[status] = [];
         }
-        const shouldIncludeShared =
-          showSharedTasks || sharedTask.assignee_user_id === userId;
-        if (!shouldIncludeShared) {
-          return;
-        }
-        columns[status].push({
-          type: 'shared',
-          task: sharedTask,
+        items.forEach((sharedTask) => {
+          if (!matchesSearch(sharedTask.title, sharedTask.description)) {
+            return;
+          }
+          const shouldIncludeShared =
+            showSharedTasks || sharedTask.assignee_user_id === userId;
+          if (!shouldIncludeShared) {
+            return;
+          }
+          columns[status].push({
+            type: 'shared',
+            task: sharedTask,
+          });
         });
       });
-    });
+    }
 
-    const getTimestamp = (item: KanbanColumnItem) => {
-      const createdAt =
-        item.type === 'task' ? item.task.created_at : item.task.created_at;
-      if (createdAt instanceof Date) {
-        return createdAt.getTime();
+    // Get activity time for sorting (fallback to created_at)
+    const getActivityTime = (item: KanbanColumnItem) => {
+      const task = item.task;
+      const activityAt = task.activity_at ?? task.created_at;
+      if (activityAt instanceof Date) {
+        return activityAt.getTime();
       }
-      return new Date(createdAt).getTime();
+      return new Date(activityAt as string).getTime();
     };
 
+    // Apply status-aware sorting:
+    // - Todo: oldest first (FIFO queue - prevents older tasks from being buried)
+    // - All others: most recent activity first
     TASK_STATUSES.forEach((status) => {
-      columns[status].sort((a, b) => getTimestamp(b) - getTimestamp(a));
+      if (status === 'todo') {
+        // Todo: oldest first (ascending by activity_at)
+        columns[status].sort((a, b) => getActivityTime(a) - getActivityTime(b));
+      } else {
+        // All others: most recent first (descending by activity_at)
+        columns[status].sort((a, b) => getActivityTime(b) - getActivityTime(a));
+      }
     });
 
     return columns;
@@ -476,6 +471,7 @@ export function ProjectTasks() {
     sharedOnlyByStatus,
     sharedTasksById,
     showSharedTasks,
+    showArchived,
     userId,
   ]);
 
@@ -583,34 +579,6 @@ export function ProjectTasks() {
   useKeyOpenDetails(
     () => {
       if (isPanelOpen) {
-        // Track keyboard shortcut before cycling view
-        const order: LayoutMode[] = [null, 'preview', 'diffs', 'files'];
-        const idx = order.indexOf(mode);
-        const next = order[(idx + 1) % order.length];
-
-        if (next === 'preview') {
-          posthog?.capture('preview_navigated', {
-            trigger: 'keyboard',
-            direction: 'forward',
-            timestamp: new Date().toISOString(),
-            source: 'frontend',
-          });
-        } else if (next === 'diffs') {
-          posthog?.capture('diffs_navigated', {
-            trigger: 'keyboard',
-            direction: 'forward',
-            timestamp: new Date().toISOString(),
-            source: 'frontend',
-          });
-        } else if (next === 'files') {
-          posthog?.capture('files_navigated', {
-            trigger: 'keyboard',
-            direction: 'forward',
-            timestamp: new Date().toISOString(),
-            source: 'frontend',
-          });
-        }
-
         cycleViewForward();
       } else if (selectedTask) {
         handleViewTaskDetails(selectedTask);
@@ -623,34 +591,6 @@ export function ProjectTasks() {
   useKeyCycleViewBackward(
     () => {
       if (isPanelOpen) {
-        // Track keyboard shortcut before cycling view
-        const order: LayoutMode[] = [null, 'preview', 'diffs', 'files'];
-        const idx = order.indexOf(mode);
-        const next = order[(idx - 1 + order.length) % order.length];
-
-        if (next === 'preview') {
-          posthog?.capture('preview_navigated', {
-            trigger: 'keyboard',
-            direction: 'backward',
-            timestamp: new Date().toISOString(),
-            source: 'frontend',
-          });
-        } else if (next === 'diffs') {
-          posthog?.capture('diffs_navigated', {
-            trigger: 'keyboard',
-            direction: 'backward',
-            timestamp: new Date().toISOString(),
-            source: 'frontend',
-          });
-        } else if (next === 'files') {
-          posthog?.capture('files_navigated', {
-            trigger: 'keyboard',
-            direction: 'backward',
-            timestamp: new Date().toISOString(),
-            source: 'frontend',
-          });
-        }
-
         cycleViewBackward();
       }
     },
@@ -929,6 +869,7 @@ export function ProjectTasks() {
             onClose={() =>
               navigate(`/projects/${projectId}/tasks`, { replace: true })
             }
+            isMobile={isMobile}
           />
         )
       }
@@ -1017,7 +958,7 @@ export function ProjectTasks() {
           }}
           tasksById={tasksById}
         >
-          {({ logs, followUp, relationships }) => (
+          {({ logs, followUp, relationships, variables }) => (
             <>
               <GitErrorBanner />
               <div className="flex-1 min-h-0 flex flex-col">
@@ -1035,6 +976,13 @@ export function ProjectTasks() {
                 <div className="shrink-0 border-t">
                   <div className="mx-auto w-full max-w-[50rem]">
                     <TodoPanel />
+                  </div>
+                </div>
+
+                {/* Variables Panel - shown when task has variables */}
+                <div className="shrink-0 border-t">
+                  <div className="mx-auto w-full max-w-[50rem]">
+                    {variables}
                   </div>
                 </div>
 
@@ -1075,6 +1023,12 @@ export function ProjectTasks() {
             compact={isMobile}
           />
         )}
+        {mode === 'terminal' && (
+          <TerminalsPanel
+            attemptId={attempt.id}
+            onClose={() => setMode(null)}
+          />
+        )}
       </div>
     ) : (
       <div className="relative h-full w-full" />
@@ -1106,6 +1060,7 @@ export function ProjectTasks() {
     <TaskOptimisticProvider
       addTaskOptimistically={addTaskOptimistically}
       updateTaskStatusOptimistically={updateTaskStatusOptimistically}
+      updateTaskArchivedOptimistically={updateTaskArchivedOptimistically}
     >
       <div className="min-h-full h-full flex flex-col">
         {streamError && (

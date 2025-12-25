@@ -102,30 +102,27 @@ impl Approvals {
         let is_question = request.questions.is_some();
 
         if let Some(store) = self.msg_store_by_id(&request.execution_process_id).await {
-            // Retry with exponential backoff to handle async log processor timing
-            let matching_tool = {
-                let mut result = None;
-                let delays = [50, 100, 200, 400]; // Total: 750ms max wait
-                for (attempt, delay_ms) in delays.iter().enumerate() {
-                    result = find_matching_tool_use(store.clone(), &request.tool_call_id);
-                    if result.is_some() {
-                        tracing::debug!(
-                            "Found matching tool use entry on attempt {} for '{}'",
-                            attempt + 1,
-                            request.tool_call_id
-                        );
-                        break;
-                    }
-                    tracing::debug!(
-                        "Attempt {} failed, waiting {}ms for tool call '{}'",
-                        attempt + 1,
-                        delay_ms,
-                        request.tool_call_id
-                    );
-                    tokio::time::sleep(std::time::Duration::from_millis(*delay_ms)).await;
+            // Retry finding the entry with backoff (handles race condition where
+            // the log processor hasn't created the entry yet)
+            let mut matching_tool = None;
+            let retry_delays = [50, 100, 200, 400]; // Total max wait: 750ms
+
+            for (attempt, delay_ms) in retry_delays.iter().enumerate() {
+                matching_tool = find_matching_tool_use(store.clone(), &request.tool_call_id);
+
+                if matching_tool.is_some() {
+                    break;
                 }
-                result
-            };
+
+                tracing::debug!(
+                    "Retry {}/{}: Entry not found for tool_call_id '{}', waiting {}ms",
+                    attempt + 1,
+                    retry_delays.len(),
+                    request.tool_call_id,
+                    delay_ms
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(*delay_ms)).await;
+            }
 
             if let Some((idx, matching_tool)) = matching_tool {
                 // Use PendingQuestion status for AskUserQuestion, PendingApproval otherwise
@@ -169,8 +166,10 @@ impl Approvals {
                 );
             } else {
                 tracing::warn!(
-                    "No matching tool use entry found for approval request: tool='{}', execution_process_id={}",
+                    "No matching tool use entry found after {} retries: tool='{}', tool_call_id='{}', execution_process_id={}",
+                    retry_delays.len(),
                     request.tool_name,
+                    request.tool_call_id,
                     request.execution_process_id
                 );
             }
@@ -375,7 +374,10 @@ mod tests {
     use std::sync::Arc;
 
     use executors::logs::{ActionType, NormalizedEntry, NormalizedEntryType, ToolStatus};
-    use utils::msg_store::MsgStore;
+    use utils::{
+        approvals::{Question, QuestionOption},
+        msg_store::MsgStore,
+    };
 
     use super::*;
 
@@ -402,6 +404,46 @@ mod tests {
                 .unwrap(),
             ),
         }
+    }
+
+    fn create_ask_user_question_entry(id: &str, status: ToolStatus) -> NormalizedEntry {
+        NormalizedEntry {
+            timestamp: None,
+            entry_type: NormalizedEntryType::ToolUse {
+                tool_name: "AskUserQuestion".to_string(),
+                action_type: ActionType::Tool {
+                    tool_name: "AskUserQuestion".to_string(),
+                    arguments: None,
+                    result: None,
+                },
+                status,
+            },
+            content: "AskUserQuestion".to_string(),
+            metadata: Some(
+                serde_json::to_value(ToolCallMetadata {
+                    tool_call_id: id.to_string(),
+                })
+                .unwrap(),
+            ),
+        }
+    }
+
+    fn create_test_questions() -> Vec<Question> {
+        vec![Question {
+            question: "Which testing approach do you prefer?".to_string(),
+            header: "Testing".to_string(),
+            multi_select: false,
+            options: vec![
+                QuestionOption {
+                    label: "Unit Tests".to_string(),
+                    description: "Test individual functions".to_string(),
+                },
+                QuestionOption {
+                    label: "Integration Tests".to_string(),
+                    description: "Test component interactions".to_string(),
+                },
+            ],
+        }]
     }
 
     #[test]
@@ -458,6 +500,116 @@ mod tests {
         assert!(
             find_matching_tool_use(store.clone(), "wrong-id").is_none(),
             "Should not match different tool ids"
+        );
+    }
+
+    #[test]
+    fn test_find_matching_tool_use_with_ask_user_question() {
+        let store = Arc::new(MsgStore::new());
+
+        // Setup: Create an AskUserQuestion tool use entry in Created state
+        let ask_entry = create_ask_user_question_entry("ask-id-123", ToolStatus::Created);
+        store.push_patch(
+            executors::logs::utils::patch::ConversationPatch::add_normalized_entry(0, ask_entry),
+        );
+
+        // Test: Should find the AskUserQuestion entry by tool call id
+        let result = find_matching_tool_use(store.clone(), "ask-id-123");
+        assert!(result.is_some(), "Should find AskUserQuestion entry");
+        let (idx, entry) = result.unwrap();
+        assert_eq!(idx, 0, "Entry should be at index 0");
+        if let NormalizedEntryType::ToolUse { tool_name, .. } = &entry.entry_type {
+            assert_eq!(tool_name, "AskUserQuestion");
+        } else {
+            panic!("Entry should be a ToolUse type");
+        }
+
+        // Test: Entry in PendingQuestion state should NOT be matched
+        let pending_entry = create_ask_user_question_entry(
+            "ask-pending-id",
+            ToolStatus::PendingQuestion {
+                question_id: "q-1".to_string(),
+                questions: create_test_questions(),
+                requested_at: chrono::Utc::now(),
+                timeout_at: chrono::Utc::now(),
+            },
+        );
+        store.push_patch(
+            executors::logs::utils::patch::ConversationPatch::add_normalized_entry(
+                1,
+                pending_entry,
+            ),
+        );
+        assert!(
+            find_matching_tool_use(store.clone(), "ask-pending-id").is_none(),
+            "Should not match tools in PendingQuestion state"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ask_user_question_entry_status_update() {
+        use std::collections::HashMap;
+        use tokio::sync::RwLock;
+        use utils::approvals::ApprovalRequest;
+
+        let execution_process_id = Uuid::new_v4();
+
+        // Create a msg store with an AskUserQuestion entry in Created state
+        let store = Arc::new(MsgStore::new());
+        let ask_entry = create_ask_user_question_entry("auq-tool-call-123", ToolStatus::Created);
+        store.push_patch(
+            executors::logs::utils::patch::ConversationPatch::add_normalized_entry(0, ask_entry),
+        );
+
+        // Create Approvals service with the msg store registered
+        let mut stores_map = HashMap::new();
+        stores_map.insert(execution_process_id, store.clone());
+        let msg_stores = Arc::new(RwLock::new(stores_map));
+        let approvals = Approvals::new(msg_stores);
+
+        // Create approval request with questions (simulating AskUserQuestion)
+        let questions = create_test_questions();
+        let request = ApprovalRequest::from_questions(
+            questions.clone(),
+            "auq-tool-call-123".to_string(),
+            execution_process_id,
+        );
+
+        // Call create_with_waiter
+        let result = approvals.create_with_waiter(request).await;
+        assert!(result.is_ok(), "create_with_waiter should succeed");
+
+        // Verify the entry status was updated to PendingQuestion
+        let history = store.get_history();
+        // Find the latest patch for index 0
+        let mut found_pending_question = false;
+        for msg in history.iter().rev() {
+            if let LogMsg::JsonPatch(patch) = msg
+                && let Some((idx, entry)) =
+                    executors::logs::utils::patch::extract_normalized_entry_from_patch(patch)
+                && idx == 0
+            {
+                if let NormalizedEntryType::ToolUse { status, .. } = &entry.entry_type
+                    && matches!(status, ToolStatus::PendingQuestion { .. })
+                {
+                    found_pending_question = true;
+                    // Verify questions are included
+                    if let ToolStatus::PendingQuestion {
+                        questions: q,
+                        question_id,
+                        ..
+                    } = status
+                    {
+                        assert!(!question_id.is_empty(), "question_id should be set");
+                        assert_eq!(q.len(), questions.len(), "Questions should match");
+                    }
+                }
+                break;
+            }
+        }
+        assert!(
+            found_pending_question,
+            "Entry should be updated to PendingQuestion status"
         );
     }
 }

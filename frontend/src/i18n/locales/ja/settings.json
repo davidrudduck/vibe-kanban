@@ -39,6 +39,47 @@
           "helper": "お好みの言語を選択してください。ブラウザ設定では、システム言語に従います。"
         }
       },
+      "fonts": {
+        "title": "タイポグラフィ",
+        "description": "アプリケーション全体で使用するフォントをカスタマイズします。",
+        "uiFont": {
+          "label": "UIフォント",
+          "placeholder": "フォントを選択",
+          "helper": "メニュー、ボタン、一般的なインターフェーステキストに使用するフォント。"
+        },
+        "codeFont": {
+          "label": "コードフォント",
+          "placeholder": "フォントを選択",
+          "helper": "コードブロック、ターミナル出力、技術的なコンテンツに使用するフォント。"
+        },
+        "proseFont": {
+          "label": "散文フォント",
+          "placeholder": "フォントを選択",
+          "helper": "タスクの説明や長文テキストに使用するフォント。"
+        },
+        "disableLigatures": {
+          "label": "リガチャを無効化",
+          "helper": "コードフォントのプログラミングリガチャ（=> や !== など）をオフにします。"
+        },
+        "preview": {
+          "title": "プレビュー",
+          "uiSample": "すばやい茶色のキツネは怠惰な犬を飛び越えます。",
+          "codeSample": "const fn = () => { return !== === };",
+          "proseSample": "タスクの説明やドキュメントはこのように表示されます。"
+        },
+        "fontNames": {
+          "inter": "Inter",
+          "roboto": "Roboto",
+          "publicSans": "Public Sans",
+          "chivoMono": "Chivo Mono",
+          "system": "システムデフォルト",
+          "jetBrainsMono": "JetBrains Mono",
+          "cascadiaMono": "Cascadia Mono",
+          "hack": "Hack",
+          "ibmPlexMono": "IBM Plex Mono",
+          "georgia": "Georgia"
+        }
+      },
       "taskExecution": {
         "title": "タスク実行",
         "description": "タスクの実行と処理方法を設定します。",
@@ -150,57 +191,89 @@
           "helper": "タスク試行の実行が完了したときにシステム通知を表示します。"
         }
       },
-      "privacy": {
-        "title": "プライバシー",
-        "description": "匿名の使用データを共有してVibe-Kanbanの改善にご協力ください。",
-        "telemetry": {
-          "label": "テレメトリを有効化",
-          "helper": "アプリケーションの改善に役立つ匿名の使用イベント追跡を有効にします。プロンプトやプロジェクト情報は収集されません。"
-        },
-        "errorReporting": {
-          "label": "エラー報告を有効化",
-          "helper": "バグの特定と修正に役立つようにアプリケーションエラーを自動的に報告します。エラー報告には技術的な詳細が含まれますが、コードやプロンプトは含まれません。"
-        }
-      },
       "taskTemplates": {
-        "title": "タグ",
-        "description": "@tag_nameを使用してタスクの説明に挿入できる再利用可能なテキストスニペットを作成します。"
+        "title": "テンプレート",
+        "description": "@template_nameを使用してタスクの説明に挿入できる再利用可能なテキストスニペットを作成します。"
       },
-      "tags": {
+      "templates": {
         "manager": {
-          "title": "タスクタグ",
-          "addTag": "タグを追加",
-          "noTags": "タグはまだありません。タスクの説明によく使うテキストスニペットを作成してください。@tag_nameで使用できます。",
+          "title": "タスクテンプレート",
+          "addTemplate": "テンプレートを追加",
+          "noTemplates": "テンプレートはまだありません。タスクの説明によく使うテキストスニペットを作成してください。@template_nameで使用できます。",
           "table": {
-            "tagName": "タグ名",
+            "templateName": "テンプレート名",
             "content": "内容",
             "actions": "操作"
           },
           "actions": {
-            "editTag": "タグを編集",
-            "deleteTag": "タグを削除"
+            "editTemplate": "テンプレートを編集",
+            "deleteTemplate": "テンプレートを削除"
           },
-          "deleteConfirm": "タグ「{{tagName}}」を削除してもよろしいですか？"
+          "deleteConfirm": "テンプレート「{{templateName}}」を削除してもよろしいですか？"
         },
         "dialog": {
-          "createTitle": "タグを作成",
-          "editTitle": "タグを編集",
-          "tagName": {
-            "label": "タグ名",
+          "createTitle": "テンプレートを作成",
+          "editTitle": "テンプレートを編集",
+          "templateName": {
+            "label": "テンプレート名",
             "required": "*",
-            "hint": "タスクの説明で@を付けて使用します：@{{tagName}}",
+            "hint": "タスクの説明で@を付けて使用します：@{{templateName}}",
             "placeholder": "例：bug_fix、test_plan、api_docs",
-            "error": "タグ名にスペースを含めることはできません。アンダースコアを使用してください（例：my_tag）"
+            "error": "テンプレート名にスペースを含めることはできません。アンダースコアを使用してください（例：my_template）"
           },
           "content": {
             "label": "内容",
             "required": "*",
-            "hint": "タスクの説明で@{{tagName}}を使用すると挿入されるテキスト",
-            "placeholder": "このタグを使用するときに挿入されるテキストを入力してください"
+            "hint": "タスクの説明で@{{templateName}}を使用すると挿入されるテキスト",
+            "placeholder": "このテンプレートを使用するときに挿入されるテキストを入力してください"
           },
           "errors": {
-            "nameRequired": "タグ名は必須です",
-            "saveFailed": "タグの保存に失敗しました"
+            "nameRequired": "テンプレート名は必須です",
+            "saveFailed": "テンプレートの保存に失敗しました"
+          },
+          "buttons": {
+            "cancel": "キャンセル",
+            "create": "作成",
+            "update": "更新"
+          }
+        }
+      },
+      "labels": {
+        "title": "ラベル",
+        "description": "タスクを分類・整理するためのビジュアルラベルを作成します。",
+        "manager": {
+          "title": "タスクラベル",
+          "addLabel": "ラベルを追加",
+          "noLabels": "ラベルはまだありません。タスクを分類・整理するためのビジュアルラベルを作成してください。",
+          "table": {
+            "preview": "プレビュー",
+            "name": "名前",
+            "icon": "アイコン",
+            "color": "色",
+            "actions": "操作"
+          },
+          "actions": {
+            "editLabel": "ラベルを編集",
+            "deleteLabel": "ラベルを削除"
+          },
+          "deleteConfirm": "ラベル「{{labelName}}」を削除してもよろしいですか？"
+        },
+        "dialog": {
+          "createTitle": "ラベルを作成",
+          "editTitle": "ラベルを編集",
+          "name": {
+            "label": "ラベル名",
+            "placeholder": "例：バグ、機能、ドキュメント"
+          },
+          "icon": {
+            "label": "アイコン"
+          },
+          "color": {
+            "label": "色"
+          },
+          "errors": {
+            "nameRequired": "ラベル名は必須です",
+            "saveFailed": "ラベルの保存に失敗しました"
           },
           "buttons": {
             "cancel": "キャンセル",

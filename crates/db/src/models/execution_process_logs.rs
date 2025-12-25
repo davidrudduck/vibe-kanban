@@ -210,10 +210,7 @@ mod tests {
         let base_time = Utc::now();
 
         for i in 0..count {
-            let logs = format!(
-                r#"{{"Stdout":"message {}"}}"#,
-                i + 1
-            );
+            let logs = format!(r#"{{"Stdout":"message {}"}}"#, i + 1);
             let byte_size = logs.len() as i64;
             records.push(ExecutionProcessLogs {
                 execution_id,
@@ -353,7 +350,8 @@ not valid json
         let records = create_test_records(execution_id, 10);
         let entries = ExecutionProcessLogs::parse_to_entries(&records, execution_id);
 
-        let result = ExecutionProcessLogs::apply_pagination(entries, Some(3), 5, Direction::Forward);
+        let result =
+            ExecutionProcessLogs::apply_pagination(entries, Some(3), 5, Direction::Forward);
 
         assert_eq!(result.entries.len(), 5);
         assert!(result.has_more);
@@ -369,7 +367,8 @@ not valid json
         let records = create_test_records(execution_id, 10);
         let entries = ExecutionProcessLogs::parse_to_entries(&records, execution_id);
 
-        let result = ExecutionProcessLogs::apply_pagination(entries, Some(7), 5, Direction::Forward);
+        let result =
+            ExecutionProcessLogs::apply_pagination(entries, Some(7), 5, Direction::Forward);
 
         assert_eq!(result.entries.len(), 3); // Only 8, 9, 10 remain
         assert!(!result.has_more);

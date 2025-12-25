@@ -38,9 +38,7 @@ use executors::{
     },
 };
 use futures::{FutureExt, StreamExt, TryStreamExt, stream::select};
-use serde_json::json;
 use services::services::{
-    analytics::AnalyticsContext,
     approvals::{Approvals, executor_approvals::ExecutorApprovalBridge},
     config::Config,
     container::{ContainerError, ContainerRef, ContainerService},
@@ -69,20 +67,17 @@ pub struct LocalContainerService {
     config: Arc<RwLock<Config>>,
     git: GitService,
     image_service: ImageService,
-    analytics: Option<AnalyticsContext>,
     approvals: Approvals,
     publisher: Result<SharePublisher, RemoteClientNotConfigured>,
 }
 
 impl LocalContainerService {
-    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         db: DBService,
         msg_stores: Arc<RwLock<HashMap<Uuid, Arc<MsgStore>>>>,
         config: Arc<RwLock<Config>>,
         git: GitService,
         image_service: ImageService,
-        analytics: Option<AnalyticsContext>,
         approvals: Approvals,
         publisher: Result<SharePublisher, RemoteClientNotConfigured>,
     ) -> Self {
@@ -95,7 +90,6 @@ impl LocalContainerService {
             config,
             git,
             image_service,
-            analytics,
             approvals,
             publisher,
         };
@@ -290,9 +284,7 @@ impl LocalContainerService {
         let child_store = self.child_store.clone();
         let msg_stores = self.msg_stores.clone();
         let db = self.db.clone();
-        let config = self.config.clone();
         let container = self.clone();
-        let analytics = self.analytics.clone();
         let publisher = self.publisher.clone();
 
         let mut process_exit_rx = self.spawn_os_exit_watcher(exec_id);
@@ -352,6 +344,16 @@ impl LocalContainerService {
             }
 
             if let Ok(ctx) = ExecutionProcess::load_context(&db.pool, exec_id).await {
+                // Diagnostic logging for exit monitor context
+                tracing::info!(
+                    exec_id = %exec_id,
+                    exit_code = ?exit_code,
+                    process_status = ?ctx.execution_process.status,
+                    run_reason = ?ctx.execution_process.run_reason,
+                    task_attempt_id = %ctx.task_attempt.id,
+                    "Exit monitor: Process exited, evaluating next steps"
+                );
+
                 // Update executor session summary if available
                 if let Err(e) = container.update_executor_session_summary(&exec_id).await {
                     tracing::warn!("Failed to update executor session summary: {}", e);
@@ -371,6 +373,14 @@ impl LocalContainerService {
                 );
 
                 if success || cleanup_done {
+                    tracing::info!(
+                        exec_id = %exec_id,
+                        success = success,
+                        cleanup_done = cleanup_done,
+                        "Exit monitor: Process eligible for commit/next-action (success={} OR cleanup_done={})",
+                        success, cleanup_done
+                    );
+
                     // Commit changes (if any) and get feedback about whether changes were made
                     let changes_committed = match container.try_commit_changes(&ctx).await {
                         Ok(committed) => committed,
@@ -381,36 +391,24 @@ impl LocalContainerService {
                         }
                     };
 
-                    let should_start_next = if matches!(
-                        ctx.execution_process.run_reason,
-                        ExecutionProcessRunReason::CodingAgent
-                    ) {
-                        changes_committed
-                    } else {
-                        true
-                    };
+                    tracing::info!(
+                        exec_id = %exec_id,
+                        changes_committed = changes_committed,
+                        run_reason = ?ctx.execution_process.run_reason,
+                        "Exit monitor: Process completed, proceeding to next action"
+                    );
 
-                    if should_start_next {
-                        // If the process exited successfully, start the next action
-                        if let Err(e) = container.try_start_next_action(&ctx).await {
-                            tracing::error!("Failed to start next action after completion: {}", e);
-                        }
-                    } else {
-                        tracing::info!(
-                            "Skipping cleanup script for task attempt {} - no changes made by coding agent",
-                            ctx.task_attempt.id
-                        );
-
-                        // Manually finalize task since we're bypassing normal execution flow
-                        container
-                            .finalize_task(&config, publisher.as_ref().ok(), &ctx)
-                            .await;
+                    // Always proceed to next action (cleanup script) regardless of whether
+                    // changes were committed. The agent may have done valuable work that
+                    // doesn't involve file changes (e.g., browser testing, running tests).
+                    if let Err(e) = container.try_start_next_action(&ctx).await {
+                        tracing::error!("Failed to start next action after completion: {}", e);
                     }
                 }
 
                 if container.should_finalize(&ctx) {
                     container
-                        .finalize_task(&config, publisher.as_ref().ok(), &ctx)
+                        .finalize_task(&container.config, publisher.as_ref().ok(), &ctx)
                         .await;
                     // After finalization, check if a queued follow-up exists and start it
                     if let Err(e) = container.try_consume_queued_followup(&ctx).await {
@@ -420,23 +418,6 @@ impl LocalContainerService {
                             e
                         );
                     }
-                }
-
-                // Fire analytics event when CodingAgent execution has finished
-                if config.read().await.analytics_enabled
-                    && matches!(
-                        &ctx.execution_process.run_reason,
-                        ExecutionProcessRunReason::CodingAgent
-                    )
-                    && let Some(analytics) = &analytics
-                {
-                    analytics.analytics_service.track_event(&analytics.user_id, "task_attempt_finished", Some(json!({
-                        "task_id": ctx.task.id.to_string(),
-                        "project_id": ctx.task.project_id.to_string(),
-                        "attempt_id": ctx.task_attempt.id.to_string(),
-                        "execution_success": matches!(ctx.execution_process.status, ExecutionProcessStatus::Completed),
-                        "exit_code": ctx.execution_process.exit_code,
-                    })));
                 }
             }
 

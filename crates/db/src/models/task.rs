@@ -1,11 +1,11 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{Executor, FromRow, Sqlite, SqlitePool, Type};
+use sqlx::{Executor, FromRow, QueryBuilder, Sqlite, SqlitePool, Type};
 use strum_macros::{Display, EnumString};
 use ts_rs::TS;
 use uuid::Uuid;
 
-use super::{project::Project, task_attempt::TaskAttempt};
+use super::{activity_dismissal::ActivityDismissal, project::Project, task_attempt::TaskAttempt};
 
 #[derive(
     Debug, Clone, Type, Serialize, Deserialize, PartialEq, TS, EnumString, Display, Default,
@@ -288,7 +288,7 @@ impl Task {
 FROM tasks t
 WHERE t.project_id = $1
   AND (t.archived_at IS NULL OR $2)
-ORDER BY t.created_at DESC"#,
+ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
             project_id,
             include_archived
         )
@@ -577,6 +577,10 @@ ORDER BY t.created_at DESC"#,
         )
         .execute(pool)
         .await?;
+
+        // Clear any activity dismissal when task status changes (auto-restore)
+        ActivityDismissal::clear_for_task(pool, id).await?;
+
         Ok(())
     }
 
@@ -879,23 +883,26 @@ ORDER BY t.created_at DESC"#,
 
     /// Archive multiple tasks by their IDs.
     /// Returns the number of tasks archived.
+    ///
+    /// Uses a single bulk UPDATE query with IN clause for O(1) database calls
+    /// instead of O(n) individual queries.
     pub async fn archive_many(pool: &SqlitePool, ids: &[Uuid]) -> Result<u64, sqlx::Error> {
         if ids.is_empty() {
             return Ok(0);
         }
 
-        // SQLite doesn't support array parameters directly, so we use a loop
-        let mut count = 0u64;
-        for id in ids {
-            let result = sqlx::query!(
-                "UPDATE tasks SET archived_at = datetime('now', 'subsec'), updated_at = datetime('now', 'subsec') WHERE id = $1",
-                id
-            )
-            .execute(pool)
-            .await?;
-            count += result.rows_affected();
+        let mut builder = QueryBuilder::<Sqlite>::new(
+            "UPDATE tasks SET archived_at = datetime('now', 'subsec'), updated_at = datetime('now', 'subsec') WHERE id IN (",
+        );
+        {
+            let mut separated = builder.separated(", ");
+            for id in ids {
+                separated.push_bind(id);
+            }
         }
-        Ok(count)
+        builder.push(")");
+        let result = builder.build().execute(pool).await?;
+        Ok(result.rows_affected())
     }
 
     /// Update remote stream location for a task
@@ -920,30 +927,33 @@ ORDER BY t.created_at DESC"#,
         Ok(())
     }
 
-    /// Delete remote tasks that are no longer in the Hive for a given project
+    /// Delete remote tasks that are no longer in the Hive for a given project.
+    ///
+    /// Uses a single bulk DELETE query with NOT IN clause for O(1) database calls
+    /// instead of O(n) fetch + O(m) deletes.
     pub async fn delete_stale_remote_tasks(
         pool: &SqlitePool,
         project_id: Uuid,
         active_shared_task_ids: &[Uuid],
     ) -> Result<u64, sqlx::Error> {
-        // If the list is empty, don't delete anything
+        // If the list is empty, don't delete anything (safety check)
         if active_shared_task_ids.is_empty() {
             return Ok(0);
         }
 
-        // Fetch all remote tasks for this project and delete ones not in list
-        let all_remote = Self::find_remote_by_project_id(pool, project_id).await?;
-        let mut deleted = 0u64;
-
-        for task in all_remote {
-            if let Some(shared_id) = task.shared_task_id
-                && !active_shared_task_ids.contains(&shared_id)
-            {
-                deleted += Self::delete(pool, task.id).await?;
+        let mut builder = QueryBuilder::<Sqlite>::new("DELETE FROM tasks WHERE project_id = ");
+        builder.push_bind(project_id);
+        builder
+            .push(" AND is_remote = 1 AND shared_task_id IS NOT NULL AND shared_task_id NOT IN (");
+        {
+            let mut separated = builder.separated(", ");
+            for id in active_shared_task_ids {
+                separated.push_bind(id);
             }
         }
-
-        Ok(deleted)
+        builder.push(")");
+        let result = builder.build().execute(pool).await?;
+        Ok(result.rows_affected())
     }
 
     /// Delete a task by its shared_task_id
@@ -960,5 +970,29 @@ ORDER BY t.created_at DESC"#,
             .execute(executor)
             .await?;
         Ok(())
+    }
+
+    /// Clear shared_task_id for orphaned tasks.
+    ///
+    /// An orphaned task is one that has a shared_task_id but belongs to a project
+    /// that is not linked to the Hive (remote_project_id IS NULL).
+    /// This can happen if a project was previously linked but then unlinked.
+    ///
+    /// Returns the number of tasks that had their shared_task_id cleared.
+    pub async fn clear_orphaned_shared_task_ids(
+        pool: &SqlitePool,
+    ) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query(
+            r#"UPDATE tasks
+               SET shared_task_id = NULL, updated_at = CURRENT_TIMESTAMP
+               WHERE shared_task_id IS NOT NULL
+               AND project_id IN (
+                   SELECT id FROM projects WHERE remote_project_id IS NULL AND is_remote = 0
+               )"#,
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(result.rows_affected())
     }
 }

@@ -127,8 +127,7 @@ export const useDiffStream = (
       if (connectionInfo.direct_url) {
         try {
           const directUrl = new URL(connectionInfo.direct_url);
-          const wsProtocol =
-            directUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+          const wsProtocol = directUrl.protocol === 'https:' ? 'wss:' : 'ws:';
           return `${wsProtocol}//${directUrl.host}/api/task-attempts/${remoteAttemptId}/diff/ws?${params.toString()}`;
         } catch {
           // Invalid URL, fall through to relay

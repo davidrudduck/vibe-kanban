@@ -14,9 +14,10 @@ use axum::{
 };
 use db::models::{
     image::TaskImage,
+    label::{Label, SetTaskLabels},
     project::Project,
     task::{CreateTask, Task, TaskWithAttemptStatus, UpdateTask},
-    task_attempt::{CreateTaskAttempt, TaskAttempt},
+    task_attempt::{CreateTaskAttempt, TaskAttempt, TaskAttemptError},
 };
 use deployment::Deployment;
 use executors::profile::ExecutorProfileId;
@@ -29,10 +30,9 @@ use remote::routes::{
     },
 };
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use services::services::{
     container::ContainerService,
-    share::{ShareError, status as task_status},
+    share::status as task_status,
     worktree_manager::{WorktreeCleanup, WorktreeManager},
 };
 use sqlx::Error as SqlxError;
@@ -136,6 +136,28 @@ pub async fn create_task(
     }
 
     // Local project: existing logic
+
+    // Validate: If creating a subtask, check that the parent doesn't use a shared worktree
+    if let Some(parent_task_id) = payload.parent_task_id {
+        let parent_task = Task::find_by_id(pool, parent_task_id)
+            .await?
+            .ok_or(ApiError::Database(SqlxError::RowNotFound))?;
+
+        // Check if parent task uses a shared worktree from its own parent (grandparent)
+        if let Some(grandparent_id) = parent_task.parent_task_id {
+            let uses_shared =
+                TaskAttempt::task_uses_shared_worktree(pool, parent_task_id, grandparent_id)
+                    .await
+                    .map_err(|e| ApiError::TaskAttempt(TaskAttemptError::Database(e)))?;
+
+            if uses_shared {
+                return Err(ApiError::BadRequest(
+                    "Cannot create subtask: parent task uses a shared worktree".to_string(),
+                ));
+            }
+        }
+    }
+
     let id = Uuid::new_v4();
 
     tracing::debug!(
@@ -183,18 +205,6 @@ pub async fn create_task(
             }
         }
     }
-
-    deployment
-        .track_if_analytics_allowed(
-            "task_created",
-            serde_json::json!({
-            "task_id": task.id.to_string(),
-            "project_id": payload.project_id,
-            "has_description": task.description.is_some(),
-            "has_images": payload.image_ids.is_some(),
-            }),
-        )
-        .await;
 
     Ok(ResponseJson(ApiResponse::success(task)))
 }
@@ -328,17 +338,6 @@ pub async fn create_task_and_start(
         }
     }
 
-    deployment
-        .track_if_analytics_allowed(
-            "task_created",
-            serde_json::json!({
-                "task_id": task.id.to_string(),
-                "project_id": task.project_id,
-                "has_description": task.description.is_some(),
-                "has_images": payload.task.image_ids.is_some(),
-            }),
-        )
-        .await;
     let attempt_id = Uuid::new_v4();
     let git_branch_name = deployment
         .container()
@@ -358,21 +357,10 @@ pub async fn create_task_and_start(
     .await?;
     let is_attempt_running = deployment
         .container()
-        .start_attempt(&task_attempt, payload.executor_profile_id.clone())
+        .start_attempt(&task_attempt, payload.executor_profile_id.clone(), false)
         .await
         .inspect_err(|err| tracing::error!("Failed to start task attempt: {}", err))
         .is_ok();
-    deployment
-        .track_if_analytics_allowed(
-            "task_attempt_started",
-            serde_json::json!({
-                "task_id": task.id.to_string(),
-                "executor": &payload.executor_profile_id.executor,
-                "variant": &payload.executor_profile_id.variant,
-                "attempt_id": task_attempt.id.to_string(),
-            }),
-        )
-        .await;
 
     let task = Task::find_by_id(pool, task.id)
         .await?
@@ -615,17 +603,6 @@ pub async fn delete_task(
         );
     }
 
-    deployment
-        .track_if_analytics_allowed(
-            "task_deleted",
-            serde_json::json!({
-                "task_id": task.id.to_string(),
-                "project_id": task.project_id.to_string(),
-                "attempt_count": attempts.len(),
-            }),
-        )
-        .await;
-
     // Spawn background worktree cleanup task
     let task_id = task.id;
     tokio::spawn(async move {
@@ -687,38 +664,6 @@ async fn delete_remote_task(
 
     // Return 202 Accepted to match local delete behavior
     Ok((StatusCode::ACCEPTED, ResponseJson(ApiResponse::success(()))))
-}
-
-#[derive(Debug, Serialize, Deserialize, TS)]
-pub struct ShareTaskResponse {
-    pub shared_task_id: Uuid,
-}
-
-pub async fn share_task(
-    Extension(task): Extension<Task>,
-    State(deployment): State<DeploymentImpl>,
-) -> Result<ResponseJson<ApiResponse<ShareTaskResponse>>, ApiError> {
-    let Ok(publisher) = deployment.share_publisher() else {
-        return Err(ShareError::MissingConfig("share publisher unavailable").into());
-    };
-    let profile = deployment
-        .auth_context()
-        .cached_profile()
-        .await
-        .ok_or(ShareError::MissingAuth)?;
-    let shared_task_id = publisher.share_task(task.id, Some(profile.user_id)).await?;
-
-    let props = serde_json::json!({
-        "task_id": task.id,
-        "shared_task_id": shared_task_id,
-    });
-    deployment
-        .track_if_analytics_allowed("start_sharing_task", props)
-        .await;
-
-    Ok(ResponseJson(ApiResponse::success(ShareTaskResponse {
-        shared_task_id,
-    })))
 }
 
 /// Get list of nodes where this task's project exists (for remote attempt start).
@@ -899,20 +844,6 @@ pub async fn archive_task(
         })
         .collect();
 
-    // Track analytics
-    deployment
-        .track_if_analytics_allowed(
-            "task_archived",
-            json!({
-                "task_id": task.id.to_string(),
-                "project_id": task.project_id.to_string(),
-                "attempt_count": attempts.len(),
-                "subtasks_archived": subtasks_archived,
-                "include_subtasks": payload.include_subtasks,
-            }),
-        )
-        .await;
-
     // Spawn background worktree cleanup task
     let task_id = task.id;
     tokio::spawn(async move {
@@ -974,17 +905,6 @@ pub async fn unarchive_task(
     // Unarchive the task
     let unarchived_task = Task::unarchive(pool, task.id).await?;
 
-    // Track analytics
-    deployment
-        .track_if_analytics_allowed(
-            "task_unarchived",
-            json!({
-                "task_id": task.id.to_string(),
-                "project_id": task.project_id.to_string(),
-            }),
-        )
-        .await;
-
     Ok(ResponseJson(ApiResponse::success(unarchived_task)))
 }
 
@@ -999,14 +919,40 @@ pub async fn get_task_children(
     Ok(ResponseJson(ApiResponse::success(children)))
 }
 
+/// GET /api/tasks/{id}/labels - Get labels for a task
+pub async fn get_task_labels(
+    Extension(task): Extension<Task>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<Vec<Label>>>, ApiError> {
+    let labels = Label::find_by_task_id(&deployment.db().pool, task.id).await?;
+    Ok(ResponseJson(ApiResponse::success(labels)))
+}
+
+/// PUT /api/tasks/{id}/labels - Set labels for a task (replaces existing)
+pub async fn set_task_labels(
+    Extension(task): Extension<Task>,
+    State(deployment): State<DeploymentImpl>,
+    Json(payload): Json<SetTaskLabels>,
+) -> Result<ResponseJson<ApiResponse<Vec<Label>>>, ApiError> {
+    // Remote tasks don't support labels
+    if task.is_remote {
+        return Err(ApiError::BadRequest(
+            "Labels are not supported for remote tasks".to_string(),
+        ));
+    }
+
+    let labels = Label::set_task_labels(&deployment.db().pool, task.id, &payload.label_ids).await?;
+    Ok(ResponseJson(ApiResponse::success(labels)))
+}
+
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let task_actions_router = Router::new()
         .route("/", put(update_task))
         .route("/", delete(delete_task))
-        .route("/share", post(share_task))
         .route("/archive", post(archive_task))
         .route("/unarchive", post(unarchive_task))
         .route("/children", get(get_task_children))
+        .route("/labels", get(get_task_labels).put(set_task_labels))
         .route("/available-nodes", get(get_available_nodes))
         .route("/stream-connection-info", get(get_stream_connection_info));
 

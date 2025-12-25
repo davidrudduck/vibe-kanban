@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { KanbanCard } from '@/components/ui/shadcn-io/kanban';
 import {
-  Archive,
   CheckCircle,
   Link,
   Loader2,
@@ -12,14 +11,21 @@ import {
 import type { TaskWithAttemptStatus } from 'shared/types';
 import { ActionsDropdown } from '@/components/ui/actions-dropdown';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { useNavigateWithSearch, useIsOrgAdmin } from '@/hooks';
+import { useTaskLabels } from '@/hooks/useTaskLabels';
 import { paths } from '@/lib/paths';
 import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
 import { TaskCardHeader } from './TaskCardHeader';
 import { useTranslation } from 'react-i18next';
 import { useProject } from '@/contexts/ProjectContext';
 import { cn } from '@/lib/utils';
+import { LabelBadge } from '@/components/labels/LabelBadge';
+import { ArchiveToggleIcon } from './ArchiveToggleIcon';
+import { tasksApi } from '@/lib/api';
+import {
+  useTaskOptimistic,
+  getArchivedCallback,
+} from '@/contexts/TaskOptimisticContext';
 
 /**
  * Get short node name from full hostname (e.g., "justX" from "justX.raverx.net")
@@ -55,6 +61,18 @@ export function TaskCard({
   const navigate = useNavigateWithSearch();
   const isOrgAdmin = useIsOrgAdmin();
   const { project } = useProject();
+  const taskOptimisticContext = useTaskOptimistic();
+
+  // Get optimistic archived callback from context or global registry
+  const updateTaskArchivedOptimistically =
+    taskOptimisticContext?.updateTaskArchivedOptimistically ??
+    getArchivedCallback(projectId);
+
+  // Fetch labels for this task (only for local tasks, not remote)
+  const { data: labels } = useTaskLabels(
+    task.is_remote ? undefined : task.id,
+    !task.is_remote
+  );
 
   // Get owner name from shared task or remote task
   const ownerName =
@@ -97,6 +115,59 @@ export function TaskCard({
   }, [isOpen]);
 
   const isArchived = task.archived_at !== null;
+  const [isArchiving, setIsArchiving] = useState(false);
+
+  const handleArchive = useCallback(async () => {
+    if (isArchiving || task.is_remote) return;
+    setIsArchiving(true);
+    try {
+      // Apply optimistic update immediately for instant UI feedback
+      if (updateTaskArchivedOptimistically) {
+        updateTaskArchivedOptimistically(task.id, new Date().toISOString());
+      }
+      await tasksApi.archive(task.id, { include_subtasks: false });
+    } catch (err) {
+      console.error('Failed to archive task:', err);
+      // Rollback optimistic update on error
+      if (updateTaskArchivedOptimistically) {
+        updateTaskArchivedOptimistically(task.id, null);
+      }
+    } finally {
+      setIsArchiving(false);
+    }
+  }, [task.id, task.is_remote, isArchiving, updateTaskArchivedOptimistically]);
+
+  const handleUnarchive = useCallback(async () => {
+    if (isArchiving || task.is_remote) return;
+    setIsArchiving(true);
+    const previousArchivedAt = task.archived_at;
+    try {
+      // Apply optimistic update immediately for instant UI feedback
+      if (updateTaskArchivedOptimistically) {
+        updateTaskArchivedOptimistically(task.id, null);
+      }
+      await tasksApi.unarchive(task.id);
+    } catch (err) {
+      console.error('Failed to unarchive task:', err);
+      // Rollback optimistic update on error
+      if (updateTaskArchivedOptimistically && previousArchivedAt) {
+        updateTaskArchivedOptimistically(
+          task.id,
+          typeof previousArchivedAt === 'string'
+            ? previousArchivedAt
+            : previousArchivedAt.toISOString()
+        );
+      }
+    } finally {
+      setIsArchiving(false);
+    }
+  }, [
+    task.id,
+    task.is_remote,
+    task.archived_at,
+    isArchiving,
+    updateTaskArchivedOptimistically,
+  ]);
 
   return (
     <KanbanCard
@@ -141,15 +212,6 @@ export function TaskCard({
           }
           right={
             <>
-              {isArchived && (
-                <Badge
-                  variant="secondary"
-                  className="gap-1 px-1.5 py-0.5 text-xs"
-                >
-                  <Archive className="h-3 w-3" />
-                  {t('badges.archived')}
-                </Badge>
-              )}
               {task.has_in_progress_attempt && (
                 <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
               )}
@@ -202,6 +264,20 @@ export function TaskCard({
             )}
           </div>
         )}
+        {/* Labels and Archive Icon - same line */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-1 flex-1 min-w-0">
+            {labels?.map((label) => (
+              <LabelBadge key={label.id} label={label} size="sm" />
+            ))}
+          </div>
+          <ArchiveToggleIcon
+            isArchived={isArchived}
+            onArchive={handleArchive}
+            onUnarchive={handleUnarchive}
+            disabled={task.is_remote || isArchiving}
+          />
+        </div>
       </div>
     </KanbanCard>
   );
