@@ -28,7 +28,12 @@ pub async fn get_templates(
     // Filter by search query if provided
     if let Some(search_query) = params.search {
         let search_lower = search_query.to_lowercase();
-        templates.retain(|template| template.template_name.to_lowercase().contains(&search_lower));
+        templates.retain(|template| {
+            template
+                .template_name
+                .to_lowercase()
+                .contains(&search_lower)
+        });
     }
 
     Ok(ResponseJson(ApiResponse::success(templates)))
@@ -68,7 +73,10 @@ pub async fn delete_template(
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let template_router = Router::new()
         .route("/", put(update_template).delete(delete_template))
-        .layer(from_fn_with_state(deployment.clone(), load_template_middleware));
+        .layer(from_fn_with_state(
+            deployment.clone(),
+            load_template_middleware,
+        ));
 
     let inner = Router::new()
         .route("/", get(get_templates).post(create_template))

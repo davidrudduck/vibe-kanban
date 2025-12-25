@@ -91,13 +91,15 @@ impl PaginatedDbLogEntries {
         let entries = self
             .entries
             .into_iter()
-            .map(|e| utils::unified_log::LogEntry::new(
-                e.id,
-                e.content,
-                OutputType::from_remote_str(&e.output_type),
-                e.timestamp,
-                e.execution_id,
-            ))
+            .map(|e| {
+                utils::unified_log::LogEntry::new(
+                    e.id,
+                    e.content,
+                    OutputType::from_remote_str(&e.output_type),
+                    e.timestamp,
+                    e.execution_id,
+                )
+            })
             .collect();
 
         PaginatedLogs::new(entries, self.next_cursor, self.has_more, self.total_count)
@@ -373,7 +375,8 @@ mod tests {
 
         // Create task
         let task_id = Uuid::new_v4();
-        let task_data = CreateTask::from_title_description(project_id, "Test Task".to_string(), None);
+        let task_data =
+            CreateTask::from_title_description(project_id, "Test Task".to_string(), None);
         let _task = Task::create(pool, &task_data, task_id)
             .await
             .expect("Failed to create task");
@@ -691,13 +694,19 @@ mod tests {
         let execution_id = create_test_execution(&pool).await;
 
         // Create entries with different output types
-        DbLogEntry::create(&pool, CreateLogEntry::stdout(execution_id, "stdout msg".into()))
-            .await
-            .expect("Failed to create stdout entry");
+        DbLogEntry::create(
+            &pool,
+            CreateLogEntry::stdout(execution_id, "stdout msg".into()),
+        )
+        .await
+        .expect("Failed to create stdout entry");
 
-        DbLogEntry::create(&pool, CreateLogEntry::stderr(execution_id, "stderr msg".into()))
-            .await
-            .expect("Failed to create stderr entry");
+        DbLogEntry::create(
+            &pool,
+            CreateLogEntry::stderr(execution_id, "stderr msg".into()),
+        )
+        .await
+        .expect("Failed to create stderr entry");
 
         DbLogEntry::create(
             &pool,

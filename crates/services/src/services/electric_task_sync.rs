@@ -23,7 +23,9 @@ use sqlx::SqlitePool;
 use thiserror::Error;
 use uuid::Uuid;
 
-use super::electric_sync::{ElectricClient, ElectricError, ShapeConfig, ShapeOperation, ShapeState};
+use super::electric_sync::{
+    ElectricClient, ElectricError, ShapeConfig, ShapeOperation, ShapeState,
+};
 
 /// Errors that can occur during Electric task sync.
 #[derive(Debug, Error)]

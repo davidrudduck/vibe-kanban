@@ -309,7 +309,10 @@ mod tests {
         assert_eq!(parsed.fonts.ui_font, config.fonts.ui_font);
         assert_eq!(parsed.fonts.code_font, config.fonts.code_font);
         assert_eq!(parsed.fonts.prose_font, config.fonts.prose_font);
-        assert_eq!(parsed.fonts.disable_ligatures, config.fonts.disable_ligatures);
+        assert_eq!(
+            parsed.fonts.disable_ligatures,
+            config.fonts.disable_ligatures
+        );
     }
 
     #[test]
@@ -353,29 +356,71 @@ mod tests {
     #[test]
     fn test_ui_font_serialization() {
         assert_eq!(serde_json::to_string(&UiFont::Inter).unwrap(), r#""INTER""#);
-        assert_eq!(serde_json::to_string(&UiFont::Roboto).unwrap(), r#""ROBOTO""#);
-        assert_eq!(serde_json::to_string(&UiFont::PublicSans).unwrap(), r#""PUBLIC_SANS""#);
-        assert_eq!(serde_json::to_string(&UiFont::ChivoMono).unwrap(), r#""CHIVO_MONO""#);
-        assert_eq!(serde_json::to_string(&UiFont::System).unwrap(), r#""SYSTEM""#);
+        assert_eq!(
+            serde_json::to_string(&UiFont::Roboto).unwrap(),
+            r#""ROBOTO""#
+        );
+        assert_eq!(
+            serde_json::to_string(&UiFont::PublicSans).unwrap(),
+            r#""PUBLIC_SANS""#
+        );
+        assert_eq!(
+            serde_json::to_string(&UiFont::ChivoMono).unwrap(),
+            r#""CHIVO_MONO""#
+        );
+        assert_eq!(
+            serde_json::to_string(&UiFont::System).unwrap(),
+            r#""SYSTEM""#
+        );
     }
 
     #[test]
     fn test_code_font_serialization() {
-        assert_eq!(serde_json::to_string(&CodeFont::JetBrainsMono).unwrap(), r#""JET_BRAINS_MONO""#);
-        assert_eq!(serde_json::to_string(&CodeFont::CascadiaMono).unwrap(), r#""CASCADIA_MONO""#);
+        assert_eq!(
+            serde_json::to_string(&CodeFont::JetBrainsMono).unwrap(),
+            r#""JET_BRAINS_MONO""#
+        );
+        assert_eq!(
+            serde_json::to_string(&CodeFont::CascadiaMono).unwrap(),
+            r#""CASCADIA_MONO""#
+        );
         assert_eq!(serde_json::to_string(&CodeFont::Hack).unwrap(), r#""HACK""#);
-        assert_eq!(serde_json::to_string(&CodeFont::IbmPlexMono).unwrap(), r#""IBM_PLEX_MONO""#);
-        assert_eq!(serde_json::to_string(&CodeFont::ChivoMono).unwrap(), r#""CHIVO_MONO""#);
-        assert_eq!(serde_json::to_string(&CodeFont::System).unwrap(), r#""SYSTEM""#);
+        assert_eq!(
+            serde_json::to_string(&CodeFont::IbmPlexMono).unwrap(),
+            r#""IBM_PLEX_MONO""#
+        );
+        assert_eq!(
+            serde_json::to_string(&CodeFont::ChivoMono).unwrap(),
+            r#""CHIVO_MONO""#
+        );
+        assert_eq!(
+            serde_json::to_string(&CodeFont::System).unwrap(),
+            r#""SYSTEM""#
+        );
     }
 
     #[test]
     fn test_prose_font_serialization() {
-        assert_eq!(serde_json::to_string(&ProseFont::Inter).unwrap(), r#""INTER""#);
-        assert_eq!(serde_json::to_string(&ProseFont::Roboto).unwrap(), r#""ROBOTO""#);
-        assert_eq!(serde_json::to_string(&ProseFont::Georgia).unwrap(), r#""GEORGIA""#);
-        assert_eq!(serde_json::to_string(&ProseFont::ChivoMono).unwrap(), r#""CHIVO_MONO""#);
-        assert_eq!(serde_json::to_string(&ProseFont::System).unwrap(), r#""SYSTEM""#);
+        assert_eq!(
+            serde_json::to_string(&ProseFont::Inter).unwrap(),
+            r#""INTER""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ProseFont::Roboto).unwrap(),
+            r#""ROBOTO""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ProseFont::Georgia).unwrap(),
+            r#""GEORGIA""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ProseFont::ChivoMono).unwrap(),
+            r#""CHIVO_MONO""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ProseFont::System).unwrap(),
+            r#""SYSTEM""#
+        );
     }
 
     #[test]

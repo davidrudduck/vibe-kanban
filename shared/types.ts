@@ -82,10 +82,6 @@ export type ScanConfigRequest = { repo_path: string, };
 
 export type ScanConfigResponse = { suggestions: Array<ProjectConfigSuggestion>, };
 
-export type CreateRemoteProjectRequest = { organization_id: string, name: string, };
-
-export type LinkToExistingRequest = { remote_project_id: string, };
-
 export type LinkToLocalFolderRequest = { 
 /**
  * The remote project ID to link to (from the Hive)

@@ -224,10 +224,7 @@ impl ElectricClient {
         }
 
         if let Some(ref where_clause) = self.config.where_clause {
-            url.push_str(&format!(
-                "&where={}",
-                urlencoding::encode(where_clause)
-            ));
+            url.push_str(&format!("&where={}", urlencoding::encode(where_clause)));
         }
 
         if let Some(ref columns) = self.config.columns {
@@ -336,7 +333,9 @@ mod tests {
     fn test_parse_shape_insert() {
         let json = r#"{"key":"task-1","value":{"id":"task-1","title":"Test"},"headers":{"operation":"insert"}}"#;
         let op = ShapeOperation::parse(json).unwrap();
-        assert!(matches!(op, ShapeOperation::Insert { key, value } if key == "task-1" && value["title"] == "Test"));
+        assert!(
+            matches!(op, ShapeOperation::Insert { key, value } if key == "task-1" && value["title"] == "Test")
+        );
     }
 
     #[test]
@@ -516,7 +515,11 @@ mod tests {
             base_url: "http://localhost:3000".to_string(),
             table: "tasks".to_string(),
             where_clause: None,
-            columns: Some(vec!["id".to_string(), "title".to_string(), "status".to_string()]),
+            columns: Some(vec![
+                "id".to_string(),
+                "title".to_string(),
+                "status".to_string(),
+            ]),
         };
         let client = ElectricClient::new(config).unwrap();
         let state = ShapeState::initial();

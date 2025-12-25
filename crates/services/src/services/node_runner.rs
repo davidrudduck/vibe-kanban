@@ -106,14 +106,38 @@ impl ProjectMapping {
         Self::default()
     }
 
+    /// Update from auth response which now includes ALL organization projects.
+    ///
+    /// Projects with `is_owned == true` go into `links` (this node's projects).
+    /// Projects with `is_owned == false` go into `remote_projects` (other nodes' projects).
     pub fn update_from_links(&mut self, links: Vec<LinkedProjectInfo>) {
         self.links.clear();
         self.local_to_link.clear();
+        self.remote_projects.clear();
 
         for link in links {
-            self.local_to_link
-                .insert(link.local_project_id, link.link_id);
-            self.links.insert(link.link_id, link);
+            if link.is_owned {
+                // This node owns this project
+                self.local_to_link
+                    .insert(link.local_project_id, link.link_id);
+                self.links.insert(link.link_id, link);
+            } else {
+                // Another node owns this project - add as remote
+                self.remote_projects.insert(
+                    link.link_id,
+                    RemoteProjectInfo {
+                        link_id: link.link_id,
+                        project_id: link.project_id,
+                        project_name: link.project_name,
+                        local_project_id: link.local_project_id,
+                        git_repo_path: link.git_repo_path,
+                        default_branch: link.default_branch,
+                        source_node_id: link.source_node_id.unwrap_or_default(),
+                        source_node_name: link.source_node_name.unwrap_or_default(),
+                        source_node_public_url: None, // Not included in auth response
+                    },
+                );
+            }
         }
     }
 
@@ -215,6 +239,11 @@ impl NodeRunnerContext {
     /// Get the current node ID if connected.
     pub async fn node_id(&self) -> Option<Uuid> {
         self.state.read().await.node_id
+    }
+
+    /// Get the organization ID if connected.
+    pub async fn organization_id(&self) -> Option<Uuid> {
+        self.state.read().await.organization_id
     }
 
     /// Send a link project message to the hive.

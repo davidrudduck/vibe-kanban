@@ -146,13 +146,34 @@ pub struct AuthResultMessage {
     pub linked_projects: Vec<LinkedProjectInfo>,
 }
 
+/// Information about a project in the organization sent during auth.
+///
+/// This includes both projects owned by this node and projects owned by other nodes.
+/// The `is_owned` field indicates whether this node owns the project (has the git repo).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LinkedProjectInfo {
+    /// Link ID (for owned projects) or a generated UUID (for visible-only projects)
     pub link_id: Uuid,
+    /// Remote project ID in the hive's projects table
     pub project_id: Uuid,
+    /// Local project ID on the owning node
     pub local_project_id: Uuid,
+    /// Git repository path on the owning node
     pub git_repo_path: String,
+    /// Default branch for the project
     pub default_branch: String,
+    /// Project name for display
+    #[serde(default)]
+    pub project_name: String,
+    /// ID of the node that owns this project (has the git repo)
+    #[serde(default)]
+    pub source_node_id: Option<Uuid>,
+    /// Name of the node that owns this project
+    #[serde(default)]
+    pub source_node_name: Option<String>,
+    /// Whether this node owns the project (true) or just has visibility (false)
+    #[serde(default)]
+    pub is_owned: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

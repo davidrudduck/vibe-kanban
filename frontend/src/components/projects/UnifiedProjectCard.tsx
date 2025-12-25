@@ -15,7 +15,6 @@ import { Button } from '@/components/ui/button.tsx';
 import {
   Calendar,
   Circle,
-  Cloud,
   Edit,
   ExternalLink,
   FolderOpen,
@@ -25,18 +24,15 @@ import {
   MoreHorizontal,
   Terminal,
   Trash2,
-  Unlink,
 } from 'lucide-react';
 import type { MergedProject, CachedNodeStatus, Project } from 'shared/types';
 import { useEffect, useRef } from 'react';
 import { useNavigateWithSearch } from '@/hooks';
 import { projectsApi } from '@/lib/api';
-import { LinkProjectDialog } from '@/components/dialogs/projects/LinkProjectDialog';
 import { LinkToLocalFolderDialog } from '@/components/dialogs/projects/LinkToLocalFolderDialog';
 import { GitHubSettingsDialog } from '@/components/dialogs/projects/GitHubSettingsDialog';
 import { TerminalDialog } from '@/components/dialogs/terminal/TerminalDialog';
 import { useTranslation } from 'react-i18next';
-import { useProjectMutations } from '@/hooks/useProjectMutations';
 import { ProjectEditorSelectionDialog } from '@/components/dialogs/projects/ProjectEditorSelectionDialog';
 import { GitHubBadges } from './GitHubBadges';
 
@@ -67,15 +63,6 @@ function UnifiedProjectCard({ project, isFocused, onRefresh, onEdit }: Props) {
   const navigate = useNavigateWithSearch();
   const ref = useRef<HTMLDivElement>(null);
   const { t } = useTranslation('projects');
-
-  const { unlinkProject } = useProjectMutations({
-    onUnlinkSuccess: () => {
-      onRefresh();
-    },
-    onUnlinkError: (error) => {
-      console.error('Failed to unlink project:', error);
-    },
-  });
 
   useEffect(() => {
     if (isFocused && ref.current) {
@@ -132,31 +119,6 @@ function UnifiedProjectCard({ project, isFocused, onRefresh, onEdit }: Props) {
           remote_project_id: project.remote_project_id,
         } as Project,
       });
-    }
-  };
-
-  const handleLinkProject = async () => {
-    if (!project.has_local || !project.local_project_id) return;
-
-    try {
-      await LinkProjectDialog.show({
-        projectId: project.local_project_id,
-        projectName: project.name,
-      });
-      onRefresh();
-    } catch (error) {
-      console.error('Failed to link project:', error);
-    }
-  };
-
-  const handleUnlinkProject = () => {
-    if (!project.has_local || !project.local_project_id) return;
-
-    const confirmed = window.confirm(
-      `Are you sure you want to unlink "${project.name}"? The local project will remain, but it will no longer be linked to the remote project.`
-    );
-    if (confirmed) {
-      unlinkProject.mutate(project.local_project_id);
     }
   };
 
@@ -225,15 +187,6 @@ function UnifiedProjectCard({ project, isFocused, onRefresh, onEdit }: Props) {
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2 flex-wrap">
             <CardTitle className="text-lg">{project.name}</CardTitle>
-            {project.remote_project_id && (
-              <span
-                className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800"
-                title={t('linkedToOrganizationTooltip')}
-              >
-                <Cloud className="h-3 w-3" />
-                {t('linked')}
-              </span>
-            )}
             {project.github_enabled && project.has_local && (
               <GitHubBadges
                 project={{
@@ -303,27 +256,6 @@ function UnifiedProjectCard({ project, isFocused, onRefresh, onEdit }: Props) {
                 {/* Local project actions */}
                 {project.has_local && (
                   <>
-                    {project.remote_project_id ? (
-                      <DropdownMenuItem
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleUnlinkProject();
-                        }}
-                      >
-                        <Unlink className="mr-2 h-4 w-4" />
-                        {t('unlinkFromOrganization')}
-                      </DropdownMenuItem>
-                    ) : (
-                      <DropdownMenuItem
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleLinkProject();
-                        }}
-                      >
-                        <Link2 className="mr-2 h-4 w-4" />
-                        {t('linkToOrganization')}
-                      </DropdownMenuItem>
-                    )}
                     {onEdit && (
                       <DropdownMenuItem
                         onClick={(e) => {

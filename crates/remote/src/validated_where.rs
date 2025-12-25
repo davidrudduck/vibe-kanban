@@ -31,7 +31,10 @@ impl ValidatedWhere {
     /// );
     /// ```
     pub const fn new(table: &'static str, where_clause: &'static str) -> Self {
-        Self { table, where_clause }
+        Self {
+            table,
+            where_clause,
+        }
     }
 }
 

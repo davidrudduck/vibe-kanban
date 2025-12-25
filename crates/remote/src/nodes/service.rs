@@ -274,6 +274,18 @@ impl NodeServiceImpl {
         Ok(repo.list_by_node(node_id).await?)
     }
 
+    /// List all projects in an organization with ownership info.
+    ///
+    /// Returns all projects linked to any node in the organization,
+    /// with information about which node owns each project.
+    pub async fn list_organization_projects(
+        &self,
+        organization_id: Uuid,
+    ) -> Result<Vec<crate::db::node_projects::OrgProjectInfo>, NodeError> {
+        let repo = NodeProjectRepository::new(&self.pool);
+        Ok(repo.list_by_organization(organization_id).await?)
+    }
+
     /// Update project sync status
     pub async fn update_project_sync(&self, link_id: Uuid, status: &str) -> Result<(), NodeError> {
         let repo = NodeProjectRepository::new(&self.pool);

@@ -82,8 +82,6 @@ import {
   CreateInvitationResponse,
   RevokeInvitationRequest,
   UpdateMemberRoleRequest,
-  CreateRemoteProjectRequest,
-  LinkToExistingRequest,
   LinkToLocalFolderRequest,
   UpdateMemberRoleResponse,
   Invitation,
@@ -382,38 +380,6 @@ export const projectsApi = {
       options
     );
     return handleApiResponse<SearchResult[]>(response);
-  },
-
-  linkToExisting: async (
-    localProjectId: string,
-    data: LinkToExistingRequest
-  ): Promise<Project> => {
-    const response = await makeRequest(`/api/projects/${localProjectId}/link`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-    return handleApiResponse<Project>(response);
-  },
-
-  createAndLink: async (
-    localProjectId: string,
-    data: CreateRemoteProjectRequest
-  ): Promise<Project> => {
-    const response = await makeRequest(
-      `/api/projects/${localProjectId}/link/create`,
-      {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }
-    );
-    return handleApiResponse<Project>(response);
-  },
-
-  unlink: async (projectId: string): Promise<Project> => {
-    const response = await makeRequest(`/api/projects/${projectId}/link`, {
-      method: 'DELETE',
-    });
-    return handleApiResponse<Project>(response);
   },
 
   scanConfig: async (data: ScanConfigRequest): Promise<ScanConfigResponse> => {

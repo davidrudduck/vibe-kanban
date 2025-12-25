@@ -25,27 +25,15 @@ use uuid::Uuid;
 fn print_usage() {
     println!("Migrate JSONL Logs to log_entries");
     println!();
-    println!(
-        "This tool migrates execution logs from execution_process_logs (JSONL batches)"
-    );
+    println!("This tool migrates execution logs from execution_process_logs (JSONL batches)");
     println!("to log_entries (individual rows) for ElectricSQL compatibility.");
     println!();
     println!("Usage:");
-    println!(
-        "  cargo run --bin migrate_logs                            Dry-run mode (default)"
-    );
-    println!(
-        "  cargo run --bin migrate_logs -- --execute               Actually migrate logs"
-    );
-    println!(
-        "  cargo run --bin migrate_logs -- --verbose               Show detailed progress"
-    );
-    println!(
-        "  cargo run --bin migrate_logs -- --execution-id <UUID>   Migrate single execution"
-    );
-    println!(
-        "  cargo run --bin migrate_logs -- --help                  Show this help"
-    );
+    println!("  cargo run --bin migrate_logs                            Dry-run mode (default)");
+    println!("  cargo run --bin migrate_logs -- --execute               Actually migrate logs");
+    println!("  cargo run --bin migrate_logs -- --verbose               Show detailed progress");
+    println!("  cargo run --bin migrate_logs -- --execution-id <UUID>   Migrate single execution");
+    println!("  cargo run --bin migrate_logs -- --help                  Show this help");
     println!();
     println!("The migration is idempotent - already migrated logs will be skipped.");
 }

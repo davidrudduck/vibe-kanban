@@ -110,13 +110,11 @@ async fn insert_jsonl_logs(pool: &SqlitePool, execution_id: Uuid, jsonl: &str) {
 
 /// Count log entries in the new log_entries table.
 async fn count_log_entries(pool: &SqlitePool, execution_id: Uuid) -> i64 {
-    let row = sqlx::query(
-        r#"SELECT COUNT(*) as count FROM log_entries WHERE execution_id = $1"#,
-    )
-    .bind(execution_id)
-    .fetch_one(pool)
-    .await
-    .expect("Failed to count log entries");
+    let row = sqlx::query(r#"SELECT COUNT(*) as count FROM log_entries WHERE execution_id = $1"#)
+        .bind(execution_id)
+        .fetch_one(pool)
+        .await
+        .expect("Failed to count log entries");
 
     row.get::<i64, _>("count")
 }
@@ -285,8 +283,13 @@ async fn test_migrate_multiple_records() {
 
     // Insert multiple JSONL records (simulating batch inserts)
     insert_jsonl_logs(&pool, execution_id, r#"{"Stdout":"Record 1 Line 1"}"#).await;
-    insert_jsonl_logs(&pool, execution_id, r#"{"Stdout":"Record 2 Line 1"}
-{"Stdout":"Record 2 Line 2"}"#).await;
+    insert_jsonl_logs(
+        &pool,
+        execution_id,
+        r#"{"Stdout":"Record 2 Line 1"}
+{"Stdout":"Record 2 Line 2"}"#,
+    )
+    .await;
     insert_jsonl_logs(&pool, execution_id, r#"{"Stderr":"Record 3 Error"}"#).await;
 
     let result = services::services::log_migration::migrate_execution_logs(&pool, execution_id)
@@ -405,9 +408,10 @@ async fn test_dry_run_mode() {
     insert_jsonl_logs(&pool, execution_id, r#"{"Stdout":"Test message"}"#).await;
 
     // Dry run should not insert entries
-    let result = services::services::log_migration::migrate_execution_logs_dry_run(&pool, execution_id)
-        .await
-        .expect("Dry run failed");
+    let result =
+        services::services::log_migration::migrate_execution_logs_dry_run(&pool, execution_id)
+            .await
+            .expect("Dry run failed");
 
     assert_eq!(result.would_migrate, 1);
     assert_eq!(result.would_skip, 0);
