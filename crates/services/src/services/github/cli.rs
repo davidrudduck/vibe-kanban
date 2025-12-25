@@ -167,6 +167,58 @@ impl GhCli {
         ])?;
         Self::parse_pr_list(&raw)
     }
+
+    /// Get open issue and PR counts for a repository.
+    pub fn get_repo_counts(&self, owner: &str, repo: &str) -> Result<RepoCounts, GhCliError> {
+        // Get open issues count (excludes PRs)
+        let issues_raw = self.run([
+            "issue",
+            "list",
+            "--repo",
+            &format!("{owner}/{repo}"),
+            "--state",
+            "open",
+            "--json",
+            "number",
+        ])?;
+
+        // Get open PRs count
+        let prs_raw = self.run([
+            "pr",
+            "list",
+            "--repo",
+            &format!("{owner}/{repo}"),
+            "--state",
+            "open",
+            "--json",
+            "number",
+        ])?;
+
+        let issues_count = Self::count_json_array(&issues_raw)?;
+        let prs_count = Self::count_json_array(&prs_raw)?;
+
+        Ok(RepoCounts {
+            open_issues: issues_count,
+            open_prs: prs_count,
+        })
+    }
+
+    fn count_json_array(raw: &str) -> Result<i32, GhCliError> {
+        let value: Value = serde_json::from_str(raw.trim()).map_err(|err| {
+            GhCliError::UnexpectedOutput(format!("Failed to parse JSON array: {err}; raw: {raw}"))
+        })?;
+        let arr = value.as_array().ok_or_else(|| {
+            GhCliError::UnexpectedOutput(format!("Expected JSON array, got: {value:#?}"))
+        })?;
+        Ok(arr.len() as i32)
+    }
+}
+
+/// Counts of open issues and PRs for a repository
+#[derive(Debug, Clone)]
+pub struct RepoCounts {
+    pub open_issues: i32,
+    pub open_prs: i32,
 }
 
 impl GhCli {

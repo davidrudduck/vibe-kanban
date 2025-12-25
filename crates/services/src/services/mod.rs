@@ -32,6 +32,7 @@ pub mod filesystem;
 pub mod filesystem_watcher;
 pub mod git;
 pub mod github;
+pub mod github_sync;
 pub mod hive_client;
 pub mod image;
 pub mod node_proxy_client;
