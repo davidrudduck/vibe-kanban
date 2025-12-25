@@ -27,11 +27,11 @@ pub mod organizations;
 pub mod processes;
 pub mod projects;
 pub mod shared_tasks;
-pub mod templates;
-pub mod terminal;
 pub mod task_attempts;
 pub mod task_variables;
 pub mod tasks;
+pub mod templates;
+pub mod terminal;
 
 pub async fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
     // Create terminal router with its own state

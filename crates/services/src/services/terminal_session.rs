@@ -13,14 +13,14 @@ use std::{
 };
 
 use dashmap::DashMap;
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::Command,
-    sync::{broadcast, mpsc, RwLock},
+    sync::{RwLock, broadcast, mpsc},
 };
 use tracing::{debug, error, info, warn};
 use ts_rs::TS;
@@ -191,16 +191,18 @@ impl TerminalSessionManager {
             .ok()?;
 
         if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .to_string();
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !path.is_empty() {
                 return Some(PathBuf::from(path));
             }
         }
 
         // Fallback: check common locations
-        let common_paths = ["/usr/bin/tmux", "/usr/local/bin/tmux", "/opt/homebrew/bin/tmux"];
+        let common_paths = [
+            "/usr/bin/tmux",
+            "/usr/local/bin/tmux",
+            "/opt/homebrew/bin/tmux",
+        ];
         for path in common_paths {
             let path = PathBuf::from(path);
             if path.exists() {
@@ -395,20 +397,23 @@ impl TerminalSessionManager {
             let pty_system = native_pty_system();
 
             // Create a new PTY pair
-            let pair = pty_system.openpty(PtySize {
-                rows,
-                cols,
-                pixel_width: 0,
-                pixel_height: 0,
-            }).map_err(|e| TerminalError::CreateFailed(format!("Failed to create PTY: {}", e)))?;
+            let pair = pty_system
+                .openpty(PtySize {
+                    rows,
+                    cols,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                })
+                .map_err(|e| TerminalError::CreateFailed(format!("Failed to create PTY: {}", e)))?;
 
             // Build the command
             let mut cmd = CommandBuilder::new(&shell);
             cmd.cwd(&working_dir);
 
             // Spawn the shell in the PTY
-            let _child = pair.slave.spawn_command(cmd)
-                .map_err(|e| TerminalError::CreateFailed(format!("Failed to spawn shell: {}", e)))?;
+            let _child = pair.slave.spawn_command(cmd).map_err(|e| {
+                TerminalError::CreateFailed(format!("Failed to spawn shell: {}", e))
+            })?;
 
             // Get the master for reading/writing
             let master = pair.master;
@@ -417,8 +422,9 @@ impl TerminalSessionManager {
             let (writer_tx, mut writer_rx) = mpsc::channel::<Vec<u8>>(256);
 
             // Get a writer from the master
-            let mut writer = master.take_writer()
-                .map_err(|e| TerminalError::CreateFailed(format!("Failed to get PTY writer: {}", e)))?;
+            let mut writer = master.take_writer().map_err(|e| {
+                TerminalError::CreateFailed(format!("Failed to get PTY writer: {}", e))
+            })?;
 
             // Spawn writer task (blocking)
             std::thread::spawn(move || {
@@ -431,8 +437,9 @@ impl TerminalSessionManager {
             });
 
             // Get a reader from the master
-            let mut reader = master.try_clone_reader()
-                .map_err(|e| TerminalError::CreateFailed(format!("Failed to get PTY reader: {}", e)))?;
+            let mut reader = master.try_clone_reader().map_err(|e| {
+                TerminalError::CreateFailed(format!("Failed to get PTY reader: {}", e))
+            })?;
 
             // Spawn reader task in a thread (blocking I/O)
             let reader_handle = std::thread::spawn(move || {
@@ -458,7 +465,9 @@ impl TerminalSessionManager {
             let pty_master = Arc::new(std::sync::Mutex::new(master));
 
             Ok::<_, TerminalError>((pty_master, writer_tx, reader_handle))
-        }).await.map_err(|e| TerminalError::CreateFailed(format!("Task join error: {}", e)))??;
+        })
+        .await
+        .map_err(|e| TerminalError::CreateFailed(format!("Task join error: {}", e)))??;
 
         // Convert the std thread handle to a tokio JoinHandle by spawning a task
         let reader_handle = tokio::task::spawn_blocking(move || {
@@ -473,7 +482,11 @@ impl TerminalSessionManager {
     }
 
     /// Write data to a session.
-    pub async fn write_to_session(&self, session_id: &str, data: &[u8]) -> Result<(), TerminalError> {
+    pub async fn write_to_session(
+        &self,
+        session_id: &str,
+        data: &[u8],
+    ) -> Result<(), TerminalError> {
         let session = self
             .sessions
             .get(session_id)
@@ -592,7 +605,10 @@ impl TerminalSessionManager {
         let session = session.1.write().await;
 
         match &session.backend {
-            SessionBackend::Tmux { session_name, reader_handle } => {
+            SessionBackend::Tmux {
+                session_name,
+                reader_handle,
+            } => {
                 // Abort the reader task if running
                 if let Some(handle) = reader_handle {
                     handle.abort();
@@ -896,7 +912,10 @@ mod tests {
 
         // Try to create duplicate session
         let result2 = manager.create_session(temp_dir.path()).await;
-        assert!(matches!(result2, Err(TerminalError::SessionAlreadyExists(_))));
+        assert!(matches!(
+            result2,
+            Err(TerminalError::SessionAlreadyExists(_))
+        ));
 
         // Clean up
         let _ = manager.kill_session(&session_id).await;

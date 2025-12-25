@@ -70,6 +70,9 @@ pub fn router(_deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             .route("/summary", get(get_dashboard_summary))
             .route("/activity", get(get_activity_feed))
             .route("/activity/dismiss", post(dismiss_activity_item))
-            .route("/activity/dismiss/{task_id}", delete(undismiss_activity_item)),
+            .route(
+                "/activity/dismiss/{task_id}",
+                delete(undismiss_activity_item),
+            ),
     )
 }

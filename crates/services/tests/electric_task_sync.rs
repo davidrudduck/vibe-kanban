@@ -7,15 +7,15 @@ use db::models::task::Task;
 use serde_json::json;
 use services::services::electric_sync::{ElectricClient, ShapeConfig, ShapeOperation, ShapeState};
 use sqlx::{
-    sqlite::{SqliteConnectOptions, SqliteJournalMode},
     SqlitePool,
+    sqlite::{SqliteConnectOptions, SqliteJournalMode},
 };
 use std::str::FromStr;
 use tempfile::TempDir;
 use uuid::Uuid;
 use wiremock::{
-    matchers::{method, path_regex, query_param},
     Mock, MockServer, ResponseTemplate,
+    matchers::{method, path_regex, query_param},
 };
 
 /// Set up an in-memory SQLite database with minimal test schema.

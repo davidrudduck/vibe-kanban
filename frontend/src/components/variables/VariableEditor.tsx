@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import {
@@ -250,131 +251,58 @@ function VariableEditor({
   }
 
   return (
-    <div className={cn('space-y-2', className)}>
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium text-muted-foreground">
-          {t('variables.title', 'Variables')}
-        </h4>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleStartNew}
-          disabled={disabled || isMutating || editing !== null}
-          className="h-7 px-2 text-xs"
+    <TooltipProvider>
+      <div className={cn('space-y-2', className)}>
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <h4 className="text-sm font-medium text-muted-foreground">
+            {t('variables.title', 'Variables')}
+          </h4>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleStartNew}
+            disabled={disabled || isMutating || editing !== null}
+            className="h-7 px-2 text-xs"
+          >
+            <Plus className="h-3 w-3 mr-1" />
+            {t('variables.add', 'Add')}
+          </Button>
+        </div>
+
+        {/* Variable list */}
+        <div
+          className={cn(
+            'border rounded-md overflow-hidden',
+            compact ? 'max-h-48' : 'max-h-64',
+            'overflow-y-auto'
+          )}
         >
-          <Plus className="h-3 w-3 mr-1" />
-          {t('variables.add', 'Add')}
-        </Button>
-      </div>
-
-      {/* Variable list */}
-      <div
-        className={cn(
-          'border rounded-md overflow-hidden',
-          compact ? 'max-h-48' : 'max-h-64',
-          'overflow-y-auto'
-        )}
-      >
-        {displayVariables.length === 0 && !editing ? (
-          <div className="text-center py-4 text-sm text-muted-foreground">
-            {t('variables.empty', 'No variables defined')}
-          </div>
-        ) : (
-          <div className="divide-y">
-            {/* New variable row */}
-            {editing?.isNew && (
-              <div className="p-2 bg-muted/30">
-                <div className="flex items-start gap-2">
-                  <div className="flex-1 space-y-2">
-                    <div className="flex gap-2">
-                      <Input
-                        value={editing.name}
-                        onChange={(e) =>
-                          setEditing({
-                            ...editing,
-                            name: e.target.value.toUpperCase(),
-                          })
-                        }
-                        onKeyDown={handleKeyDown}
-                        placeholder={t(
-                          'variables.namePlaceholder',
-                          'VARIABLE_NAME'
-                        )}
-                        className="h-8 text-sm font-mono flex-1"
-                        disabled={isMutating}
-                        autoFocus
-                      />
-                    </div>
-                    <Input
-                      value={editing.value}
-                      onChange={(e) =>
-                        setEditing({ ...editing, value: e.target.value })
-                      }
-                      onKeyDown={handleKeyDown}
-                      placeholder={t('variables.valuePlaceholder', 'Value')}
-                      className="h-8 text-sm"
-                      disabled={isMutating}
-                    />
-                    {error && (
-                      <div className="flex items-center gap-1 text-xs text-destructive">
-                        <AlertCircle className="h-3 w-3" />
-                        {error}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex gap-1 pt-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6"
-                      onClick={handleSave}
-                      disabled={isMutating}
-                    >
-                      {isMutating ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <Check className="h-3 w-3 text-green-600 dark:text-green-400" />
-                      )}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6"
-                      onClick={handleCancel}
-                      disabled={isMutating}
-                    >
-                      <X className="h-3 w-3" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Existing variables */}
-            {displayVariables.map((variable) => (
-              <div
-                key={variable.name}
-                className={cn('p-2 group', variable.inherited && 'bg-muted/20')}
-              >
-                {editing && editing.id === variable.id ? (
-                  // Editing existing variable
+          {displayVariables.length === 0 && !editing ? (
+            <div className="text-center py-4 text-sm text-muted-foreground">
+              {t('variables.empty', 'No variables defined')}
+            </div>
+          ) : (
+            <div className="divide-y">
+              {/* New variable row */}
+              {editing?.isNew && (
+                <div className="p-2 bg-muted/30">
                   <div className="flex items-start gap-2">
                     <div className="flex-1 space-y-2">
                       <div className="flex gap-2">
                         <Input
                           value={editing.name}
                           onChange={(e) =>
-                            setEditing((prev) =>
-                              prev
-                                ? {
-                                    ...prev,
-                                    name: e.target.value.toUpperCase(),
-                                  }
-                                : null
-                            )
+                            setEditing({
+                              ...editing,
+                              name: e.target.value.toUpperCase(),
+                            })
                           }
                           onKeyDown={handleKeyDown}
+                          placeholder={t(
+                            'variables.namePlaceholder',
+                            'VARIABLE_NAME'
+                          )}
                           className="h-8 text-sm font-mono flex-1"
                           disabled={isMutating}
                           autoFocus
@@ -383,11 +311,10 @@ function VariableEditor({
                       <Input
                         value={editing.value}
                         onChange={(e) =>
-                          setEditing((prev) =>
-                            prev ? { ...prev, value: e.target.value } : null
-                          )
+                          setEditing({ ...editing, value: e.target.value })
                         }
                         onKeyDown={handleKeyDown}
+                        placeholder={t('variables.valuePlaceholder', 'Value')}
                         className="h-8 text-sm"
                         disabled={isMutating}
                       />
@@ -423,113 +350,192 @@ function VariableEditor({
                       </Button>
                     </div>
                   </div>
-                ) : (
-                  // Display mode
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <code className="text-sm font-mono text-foreground">
-                          ${variable.name}
-                        </code>
-                        {variable.inherited && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Badge
-                                variant="secondary"
-                                className="text-[10px] px-1.5 py-0"
-                              >
-                                {t('variables.inherited', 'Inherited')}
-                              </Badge>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {t(
-                                'variables.inheritedTooltip',
-                                'From parent task'
-                              )}
-                            </TooltipContent>
-                          </Tooltip>
+                </div>
+              )}
+
+              {/* Existing variables */}
+              {displayVariables.map((variable) => (
+                <div
+                  key={variable.name}
+                  className={cn(
+                    'p-2 group',
+                    variable.inherited && 'bg-muted/20'
+                  )}
+                >
+                  {editing && editing.id === variable.id ? (
+                    // Editing existing variable
+                    <div className="flex items-start gap-2">
+                      <div className="flex-1 space-y-2">
+                        <div className="flex gap-2">
+                          <Input
+                            value={editing.name}
+                            onChange={(e) =>
+                              setEditing((prev) =>
+                                prev
+                                  ? {
+                                      ...prev,
+                                      name: e.target.value.toUpperCase(),
+                                    }
+                                  : null
+                              )
+                            }
+                            onKeyDown={handleKeyDown}
+                            className="h-8 text-sm font-mono flex-1"
+                            disabled={isMutating}
+                            autoFocus
+                          />
+                        </div>
+                        <Input
+                          value={editing.value}
+                          onChange={(e) =>
+                            setEditing((prev) =>
+                              prev ? { ...prev, value: e.target.value } : null
+                            )
+                          }
+                          onKeyDown={handleKeyDown}
+                          className="h-8 text-sm"
+                          disabled={isMutating}
+                        />
+                        {error && (
+                          <div className="flex items-center gap-1 text-xs text-destructive">
+                            <AlertCircle className="h-3 w-3" />
+                            {error}
+                          </div>
                         )}
                       </div>
-                      <div
-                        className="text-sm text-muted-foreground truncate mt-0.5"
-                        title={variable.value}
-                      >
-                        {variable.value || (
-                          <span className="italic">
-                            {t('variables.emptyValue', '(empty)')}
-                          </span>
-                        )}
+                      <div className="flex gap-1 pt-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={handleSave}
+                          disabled={isMutating}
+                        >
+                          {isMutating ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Check className="h-3 w-3 text-green-600 dark:text-green-400" />
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={handleCancel}
+                          disabled={isMutating}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
                       </div>
                     </div>
-                    <div
-                      className={cn(
-                        'flex gap-1',
-                        'opacity-0 group-hover:opacity-100 transition-opacity',
-                        disabled && 'hidden'
-                      )}
-                    >
-                      {variable.inherited ? (
-                        // Override button for inherited variables
-                        <Tooltip>
-                          <TooltipTrigger asChild>
+                  ) : (
+                    // Display mode
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <code className="text-sm font-mono text-foreground">
+                            ${variable.name}
+                          </code>
+                          {variable.inherited && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge
+                                  variant="secondary"
+                                  className="text-[10px] px-1.5 py-0"
+                                >
+                                  {t('variables.inherited', 'Inherited')}
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {t(
+                                  'variables.inheritedTooltip',
+                                  'From parent task'
+                                )}
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        </div>
+                        <div
+                          className="text-sm text-muted-foreground truncate mt-0.5"
+                          title={variable.value}
+                        >
+                          {variable.value || (
+                            <span className="italic">
+                              {t('variables.emptyValue', '(empty)')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div
+                        className={cn(
+                          'flex gap-1',
+                          'opacity-0 group-hover:opacity-100 transition-opacity',
+                          disabled && 'hidden'
+                        )}
+                      >
+                        {variable.inherited ? (
+                          // Override button for inherited variables
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6"
+                                onClick={() =>
+                                  handleOverride(variable as ResolvedVariable)
+                                }
+                                disabled={isMutating || editing !== null}
+                              >
+                                <Edit2 className="h-3 w-3" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {t('variables.override', 'Override')}
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          // Edit and delete buttons for own variables
+                          <>
                             <Button
                               variant="ghost"
                               size="icon"
                               className="h-6 w-6"
-                              onClick={() =>
-                                handleOverride(variable as ResolvedVariable)
-                              }
+                              onClick={() => handleStartEdit(variable)}
                               disabled={isMutating || editing !== null}
                             >
                               <Edit2 className="h-3 w-3" />
                             </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            {t('variables.override', 'Override')}
-                          </TooltipContent>
-                        </Tooltip>
-                      ) : (
-                        // Edit and delete buttons for own variables
-                        <>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            onClick={() => handleStartEdit(variable)}
-                            disabled={isMutating || editing !== null}
-                          >
-                            <Edit2 className="h-3 w-3" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            onClick={() => handleDelete(variable)}
-                            disabled={isMutating || editing !== null}
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </>
-                      )}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              onClick={() => handleDelete(variable)}
+                              disabled={isMutating || editing !== null}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Hint text */}
+        {!compact && (
+          <p className="text-xs text-muted-foreground">
+            {t(
+              'variables.hint',
+              'Variables can be used in task descriptions with $VAR_NAME or ${VAR_NAME} syntax.'
+            )}
+          </p>
         )}
       </div>
-
-      {/* Hint text */}
-      {!compact && (
-        <p className="text-xs text-muted-foreground">
-          {t(
-            'variables.hint',
-            'Variables can be used in task descriptions with $VAR_NAME or ${VAR_NAME} syntax.'
-          )}
-        </p>
-      )}
-    </div>
+    </TooltipProvider>
   );
 }
 
