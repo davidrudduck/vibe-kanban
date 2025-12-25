@@ -27,6 +27,7 @@ pub struct AppState {
     pub node_connections: ConnectionManager,
     pub connection_token: Arc<ConnectionTokenService>,
     pub log_cache: LogCache,
+    pub http_client: reqwest::Client,
 }
 
 impl AppState {
@@ -42,6 +43,7 @@ impl AppState {
         server_public_base_url: String,
         node_connections: ConnectionManager,
         connection_token: Arc<ConnectionTokenService>,
+        http_client: reqwest::Client,
     ) -> Self {
         Self {
             pool,
@@ -55,6 +57,7 @@ impl AppState {
             node_connections,
             connection_token,
             log_cache: LogCache::new(),
+            http_client,
         }
     }
 
