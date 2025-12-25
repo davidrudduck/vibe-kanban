@@ -1,3 +1,33 @@
+//! Shared task model for caching remote tasks locally (legacy implementation).
+//!
+//! # DEPRECATION NOTICE
+//!
+//! This module is deprecated and will be removed in a future release. It is being
+//! replaced by ElectricSQL-based real-time sync.
+//!
+//! ## Migration Path
+//!
+//! **Backend (Node Runner):**
+//! - Use [`crate::services::electric_task_sync::ElectricTaskSyncService`] instead
+//!   of the WebSocket-based sync in `share.rs`
+//! - Electric sync uses HTTP Shape API for incremental updates
+//!
+//! **Frontend:**
+//! - Use the `useElectricTasks` hook from `frontend/src/hooks/useElectricTasks.ts`
+//! - This provides real-time task sync via Electric shapes
+//!
+//! ## Current Status
+//!
+//! The legacy implementation is still in use for backwards compatibility while
+//! the Electric migration is completed. Both systems can run in parallel during
+//! the transition period.
+//!
+//! ## See Also
+//!
+//! - `crates/services/src/services/electric_task_sync.rs` - Electric-based task sync
+//! - `frontend/src/hooks/useElectricTasks.ts` - React hook for Electric tasks
+//! - `frontend/src/lib/electric/` - Electric configuration and collections
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Executor, FromRow, QueryBuilder, Sqlite, SqlitePool};

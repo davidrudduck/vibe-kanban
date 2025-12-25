@@ -468,8 +468,8 @@ mod tests {
 
         assert_eq!(entries.len(), 5);
         // Verify order (ascending by id)
-        for i in 0..5 {
-            assert_eq!(entries[i].content, format!("Message {}", i));
+        for (i, entry) in entries.iter().enumerate().take(5) {
+            assert_eq!(entry.content, format!("Message {}", i));
         }
     }
 
