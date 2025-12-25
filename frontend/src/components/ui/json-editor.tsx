@@ -73,8 +73,8 @@ export const JSONEditor: React.FC<JSONEditorProps> = ({
         placeholder={placeholder}
         style={{
           fontSize: '14px',
-          fontFamily:
-            'ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace',
+          fontFamily: 'var(--font-code)',
+          fontVariantLigatures: 'var(--font-ligatures)',
         }}
       />
     </div>
