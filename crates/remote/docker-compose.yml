@@ -27,6 +27,38 @@ services:
     ports:
       - "${POSTGRES_PORT:-5434}:5432"
 
+  # Initialize the electric_sync role before Electric starts
+  # This is needed because Electric connects before remote-server runs its migrations
+  init-db:
+    image: postgres:16-alpine
+    depends_on:
+      remote-db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-vibe_remote}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      ELECTRIC_ROLE_PASSWORD: ${ELECTRIC_ROLE_PASSWORD:-electric_sync}
+    entrypoint: [ "/bin/sh", "-c" ]
+    command:
+      - |
+        echo "Creating electric_sync role if not exists..."
+        psql -h remote-db -U $${POSTGRES_USER} -d $${POSTGRES_DB} <<-EOSQL
+          DO \$\$
+          BEGIN
+            IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'electric_sync') THEN
+              CREATE ROLE electric_sync WITH LOGIN REPLICATION PASSWORD '$${ELECTRIC_ROLE_PASSWORD}';
+              RAISE NOTICE 'Created electric_sync role';
+            ELSE
+              RAISE NOTICE 'electric_sync role already exists';
+            END IF;
+          END \$\$;
+          GRANT CONNECT ON DATABASE $${POSTGRES_DB} TO electric_sync;
+          GRANT USAGE ON SCHEMA public TO electric_sync;
+        EOSQL
+        echo "Database initialization complete"
+    restart: "no"
+
   electric:
     image: electricsql/electric:latest
     working_dir: /app
@@ -46,6 +78,8 @@ services:
     depends_on:
       remote-db:
         condition: service_healthy
+      init-db:
+        condition: service_completed_successfully
     ports:
       - "${ELECTRIC_PORT:-3001}:3000"
     healthcheck:
