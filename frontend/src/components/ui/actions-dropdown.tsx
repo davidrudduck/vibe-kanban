@@ -268,7 +268,6 @@ export function ActionsDropdown({
         status: newStatus,
         parent_task_id: null,
         image_ids: null,
-        validation_steps: null,
       });
       // Optimistically update the local state
       const statusCallback = getStatusCallback(projectId);
