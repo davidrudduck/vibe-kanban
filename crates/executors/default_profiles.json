@@ -14,7 +14,8 @@
       },
       "APPROVALS": {
         "CLAUDE_CODE": {
-          "approvals": true
+          "approvals": true,
+          "interactive_questions": true
         }
       },
       "NO_CONTEXT": {
