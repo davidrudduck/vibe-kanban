@@ -774,10 +774,10 @@ pub async fn create_project(
         }
     }
 
-    match Project::create(
+    let project = match Project::create(
         &deployment.db().pool,
         &CreateProject {
-            name,
+            name: name.clone(),
             git_repo_path: path.to_string_lossy().to_string(),
             use_existing_repo,
             setup_script,
@@ -789,8 +789,116 @@ pub async fn create_project(
     )
     .await
     {
-        Ok(project) => Ok(ResponseJson(ApiResponse::success(project))),
-        Err(e) => Err(ProjectError::CreateFailed(e.to_string()).into()),
+        Ok(project) => project,
+        Err(e) => return Err(ProjectError::CreateFailed(e.to_string()).into()),
+    };
+
+    // Auto-link to hive if connected
+    let final_project = auto_link_project_to_hive(&deployment, project, &name, &path).await;
+
+    Ok(ResponseJson(ApiResponse::success(final_project)))
+}
+
+/// Automatically link a newly created project to the hive if connected.
+/// This creates a remote project and links it so all nodes in the swarm can see it.
+async fn auto_link_project_to_hive(
+    deployment: &DeploymentImpl,
+    project: Project,
+    name: &str,
+    path: &std::path::Path,
+) -> Project {
+    use services::services::remote_client::CreateRemoteProjectPayload;
+
+    // Check if we're connected to a hive
+    let ctx = match deployment.node_runner_context() {
+        Some(ctx) => ctx,
+        None => {
+            tracing::debug!(
+                project_id = %project.id,
+                "No node runner context, skipping auto-link"
+            );
+            return project;
+        }
+    };
+
+    if !ctx.is_connected().await {
+        tracing::debug!(
+            project_id = %project.id,
+            "Not connected to hive, skipping auto-link"
+        );
+        return project;
+    }
+
+    // Get the organization ID from the hive connection
+    let organization_id = match ctx.organization_id().await {
+        Some(org_id) => org_id,
+        None => {
+            tracing::warn!(
+                project_id = %project.id,
+                "Connected to hive but no organization_id available, skipping auto-link"
+            );
+            return project;
+        }
+    };
+
+    // Get the remote client
+    let client = match deployment.remote_client() {
+        Ok(client) => client,
+        Err(e) => {
+            tracing::warn!(
+                project_id = %project.id,
+                error = %e,
+                "Failed to get remote client for auto-link"
+            );
+            return project;
+        }
+    };
+
+    // Create a remote project in the hive
+    let remote_project = match client
+        .create_project(&CreateRemoteProjectPayload {
+            organization_id,
+            name: name.to_string(),
+            metadata: None,
+        })
+        .await
+    {
+        Ok(remote_project) => remote_project,
+        Err(e) => {
+            tracing::warn!(
+                project_id = %project.id,
+                error = %e,
+                "Failed to create remote project in hive for auto-link"
+            );
+            return project;
+        }
+    };
+
+    tracing::info!(
+        project_id = %project.id,
+        remote_project_id = %remote_project.id,
+        "Created remote project in hive, now linking"
+    );
+
+    // Link the local project to the remote project
+    match apply_remote_project_link(deployment, project.id, remote_project).await {
+        Ok(updated_project) => {
+            tracing::info!(
+                project_id = %updated_project.id,
+                remote_project_id = ?updated_project.remote_project_id,
+                path = %path.display(),
+                "Auto-linked new project to hive"
+            );
+            updated_project
+        }
+        Err(e) => {
+            tracing::warn!(
+                project_id = %project.id,
+                error = %e,
+                "Failed to apply remote project link during auto-link"
+            );
+            project
+        }
     }
 }
 
