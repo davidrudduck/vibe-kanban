@@ -63,9 +63,32 @@ export type ElectricNodeProject = ElectricRow & {
 
 /**
  * Shared task type for Electric sync.
- * Uses the shared types definition with Row compatibility.
+ * This extends the base SharedTask with fields from the PostgreSQL schema
+ * that may not be in the base type, plus Row compatibility.
+ *
+ * Note: The Electric sync returns raw PostgreSQL data, which includes:
+ * - project_id (UUID from PostgreSQL) - use this instead of remote_project_id
+ * - deleted_at instead of archived_at
  */
-export type ElectricSharedTask = ElectricRow & SharedTaskType;
+export type ElectricSharedTask = ElectricRow &
+  Omit<SharedTaskType, 'remote_project_id'> & {
+    /** PostgreSQL project_id (maps to remote_project_id in local type) */
+    project_id: string;
+    /** Organization this task belongs to */
+    organization_id: string;
+    /** Creator user ID */
+    creator_user_id: string | null;
+    /** User who deleted this task */
+    deleted_by_user_id: string | null;
+    /** When the task was soft-deleted */
+    deleted_at: string | null;
+    /** When the task was shared to the hive */
+    shared_at: string | null;
+    /** For backwards compatibility with existing code */
+    remote_project_id?: string;
+    /** Archived at (alias for deleted_at for compatibility) */
+    archived_at?: string | null;
+  };
 
 /**
  * Configuration type for Electric collection options.
