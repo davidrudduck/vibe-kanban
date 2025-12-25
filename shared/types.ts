@@ -38,7 +38,31 @@ parallel_setup_script: boolean, remote_project_id: string | null, created_at: Da
 /**
  * JSON array of default validation steps for new tasks in this project
  */
-default_validation_steps: string | null, };
+default_validation_steps: string | null, 
+/**
+ * Whether GitHub integration is enabled for this project
+ */
+github_enabled: boolean, 
+/**
+ * GitHub repository owner (e.g., "anthropics" from "anthropics/claude-code")
+ */
+github_owner: string | null, 
+/**
+ * GitHub repository name (e.g., "claude-code" from "anthropics/claude-code")
+ */
+github_repo: string | null, 
+/**
+ * Count of open issues (cached from GitHub API)
+ */
+github_open_issues: number, 
+/**
+ * Count of open pull requests (cached from GitHub API)
+ */
+github_open_prs: number, 
+/**
+ * Timestamp of last successful sync with GitHub API
+ */
+github_last_synced_at: Date | null, };
 
 export type CreateProject = { name: string, git_repo_path: string, use_existing_repo: boolean, 
 /**

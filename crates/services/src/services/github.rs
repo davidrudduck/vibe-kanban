@@ -9,6 +9,7 @@ use tracing::info;
 
 mod cli;
 
+pub use cli::RepoCounts;
 use cli::{GhCli, GhCliError};
 
 #[derive(Debug, Error)]
@@ -261,6 +262,47 @@ impl GitHubService {
             })?;
             let prs = prs.map_err(GitHubServiceError::from)?;
             Ok(prs)
+        })
+        .retry(
+            &ExponentialBuilder::default()
+                .with_min_delay(Duration::from_secs(1))
+                .with_max_delay(Duration::from_secs(30))
+                .with_max_times(3)
+                .with_jitter(),
+        )
+        .when(|e: &GitHubServiceError| e.should_retry())
+        .notify(|err: &GitHubServiceError, dur: Duration| {
+            tracing::warn!(
+                "GitHub API call failed, retrying after {:.2}s: {}",
+                dur.as_secs_f64(),
+                err
+            );
+        })
+        .await
+    }
+
+    /// Get open issue and PR counts for a repository
+    pub async fn get_repo_counts(
+        &self,
+        repo_info: &GitHubRepoInfo,
+    ) -> Result<RepoCounts, GitHubServiceError> {
+        (|| async {
+            let owner = repo_info.owner.clone();
+            let repo = repo_info.repo_name.clone();
+            let cli = self.gh_cli.clone();
+            let counts = task::spawn_blocking({
+                let owner = owner.clone();
+                let repo = repo.clone();
+                move || cli.get_repo_counts(&owner, &repo)
+            })
+            .await
+            .map_err(|err| {
+                GitHubServiceError::Repository(format!(
+                    "Failed to execute GitHub CLI for repo counts: {err}"
+                ))
+            })?;
+            let counts = counts.map_err(GitHubServiceError::from)?;
+            Ok(counts)
         })
         .retry(
             &ExponentialBuilder::default()

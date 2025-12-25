@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id as \"id!: Uuid\",\n                      name,\n                      git_repo_path,\n                      setup_script,\n                      dev_script,\n                      cleanup_script,\n                      copy_files,\n                      parallel_setup_script as \"parallel_setup_script!: bool\",\n                      remote_project_id as \"remote_project_id: Uuid\",\n                      created_at as \"created_at!: DateTime<Utc>\",\n                      updated_at as \"updated_at!: DateTime<Utc>\",\n                      is_remote as \"is_remote!: bool\",\n                      source_node_id as \"source_node_id: Uuid\",\n                      source_node_name,\n                      source_node_public_url,\n                      source_node_status,\n                      remote_last_synced_at as \"remote_last_synced_at: DateTime<Utc>\",\n                      default_validation_steps\n               FROM projects\n               WHERE is_remote = 1\n               ORDER BY name",
+  "query": "SELECT id as \"id!: Uuid\",\n                      name,\n                      git_repo_path,\n                      setup_script,\n                      dev_script,\n                      cleanup_script,\n                      copy_files,\n                      parallel_setup_script as \"parallel_setup_script!: bool\",\n                      remote_project_id as \"remote_project_id: Uuid\",\n                      created_at as \"created_at!: DateTime<Utc>\",\n                      updated_at as \"updated_at!: DateTime<Utc>\",\n                      is_remote as \"is_remote!: bool\",\n                      source_node_id as \"source_node_id: Uuid\",\n                      source_node_name,\n                      source_node_public_url,\n                      source_node_status,\n                      remote_last_synced_at as \"remote_last_synced_at: DateTime<Utc>\",\n                      default_validation_steps,\n                      github_enabled as \"github_enabled!: bool\",\n                      github_owner,\n                      github_repo,\n                      github_open_issues as \"github_open_issues!: i32\",\n                      github_open_prs as \"github_open_prs!: i32\",\n                      github_last_synced_at as \"github_last_synced_at: DateTime<Utc>\"\n               FROM projects\n               WHERE is_remote = 0\n               ORDER BY created_at DESC",
   "describe": {
     "columns": [
       {
@@ -92,6 +92,36 @@
         "name": "default_validation_steps",
         "ordinal": 17,
         "type_info": "Text"
+      },
+      {
+        "name": "github_enabled!: bool",
+        "ordinal": 18,
+        "type_info": "Integer"
+      },
+      {
+        "name": "github_owner",
+        "ordinal": 19,
+        "type_info": "Text"
+      },
+      {
+        "name": "github_repo",
+        "ordinal": 20,
+        "type_info": "Text"
+      },
+      {
+        "name": "github_open_issues!: i32",
+        "ordinal": 21,
+        "type_info": "Integer"
+      },
+      {
+        "name": "github_open_prs!: i32",
+        "ordinal": 22,
+        "type_info": "Integer"
+      },
+      {
+        "name": "github_last_synced_at: DateTime<Utc>",
+        "ordinal": 23,
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -115,8 +145,14 @@
       true,
       true,
       true,
+      true,
+      false,
+      true,
+      true,
+      false,
+      false,
       true
     ]
   },
-  "hash": "c95b122196f4602943b27212f2b7b591fcadf9df63e4dd7e03f5b6237673e5b9"
+  "hash": "5f9e32b7cac7670178cb43188edcccbddd779cbb444548d166ea80133270c50a"
 }

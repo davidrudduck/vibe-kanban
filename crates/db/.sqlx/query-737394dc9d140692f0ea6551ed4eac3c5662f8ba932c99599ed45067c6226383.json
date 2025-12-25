@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "\n            SELECT p.id as \"id!: Uuid\", p.name, p.git_repo_path, p.setup_script, p.dev_script, p.cleanup_script, p.copy_files,\n                   p.parallel_setup_script as \"parallel_setup_script!: bool\",\n                   p.remote_project_id as \"remote_project_id: Uuid\",\n                   p.created_at as \"created_at!: DateTime<Utc>\", p.updated_at as \"updated_at!: DateTime<Utc>\",\n                   p.is_remote as \"is_remote!: bool\",\n                   p.source_node_id as \"source_node_id: Uuid\",\n                   p.source_node_name, p.source_node_public_url, p.source_node_status,\n                   p.remote_last_synced_at as \"remote_last_synced_at: DateTime<Utc>\",\n                   p.default_validation_steps\n            FROM projects p\n            WHERE p.id IN (\n                SELECT DISTINCT t.project_id\n                FROM tasks t\n                INNER JOIN task_attempts ta ON ta.task_id = t.id\n                ORDER BY ta.updated_at DESC\n            )\n            LIMIT $1\n            ",
+  "query": "\n            SELECT p.id as \"id!: Uuid\", p.name, p.git_repo_path, p.setup_script, p.dev_script, p.cleanup_script, p.copy_files,\n                   p.parallel_setup_script as \"parallel_setup_script!: bool\",\n                   p.remote_project_id as \"remote_project_id: Uuid\",\n                   p.created_at as \"created_at!: DateTime<Utc>\", p.updated_at as \"updated_at!: DateTime<Utc>\",\n                   p.is_remote as \"is_remote!: bool\",\n                   p.source_node_id as \"source_node_id: Uuid\",\n                   p.source_node_name, p.source_node_public_url, p.source_node_status,\n                   p.remote_last_synced_at as \"remote_last_synced_at: DateTime<Utc>\",\n                   p.default_validation_steps,\n                   p.github_enabled as \"github_enabled!: bool\",\n                   p.github_owner,\n                   p.github_repo,\n                   p.github_open_issues as \"github_open_issues!: i32\",\n                   p.github_open_prs as \"github_open_prs!: i32\",\n                   p.github_last_synced_at as \"github_last_synced_at: DateTime<Utc>\"\n            FROM projects p\n            WHERE p.id IN (\n                SELECT DISTINCT t.project_id\n                FROM tasks t\n                INNER JOIN task_attempts ta ON ta.task_id = t.id\n                ORDER BY ta.updated_at DESC\n            )\n            LIMIT $1\n            ",
   "describe": {
     "columns": [
       {
@@ -92,6 +92,36 @@
         "name": "default_validation_steps",
         "ordinal": 17,
         "type_info": "Text"
+      },
+      {
+        "name": "github_enabled!: bool",
+        "ordinal": 18,
+        "type_info": "Integer"
+      },
+      {
+        "name": "github_owner",
+        "ordinal": 19,
+        "type_info": "Text"
+      },
+      {
+        "name": "github_repo",
+        "ordinal": 20,
+        "type_info": "Text"
+      },
+      {
+        "name": "github_open_issues!: i32",
+        "ordinal": 21,
+        "type_info": "Integer"
+      },
+      {
+        "name": "github_open_prs!: i32",
+        "ordinal": 22,
+        "type_info": "Integer"
+      },
+      {
+        "name": "github_last_synced_at: DateTime<Utc>",
+        "ordinal": 23,
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -115,8 +145,14 @@
       true,
       true,
       true,
+      true,
+      false,
+      true,
+      true,
+      false,
+      false,
       true
     ]
   },
-  "hash": "d2e222bfdb7a2b312721c1fba5d38573a4055c7f82c1eacd72d8b09916ecb476"
+  "hash": "737394dc9d140692f0ea6551ed4eac3c5662f8ba932c99599ed45067c6226383"
 }
