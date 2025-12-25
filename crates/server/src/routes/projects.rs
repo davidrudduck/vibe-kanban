@@ -189,6 +189,15 @@ pub struct MergedProject {
     /// For sorting - timestamp of last task attempt
     #[ts(type = "Date | null")]
     pub last_attempt_at: Option<DateTime<Utc>>,
+
+    /// GitHub integration fields
+    pub github_enabled: bool,
+    pub github_owner: Option<String>,
+    pub github_repo: Option<String>,
+    pub github_open_issues: i32,
+    pub github_open_prs: i32,
+    #[ts(type = "Date | null")]
+    pub github_last_synced_at: Option<DateTime<Utc>>,
 }
 
 /// A node location where a project exists
@@ -374,6 +383,12 @@ pub async fn get_merged_projects(
                     local_project_id: Some(project.id),
                     nodes: Vec::new(), // Will be populated from remote projects
                     last_attempt_at,
+                    github_enabled: project.github_enabled,
+                    github_owner: project.github_owner.clone(),
+                    github_repo: project.github_repo.clone(),
+                    github_open_issues: project.github_open_issues,
+                    github_open_prs: project.github_open_prs,
+                    github_last_synced_at: project.github_last_synced_at,
                 },
             );
         } else {
@@ -388,6 +403,12 @@ pub async fn get_merged_projects(
                 local_project_id: Some(project.id),
                 nodes: Vec::new(),
                 last_attempt_at,
+                github_enabled: project.github_enabled,
+                github_owner: project.github_owner.clone(),
+                github_repo: project.github_repo.clone(),
+                github_open_issues: project.github_open_issues,
+                github_open_prs: project.github_open_prs,
+                github_last_synced_at: project.github_last_synced_at,
             });
         }
     }
@@ -431,6 +452,13 @@ pub async fn get_merged_projects(
                     local_project_id: None,
                     nodes: vec![node_location],
                     last_attempt_at: None, // Remote projects don't have local attempt data
+                    // Remote projects don't have GitHub integration
+                    github_enabled: false,
+                    github_owner: None,
+                    github_repo: None,
+                    github_open_issues: 0,
+                    github_open_prs: 0,
+                    github_last_synced_at: None,
                 },
             );
         }

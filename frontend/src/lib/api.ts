@@ -441,6 +441,55 @@ export const projectsApi = {
     });
     return handleApiResponse<Project>(response);
   },
+
+  // GitHub Integration
+  setGitHubEnabled: async (
+    projectId: string,
+    data: { enabled: boolean; owner?: string; repo?: string }
+  ): Promise<Project> => {
+    const response = await makeRequest(`/api/projects/${projectId}/github`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    return handleApiResponse<Project>(response);
+  },
+
+  getGitHubCounts: async (
+    projectId: string
+  ): Promise<{
+    open_issues: number;
+    open_prs: number;
+    last_synced_at: Date | null;
+  }> => {
+    const response = await makeRequest(
+      `/api/projects/${projectId}/github/counts`
+    );
+    return handleApiResponse<{
+      open_issues: number;
+      open_prs: number;
+      last_synced_at: Date | null;
+    }>(response);
+  },
+
+  syncGitHubCounts: async (
+    projectId: string
+  ): Promise<{
+    open_issues: number;
+    open_prs: number;
+    last_synced_at: Date | null;
+  }> => {
+    const response = await makeRequest(
+      `/api/projects/${projectId}/github/sync`,
+      {
+        method: 'POST',
+      }
+    );
+    return handleApiResponse<{
+      open_issues: number;
+      open_prs: number;
+      last_synced_at: Date | null;
+    }>(response);
+  },
 };
 
 // Task Management APIs

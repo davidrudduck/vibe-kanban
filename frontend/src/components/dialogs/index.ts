@@ -31,6 +31,11 @@ export {
   LinkProjectDialog,
   type LinkProjectResult,
 } from './projects/LinkProjectDialog';
+export {
+  GitHubSettingsDialog,
+  type GitHubSettingsDialogProps,
+  type GitHubSettingsResult,
+} from './projects/GitHubSettingsDialog';
 
 // Task-related dialogs
 export {

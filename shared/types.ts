@@ -156,7 +156,11 @@ nodes: Array<NodeLocation>,
 /**
  * For sorting - timestamp of last task attempt
  */
-last_attempt_at: Date | null, };
+last_attempt_at: Date | null, 
+/**
+ * GitHub integration fields
+ */
+github_enabled: boolean, github_owner: string | null, github_repo: string | null, github_open_issues: number, github_open_prs: number, github_last_synced_at: Date | null, };
 
 export type NodeLocation = { node_id: string, 
 /**
