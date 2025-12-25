@@ -43,3 +43,5 @@ export {
   taskVariablesKeys,
 } from './useTaskVariables';
 export { useTaskUsesSharedWorktree } from './useTaskUsesSharedWorktree';
+export { useIsMobile } from './useIsMobile';
+export { useMediaQuery } from './useMediaQuery';
