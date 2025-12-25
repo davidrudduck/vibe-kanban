@@ -51,9 +51,7 @@ async fn setup_pool_with_pragmas() -> (SqlitePool, TempDir) {
             .synchronous(SqliteSynchronous::Normal);
 
     let pool = SqlitePoolOptions::new()
-        .after_connect(|conn, _meta| {
-            Box::pin(async move { apply_performance_pragmas(conn).await })
-        })
+        .after_connect(|conn, _meta| Box::pin(async move { apply_performance_pragmas(conn).await }))
         .connect_with(options)
         .await
         .expect("Failed to create pool");

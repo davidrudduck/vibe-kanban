@@ -84,7 +84,10 @@ pub async fn proxy_shared_tasks(
             .collect::<Vec<_>>()
             .join(",")
     )];
-    tracing::debug!("Proxying Electric Shape request for shared_tasks table: {:?}", query);
+    tracing::debug!(
+        "Proxying Electric Shape request for shared_tasks table: {:?}",
+        query
+    );
     proxy_table(&state, electric_url, &query, &params, query_params).await
 }
 
@@ -181,13 +184,11 @@ pub enum ProxyError {
 impl IntoResponse for ProxyError {
     fn into_response(self) -> Response {
         match self {
-            ProxyError::NotConfigured => {
-                (
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "Electric sync service is not configured",
-                )
-                    .into_response()
-            }
+            ProxyError::NotConfigured => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Electric sync service is not configured",
+            )
+                .into_response(),
             ProxyError::Connection(err) => {
                 error!(?err, "failed to connect to Electric service");
                 (

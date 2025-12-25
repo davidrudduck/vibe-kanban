@@ -272,45 +272,40 @@ pub async fn create_task_attempt(
     let attempt_id = Uuid::new_v4();
 
     // Determine branch name and parent worktree info based on use_parent_worktree flag
-    let (git_branch_name, parent_container_ref) =
-        if payload.use_parent_worktree.unwrap_or(false) {
-            // Validate task has parent
-            let parent_task_id = task.parent_task_id.ok_or_else(|| {
-                ApiError::BadRequest(
-                    "Cannot use parent worktree: task has no parent_task_id".into(),
-                )
-            })?;
+    let (git_branch_name, parent_container_ref) = if payload.use_parent_worktree.unwrap_or(false) {
+        // Validate task has parent
+        let parent_task_id = task.parent_task_id.ok_or_else(|| {
+            ApiError::BadRequest("Cannot use parent worktree: task has no parent_task_id".into())
+        })?;
 
-            // Get parent task's latest attempt
-            let parent_attempts = TaskAttempt::fetch_all(pool, Some(parent_task_id)).await?;
-            let parent_attempt = parent_attempts.first().ok_or_else(|| {
-                ApiError::BadRequest(
-                    "Cannot use parent worktree: parent task has no attempts".into(),
-                )
-            })?;
+        // Get parent task's latest attempt
+        let parent_attempts = TaskAttempt::fetch_all(pool, Some(parent_task_id)).await?;
+        let parent_attempt = parent_attempts.first().ok_or_else(|| {
+            ApiError::BadRequest("Cannot use parent worktree: parent task has no attempts".into())
+        })?;
 
-            // Validate parent has a worktree
-            let container_ref = parent_attempt.container_ref.clone().ok_or_else(|| {
-                ApiError::BadRequest(
-                    "Cannot use parent worktree: parent attempt has no worktree".into(),
-                )
-            })?;
+        // Validate parent has a worktree
+        let container_ref = parent_attempt.container_ref.clone().ok_or_else(|| {
+            ApiError::BadRequest(
+                "Cannot use parent worktree: parent attempt has no worktree".into(),
+            )
+        })?;
 
-            // Validate parent worktree not deleted
-            if parent_attempt.worktree_deleted {
-                return Err(ApiError::BadRequest(
-                    "Cannot use parent worktree: parent worktree was deleted".into(),
-                ));
-            }
+        // Validate parent worktree not deleted
+        if parent_attempt.worktree_deleted {
+            return Err(ApiError::BadRequest(
+                "Cannot use parent worktree: parent worktree was deleted".into(),
+            ));
+        }
 
-            (parent_attempt.branch.clone(), Some(container_ref))
-        } else {
-            let branch = deployment
-                .container()
-                .git_branch_from_task_attempt(&attempt_id, &task.title)
-                .await;
-            (branch, None)
-        };
+        (parent_attempt.branch.clone(), Some(container_ref))
+    } else {
+        let branch = deployment
+            .container()
+            .git_branch_from_task_attempt(&attempt_id, &task.title)
+            .await;
+        (branch, None)
+    };
 
     let task_attempt = TaskAttempt::create(
         pool,
@@ -346,7 +341,11 @@ pub async fn create_task_attempt(
     // Start the attempt (creates worktree if needed, then starts execution)
     if let Err(err) = deployment
         .container()
-        .start_attempt(&task_attempt, executor_profile_id.clone(), skip_worktree_creation)
+        .start_attempt(
+            &task_attempt,
+            executor_profile_id.clone(),
+            skip_worktree_creation,
+        )
         .await
     {
         tracing::error!("Failed to start task attempt: {}", err);
@@ -375,45 +374,40 @@ pub async fn create_task_attempt_by_task_id(
     let attempt_id = Uuid::new_v4();
 
     // Determine branch name and parent worktree info based on use_parent_worktree flag
-    let (git_branch_name, parent_container_ref) =
-        if payload.use_parent_worktree.unwrap_or(false) {
-            // Validate task has parent
-            let parent_task_id = task.parent_task_id.ok_or_else(|| {
-                ApiError::BadRequest(
-                    "Cannot use parent worktree: task has no parent_task_id".into(),
-                )
-            })?;
+    let (git_branch_name, parent_container_ref) = if payload.use_parent_worktree.unwrap_or(false) {
+        // Validate task has parent
+        let parent_task_id = task.parent_task_id.ok_or_else(|| {
+            ApiError::BadRequest("Cannot use parent worktree: task has no parent_task_id".into())
+        })?;
 
-            // Get parent task's latest attempt
-            let parent_attempts = TaskAttempt::fetch_all(pool, Some(parent_task_id)).await?;
-            let parent_attempt = parent_attempts.first().ok_or_else(|| {
-                ApiError::BadRequest(
-                    "Cannot use parent worktree: parent task has no attempts".into(),
-                )
-            })?;
+        // Get parent task's latest attempt
+        let parent_attempts = TaskAttempt::fetch_all(pool, Some(parent_task_id)).await?;
+        let parent_attempt = parent_attempts.first().ok_or_else(|| {
+            ApiError::BadRequest("Cannot use parent worktree: parent task has no attempts".into())
+        })?;
 
-            // Validate parent has a worktree
-            let container_ref = parent_attempt.container_ref.clone().ok_or_else(|| {
-                ApiError::BadRequest(
-                    "Cannot use parent worktree: parent attempt has no worktree".into(),
-                )
-            })?;
+        // Validate parent has a worktree
+        let container_ref = parent_attempt.container_ref.clone().ok_or_else(|| {
+            ApiError::BadRequest(
+                "Cannot use parent worktree: parent attempt has no worktree".into(),
+            )
+        })?;
 
-            // Validate parent worktree not deleted
-            if parent_attempt.worktree_deleted {
-                return Err(ApiError::BadRequest(
-                    "Cannot use parent worktree: parent worktree was deleted".into(),
-                ));
-            }
+        // Validate parent worktree not deleted
+        if parent_attempt.worktree_deleted {
+            return Err(ApiError::BadRequest(
+                "Cannot use parent worktree: parent worktree was deleted".into(),
+            ));
+        }
 
-            (parent_attempt.branch.clone(), Some(container_ref))
-        } else {
-            let branch = deployment
-                .container()
-                .git_branch_from_task_attempt(&attempt_id, &task.title)
-                .await;
-            (branch, None)
-        };
+        (parent_attempt.branch.clone(), Some(container_ref))
+    } else {
+        let branch = deployment
+            .container()
+            .git_branch_from_task_attempt(&attempt_id, &task.title)
+            .await;
+        (branch, None)
+    };
 
     let task_attempt = TaskAttempt::create(
         pool,
@@ -450,7 +444,11 @@ pub async fn create_task_attempt_by_task_id(
     // Start the attempt (creates worktree if needed, then starts execution)
     if let Err(err) = deployment
         .container()
-        .start_attempt(&task_attempt, executor_profile_id.clone(), skip_worktree_creation)
+        .start_attempt(
+            &task_attempt,
+            executor_profile_id.clone(),
+            skip_worktree_creation,
+        )
         .await
     {
         tracing::error!("Failed to start task attempt: {}", err);

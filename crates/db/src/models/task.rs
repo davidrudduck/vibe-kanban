@@ -896,9 +896,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
     /// This can happen if a project was previously linked but then unlinked.
     ///
     /// Returns the number of tasks that had their shared_task_id cleared.
-    pub async fn clear_orphaned_shared_task_ids(
-        pool: &SqlitePool,
-    ) -> Result<u64, sqlx::Error> {
+    pub async fn clear_orphaned_shared_task_ids(pool: &SqlitePool) -> Result<u64, sqlx::Error> {
         let result = sqlx::query(
             r#"UPDATE tasks
                SET shared_task_id = NULL, updated_at = CURRENT_TIMESTAMP
