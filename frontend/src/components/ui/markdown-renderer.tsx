@@ -18,7 +18,7 @@ const HIGHLIGHT_LINK =
   'rounded-sm bg-muted/50 px-1 py-0.5 underline-offset-2 transition-colors';
 const HIGHLIGHT_LINK_HOVER = 'hover:bg-muted';
 const HIGHLIGHT_CODE =
-  'rounded-sm bg-muted/50 px-1 py-0.5 font-mono text-[0.9em]';
+  'rounded-sm bg-muted/50 px-1 py-0.5 font-code text-[0.9em]';
 
 function sanitizeHref(href?: string): string | undefined {
   if (typeof href !== 'string') return undefined;
@@ -332,7 +332,8 @@ function MarkdownRenderer({
         component: ({ children, ...props }: React.ComponentProps<'pre'>) => (
           <pre
             {...props}
-            className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-sm bg-muted rounded-md p-3 my-3 border border-border"
+            className="overflow-x-auto whitespace-pre-wrap break-words font-code text-sm bg-muted rounded-md p-3 my-3 border border-border"
+            style={{ fontVariantLigatures: 'var(--font-ligatures)' }}
           >
             {children}
           </pre>
@@ -396,7 +397,7 @@ function MarkdownRenderer({
           </div>
         </div>
       )}
-      <div className={className}>
+      <div className={`font-prose ${className}`}>
         <Markdown options={{ overrides, disableParsingRawHTML: true }}>
           {processedContent}
         </Markdown>

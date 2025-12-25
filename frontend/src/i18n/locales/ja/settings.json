@@ -39,6 +39,47 @@
           "helper": "お好みの言語を選択してください。ブラウザ設定では、システム言語に従います。"
         }
       },
+      "fonts": {
+        "title": "タイポグラフィ",
+        "description": "アプリケーション全体で使用するフォントをカスタマイズします。",
+        "uiFont": {
+          "label": "UIフォント",
+          "placeholder": "フォントを選択",
+          "helper": "メニュー、ボタン、一般的なインターフェーステキストに使用するフォント。"
+        },
+        "codeFont": {
+          "label": "コードフォント",
+          "placeholder": "フォントを選択",
+          "helper": "コードブロック、ターミナル出力、技術的なコンテンツに使用するフォント。"
+        },
+        "proseFont": {
+          "label": "散文フォント",
+          "placeholder": "フォントを選択",
+          "helper": "タスクの説明や長文テキストに使用するフォント。"
+        },
+        "disableLigatures": {
+          "label": "リガチャを無効化",
+          "helper": "コードフォントのプログラミングリガチャ（=> や !== など）をオフにします。"
+        },
+        "preview": {
+          "title": "プレビュー",
+          "uiSample": "すばやい茶色のキツネは怠惰な犬を飛び越えます。",
+          "codeSample": "const fn = () => { return !== === };",
+          "proseSample": "タスクの説明やドキュメントはこのように表示されます。"
+        },
+        "fontNames": {
+          "inter": "Inter",
+          "roboto": "Roboto",
+          "publicSans": "Public Sans",
+          "chivoMono": "Chivo Mono",
+          "system": "システムデフォルト",
+          "jetBrainsMono": "JetBrains Mono",
+          "cascadiaMono": "Cascadia Mono",
+          "hack": "Hack",
+          "ibmPlexMono": "IBM Plex Mono",
+          "georgia": "Georgia"
+        }
+      },
       "taskExecution": {
         "title": "タスク実行",
         "description": "タスクの実行と処理方法を設定します。",
