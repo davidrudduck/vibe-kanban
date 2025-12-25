@@ -89,6 +89,14 @@ export {
 } from './tasks/EditBranchNameDialog';
 export { CreateAttemptDialog } from './tasks/CreateAttemptDialog';
 
+// Git dialogs
+export { ForcePushDialog } from './git/ForcePushDialog';
+export {
+  StashDialog,
+  type StashDialogProps,
+  type StashDialogResult,
+} from './git/StashDialog';
+
 // Auth dialogs
 export { GhCliSetupDialog } from './auth/GhCliSetupDialog';
 

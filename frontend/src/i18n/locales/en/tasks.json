@@ -259,6 +259,16 @@
         "description": "Sign in to Vibe Kanban so you can push branches, merge changes, or open pull requests for this task.",
         "action": "Sign in"
       }
+    },
+    "stashDialog": {
+      "title": "Uncommitted Changes",
+      "description": "{{count}} file(s) have uncommitted changes that would be overwritten.",
+      "filesLabel": "Modified files:",
+      "stashAndContinue": "Stash & Continue",
+      "stashAndContinueDescription": "Temporarily save changes, perform operation, then restore",
+      "stashing": "Stashing...",
+      "error": "Failed to stash changes",
+      "popError": "Failed to restore stashed changes"
     }
   },
   "createAttemptDialog": {
