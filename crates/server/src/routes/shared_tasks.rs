@@ -2,7 +2,7 @@ use axum::{
     Json, Router,
     extract::{Path, State},
     response::Json as ResponseJson,
-    routing::{delete, post},
+    routing::post,
 };
 use db::models::shared_task::SharedTask;
 use deployment::Deployment;
@@ -28,12 +28,10 @@ pub struct AssignSharedTaskResponse {
 }
 
 pub fn router() -> Router<DeploymentImpl> {
-    Router::new()
-        .route(
-            "/shared-tasks/{shared_task_id}/assign",
-            post(assign_shared_task),
-        )
-        .route("/shared-tasks/{shared_task_id}", delete(delete_shared_task))
+    Router::new().route(
+        "/shared-tasks/{shared_task_id}/assign",
+        post(assign_shared_task),
+    )
 }
 
 pub async fn assign_shared_task(
@@ -62,17 +60,4 @@ pub async fn assign_shared_task(
             shared_task: updated_shared_task,
         },
     )))
-}
-
-pub async fn delete_shared_task(
-    Path(shared_task_id): Path<Uuid>,
-    State(deployment): State<DeploymentImpl>,
-) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
-    let Ok(publisher) = deployment.share_publisher() else {
-        return Err(ShareError::MissingConfig("share publisher unavailable").into());
-    };
-
-    publisher.delete_shared_task(shared_task_id).await?;
-
-    Ok(ResponseJson(ApiResponse::success(())))
 }
