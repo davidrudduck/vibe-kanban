@@ -74,7 +74,10 @@ pub async fn delete_label(
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let label_router = Router::new()
         .route("/", get(get_label).put(update_label).delete(delete_label))
-        .layer(from_fn_with_state(deployment.clone(), load_label_middleware));
+        .layer(from_fn_with_state(
+            deployment.clone(),
+            load_label_middleware,
+        ));
 
     let inner = Router::new()
         .route("/", get(get_labels).post(create_label))

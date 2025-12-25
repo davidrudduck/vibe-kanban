@@ -8,7 +8,9 @@ use thiserror::Error;
 /// Validation errors for status fields
 #[derive(Debug, Error, PartialEq)]
 pub enum ValidationError {
-    #[error("Invalid task status: '{0}'. Valid values: todo, inprogress, inreview, done, cancelled")]
+    #[error(
+        "Invalid task status: '{0}'. Valid values: todo, inprogress, inreview, done, cancelled"
+    )]
     InvalidTaskStatus(String),
 
     #[error("Invalid execution status: '{0}'. Valid values: running, completed, failed, killed")]
@@ -103,10 +105,7 @@ mod tests {
     #[test]
     fn test_validate_task_status_error_message() {
         let err = validate_task_status("bad").unwrap_err();
-        assert_eq!(
-            err,
-            ValidationError::InvalidTaskStatus("bad".to_string())
-        );
+        assert_eq!(err, ValidationError::InvalidTaskStatus("bad".to_string()));
         assert!(err.to_string().contains("Invalid task status"));
         assert!(err.to_string().contains("bad"));
     }
@@ -157,10 +156,7 @@ mod tests {
     #[test]
     fn test_validate_node_status_error_message() {
         let err = validate_node_status("bad").unwrap_err();
-        assert_eq!(
-            err,
-            ValidationError::InvalidNodeStatus("bad".to_string())
-        );
+        assert_eq!(err, ValidationError::InvalidNodeStatus("bad".to_string()));
         assert!(err.to_string().contains("Invalid node status"));
     }
 }

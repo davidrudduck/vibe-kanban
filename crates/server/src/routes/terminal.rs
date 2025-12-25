@@ -148,9 +148,10 @@ pub async fn get_session(
 ) -> Result<ResponseJson<ApiResponse<SessionInfo>>, ApiError> {
     let manager = terminal_state.manager.read().await;
 
-    let session = manager.get_session(&session_id).await.ok_or_else(|| {
-        ApiError::BadRequest(format!("Session not found: {}", session_id))
-    })?;
+    let session = manager
+        .get_session(&session_id)
+        .await
+        .ok_or_else(|| ApiError::BadRequest(format!("Session not found: {}", session_id)))?;
 
     Ok(ResponseJson(ApiResponse::success(session)))
 }
@@ -209,9 +210,10 @@ async fn handle_terminal_ws(
     // Subscribe to terminal output
     let output_rx = {
         let manager = terminal_state.manager.read().await;
-        manager.subscribe(&session_id).await.map_err(|e| {
-            anyhow::anyhow!("Failed to subscribe to session output: {}", e)
-        })?
+        manager
+            .subscribe(&session_id)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to subscribe to session output: {}", e))?
     };
 
     let keep_alive = WsKeepAlive::for_execution_streams();
@@ -345,7 +347,9 @@ async fn handle_client_message(
 
     match msg {
         TerminalMessage::Input { data } => {
-            manager.write_to_session(session_id, data.as_bytes()).await?;
+            manager
+                .write_to_session(session_id, data.as_bytes())
+                .await?;
         }
         TerminalMessage::Resize { cols, rows } => {
             manager.resize_session(session_id, cols, rows).await?;
@@ -414,7 +418,10 @@ mod tests {
         assert!(json.contains("\"type\":\"output\""));
 
         // Test Resize message
-        let resize_msg = TerminalMessage::Resize { cols: 120, rows: 40 };
+        let resize_msg = TerminalMessage::Resize {
+            cols: 120,
+            rows: 40,
+        };
         let json = serde_json::to_string(&resize_msg).unwrap();
         assert!(json.contains("\"type\":\"resize\""));
         assert!(json.contains("\"cols\":120"));
