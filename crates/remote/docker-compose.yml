@@ -27,6 +27,53 @@ services:
     ports:
       - "${POSTGRES_PORT:-5434}:5432"
 
+  # Initialize Electric prerequisites before Electric starts
+  # This creates the electric_sync role AND the publication that Electric needs.
+  # Tables are added to the publication later by the SQLx migration.
+  init-db:
+    image: postgres:16-alpine
+    depends_on:
+      remote-db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-vibe_remote}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      ELECTRIC_ROLE_PASSWORD: ${ELECTRIC_ROLE_PASSWORD:-electric_sync}
+    entrypoint: [ "/bin/sh", "-c" ]
+    command:
+      - |
+        echo "Initializing Electric prerequisites..."
+        psql -h remote-db -U $${POSTGRES_USER} -d $${POSTGRES_DB} <<-EOSQL
+          -- Create electric_sync role if not exists
+          DO \$\$
+          BEGIN
+            IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'electric_sync') THEN
+              CREATE ROLE electric_sync WITH LOGIN REPLICATION PASSWORD '$${ELECTRIC_ROLE_PASSWORD}';
+              RAISE NOTICE 'Created electric_sync role';
+            ELSE
+              RAISE NOTICE 'electric_sync role already exists';
+            END IF;
+          END \$\$;
+
+          -- Grant permissions
+          GRANT CONNECT ON DATABASE $${POSTGRES_DB} TO electric_sync;
+          GRANT USAGE ON SCHEMA public TO electric_sync;
+
+          -- Create publication for Electric (empty - tables added by SQLx migration)
+          DO \$\$
+          BEGIN
+            IF NOT EXISTS (SELECT FROM pg_publication WHERE pubname = 'electric_publication_default') THEN
+              CREATE PUBLICATION electric_publication_default;
+              RAISE NOTICE 'Created electric_publication_default publication';
+            ELSE
+              RAISE NOTICE 'electric_publication_default publication already exists';
+            END IF;
+          END \$\$;
+        EOSQL
+        echo "Electric prerequisites initialized"
+    restart: "no"
+
   electric:
     image: electricsql/electric:latest
     working_dir: /app
@@ -46,6 +93,8 @@ services:
     depends_on:
       remote-db:
         condition: service_healthy
+      init-db:
+        condition: service_completed_successfully
     ports:
       - "${ELECTRIC_PORT:-3001}:3000"
     healthcheck:
