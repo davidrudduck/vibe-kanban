@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -10,6 +11,8 @@ import {
   FolderGit,
   FolderPlus,
   ArrowLeft,
+  Download,
+  Loader2,
 } from 'lucide-react';
 import { useScriptPlaceholders } from '@/hooks/useScriptPlaceholders';
 import { CopyFilesField } from './CopyFilesField';
@@ -21,8 +24,8 @@ import { generateProjectNameFromPath } from '@/utils/string';
 
 interface ProjectFormFieldsProps {
   isEditing: boolean;
-  repoMode: 'existing' | 'new';
-  setRepoMode: (mode: 'existing' | 'new') => void;
+  repoMode: 'existing' | 'new' | 'clone';
+  setRepoMode: (mode: 'existing' | 'new' | 'clone') => void;
   gitRepoPath: string;
   handleGitRepoPathChange: (path: string) => void;
   parentPath: string;
@@ -42,6 +45,9 @@ interface ProjectFormFieldsProps {
   setError: (error: string) => void;
   projectId?: string;
   onCreateProject?: (path: string, name: string) => void;
+  cloneUrl: string;
+  setCloneUrl: (url: string) => void;
+  isCloning?: boolean;
 }
 
 export function ProjectFormFields({
@@ -67,7 +73,11 @@ export function ProjectFormFields({
   setError,
   projectId,
   onCreateProject,
+  cloneUrl,
+  setCloneUrl,
+  isCloning,
 }: ProjectFormFieldsProps) {
+  const { t } = useTranslation('projects');
   const placeholders = useScriptPlaceholders();
 
   // Repository loading state
@@ -117,10 +127,31 @@ export function ProjectFormFields({
                     <FolderGit className="h-5 w-5 mt-0.5 flex-shrink-0 text-muted-foreground" />
                     <div className="min-w-0 flex-1">
                       <div className="font-medium text-foreground">
-                        From Git Repository
+                        {t('createDialog.fromGitRepo.title')}
                       </div>
                       <div className="text-xs text-muted-foreground mt-1">
-                        Use an existing repository as your project base
+                        {t('createDialog.fromGitRepo.description')}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Clone from URL card */}
+                <div
+                  className="p-4 border cursor-pointer hover:shadow-md transition-shadow rounded-lg bg-card"
+                  onClick={() => {
+                    setRepoMode('clone');
+                    setError('');
+                  }}
+                >
+                  <div className="flex items-start gap-3">
+                    <Download className="h-5 w-5 mt-0.5 flex-shrink-0 text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-foreground">
+                        {t('createDialog.cloneFromUrl.title')}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {t('createDialog.cloneFromUrl.description')}
                       </div>
                     </div>
                   </div>
@@ -138,10 +169,10 @@ export function ProjectFormFields({
                     <FolderPlus className="h-5 w-5 mt-0.5 flex-shrink-0 text-muted-foreground" />
                     <div className="min-w-0 flex-1">
                       <div className="font-medium text-foreground">
-                        Create Blank Project
+                        {t('createDialog.createBlank.title')}
                       </div>
                       <div className="text-xs text-muted-foreground mt-1">
-                        Start a new project from scratch
+                        {t('createDialog.createBlank.description')}
                       </div>
                     </div>
                   </div>
@@ -161,7 +192,7 @@ export function ProjectFormFields({
                   }}
                 >
                   <ArrowLeft className="h-3 w-3" />
-                  Back to options
+                  {t('createDialog.backToOptions')}
                 </button>
 
                 {/* Repository cards */}
@@ -201,7 +232,9 @@ export function ProjectFormFields({
                         className="text-sm text-muted-foreground hover:text-foreground transition-colors text-left"
                         onClick={() => setShowMoreOptions(true)}
                       >
-                        Show {allRepos.length - 3} more repositories
+                        {t('createDialog.selectRepo.showMore', {
+                          count: allRepos.length - 3,
+                        })}
                       </button>
                     )}
                     {showMoreOptions && allRepos.length > 3 && (
@@ -209,7 +242,7 @@ export function ProjectFormFields({
                         className="text-sm text-muted-foreground hover:text-foreground transition-colors text-left"
                         onClick={() => setShowMoreOptions(false)}
                       >
-                        Show less
+                        {t('createDialog.selectRepo.showLess')}
                       </button>
                     )}
                   </div>
@@ -221,7 +254,7 @@ export function ProjectFormFields({
                     <div className="flex items-center gap-3">
                       <div className="animate-spin h-5 w-5 border-2 border-muted-foreground border-t-transparent rounded-full"></div>
                       <div className="text-sm text-muted-foreground">
-                        Loading repositories...
+                        {t('createDialog.selectRepo.loadingRepos')}
                       </div>
                     </div>
                   </div>
@@ -261,10 +294,10 @@ export function ProjectFormFields({
                     <Search className="h-5 w-5 mt-0.5 flex-shrink-0 text-muted-foreground" />
                     <div className="min-w-0 flex-1">
                       <div className="font-medium text-foreground">
-                        Search all repos
+                        {t('createDialog.selectRepo.searchAllRepos')}
                       </div>
                       <div className="text-xs text-muted-foreground mt-1">
-                        Browse and select any repository on your system
+                        {t('createDialog.selectRepo.searchAllReposDescription')}
                       </div>
                     </div>
                   </div>
@@ -293,13 +326,14 @@ export function ProjectFormFields({
             className="flex items-center gap-2"
           >
             <ArrowLeft className="h-4 w-4" />
-            Back to options
+            {t('createDialog.backToOptions')}
           </Button>
 
           <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="new-project-name">
-                Project Name <span className="text-red-500">*</span>
+                {t('createDialog.createBlank.projectName')}{' '}
+                <span className="text-red-500">*</span>
               </Label>
               <Input
                 id="new-project-name"
@@ -316,24 +350,26 @@ export function ProjectFormFields({
                     );
                   }
                 }}
-                placeholder="My Awesome Project"
+                placeholder={t('createDialog.createBlank.projectNamePlaceholder')}
                 className="placeholder:text-secondary-foreground placeholder:opacity-100"
                 required
               />
               <p className="text-xs text-muted-foreground">
-                The folder name will be auto-generated from the project name
+                {t('createDialog.createBlank.projectNameHelp')}
               </p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="parent-path">Parent Directory</Label>
+              <Label htmlFor="parent-path">
+                {t('createDialog.createBlank.parentDirectory')}
+              </Label>
               <div className="flex space-x-2">
                 <Input
                   id="parent-path"
                   type="text"
                   value={parentPath}
                   onChange={(e) => setParentPath(e.target.value)}
-                  placeholder="Current Directory"
+                  placeholder={t('createDialog.createBlank.parentDirectoryPlaceholder')}
                   className="flex-1 placeholder:text-secondary-foreground placeholder:opacity-100"
                 />
                 <Button
@@ -355,11 +391,156 @@ export function ProjectFormFields({
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                Leave empty to use your current working directory, or specify a
-                custom path.
+                {t('createDialog.createBlank.parentDirectoryHelp')}
               </p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Clone from URL Form */}
+      {!isEditing && repoMode === 'clone' && (
+        <div className="space-y-4">
+          {/* Back button */}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setRepoMode('existing');
+              setError('');
+              setName('');
+              setParentPath('');
+              setFolderName('');
+              setCloneUrl('');
+            }}
+            className="flex items-center gap-2"
+            disabled={isCloning}
+          >
+            <ArrowLeft className="h-4 w-4" />
+            {t('createDialog.backToOptions')}
+          </Button>
+
+          {/* Cloning progress indicator */}
+          {isCloning && (
+            <div className="p-6 border rounded-lg bg-card">
+              <div className="flex flex-col items-center gap-4">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <div className="text-center">
+                  <div className="font-medium text-foreground">
+                    {t('createDialog.cloneFromUrl.cloning')}
+                  </div>
+                  <div className="text-sm text-muted-foreground mt-1">
+                    {t('createDialog.cloneFromUrl.cloningDescription')}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {!isCloning && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="clone-url">
+                  {t('createDialog.cloneFromUrl.repositoryUrl')}{' '}
+                  <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="clone-url"
+                  type="text"
+                  value={cloneUrl}
+                  onChange={(e) => {
+                    setCloneUrl(e.target.value);
+                    // Auto-generate folder name from URL
+                    const url = e.target.value.trim();
+                    if (url) {
+                      // Extract repo name from URL (handles https, ssh, and git protocols)
+                      const match = url.match(/(?:[/:])([^/:]+?)(?:\.git)?[/]?$/);
+                      if (match && match[1]) {
+                        const repoName = match[1].replace(/\.git$/, '');
+                        setFolderName(repoName);
+                        if (!name) {
+                          setName(repoName);
+                        }
+                      }
+                    }
+                  }}
+                  placeholder={t('createDialog.cloneFromUrl.repositoryUrlPlaceholder')}
+                  className="placeholder:text-secondary-foreground placeholder:opacity-100"
+                  required
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t('createDialog.cloneFromUrl.repositoryUrlHelp')}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="clone-destination">
+                  {t('createDialog.cloneFromUrl.cloneToDirectory')}
+                </Label>
+                <div className="flex space-x-2">
+                  <Input
+                    id="clone-destination"
+                    type="text"
+                    value={parentPath}
+                    onChange={(e) => setParentPath(e.target.value)}
+                    placeholder={t('createDialog.cloneFromUrl.cloneToDirectoryPlaceholder')}
+                    className="flex-1 placeholder:text-secondary-foreground placeholder:opacity-100"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={async () => {
+                      const selectedPath = await FolderPickerDialog.show({
+                        title: 'Select Clone Destination',
+                        description:
+                          'Choose where to clone the repository',
+                        value: parentPath,
+                      });
+                      if (selectedPath) {
+                        setParentPath(selectedPath);
+                      }
+                    }}
+                  >
+                    <Folder className="h-4 w-4" />
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {t('createDialog.cloneFromUrl.cloneToDirectoryHelp')}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="clone-project-name">
+                  {t('createDialog.cloneFromUrl.projectName')}{' '}
+                  <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="clone-project-name"
+                  type="text"
+                  value={name}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    if (e.target.value) {
+                      setFolderName(
+                        e.target.value
+                          .toLowerCase()
+                          .replace(/\s+/g, '-')
+                          .replace(/[^a-z0-9-]/g, '')
+                      );
+                    }
+                  }}
+                  placeholder={t('createDialog.cloneFromUrl.projectNamePlaceholder')}
+                  className="placeholder:text-secondary-foreground placeholder:opacity-100"
+                  required
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t('createDialog.cloneFromUrl.projectNameHelp')}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
