@@ -320,7 +320,12 @@
     "archive": "Archive",
     "unarchive": "Unarchive",
     "duplicate": "Duplicate",
-    "remoteTaskCannotExecute": "Remote tasks execute on their origin node"
+    "remoteTaskCannotExecute": "Remote tasks execute on their origin node",
+    "moveToInProgress": "Move to In Progress",
+    "moveToInReview": "Move to In Review",
+    "moveToDone": "Move to Done",
+    "cancelTask": "Cancel Task",
+    "moveToTodo": "Move to To Do"
   },
   "archiveDialog": {
     "title": "Archive Task",

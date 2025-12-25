@@ -1,7 +1,32 @@
-//! Cached node model for storing node information synced from the hive.
+//! Cached node model for storing node information synced from the hive (legacy implementation).
 //!
 //! This provides a local cache of all nodes in the organization, allowing
 //! the frontend to show a unified view of projects across all nodes.
+//!
+//! # DEPRECATION NOTICE
+//!
+//! This module is a candidate for deprecation in a future release. It will be
+//! replaced by ElectricSQL-based real-time sync for node data.
+//!
+//! ## Future Migration Path
+//!
+//! When Electric sync is extended to include node data:
+//! - Electric shapes for the `nodes` table will provide real-time updates
+//! - The frontend `useElectricNodes` hook (to be created) will replace polling
+//! - This SQLite cache will no longer be needed
+//!
+//! ## Current Status
+//!
+//! This implementation is still active and required for:
+//! - Node status display in the frontend
+//! - Project routing to the correct source node
+//! - Node capability detection
+//!
+//! ## See Also
+//!
+//! - `crates/services/src/services/node_cache.rs` - Service that populates this cache
+//! - `crates/remote/migrations/20251225000000_electric_support.sql` - nodes in publication
+//! - `frontend/src/lib/electric/collections.ts` - TanStack DB collections (includes nodes)
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
