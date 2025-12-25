@@ -74,7 +74,6 @@ async fn setup_db() -> (SqlitePool, TempDir) {
             remote_last_synced_at       TEXT,
             remote_stream_node_id       BLOB,
             remote_stream_url           TEXT,
-            validation_steps            TEXT,
             archived_at                 TEXT,
             activity_at                 TEXT,
             created_at                  TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
