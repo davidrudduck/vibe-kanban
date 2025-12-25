@@ -27,8 +27,9 @@ services:
     ports:
       - "${POSTGRES_PORT:-5434}:5432"
 
-  # Initialize the electric_sync role before Electric starts
-  # This is needed because Electric connects before remote-server runs its migrations
+  # Initialize Electric prerequisites before Electric starts
+  # This creates the electric_sync role AND the publication that Electric needs.
+  # Tables are added to the publication later by the SQLx migration.
   init-db:
     image: postgres:16-alpine
     depends_on:
@@ -42,8 +43,9 @@ services:
     entrypoint: [ "/bin/sh", "-c" ]
     command:
       - |
-        echo "Creating electric_sync role if not exists..."
+        echo "Initializing Electric prerequisites..."
         psql -h remote-db -U $${POSTGRES_USER} -d $${POSTGRES_DB} <<-EOSQL
+          -- Create electric_sync role if not exists
           DO \$\$
           BEGIN
             IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'electric_sync') THEN
@@ -53,10 +55,23 @@ services:
               RAISE NOTICE 'electric_sync role already exists';
             END IF;
           END \$\$;
+
+          -- Grant permissions
           GRANT CONNECT ON DATABASE $${POSTGRES_DB} TO electric_sync;
           GRANT USAGE ON SCHEMA public TO electric_sync;
+
+          -- Create publication for Electric (empty - tables added by SQLx migration)
+          DO \$\$
+          BEGIN
+            IF NOT EXISTS (SELECT FROM pg_publication WHERE pubname = 'electric_publication_default') THEN
+              CREATE PUBLICATION electric_publication_default;
+              RAISE NOTICE 'Created electric_publication_default publication';
+            ELSE
+              RAISE NOTICE 'electric_publication_default publication already exists';
+            END IF;
+          END \$\$;
         EOSQL
-        echo "Database initialization complete"
+        echo "Electric prerequisites initialized"
     restart: "no"
 
   electric:
