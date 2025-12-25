@@ -22,6 +22,7 @@ use db::models::{
     project::{Project, ProjectError},
     task::{Task, TaskRelationships, TaskStatus},
     task_attempt::{CreateTaskAttempt, TaskAttempt, TaskAttemptError},
+    task_variable::TaskVariable,
 };
 use deployment::Deployment;
 use executors::{
@@ -40,6 +41,7 @@ use services::services::{
     filesystem::{DirectoryListResponse, FileContentResponse, FilesystemError},
     git::{ConflictOp, GitCliError, GitServiceError, WorktreeResetOptions},
     github::{CreatePrRequest, GitHubService, GitHubServiceError},
+    variable_expander,
 };
 use sqlx::Error as SqlxError;
 use ts_rs::TS;
@@ -634,6 +636,45 @@ pub async fn follow_up(
         prompt = handle_images_for_prompt(&deployment, &task_attempt, task.id, image_ids, &prompt)
             .await?;
     }
+
+    // Expand task variables ($VAR and ${VAR} syntax) in follow-up prompt
+    let prompt = {
+        let variables = TaskVariable::get_variable_map(&deployment.db().pool, task.id)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(task_id = %task.id, error = ?e, "Failed to fetch task variables for follow-up");
+                std::collections::HashMap::new()
+            });
+
+        if variables.is_empty() {
+            prompt
+        } else {
+            let variables: std::collections::HashMap<String, (String, Option<Uuid>)> = variables
+                .into_iter()
+                .map(|(k, (v, id))| (k, (v, Some(id))))
+                .collect();
+
+            let result = variable_expander::expand_variables(&prompt, &variables);
+
+            if !result.undefined_vars.is_empty() {
+                tracing::warn!(
+                    task_id = %task.id,
+                    undefined_vars = ?result.undefined_vars,
+                    "Follow-up prompt contains undefined variables"
+                );
+            }
+
+            if !result.expanded_vars.is_empty() {
+                tracing::info!(
+                    task_id = %task.id,
+                    expanded_count = result.expanded_vars.len(),
+                    "Expanded task variables in follow-up prompt"
+                );
+            }
+
+            result.text
+        }
+    };
 
     let cleanup_action = deployment
         .container()
