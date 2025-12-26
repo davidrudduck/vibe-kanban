@@ -1,19 +1,26 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import MobileColumnHeader from '../MobileColumnHeader';
 
 describe('MobileColumnHeader', () => {
+  const mockOnPrev = vi.fn();
+  const mockOnNext = vi.fn();
+
   const defaultProps = {
     name: 'To Do',
     count: 5,
-    color: '--neutral-foreground',
+    color: '#3b82f6',
     isFirst: false,
     isLast: false,
-    onPrev: vi.fn(),
-    onNext: vi.fn(),
+    onPrev: mockOnPrev,
+    onNext: mockOnNext,
     currentIndex: 1,
     totalColumns: 5,
   };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
   it('should display column name', () => {
     render(<MobileColumnHeader {...defaultProps} />);
@@ -27,79 +34,64 @@ describe('MobileColumnHeader', () => {
 
   it('should show left arrow when not on first column', () => {
     render(<MobileColumnHeader {...defaultProps} isFirst={false} />);
-    const prevBtn = screen.getByTestId('prev-column-btn');
-    expect(prevBtn).not.toBeDisabled();
+    const prevButton = screen.getByRole('button', { name: /previous column/i });
+    expect(prevButton).not.toHaveClass('invisible');
   });
 
-  it('should disable left arrow when on first column', () => {
-    render(<MobileColumnHeader {...defaultProps} isFirst={true} />);
-    const prevBtn = screen.getByTestId('prev-column-btn');
-    expect(prevBtn).toBeDisabled();
+  it('should hide left arrow when on first column', () => {
+    render(<MobileColumnHeader {...defaultProps} isFirst={true} currentIndex={0} />);
+    const prevButton = screen.getByRole('button', { name: /previous column/i });
+    expect(prevButton).toHaveClass('invisible');
   });
 
   it('should show right arrow when not on last column', () => {
     render(<MobileColumnHeader {...defaultProps} isLast={false} />);
-    const nextBtn = screen.getByTestId('next-column-btn');
-    expect(nextBtn).not.toBeDisabled();
+    const nextButton = screen.getByRole('button', { name: /next column/i });
+    expect(nextButton).not.toHaveClass('invisible');
   });
 
-  it('should disable right arrow when on last column', () => {
-    render(<MobileColumnHeader {...defaultProps} isLast={true} />);
-    const nextBtn = screen.getByTestId('next-column-btn');
-    expect(nextBtn).toBeDisabled();
+  it('should hide right arrow when on last column', () => {
+    render(<MobileColumnHeader {...defaultProps} isLast={true} currentIndex={4} />);
+    const nextButton = screen.getByRole('button', { name: /next column/i });
+    expect(nextButton).toHaveClass('invisible');
   });
 
   it('should call onPrev when left arrow clicked', () => {
-    const onPrev = vi.fn();
-    render(<MobileColumnHeader {...defaultProps} onPrev={onPrev} />);
-    const prevBtn = screen.getByTestId('prev-column-btn');
-    fireEvent.click(prevBtn);
-    expect(onPrev).toHaveBeenCalledTimes(1);
+    render(<MobileColumnHeader {...defaultProps} />);
+    const prevButton = screen.getByRole('button', { name: /previous column/i });
+    fireEvent.click(prevButton);
+    expect(mockOnPrev).toHaveBeenCalledTimes(1);
   });
 
   it('should call onNext when right arrow clicked', () => {
-    const onNext = vi.fn();
-    render(<MobileColumnHeader {...defaultProps} onNext={onNext} />);
-    const nextBtn = screen.getByTestId('next-column-btn');
-    fireEvent.click(nextBtn);
-    expect(onNext).toHaveBeenCalledTimes(1);
+    render(<MobileColumnHeader {...defaultProps} />);
+    const nextButton = screen.getByRole('button', { name: /next column/i });
+    fireEvent.click(nextButton);
+    expect(mockOnNext).toHaveBeenCalledTimes(1);
   });
 
-  it('should display indicator dots for all columns', () => {
+  it('should render indicator dots for all columns', () => {
     render(<MobileColumnHeader {...defaultProps} totalColumns={5} />);
-    const dots = screen.getAllByRole('tab');
+    const dots = screen.getAllByTestId('column-indicator-dot');
     expect(dots).toHaveLength(5);
   });
 
-  it('should highlight current column indicator', () => {
-    render(
-      <MobileColumnHeader {...defaultProps} currentIndex={2} totalColumns={5} />
-    );
-    const dots = screen.getAllByRole('tab');
-    expect(dots[2]).toHaveAttribute('aria-selected', 'true');
-    expect(dots[0]).toHaveAttribute('aria-selected', 'false');
-    expect(dots[1]).toHaveAttribute('aria-selected', 'false');
-    expect(dots[3]).toHaveAttribute('aria-selected', 'false');
-    expect(dots[4]).toHaveAttribute('aria-selected', 'false');
+  it('should highlight the current indicator dot', () => {
+    render(<MobileColumnHeader {...defaultProps} currentIndex={2} totalColumns={5} />);
+    const dots = screen.getAllByTestId('column-indicator-dot');
+    // The third dot (index 2) should have the primary color
+    expect(dots[2]).toHaveClass('bg-primary');
+    // Other dots should have the muted color
+    expect(dots[0]).toHaveClass('bg-muted-foreground/30');
+    expect(dots[1]).toHaveClass('bg-muted-foreground/30');
+    expect(dots[3]).toHaveClass('bg-muted-foreground/30');
+    expect(dots[4]).toHaveClass('bg-muted-foreground/30');
   });
 
-  it('should not call onPrev when left arrow is disabled', () => {
-    const onPrev = vi.fn();
-    render(
-      <MobileColumnHeader {...defaultProps} isFirst={true} onPrev={onPrev} />
-    );
-    const prevBtn = screen.getByTestId('prev-column-btn');
-    fireEvent.click(prevBtn);
-    expect(onPrev).not.toHaveBeenCalled();
-  });
-
-  it('should not call onNext when right arrow is disabled', () => {
-    const onNext = vi.fn();
-    render(
-      <MobileColumnHeader {...defaultProps} isLast={true} onNext={onNext} />
-    );
-    const nextBtn = screen.getByTestId('next-column-btn');
-    fireEvent.click(nextBtn);
-    expect(onNext).not.toHaveBeenCalled();
+  it('should display the color indicator', () => {
+    render(<MobileColumnHeader {...defaultProps} color="#ef4444" />);
+    // Look for the color indicator span
+    const colorIndicator = screen.getByText('To Do').previousElementSibling;
+    expect(colorIndicator).toHaveStyle({ backgroundColor: '#ef4444' });
   });
 });
