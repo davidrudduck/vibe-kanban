@@ -78,6 +78,14 @@
     "currentBadge": " (current)"
   },
   "signOut": "Sign out",
+  "bottomNav": {
+    "ariaLabel": "Main navigation",
+    "projects": "Projects",
+    "tasks": "Tasks",
+    "add": "Add",
+    "activity": "Activity",
+    "menu": "Menu"
+  },
   "devMode": {
     "banner": "Development Mode - This is a development build",
     "bannerShort": "Development Mode"
