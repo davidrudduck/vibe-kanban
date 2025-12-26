@@ -7,7 +7,7 @@ import {
   useState,
 } from 'react';
 import type { ReactNode } from 'react';
-import type { ApprovalStatus, ToolStatus } from 'shared/types';
+import type { ApprovalStatus, ToolStatus, Question } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -16,7 +16,8 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { approvalsApi } from '@/lib/api';
-import { Check, X } from 'lucide-react';
+import { Check, X, Send } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
 import { FileSearchTextarea } from '@/components/ui/file-search-textarea';
 
 import { useHotkeysContext } from 'react-hotkeys-hook';
@@ -47,6 +48,45 @@ interface AskUserQuestionArgs {
       description?: string;
     }>;
   }>;
+}
+
+// Extract and normalize questions from AskUserQuestion tool arguments
+function extractQuestionsFromArgs(
+  args: AskUserQuestionArgs | null | undefined
+): Question[] | null {
+  if (!args?.questions || !Array.isArray(args.questions)) {
+    return null;
+  }
+
+  const questions: Question[] = [];
+  for (const q of args.questions) {
+    // Validate required fields
+    if (!q.question || typeof q.question !== 'string') {
+      continue;
+    }
+    // header defaults to question text if not provided
+    const header = q.header || q.question;
+    // options must be an array with at least one option
+    if (!q.options || !Array.isArray(q.options) || q.options.length === 0) {
+      continue;
+    }
+    // Normalize options to have required description field
+    const options = q.options.map((opt) => ({
+      label: opt.label || '',
+      description: opt.description || '',
+    }));
+    if (!options.every((opt) => opt.label)) {
+      continue;
+    }
+    questions.push({
+      question: q.question,
+      header,
+      multiSelect: q.multiSelect ?? false,
+      options,
+    });
+  }
+
+  return questions.length > 0 ? questions : null;
 }
 
 function useApprovalCountdown(
@@ -184,63 +224,154 @@ function DenyReasonForm({
   );
 }
 
-// ---------- Debug Component for AskUserQuestion ----------
-function AskUserQuestionDebug({ args }: { args: AskUserQuestionArgs }) {
-  const questions = args?.questions;
-  if (!questions || !Array.isArray(questions)) {
-    return (
-      <pre className="text-xs overflow-auto max-h-40 p-2 bg-background rounded">
-        {JSON.stringify(args, null, 2)}
-      </pre>
-    );
-  }
+// ---------- Question Form for AskUserQuestion ----------
+interface QuestionFormProps {
+  questions: Question[];
+  isResponding: boolean;
+  disabled: boolean;
+  answers: Record<string, string | string[]>;
+  otherTexts: Record<string, string>;
+  onAnswerChange: (header: string, value: string | string[]) => void;
+  onOtherTextChange: (header: string, value: string) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+}
+
+function QuestionForm({
+  questions,
+  isResponding,
+  disabled,
+  answers,
+  otherTexts,
+  onAnswerChange,
+  onOtherTextChange,
+  onSubmit,
+  onCancel,
+}: QuestionFormProps) {
+  // Auto-submit: If this is the last question, it's single-select, and user selected a non-Other option
+  const isLastQuestion = questions.length === 1;
+  const lastQuestion = questions[0];
+  const canAutoSubmit =
+    isLastQuestion && lastQuestion && !lastQuestion.multiSelect;
+
+  const handleOptionClick = (
+    question: Question,
+    optionLabel: string,
+    isOther: boolean
+  ) => {
+    if (disabled) return;
+
+    if (question.multiSelect) {
+      // Multi-select: toggle the option
+      const currentAnswers = (answers[question.header] as string[]) || [];
+      const isSelected = currentAnswers.includes(optionLabel);
+      if (isSelected) {
+        onAnswerChange(
+          question.header,
+          currentAnswers.filter((a) => a !== optionLabel)
+        );
+      } else {
+        onAnswerChange(question.header, [...currentAnswers, optionLabel]);
+      }
+    } else {
+      // Single-select: set the option
+      onAnswerChange(question.header, optionLabel);
+
+      // Auto-submit if this is the last question and not "Other"
+      if (canAutoSubmit && !isOther) {
+        // Use setTimeout to allow state to update first
+        setTimeout(() => onSubmit(), 0);
+      }
+    }
+  };
 
   return (
-    <>
-      {/* Formatted question display */}
-      <div className="space-y-3 mb-3">
-        {questions.map((q, idx) => (
-          <div key={idx} className="text-sm">
-            <div className="font-medium text-foreground">{q.question}</div>
-            {q.options && q.options.length > 0 && (
-              <div className="ml-2 mt-1.5 space-y-1">
-                {q.options.map((opt, optIdx) => (
-                  <div
-                    key={optIdx}
-                    className="text-xs text-muted-foreground flex items-start gap-1.5"
-                  >
-                    <span className="text-amber-600 dark:text-amber-400">•</span>
-                    <span>
-                      <span className="font-medium">{opt.label}</span>
-                      {opt.description && (
-                        <span className="ml-1 opacity-75">
-                          — {opt.description}
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {q.multiSelect && (
-              <div className="ml-2 mt-1 text-xs text-amber-600 dark:text-amber-400">
-                (Multiple selections allowed)
-              </div>
+    <div className="mt-3 bg-background px-3 py-3 text-sm space-y-4">
+      {questions.map((question) => {
+        const currentAnswer = answers[question.header];
+        const isOtherSelected = question.multiSelect
+          ? ((currentAnswer as string[]) || []).includes('Other')
+          : currentAnswer === 'Other';
+        const otherText = otherTexts[question.header] || '';
+
+        return (
+          <div key={question.header} className="space-y-2">
+            <div className="font-medium text-foreground">{question.question}</div>
+            <div className="flex flex-wrap gap-2">
+              {question.options.map((option) => {
+                const isSelected = question.multiSelect
+                  ? ((currentAnswer as string[]) || []).includes(option.label)
+                  : currentAnswer === option.label;
+
+                return (
+                  <Tooltip key={option.label}>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant={isSelected ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() =>
+                          handleOptionClick(question, option.label, false)
+                        }
+                        disabled={disabled}
+                        className="h-auto py-1.5 px-3"
+                      >
+                        {option.label}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-xs">
+                      <p>{option.description}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                );
+              })}
+
+              {/* "Other" option - always available per spec */}
+              <Button
+                variant={isOtherSelected ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleOptionClick(question, 'Other', true)}
+                disabled={disabled}
+                className="h-auto py-1.5 px-3"
+              >
+                Other
+              </Button>
+            </div>
+
+            {/* Other text input - shown when "Other" is selected */}
+            {isOtherSelected && (
+              <Textarea
+                value={otherText}
+                onChange={(e) =>
+                  onOtherTextChange(question.header, e.target.value)
+                }
+                placeholder="Please specify..."
+                disabled={disabled}
+                className="w-full bg-transparent border px-3 py-2 text-sm resize-none min-h-[60px] mt-2"
+              />
             )}
           </div>
-        ))}
-      </div>
+        );
+      })}
 
-      {/* Collapsible raw JSON */}
-      <details className="text-xs">
-        <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-          Show raw JSON
-        </summary>
-        <pre className="mt-2 p-2 bg-background rounded overflow-auto max-h-40 text-xs">
-          {JSON.stringify(args, null, 2)}
-        </pre>
-      </details>
-    </>
+      <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onCancel}
+          disabled={isResponding}
+        >
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          onClick={onSubmit}
+          disabled={isResponding || disabled}
+        >
+          <Send className="h-4 w-4 mr-1.5" />
+          Submit
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -275,6 +406,25 @@ const PendingApprovalEntry = ({
   const [isResponding, setIsResponding] = useState(false);
   const [hasResponded, setHasResponded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // State for AskUserQuestion answers
+  const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
+  const [otherTexts, setOtherTexts] = useState<Record<string, string>>({});
+
+  // Extract questions if this is an AskUserQuestion with valid questions
+  const extractedQuestions = useMemo(() => {
+    if (toolName !== 'AskUserQuestion') return null;
+    const questions = extractQuestionsFromArgs(
+      toolArguments as AskUserQuestionArgs | null | undefined
+    );
+    console.debug('[PendingApprovalEntry] Extracted questions:', {
+      hasQuestions: questions !== null,
+      questionsCount: questions?.length ?? 0,
+    });
+    return questions;
+  }, [toolName, toolArguments]);
+
+  const isAskUserQuestionWithQuestions = extractedQuestions !== null;
 
   const {
     isEnteringReason,
@@ -341,7 +491,11 @@ const PendingApprovalEntry = ({
   ]);
 
   const respond = useCallback(
-    async (approved: boolean, reason?: string) => {
+    async (
+      approved: boolean,
+      reason?: string,
+      answersPayload?: Record<string, string>
+    ) => {
       if (disabled) return;
       if (!executionProcessId) {
         setError('Missing executionProcessId');
@@ -359,6 +513,7 @@ const PendingApprovalEntry = ({
         await approvalsApi.respond(pendingStatus.approval_id, {
           execution_process_id: executionProcessId,
           status,
+          answers: answersPayload,
         });
         setHasResponded(true);
         clear();
@@ -390,6 +545,53 @@ const PendingApprovalEntry = ({
     const trimmed = denyReason.trim();
     respond(false, trimmed || DEFAULT_DENIAL_REASON);
   }, [denyReason, respond]);
+
+  // Handlers for AskUserQuestion form
+  const handleAnswerChange = useCallback(
+    (header: string, value: string | string[]) => {
+      setAnswers((prev) => ({ ...prev, [header]: value }));
+    },
+    []
+  );
+
+  const handleOtherTextChange = useCallback((header: string, value: string) => {
+    setOtherTexts((prev) => ({ ...prev, [header]: value }));
+  }, []);
+
+  const buildFinalAnswers = useCallback((): Record<string, string> => {
+    if (!extractedQuestions) return {};
+    const result: Record<string, string> = {};
+    for (const question of extractedQuestions) {
+      const answer = answers[question.header];
+      if (question.multiSelect) {
+        const selectedOptions = (answer as string[]) || [];
+        // Replace "Other" with the actual text if provided
+        const finalOptions = selectedOptions.map((opt) =>
+          opt === 'Other' ? otherTexts[question.header] || 'Other' : opt
+        );
+        result[question.header] = finalOptions.join(', ');
+      } else {
+        const selectedOption = answer as string;
+        if (selectedOption === 'Other') {
+          result[question.header] = otherTexts[question.header] || 'Other';
+        } else {
+          result[question.header] = selectedOption || '';
+        }
+      }
+    }
+    return result;
+  }, [answers, otherTexts, extractedQuestions]);
+
+  const handleQuestionSubmit = useCallback(() => {
+    const finalAnswers = buildFinalAnswers();
+    console.debug('[PendingApprovalEntry] Submitting question answers:', finalAnswers);
+    respond(true, undefined, finalAnswers);
+  }, [buildFinalAnswers, respond]);
+
+  const handleQuestionCancel = useCallback(() => {
+    console.debug('[PendingApprovalEntry] Question cancelled');
+    respond(false, 'User cancelled');
+  }, [respond]);
 
   const triggerDeny = useCallback(
     (event?: KeyboardEvent) => {
@@ -426,38 +628,62 @@ const PendingApprovalEntry = ({
 
         <div className="border-t bg-background px-2 py-1.5 text-xs sm:text-sm">
           <TooltipProvider>
-            {/* AskUserQuestion debug display */}
-            {toolName === 'AskUserQuestion' &&
-              toolArguments !== undefined &&
-              toolArguments !== null && (
-                <div className="mb-3 mx-2 p-3 bg-amber-50 dark:bg-amber-950/30 rounded border border-amber-200 dark:border-amber-800">
-                  <div className="text-xs font-semibold mb-2 text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
-                    <span>AskUserQuestion</span>
-                    <span className="font-normal opacity-75">(Debug View)</span>
-                  </div>
-                  <AskUserQuestionDebug
-                    args={toolArguments as AskUserQuestionArgs}
-                  />
-                </div>
-              )}
+            {/* AskUserQuestion with valid questions: show QuestionForm */}
+            {isAskUserQuestionWithQuestions && !hasResponded && (
+              <QuestionForm
+                questions={extractedQuestions}
+                isResponding={isResponding}
+                disabled={disabled}
+                answers={answers}
+                otherTexts={otherTexts}
+                onAnswerChange={handleAnswerChange}
+                onOtherTextChange={handleOtherTextChange}
+                onSubmit={handleQuestionSubmit}
+                onCancel={handleQuestionCancel}
+              />
+            )}
 
-            <div className="flex items-center justify-between gap-1.5 pl-4">
-              <div className="flex items-center gap-1.5">
-                {!isEnteringReason && (
-                  <span className="text-muted-foreground">
-                    Would you like to approve this?
-                  </span>
-                )}
+            {/* Response submitted message for AskUserQuestion */}
+            {isAskUserQuestionWithQuestions && hasResponded && (
+              <div className="text-muted-foreground text-center py-2">
+                Response submitted
               </div>
-              {!isEnteringReason && (
-                <ActionButtons
-                  disabled={disabled}
-                  isResponding={isResponding}
-                  onApprove={handleApprove}
-                  onStartDeny={handleStartDeny}
-                />
-              )}
-            </div>
+            )}
+
+            {/* Generic approve/deny UI for non-AskUserQuestion tools */}
+            {!isAskUserQuestionWithQuestions && (
+              <>
+                <div className="flex items-center justify-between gap-1.5 pl-4">
+                  <div className="flex items-center gap-1.5">
+                    {!isEnteringReason && (
+                      <span className="text-muted-foreground">
+                        Would you like to approve this?
+                      </span>
+                    )}
+                  </div>
+                  {!isEnteringReason && (
+                    <ActionButtons
+                      disabled={disabled}
+                      isResponding={isResponding}
+                      onApprove={handleApprove}
+                      onStartDeny={handleStartDeny}
+                    />
+                  )}
+                </div>
+
+                {isEnteringReason && !hasResponded && (
+                  <DenyReasonForm
+                    isResponding={isResponding}
+                    value={denyReason}
+                    onChange={setDenyReason}
+                    onCancel={handleCancelDeny}
+                    onSubmit={handleSubmitDeny}
+                    inputRef={denyReasonRef}
+                    projectId={projectId}
+                  />
+                )}
+              </>
+            )}
 
             {error && (
               <div
@@ -467,18 +693,6 @@ const PendingApprovalEntry = ({
               >
                 {error}
               </div>
-            )}
-
-            {isEnteringReason && !hasResponded && (
-              <DenyReasonForm
-                isResponding={isResponding}
-                value={denyReason}
-                onChange={setDenyReason}
-                onCancel={handleCancelDeny}
-                onSubmit={handleSubmitDeny}
-                inputRef={denyReasonRef}
-                projectId={projectId}
-              />
             )}
           </TooltipProvider>
         </div>
