@@ -12,6 +12,7 @@ import {
 import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesContext';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { streamJsonPatchEntries } from '@/utils/streamJsonPatchEntries';
+import { useEffectivePagination } from './useEffectivePagination';
 
 export type PatchTypeWithKey = PatchType & {
   patchKey: string;
@@ -47,8 +48,8 @@ interface UseConversationHistoryParams {
 
 interface UseConversationHistoryResult {}
 
-const MIN_INITIAL_ENTRIES = 10;
-const REMAINING_BATCH_SIZE = 50;
+// Cap for minimum initial entries (ensure we always show at least some entries quickly)
+const MIN_INITIAL_ENTRIES_CAP = 10;
 
 const loadingPatch: PatchTypeWithKey = {
   type: 'NORMALIZED_ENTRY',
@@ -96,6 +97,20 @@ export const useConversationHistory = ({
 }: UseConversationHistoryParams): UseConversationHistoryResult => {
   const { executionProcessesVisible: executionProcessesRaw } =
     useExecutionProcessesContext();
+
+  // Get effective pagination settings (respects per-conversation overrides)
+  const { effectiveLimit } = useEffectivePagination(attempt.id);
+
+  // Calculate pagination parameters from effective limit
+  // minInitialEntries: Load at least this many entries initially (capped at 10)
+  // batchSize: How many entries to load when scrolling up for more history
+  const minInitialEntries = Math.min(MIN_INITIAL_ENTRIES_CAP, effectiveLimit);
+  const batchSize = Math.max(10, Math.floor(effectiveLimit / 2));
+
+  // Store pagination values in refs so they're available in callbacks without causing re-renders
+  const paginationRef = useRef({ minInitialEntries, batchSize });
+  paginationRef.current = { minInitialEntries, batchSize };
+
   const executionProcesses = useRef<ExecutionProcess[]>(executionProcessesRaw);
   const displayedExecutionProcesses = useRef<ExecutionProcessStateStore>({});
   const loadedInitialEntries = useRef(false);
@@ -511,6 +526,9 @@ export const useConversationHistory = ({
 
       if (!executionProcesses?.current) return localDisplayedExecutionProcesses;
 
+      // Use current pagination settings from ref
+      const { minInitialEntries: targetMinEntries } = paginationRef.current;
+
       for (const executionProcess of [
         ...executionProcesses.current,
       ].reverse()) {
@@ -530,7 +548,7 @@ export const useConversationHistory = ({
 
         if (
           flattenEntries(localDisplayedExecutionProcesses).length >
-          MIN_INITIAL_ENTRIES
+          targetMinEntries
         ) {
           break;
         }
@@ -626,10 +644,10 @@ export const useConversationHistory = ({
       emitEntries(displayedExecutionProcesses.current, 'initial', false);
       loadedInitialEntries.current = true;
 
-      // Then load the remaining in batches
+      // Then load the remaining in batches (using current pagination settings)
       while (
         !cancelled &&
-        (await loadRemainingEntriesInBatches(REMAINING_BATCH_SIZE))
+        (await loadRemainingEntriesInBatches(paginationRef.current.batchSize))
       ) {
         if (cancelled) return;
       }

@@ -8,10 +8,22 @@ import {
   PatchTypeWithKey,
   useConversationHistory,
 } from '@/hooks/useConversationHistory';
-import { ArrowDown, ArrowUp, Loader2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Loader2, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  PaginationPreset,
+  usePaginationOverride,
+} from '@/stores/usePaginationOverride';
 import { TaskAttempt, TaskWithAttemptStatus } from 'shared/types';
 import { ApprovalFormProvider } from '@/contexts/ApprovalFormContext';
+import { useTranslation } from 'react-i18next';
 
 interface VirtualizedListProps {
   attempt: TaskAttempt;
@@ -58,11 +70,15 @@ const computeItemKey = (_index: number, data: PatchTypeWithKey) =>
   `l-${data.patchKey}`;
 
 const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
+  const { t } = useTranslation('common');
   const [items, setItems] = useState<PatchTypeWithKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [atBottom, setAtBottom] = useState(true);
   const [atTop, setAtTop] = useState(false);
   const { setEntries, reset } = useEntries();
+  const [paginationOverride, setPaginationOverride] = usePaginationOverride(
+    attempt.id
+  );
 
   useEffect(() => {
     setLoading(true);
@@ -170,6 +186,45 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
           >
             <ArrowUp className="h-4 w-4" />
           </Button>
+        )}
+        {!loading && items.length > 0 && (
+          <div className="absolute top-1/2 -translate-y-1/2 right-4 z-10">
+            <Select
+              value={String(paginationOverride)}
+              onValueChange={(value) =>
+                setPaginationOverride(
+                  value === 'global'
+                    ? 'global'
+                    : (Number(value) as PaginationPreset)
+                )
+              }
+            >
+              <SelectTrigger
+                className="w-auto h-8 gap-1 px-2 rounded-full shadow-lg bg-background/90 backdrop-blur-sm border-input"
+                aria-label="Pagination settings"
+              >
+                <Settings2 className="h-4 w-4" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="end">
+                <SelectItem value="global">
+                  {t('conversation.pagination.global')}
+                </SelectItem>
+                <SelectItem value="50">
+                  {t('conversation.pagination.entries50')}
+                </SelectItem>
+                <SelectItem value="100">
+                  {t('conversation.pagination.entries100')}
+                </SelectItem>
+                <SelectItem value="200">
+                  {t('conversation.pagination.entries200')}
+                </SelectItem>
+                <SelectItem value="500">
+                  {t('conversation.pagination.entries500')}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         )}
         {!atBottom && items.length > 0 && !loading && (
           <Button
