@@ -41,6 +41,8 @@ import {
 import TaskKanbanBoard, {
   type KanbanColumnItem,
 } from '@/components/tasks/TaskKanbanBoard';
+import MobileKanbanBoard from '@/components/tasks/MobileKanbanBoard';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import type { DragEndEvent } from '@/components/ui/shadcn-io/kanban';
 import {
   useProjectTasks,
@@ -145,6 +147,8 @@ export function ProjectTasks() {
   const [searchParams, setSearchParams] = useSearchParams();
   const isXL = useMediaQuery('(min-width: 1280px)');
   const isMobile = !isXL;
+  // Use sm breakpoint (640px) for mobile Kanban swipe view
+  const isMobileKanban = useIsMobile();
   const [selectedSharedTaskId, setSelectedSharedTaskId] = useState<
     string | null
   >(null);
@@ -831,6 +835,16 @@ export function ProjectTasks() {
           </CardContent>
         </Card>
       </div>
+    ) : isMobileKanban ? (
+      <MobileKanbanBoard
+        columns={kanbanColumns}
+        onViewTaskDetails={handleViewTaskDetails}
+        onViewSharedTask={handleViewSharedTask}
+        selectedTaskId={selectedTask?.id}
+        selectedSharedTaskId={selectedSharedTaskId}
+        projectId={projectId!}
+        className="h-full"
+      />
     ) : (
       <div className="w-full h-full overflow-x-auto overflow-y-auto overscroll-x-contain">
         <TaskKanbanBoard
