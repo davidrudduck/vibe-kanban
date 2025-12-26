@@ -144,6 +144,10 @@ module.exports = {
           '80%': { opacity: '1' },
           '100%': { opacity: '0' },
         },
+        "progress-indeterminate": {
+          '0%': { transform: 'translateX(-100%)' },
+          '100%': { transform: 'translateX(400%)' },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
