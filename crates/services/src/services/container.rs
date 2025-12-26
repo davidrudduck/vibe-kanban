@@ -45,6 +45,7 @@ use crate::services::{
     config::Config,
     git::{GitService, GitServiceError},
     image::ImageService,
+    log_batcher::LogBatcherHandle,
     notification::NotificationService,
     share::SharePublisher,
     variable_expander,
@@ -81,6 +82,10 @@ pub trait ContainerService {
     fn git(&self) -> &GitService;
 
     fn share_publisher(&self) -> Option<&SharePublisher>;
+
+    /// Get the log batcher handle for batched database writes.
+    /// Returns None if batching is disabled (falls back to direct writes).
+    fn log_batcher(&self) -> Option<&LogBatcherHandle>;
 
     fn task_attempt_to_current_dir(&self, task_attempt: &TaskAttempt) -> PathBuf;
 
@@ -625,6 +630,7 @@ pub trait ContainerService {
         let execution_id = *execution_id;
         let msg_stores = self.msg_stores().clone();
         let db = self.db().clone();
+        let log_batcher = self.log_batcher().cloned();
 
         tokio::spawn(async move {
             // Get the message store for this execution
@@ -639,37 +645,41 @@ pub trait ContainerService {
                 while let Some(Ok(msg)) = stream.next().await {
                     match &msg {
                         LogMsg::Stdout(_) | LogMsg::Stderr(_) => {
-                            // Serialize this individual message as a JSONL line
-                            match serde_json::to_string(&msg) {
-                                Ok(jsonl_line) => {
-                                    let jsonl_line_with_newline = format!("{jsonl_line}\n");
+                            // Use batched writes if log batcher is available
+                            if let Some(ref batcher) = log_batcher {
+                                batcher.add_log(execution_id, msg.clone()).await;
+                            } else {
+                                // Fallback to direct writes (legacy behavior)
+                                match serde_json::to_string(&msg) {
+                                    Ok(jsonl_line) => {
+                                        let jsonl_line_with_newline = format!("{jsonl_line}\n");
 
-                                    // Append this line to the database
-                                    if let Err(e) = ExecutionProcessLogs::append_log_line(
-                                        &db.pool,
-                                        execution_id,
-                                        &jsonl_line_with_newline,
-                                    )
-                                    .await
-                                    {
+                                        if let Err(e) = ExecutionProcessLogs::append_log_line(
+                                            &db.pool,
+                                            execution_id,
+                                            &jsonl_line_with_newline,
+                                        )
+                                        .await
+                                        {
+                                            tracing::error!(
+                                                "Failed to append log line for execution {}: {}",
+                                                execution_id,
+                                                e
+                                            );
+                                        }
+                                    }
+                                    Err(e) => {
                                         tracing::error!(
-                                            "Failed to append log line for execution {}: {}",
+                                            "Failed to serialize log message for execution {}: {}",
                                             execution_id,
                                             e
                                         );
                                     }
                                 }
-                                Err(e) => {
-                                    tracing::error!(
-                                        "Failed to serialize log message for execution {}: {}",
-                                        execution_id,
-                                        e
-                                    );
-                                }
                             }
                         }
                         LogMsg::SessionId(session_id) => {
-                            // Append this line to the database
+                            // Session ID updates are rare and important - write immediately
                             if let Err(e) = ExecutorSession::update_session_id(
                                 &db.pool,
                                 execution_id,
@@ -686,6 +696,10 @@ pub trait ContainerService {
                             }
                         }
                         LogMsg::Finished => {
+                            // Flush any remaining batched logs before finishing
+                            if let Some(ref batcher) = log_batcher {
+                                batcher.finish(execution_id).await;
+                            }
                             break;
                         }
                         LogMsg::JsonPatch(_) | LogMsg::RefreshRequired { .. } => continue,
