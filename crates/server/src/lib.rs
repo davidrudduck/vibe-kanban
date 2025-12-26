@@ -1,4 +1,5 @@
 pub mod error;
+pub mod file_logging;
 pub mod mcp;
 pub mod middleware;
 pub mod routes;

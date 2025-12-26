@@ -71,7 +71,8 @@
           "configuration-customisation/global-settings",
           "configuration-customisation/agent-configurations",
           "configuration-customisation/creating-task-tags",
-          "configuration-customisation/keyboard-shortcuts"
+          "configuration-customisation/keyboard-shortcuts",
+          "configuration-customisation/database-performance"
         ]
       },
       {

@@ -45,6 +45,7 @@ use services::services::{
     diff_stream::{self, DiffStreamHandle},
     git::{Commit, DiffTarget, GitService},
     image::ImageService,
+    log_batcher::{LogBatcher, LogBatcherHandle},
     share::SharePublisher,
     worktree_manager::{WorktreeCleanup, WorktreeManager},
 };
@@ -69,6 +70,7 @@ pub struct LocalContainerService {
     image_service: ImageService,
     approvals: Approvals,
     publisher: Result<SharePublisher, RemoteClientNotConfigured>,
+    log_batcher: LogBatcherHandle,
 }
 
 impl LocalContainerService {
@@ -83,6 +85,9 @@ impl LocalContainerService {
     ) -> Self {
         let child_store = Arc::new(RwLock::new(HashMap::new()));
 
+        // Initialize log batcher for batched database writes
+        let log_batcher = LogBatcher::spawn(&db);
+
         let container = LocalContainerService {
             db,
             child_store,
@@ -92,6 +97,7 @@ impl LocalContainerService {
             image_service,
             approvals,
             publisher,
+            log_batcher,
         };
 
         container.spawn_worktree_cleanup().await;
@@ -825,6 +831,10 @@ impl ContainerService for LocalContainerService {
 
     fn share_publisher(&self) -> Option<&SharePublisher> {
         self.publisher.as_ref().ok()
+    }
+
+    fn log_batcher(&self) -> Option<&LogBatcherHandle> {
+        Some(&self.log_batcher)
     }
 
     async fn git_branch_prefix(&self) -> String {
