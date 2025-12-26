@@ -875,6 +875,10 @@ fn node_error_response(error: NodeError, context: &str) -> Response {
             StatusCode::CONFLICT,
             "API key already bound to a different node".to_string(),
         ),
+        NodeError::TakeoverDetected(msg) => (
+            StatusCode::CONFLICT,
+            format!("takeover detected: {}", msg),
+        ),
         NodeError::ProjectAlreadyLinked => (
             StatusCode::CONFLICT,
             "project already linked to a node".to_string(),
