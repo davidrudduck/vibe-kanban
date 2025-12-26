@@ -252,6 +252,26 @@ const PendingApprovalEntry = ({
   toolName,
   toolArguments,
 }: PendingApprovalEntryProps) => {
+  // Debug logging for AskUserQuestion flow
+  console.debug('[PendingApprovalEntry] Rendering with:', {
+    approvalId: pendingStatus.approval_id,
+    toolName,
+    hasToolArguments: toolArguments !== undefined && toolArguments !== null,
+    toolArgumentsType: toolArguments === null ? 'null' : typeof toolArguments,
+    isAskUserQuestion: toolName === 'AskUserQuestion',
+  });
+
+  // If this is AskUserQuestion, log more details about the questions
+  if (toolName === 'AskUserQuestion') {
+    const args = toolArguments as AskUserQuestionArgs | undefined;
+    console.debug('[PendingApprovalEntry] AskUserQuestion details:', {
+      hasQuestions: args?.questions !== undefined,
+      questionsIsArray: Array.isArray(args?.questions),
+      questionsCount: args?.questions?.length ?? 0,
+      questions: args?.questions,
+    });
+  }
+
   const [isResponding, setIsResponding] = useState(false);
   const [hasResponded, setHasResponded] = useState(false);
   const [error, setError] = useState<string | null>(null);
