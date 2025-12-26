@@ -1,4 +1,4 @@
-use std::{str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc, time::Duration};
 
 use sqlx::{
     Error, Executor, Pool, Sqlite,
@@ -11,18 +11,54 @@ use tracing::warn;
 use utils::assets::asset_dir;
 
 pub mod backup;
+pub mod metrics;
 pub mod models;
+pub mod retry;
 pub mod validation;
+pub mod wal_monitor;
 
 pub use backup::{BackupInfo, BackupService};
+pub use metrics::DbMetrics;
+pub use retry::{RetryConfig, is_retryable_error, with_retry};
+pub use wal_monitor::{WalMonitor, WalMonitorConfig, WalMonitorHandle, get_wal_size};
 
-/// Apply performance pragmas to a SQLite connection.
+// ============================================================================
+// Connection Pool Configuration
+// ============================================================================
+
+/// Default maximum connections in the pool.
+/// SQLite benefits from limited connections due to single-writer model.
+const DEFAULT_MAX_CONNECTIONS: u32 = 10;
+
+/// Minimum idle connections to maintain.
+const DEFAULT_MIN_CONNECTIONS: u32 = 2;
+
+/// Connection acquisition timeout in seconds.
+const DEFAULT_ACQUIRE_TIMEOUT_SECS: u64 = 30;
+
+/// Idle connection timeout in seconds (10 minutes).
+const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 600;
+
+/// Get max connections from environment or use default.
+fn get_max_connections() -> u32 {
+    std::env::var("VK_SQLITE_MAX_CONNECTIONS")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+        .filter(|&n| n > 0 && n <= 100)
+        .unwrap_or(DEFAULT_MAX_CONNECTIONS)
+}
+
+/// Apply performance and reliability pragmas to a SQLite connection.
 /// These pragmas are applied on every new connection via `after_connect`.
 ///
-/// Pragmas applied:
+/// Performance pragmas:
 /// - `temp_store = MEMORY` (2): Store temporary tables in memory
 /// - `mmap_size = 256MB`: Memory-mapped I/O for faster reads
 /// - `cache_size = -64000`: 64MB page cache (negative = KB)
+///
+/// WAL tuning:
+/// - `wal_autocheckpoint = 2000`: Checkpoint every ~8MB instead of default 4MB
+///   This reduces checkpoint frequency under heavy write load
 async fn apply_performance_pragmas(conn: &mut SqliteConnection) -> Result<(), Error> {
     // temp_store = MEMORY (2)
     conn.execute("PRAGMA temp_store = 2").await?;
@@ -33,25 +69,43 @@ async fn apply_performance_pragmas(conn: &mut SqliteConnection) -> Result<(), Er
     // cache_size = -64000 (64MB, negative means KB)
     conn.execute("PRAGMA cache_size = -64000").await?;
 
+    // WAL checkpoint tuning: checkpoint every 2000 pages (~8MB)
+    // Default is 1000 pages (~4MB). Larger threshold reduces checkpoint frequency
+    // which helps under heavy write load.
+    conn.execute("PRAGMA wal_autocheckpoint = 2000").await?;
+
     Ok(())
 }
 
 #[derive(Clone)]
 pub struct DBService {
     pub pool: Pool<Sqlite>,
+    pub metrics: DbMetrics,
 }
 
 impl DBService {
     pub async fn new() -> Result<DBService, Error> {
         let db_path = asset_dir().join("db.sqlite");
         let database_url = format!("sqlite://{}", db_path.to_string_lossy());
+        let max_connections = get_max_connections();
+
+        tracing::info!(
+            max_connections = max_connections,
+            min_connections = DEFAULT_MIN_CONNECTIONS,
+            "Initializing SQLite connection pool"
+        );
+
         let options = SqliteConnectOptions::from_str(&database_url)?
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(SqliteSynchronous::Normal)
-            .busy_timeout(std::time::Duration::from_secs(30));
+            .busy_timeout(Duration::from_secs(DEFAULT_ACQUIRE_TIMEOUT_SECS));
 
         let pool = SqlitePoolOptions::new()
+            .max_connections(max_connections)
+            .min_connections(DEFAULT_MIN_CONNECTIONS)
+            .acquire_timeout(Duration::from_secs(DEFAULT_ACQUIRE_TIMEOUT_SECS))
+            .idle_timeout(Some(Duration::from_secs(DEFAULT_IDLE_TIMEOUT_SECS)))
             .after_connect(|conn, _meta| {
                 Box::pin(async move { apply_performance_pragmas(conn).await })
             })
@@ -69,7 +123,9 @@ impl DBService {
         }
 
         sqlx::migrate!("./migrations").run(&pool).await?;
-        Ok(DBService { pool })
+
+        let metrics = DbMetrics::new();
+        Ok(DBService { pool, metrics })
     }
 
     pub async fn new_with_after_connect<F>(after_connect: F) -> Result<DBService, Error>
@@ -83,7 +139,8 @@ impl DBService {
             + 'static,
     {
         let pool = Self::create_pool(Some(Arc::new(after_connect))).await?;
-        Ok(DBService { pool })
+        let metrics = DbMetrics::new();
+        Ok(DBService { pool, metrics })
     }
 
     async fn create_pool<F>(after_connect: Option<Arc<F>>) -> Result<Pool<Sqlite>, Error>
@@ -98,14 +155,26 @@ impl DBService {
     {
         let db_path = asset_dir().join("db.sqlite");
         let database_url = format!("sqlite://{}", db_path.to_string_lossy());
+        let max_connections = get_max_connections();
+
+        tracing::info!(
+            max_connections = max_connections,
+            min_connections = DEFAULT_MIN_CONNECTIONS,
+            "Initializing SQLite connection pool"
+        );
+
         let options = SqliteConnectOptions::from_str(&database_url)?
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(SqliteSynchronous::Normal)
-            .busy_timeout(std::time::Duration::from_secs(30));
+            .busy_timeout(Duration::from_secs(DEFAULT_ACQUIRE_TIMEOUT_SECS));
 
         let pool = if let Some(hook) = after_connect {
             SqlitePoolOptions::new()
+                .max_connections(max_connections)
+                .min_connections(DEFAULT_MIN_CONNECTIONS)
+                .acquire_timeout(Duration::from_secs(DEFAULT_ACQUIRE_TIMEOUT_SECS))
+                .idle_timeout(Some(Duration::from_secs(DEFAULT_IDLE_TIMEOUT_SECS)))
                 .after_connect(move |conn, _meta| {
                     let hook = hook.clone();
                     Box::pin(async move {
@@ -120,6 +189,10 @@ impl DBService {
                 .await?
         } else {
             SqlitePoolOptions::new()
+                .max_connections(max_connections)
+                .min_connections(DEFAULT_MIN_CONNECTIONS)
+                .acquire_timeout(Duration::from_secs(DEFAULT_ACQUIRE_TIMEOUT_SECS))
+                .idle_timeout(Some(Duration::from_secs(DEFAULT_IDLE_TIMEOUT_SECS)))
                 .after_connect(|conn, _meta| {
                     Box::pin(async move { apply_performance_pragmas(conn).await })
                 })

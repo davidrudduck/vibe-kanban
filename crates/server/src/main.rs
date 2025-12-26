@@ -1,13 +1,12 @@
 use anyhow::{self, Error as AnyhowError};
 use db::models::task::Task;
 use deployment::{Deployment, DeploymentError};
-use server::{DeploymentImpl, routes};
+use server::{DeploymentImpl, file_logging, routes};
 use services::services::container::ContainerService;
 use sqlx::Error as SqlxError;
 use std::process::{Child, Command, Stdio};
 use strip_ansi_escapes::strip;
 use thiserror::Error;
-use tracing_subscriber::{EnvFilter, prelude::*};
 use utils::{assets::asset_dir, browser::open_browser, port_file::write_port_file};
 
 #[derive(Debug, Error)]
@@ -27,15 +26,10 @@ async fn main() -> Result<(), VibeKanbanError> {
     // Load .env file if present (for development)
     dotenvy::dotenv().ok();
 
+    // Initialize logging (console + optional file logging)
+    // The guard must be held for the lifetime of the application to ensure logs are flushed
     let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
-    let filter_string = format!(
-        "warn,server={level},services={level},db={level},executors={level},deployment={level},local_deployment={level},utils={level}",
-        level = log_level
-    );
-    let env_filter = EnvFilter::try_new(filter_string).expect("Failed to create tracing filter");
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer().with_filter(env_filter))
-        .init();
+    let _file_log_guard = file_logging::init_logging(&log_level);
 
     // Create asset directory if it doesn't exist
     if !asset_dir().exists() {

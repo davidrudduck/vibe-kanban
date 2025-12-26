@@ -81,6 +81,9 @@ vibe-kanban-*.tgz
 
 dev_assets
 dev_assets/backups
+
+# Debug logs (generated when VK_FILE_LOGGING=true)
+dev_assets/logs/
 /frontend/.env.sentry-build-plugin
 .ssh
 

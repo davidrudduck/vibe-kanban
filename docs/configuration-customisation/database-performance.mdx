@@ -1,0 +1,199 @@
+---
+title: "Database Performance & Troubleshooting"
+description: "SQLite performance tuning, monitoring, and troubleshooting guide"
+---
+
+## Overview
+
+Vibe Kanban uses SQLite in WAL mode for local data storage. Under normal use,
+SQLite handles all operations efficiently. This guide covers configuration,
+monitoring, and troubleshooting for database issues.
+
+## Common Issues
+
+### Symptoms of Database Problems
+- **SQLITE_IOERR_WRITE (522)**: Disk I/O errors during write operations
+- **SQLITE_NOTADB (26)**: Database corruption ("file is not a database")
+- Slow task execution or UI responsiveness
+
+### Root Causes
+- High-frequency concurrent writes (many tasks running simultaneously)
+- Connection pool exhaustion
+- Large WAL file accumulation
+
+## Built-in Protections
+
+Vibe Kanban includes several automatic protections:
+
+| Protection | Description |
+|------------|-------------|
+| **Log Batching** | Groups log writes into transactions (100 msgs or 250ms) |
+| **Connection Pool** | Limited to 10 connections with 30s timeout |
+| **Retry Logic** | Exponential backoff for SQLITE_BUSY errors |
+| **WAL Monitoring** | Auto-checkpoint when WAL exceeds 100MB |
+| **Automatic Backups** | Pre-migration backups in dev_assets/backups/ |
+
+## Configuration Options
+
+<ParamField path="VK_SQLITE_MAX_CONNECTIONS" type="number" default="10">
+  Maximum database connections. Reduce if experiencing lock contention.
+</ParamField>
+
+<ParamField path="VK_FILE_LOGGING" type="boolean" default="false">
+  Enable file-based debug logging to dev_assets/logs/
+</ParamField>
+
+<ParamField path="VK_LOG_DIR" type="string" default="dev_assets/logs">
+  Directory for log files when file logging is enabled.
+</ParamField>
+
+<ParamField path="VK_LOG_MAX_FILES" type="number" default="7">
+  Number of daily log files to retain.
+</ParamField>
+
+<ParamField path="VK_WAL_CHECK_INTERVAL_SECS" type="number" default="60">
+  How often to check WAL file size (seconds).
+</ParamField>
+
+<ParamField path="VK_WAL_WARNING_THRESHOLD_MB" type="number" default="50">
+  Log warning when WAL file exceeds this size (MB).
+</ParamField>
+
+<ParamField path="VK_WAL_CHECKPOINT_THRESHOLD_MB" type="number" default="100">
+  Auto-checkpoint when WAL file exceeds this size (MB).
+</ParamField>
+
+<ParamField path="VK_WAL_AUTO_CHECKPOINT" type="boolean" default="true">
+  Enable automatic checkpoints when WAL exceeds threshold.
+</ParamField>
+
+## Monitoring
+
+### Diagnostics Endpoint
+
+The diagnostics endpoint provides real-time database metrics:
+
+```bash
+curl http://localhost:3001/api/diagnostics
+```
+
+Returns:
+```json
+{
+  "db_metrics": {
+    "queries_total": 12345,
+    "queries_slow": 5,
+    "query_avg_duration_ms": 12.5,
+    "retry_attempts": 3,
+    "retry_successes": 2,
+    "retry_failures": 1,
+    "busy_errors": 1,
+    "other_errors": 0,
+    "latency_p50_ms": 5,
+    "latency_p95_ms": 25,
+    "latency_p99_ms": 100
+  },
+  "pool_stats": {
+    "size": 10,
+    "idle": 8,
+    "acquired": 2
+  },
+  "wal_size_bytes": 1048576,
+  "wal_size_human": "1.00 MB"
+}
+```
+
+### Prometheus Metrics
+
+For integration with external monitoring systems:
+
+```bash
+curl http://localhost:3001/api/diagnostics/prometheus
+```
+
+Returns metrics in Prometheus exposition format suitable for scraping.
+
+## Troubleshooting
+
+<Steps>
+  <Step title="Enable Debug Logging">
+    Set `VK_FILE_LOGGING=true` in your .env file and restart.
+    Logs appear in dev_assets/logs/ in JSON format with daily rotation.
+  </Step>
+  <Step title="Check Diagnostics">
+    Access `/api/diagnostics` to see current metrics.
+    Look for high `busy_errors` or `queries_slow` counts.
+  </Step>
+  <Step title="Monitor WAL Size">
+    WAL warnings appear at 50MB. If WAL grows >100MB frequently,
+    reduce concurrent tasks or the WAL is checkpointing automatically.
+  </Step>
+  <Step title="Review Connection Pool">
+    If `pool_stats.acquired` is consistently near `pool_stats.size`,
+    consider reducing `VK_SQLITE_MAX_CONNECTIONS` or running fewer concurrent tasks.
+  </Step>
+</Steps>
+
+### Key Metrics to Watch
+
+| Metric | Warning Sign | Action |
+|--------|--------------|--------|
+| `busy_errors` | >10 per hour | Reduce concurrent tasks |
+| `queries_slow` | >5% of total | Check slow query patterns |
+| `pool_stats.acquired` | Near max | Reduce pool size or concurrent tasks |
+| `wal_size_bytes` | >100MB sustained | Check if auto-checkpoint is working |
+
+## Backup & Recovery
+
+### Automatic Backups
+- Backups are created automatically before database migrations
+- Stored in `dev_assets/backups/`
+- Last 5 backups retained automatically
+
+### Manual Backup
+
+Create a backup via the API:
+```bash
+# Create backup
+curl -X POST http://localhost:3001/api/backups
+
+# List backups
+curl http://localhost:3001/api/backups
+```
+
+### Recovery from Backup
+
+<Steps>
+  <Step title="Stop Vibe Kanban">
+    Ensure the application is not running.
+  </Step>
+  <Step title="Copy Backup">
+    Copy your backup file to `dev_assets/db.sqlite`
+  </Step>
+  <Step title="Remove WAL Files">
+    Delete `dev_assets/db.sqlite-wal` and `dev_assets/db.sqlite-shm` if present.
+  </Step>
+  <Step title="Restart">
+    Start Vibe Kanban. The restored database will be used.
+  </Step>
+</Steps>
+
+## Technical Details
+
+### Why SQLite?
+- Zero configuration required
+- No separate database server to manage
+- Excellent performance for local workloads
+- Reliable with proper configuration
+
+### WAL Mode Benefits
+- Concurrent readers don't block writers
+- Writers don't block readers
+- Better performance than rollback journal
+- Atomic transactions preserved
+
+### Connection Pool Design
+The pool is intentionally limited because:
+- SQLite allows only one writer at a time
+- More connections means more lock contention
+- 10 connections balances concurrency with efficiency
