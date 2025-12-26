@@ -101,6 +101,16 @@ impl Approvals {
         let req_id = request.id.clone();
         let is_question = request.questions.is_some();
 
+        // Debug logging for AskUserQuestion flow
+        tracing::info!(
+            req_id = %req_id,
+            tool_name = %request.tool_name,
+            tool_call_id = %request.tool_call_id,
+            has_questions = %is_question,
+            questions_count = request.questions.as_ref().map(|q| q.len()).unwrap_or(0),
+            "create_with_waiter: Processing approval request"
+        );
+
         if let Some(store) = self.msg_store_by_id(&request.execution_process_id).await {
             // Retry finding the entry with backoff (handles race condition where
             // the log processor hasn't created the entry yet)
@@ -125,8 +135,18 @@ impl Approvals {
             }
 
             if let Some((idx, matching_tool)) = matching_tool {
+                tracing::info!(
+                    req_id = %req_id,
+                    entry_index = idx,
+                    "create_with_waiter: Found matching tool entry"
+                );
+
                 // Use PendingQuestion status for AskUserQuestion, PendingApproval otherwise
                 let tool_status = if let Some(ref questions) = request.questions {
+                    tracing::info!(
+                        req_id = %req_id,
+                        "create_with_waiter: Using PendingQuestion status (has questions)"
+                    );
                     ToolStatus::PendingQuestion {
                         question_id: req_id.clone(),
                         questions: questions.clone(),
@@ -134,6 +154,10 @@ impl Approvals {
                         timeout_at: request.timeout_at,
                     }
                 } else {
+                    tracing::info!(
+                        req_id = %req_id,
+                        "create_with_waiter: Using PendingApproval status (no questions)"
+                    );
                     ToolStatus::PendingApproval {
                         approval_id: req_id.clone(),
                         requested_at: request.created_at,
