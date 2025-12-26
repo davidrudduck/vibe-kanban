@@ -230,6 +230,10 @@ fn generate_types_content() -> String {
         server::routes::terminal::TerminalMessage::decl(),
         // Worktree path type
         server::routes::task_attempts::WorktreePathResponse::decl(),
+        // Stash types
+        server::routes::task_attempts::DirtyFilesResponse::decl(),
+        server::routes::task_attempts::StashChangesRequest::decl(),
+        server::routes::task_attempts::StashChangesResponse::decl(),
     ];
 
     let body = decls

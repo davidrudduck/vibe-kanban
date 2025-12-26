@@ -590,6 +590,91 @@ impl GitCli {
         }
         Ok(files)
     }
+
+    /// Stash changes in the working tree with an optional message.
+    /// Uses `--include-untracked` to also stash untracked files.
+    /// Returns the stash reference (e.g., "stash@{0}").
+    pub fn stash_push(
+        &self,
+        worktree_path: &Path,
+        message: Option<&str>,
+    ) -> Result<String, GitCliError> {
+        let mut args: Vec<&str> = vec!["stash", "push", "--include-untracked"];
+        if let Some(msg) = message {
+            args.push("-m");
+            args.push(msg);
+        }
+        self.git(worktree_path, args)?;
+        // Return the ref to the newly created stash (always stash@{0} after push)
+        Ok("stash@{0}".to_string())
+    }
+
+    /// Pop the most recent stash entry, restoring changes to the working tree.
+    pub fn stash_pop(&self, worktree_path: &Path) -> Result<(), GitCliError> {
+        self.git(worktree_path, ["stash", "pop"])?;
+        Ok(())
+    }
+
+    /// List stash entries, returning the number of stashes.
+    pub fn stash_list(&self, worktree_path: &Path) -> Result<Vec<String>, GitCliError> {
+        let out = self.git(worktree_path, ["stash", "list"])?;
+        let entries: Vec<String> = out.lines().map(|l| l.to_string()).collect();
+        Ok(entries)
+    }
+
+    /// Get list of modified/dirty files in the working tree.
+    /// Returns file paths that have uncommitted changes (both staged and unstaged).
+    pub fn get_dirty_files(&self, worktree_path: &Path) -> Result<Vec<String>, GitCliError> {
+        let out = self.git(worktree_path, ["status", "--porcelain"])?;
+        let mut files = Vec::new();
+        for line in out.lines() {
+            let l = line.trim_end();
+            if l.is_empty() {
+                continue;
+            }
+            // Skip untracked files (marked with ??)
+            if l.starts_with("??") {
+                continue;
+            }
+            // Extract the file path (after the two-letter status and space)
+            if l.len() > 3 {
+                let path = &l[3..];
+                // Handle renames (format: "R  old -> new")
+                if let Some(arrow_pos) = path.find(" -> ") {
+                    files.push(path[arrow_pos + 4..].to_string());
+                } else {
+                    files.push(path.to_string());
+                }
+            }
+        }
+        Ok(files)
+    }
+
+    /// Clone a repository from a URL to a destination path.
+    /// Uses native git authentication (SSH agent, credential helpers, etc.)
+    pub fn clone(&self, url: &str, dest_path: &Path) -> Result<(), GitCliError> {
+        self.ensure_available()?;
+        let git = resolve_executable_path_blocking("git").ok_or(GitCliError::NotAvailable)?;
+
+        let envs = [(OsString::from("GIT_TERMINAL_PROMPT"), OsString::from("0"))];
+
+        let mut cmd = Command::new(&git);
+        cmd.arg("clone")
+            .arg(url)
+            .arg(dest_path)
+            .env(&envs[0].0, &envs[0].1);
+
+        let out = cmd
+            .output()
+            .map_err(|e| GitCliError::CommandFailed(e.to_string()))?;
+
+        if !out.status.success() {
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            return Err(self.classify_cli_error(stderr));
+        }
+
+        Ok(())
+    }
 }
 
 // Private methods

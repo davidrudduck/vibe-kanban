@@ -16,6 +16,7 @@ import {
   Edit,
   ExternalLink,
   FolderOpen,
+  Github,
   MoreHorizontal,
   Terminal,
   Trash2,
@@ -25,8 +26,10 @@ import { useEffect, useRef } from 'react';
 import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
 import { useNavigateWithSearch } from '@/hooks';
 import { projectsApi } from '@/lib/api';
+import { GitHubSettingsDialog } from '@/components/dialogs/projects/GitHubSettingsDialog';
 import { TerminalDialog } from '@/components/dialogs/terminal/TerminalDialog';
 import { useTranslation } from 'react-i18next';
+import { GitHubBadges } from './GitHubBadges';
 
 type Props = {
   project: Project;
@@ -91,6 +94,22 @@ function ProjectCard({
     }
   };
 
+  const handleGitHubSettings = async () => {
+    try {
+      const result = await GitHubSettingsDialog.show({
+        project,
+        onProjectUpdate: () => {
+          fetchProjects();
+        },
+      });
+      if (result.action === 'saved') {
+        fetchProjects();
+      }
+    } catch (error) {
+      console.error('Failed to open GitHub settings:', error);
+    }
+  };
+
   return (
     <Card
       className={`hover:shadow-md transition-shadow cursor-pointer focus:ring-2 focus:ring-primary outline-none border`}
@@ -100,8 +119,15 @@ function ProjectCard({
     >
       <CardHeader>
         <div className="flex items-start justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <CardTitle className="text-lg">{project.name}</CardTitle>
+            {project.github_enabled && (
+              <GitHubBadges
+                project={project}
+                compact
+                onClick={handleGitHubSettings}
+              />
+            )}
           </div>
           <div className="flex items-center gap-2">
             <DropdownMenu>
@@ -137,6 +163,15 @@ function ProjectCard({
                 >
                   <Terminal className="mr-2 h-4 w-4" />
                   {t('openTerminal')}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleGitHubSettings();
+                  }}
+                >
+                  <Github className="mr-2 h-4 w-4" />
+                  {t('github.settings')}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={(e) => {

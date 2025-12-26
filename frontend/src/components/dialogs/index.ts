@@ -28,9 +28,10 @@ export {
   type ProjectEditorSelectionDialogProps,
 } from './projects/ProjectEditorSelectionDialog';
 export {
-  LinkProjectDialog,
-  type LinkProjectResult,
-} from './projects/LinkProjectDialog';
+  GitHubSettingsDialog,
+  type GitHubSettingsDialogProps,
+  type GitHubSettingsResult,
+} from './projects/GitHubSettingsDialog';
 
 // Task-related dialogs
 export {
@@ -88,6 +89,14 @@ export {
   type EditBranchNameDialogResult,
 } from './tasks/EditBranchNameDialog';
 export { CreateAttemptDialog } from './tasks/CreateAttemptDialog';
+
+// Git dialogs
+export { ForcePushDialog } from './git/ForcePushDialog';
+export {
+  StashDialog,
+  type StashDialogProps,
+  type StashDialogResult,
+} from './git/StashDialog';
 
 // Auth dialogs
 export { GhCliSetupDialog } from './auth/GhCliSetupDialog';

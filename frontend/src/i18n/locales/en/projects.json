@@ -87,5 +87,82 @@
     "nameDesc": "Z → A",
     "recentActivity": "Recent Activity",
     "oldestActivity": "Oldest Activity"
+  },
+  "createDialog": {
+    "title": "Create Project",
+    "description": "Choose your repository source",
+    "backToOptions": "Back to options",
+    "fromGitRepo": {
+      "title": "From Git Repository",
+      "description": "Use an existing repository as your project base"
+    },
+    "cloneFromUrl": {
+      "title": "Clone from URL",
+      "description": "Clone a repository from GitHub, GitLab, or any Git URL",
+      "repositoryUrl": "Repository URL",
+      "repositoryUrlPlaceholder": "https://github.com/user/repo.git",
+      "repositoryUrlHelp": "Supports GitHub, GitLab, Bitbucket, and SSH URLs",
+      "cloneToDirectory": "Clone to Directory",
+      "cloneToDirectoryPlaceholder": "Current Directory",
+      "cloneToDirectoryHelp": "Leave empty to clone to your current working directory",
+      "projectName": "Project Name",
+      "projectNamePlaceholder": "my-project",
+      "projectNameHelp": "Auto-filled from the repository URL",
+      "cloning": "Cloning Repository...",
+      "cloningDescription": "This may take a moment depending on the repository size",
+      "submitButton": "Clone & Create Project"
+    },
+    "createBlank": {
+      "title": "Create Blank Project",
+      "description": "Start a new project from scratch",
+      "projectName": "Project Name",
+      "projectNamePlaceholder": "My Awesome Project",
+      "projectNameHelp": "The folder name will be auto-generated from the project name",
+      "parentDirectory": "Parent Directory",
+      "parentDirectoryPlaceholder": "Current Directory",
+      "parentDirectoryHelp": "Leave empty to use your current working directory, or specify a custom path.",
+      "submitButton": "Create Project",
+      "creating": "Creating..."
+    },
+    "selectRepo": {
+      "searchAllRepos": "Search all repos",
+      "searchAllReposDescription": "Browse and select any repository on your system",
+      "loadingRepos": "Loading repositories...",
+      "showMore": "Show {{count}} more repositories",
+      "showLess": "Show less"
+    }
+  },
+  "github": {
+    "title": "GitHub Integration",
+    "description": "Enable to display issue and PR counts for this project",
+    "enabled": "Show GitHub Counts",
+    "enabledDescription": "Display issue and PR counts in the project header",
+    "owner": "Repository Owner",
+    "ownerPlaceholder": "e.g., anthropics",
+    "repo": "Repository Name",
+    "repoPlaceholder": "e.g., claude-code",
+    "repoFormat": "{{owner}}/{{repo}}",
+    "lastSynced": "Last synced {{time}}",
+    "neverSynced": "Never synced",
+    "syncing": "Syncing...",
+    "syncNow": "Sync Now",
+    "openIssues": "Issues",
+    "openPRs": "PRs",
+    "openIssuesCount_one": "{{count}} Issue",
+    "openIssuesCount_other": "{{count}} Issues",
+    "openPRsCount_one": "{{count}} PR",
+    "openPRsCount_other": "{{count}} PRs",
+    "settings": "GitHub Settings",
+    "errors": {
+      "ownerRequired": "Repository owner is required",
+      "repoRequired": "Repository name is required",
+      "updateFailed": "Failed to update GitHub settings",
+      "syncFailed": "Failed to sync GitHub counts"
+    },
+    "success": {
+      "enabled": "GitHub integration enabled",
+      "disabled": "GitHub integration disabled",
+      "synced": "GitHub counts synced"
+    }
   }
 }

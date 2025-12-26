@@ -11,7 +11,8 @@ use db::{
 use sqlx::error::Error as SqlxError;
 use thiserror::Error;
 use tokio::time::interval;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
+use uuid::Uuid;
 
 use crate::services::{
     github::{GitHubRepoInfo, GitHubService, GitHubServiceError},
@@ -60,10 +61,142 @@ impl PrMonitorService {
 
         loop {
             interval.tick().await;
+
+            // First, discover any new PRs that agents created but we haven't tracked
+            if let Err(e) = self.discover_new_prs().await {
+                error!("Error discovering new PRs: {}", e);
+            }
+
+            // Then, check status of all tracked open PRs
             if let Err(e) = self.check_all_open_prs().await {
                 error!("Error checking open PRs: {}", e);
             }
         }
+    }
+
+    /// Discover PRs that were created by agents but not yet tracked in the database.
+    /// This scans active task attempts (tasks not in done/cancelled state) that don't
+    /// have a PR merge record, queries GitHub to see if a PR exists for their branch,
+    /// and creates merge records for any discovered PRs.
+    async fn discover_new_prs(&self) -> Result<(), PrMonitorError> {
+        // Get attempts that might have untracked PRs
+        let attempts_without_pr = TaskAttempt::find_active_without_pr(&self.db.pool).await?;
+
+        if attempts_without_pr.is_empty() {
+            debug!("No attempts to check for untracked PRs");
+            return Ok(());
+        }
+
+        debug!(
+            "Checking {} attempts for untracked PRs",
+            attempts_without_pr.len()
+        );
+
+        for (attempt_id, branch, github_owner, github_repo) in attempts_without_pr {
+            if let Err(e) = self
+                .discover_pr_for_attempt(attempt_id, &branch, &github_owner, &github_repo)
+                .await
+            {
+                // Log but continue - one failure shouldn't stop other discoveries
+                warn!(
+                    attempt_id = %attempt_id,
+                    branch = %branch,
+                    "Failed to discover PR: {}",
+                    e
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Check if a PR exists for a specific attempt's branch and create a merge record if found.
+    async fn discover_pr_for_attempt(
+        &self,
+        attempt_id: Uuid,
+        branch: &str,
+        github_owner: &str,
+        github_repo: &str,
+    ) -> Result<(), PrMonitorError> {
+        let github_service = GitHubService::new()?;
+        let repo_info = GitHubRepoInfo {
+            owner: github_owner.to_string(),
+            repo_name: github_repo.to_string(),
+        };
+
+        // Query GitHub for PRs on this branch
+        let prs = github_service
+            .list_all_prs_for_branch(&repo_info, branch)
+            .await?;
+
+        if prs.is_empty() {
+            debug!(
+                attempt_id = %attempt_id,
+                branch = %branch,
+                "No PR found for branch"
+            );
+            return Ok(());
+        }
+
+        // Use the most recent PR (first in the list since they're ordered by creation date desc)
+        let pr = &prs[0];
+
+        info!(
+            attempt_id = %attempt_id,
+            branch = %branch,
+            pr_number = pr.number,
+            "Discovered untracked PR, creating merge record"
+        );
+
+        // Need to get the target branch. For discovered PRs, we'll fetch it from the attempt.
+        let attempt = TaskAttempt::find_by_id(&self.db.pool, attempt_id)
+            .await?
+            .ok_or_else(|| PrMonitorError::Sqlx(SqlxError::RowNotFound))?;
+
+        // Create a merge record for this PR
+        Merge::create_pr(
+            &self.db.pool,
+            attempt_id,
+            &attempt.target_branch,
+            pr.number,
+            &pr.url,
+        )
+        .await?;
+
+        // If the PR is already merged, update the status immediately
+        if matches!(pr.status, MergeStatus::Merged) {
+            // Get the merge record we just created to update it
+            if let Some(Merge::Pr(pr_merge)) =
+                Merge::find_latest_by_task_attempt_id(&self.db.pool, attempt_id).await?
+            {
+                Merge::update_status(
+                    &self.db.pool,
+                    pr_merge.id,
+                    pr.status.clone(),
+                    pr.merge_commit_sha.clone(),
+                )
+                .await?;
+
+                // Also update the task to done if it was merged
+                info!(
+                    attempt_id = %attempt_id,
+                    pr_number = pr.number,
+                    "Discovered PR was already merged, updating task to done"
+                );
+                Task::update_status(&self.db.pool, attempt.task_id, TaskStatus::Done).await?;
+
+                if let Some(publisher) = &self.publisher
+                    && let Err(err) = publisher.update_shared_task_by_id(attempt.task_id).await
+                {
+                    warn!(
+                        ?err,
+                        "Failed to propagate shared task update for {}", attempt.task_id
+                    );
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Check all open PRs for updates with the provided GitHub token

@@ -45,6 +45,20 @@ pub struct Project {
     pub source_node_status: Option<String>,
     #[ts(type = "Date | null")]
     pub remote_last_synced_at: Option<DateTime<Utc>>,
+    // GitHub integration fields
+    /// Whether GitHub integration is enabled for this project
+    pub github_enabled: bool,
+    /// GitHub repository owner (e.g., "anthropics" from "anthropics/claude-code")
+    pub github_owner: Option<String>,
+    /// GitHub repository name (e.g., "claude-code" from "anthropics/claude-code")
+    pub github_repo: Option<String>,
+    /// Count of open issues (cached from GitHub API)
+    pub github_open_issues: i32,
+    /// Count of open pull requests (cached from GitHub API)
+    pub github_open_prs: i32,
+    /// Timestamp of last successful sync with GitHub API
+    #[ts(type = "Date | null")]
+    pub github_last_synced_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Deserialize, TS)]
@@ -52,6 +66,8 @@ pub struct CreateProject {
     pub name: String,
     pub git_repo_path: String,
     pub use_existing_repo: bool,
+    /// URL to clone repository from (mutually exclusive with use_existing_repo=true)
+    pub clone_url: Option<String>,
     pub setup_script: Option<String>,
     pub dev_script: Option<String>,
     pub cleanup_script: Option<String>,
@@ -144,7 +160,13 @@ impl Project {
                       source_node_name,
                       source_node_public_url,
                       source_node_status,
-                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>"
+                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
+                      github_enabled as "github_enabled!: bool",
+                      github_owner,
+                      github_repo,
+                      github_open_issues as "github_open_issues!: i32",
+                      github_open_prs as "github_open_prs!: i32",
+                      github_last_synced_at as "github_last_synced_at: DateTime<Utc>"
                FROM projects
                ORDER BY created_at DESC"#
         )
@@ -164,7 +186,13 @@ impl Project {
                    p.is_remote as "is_remote!: bool",
                    p.source_node_id as "source_node_id: Uuid",
                    p.source_node_name, p.source_node_public_url, p.source_node_status,
-                   p.remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>"
+                   p.remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
+                   p.github_enabled as "github_enabled!: bool",
+                   p.github_owner,
+                   p.github_repo,
+                   p.github_open_issues as "github_open_issues!: i32",
+                   p.github_open_prs as "github_open_prs!: i32",
+                   p.github_last_synced_at as "github_last_synced_at: DateTime<Utc>"
             FROM projects p
             WHERE p.id IN (
                 SELECT DISTINCT t.project_id
@@ -199,7 +227,13 @@ impl Project {
                       source_node_name,
                       source_node_public_url,
                       source_node_status,
-                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>"
+                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
+                      github_enabled as "github_enabled!: bool",
+                      github_owner,
+                      github_repo,
+                      github_open_issues as "github_open_issues!: i32",
+                      github_open_prs as "github_open_prs!: i32",
+                      github_last_synced_at as "github_last_synced_at: DateTime<Utc>"
                FROM projects
                WHERE id = $1"#,
             id
@@ -230,7 +264,13 @@ impl Project {
                       source_node_name,
                       source_node_public_url,
                       source_node_status,
-                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>"
+                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
+                      github_enabled as "github_enabled!: bool",
+                      github_owner,
+                      github_repo,
+                      github_open_issues as "github_open_issues!: i32",
+                      github_open_prs as "github_open_prs!: i32",
+                      github_last_synced_at as "github_last_synced_at: DateTime<Utc>"
                FROM projects
                WHERE remote_project_id = $1
                LIMIT 1"#,
@@ -262,7 +302,13 @@ impl Project {
                       source_node_name,
                       source_node_public_url,
                       source_node_status,
-                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>"
+                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
+                      github_enabled as "github_enabled!: bool",
+                      github_owner,
+                      github_repo,
+                      github_open_issues as "github_open_issues!: i32",
+                      github_open_prs as "github_open_prs!: i32",
+                      github_last_synced_at as "github_last_synced_at: DateTime<Utc>"
                FROM projects
                WHERE git_repo_path = $1"#,
             git_repo_path
@@ -294,7 +340,13 @@ impl Project {
                       source_node_name,
                       source_node_public_url,
                       source_node_status,
-                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>"
+                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
+                      github_enabled as "github_enabled!: bool",
+                      github_owner,
+                      github_repo,
+                      github_open_issues as "github_open_issues!: i32",
+                      github_open_prs as "github_open_prs!: i32",
+                      github_last_synced_at as "github_last_synced_at: DateTime<Utc>"
                FROM projects
                WHERE git_repo_path = $1 AND id != $2"#,
             git_repo_path,
@@ -338,7 +390,13 @@ impl Project {
                           source_node_name,
                           source_node_public_url,
                           source_node_status,
-                          remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>""#,
+                          remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
+                          github_enabled as "github_enabled!: bool",
+                          github_owner,
+                          github_repo,
+                          github_open_issues as "github_open_issues!: i32",
+                          github_open_prs as "github_open_prs!: i32",
+                          github_last_synced_at as "github_last_synced_at: DateTime<Utc>""#,
             project_id,
             data.name,
             data.git_repo_path,
@@ -390,7 +448,13 @@ impl Project {
                          source_node_name,
                          source_node_public_url,
                          source_node_status,
-                         remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>""#,
+                         remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
+                         github_enabled as "github_enabled!: bool",
+                         github_owner,
+                         github_repo,
+                         github_open_issues as "github_open_issues!: i32",
+                         github_open_prs as "github_open_prs!: i32",
+                         github_last_synced_at as "github_last_synced_at: DateTime<Utc>""#,
             id,
             name,
             git_repo_path,
@@ -486,7 +550,13 @@ impl Project {
                       source_node_name,
                       source_node_public_url,
                       source_node_status,
-                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>"
+                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
+                      github_enabled as "github_enabled!: bool",
+                      github_owner,
+                      github_repo,
+                      github_open_issues as "github_open_issues!: i32",
+                      github_open_prs as "github_open_prs!: i32",
+                      github_last_synced_at as "github_last_synced_at: DateTime<Utc>"
                FROM projects
                WHERE is_remote = 1
                ORDER BY name"#
@@ -515,7 +585,13 @@ impl Project {
                       source_node_name,
                       source_node_public_url,
                       source_node_status,
-                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>"
+                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
+                      github_enabled as "github_enabled!: bool",
+                      github_owner,
+                      github_repo,
+                      github_open_issues as "github_open_issues!: i32",
+                      github_open_prs as "github_open_prs!: i32",
+                      github_last_synced_at as "github_last_synced_at: DateTime<Utc>"
                FROM projects
                WHERE is_remote = 0
                ORDER BY created_at DESC"#
@@ -579,7 +655,13 @@ impl Project {
                           source_node_name,
                           source_node_public_url,
                           source_node_status,
-                          remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>""#,
+                          remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
+                          github_enabled as "github_enabled!: bool",
+                          github_owner,
+                          github_repo,
+                          github_open_issues as "github_open_issues!: i32",
+                          github_open_prs as "github_open_prs!: i32",
+                          github_last_synced_at as "github_last_synced_at: DateTime<Utc>""#,
             local_id,
             name,
             git_repo_path,
@@ -688,6 +770,12 @@ impl Project {
                 p.source_node_public_url,
                 p.source_node_status,
                 p.remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
+                p.github_enabled as "github_enabled!: bool",
+                p.github_owner,
+                p.github_repo,
+                p.github_open_issues as "github_open_issues!: i32",
+                p.github_open_prs as "github_open_prs!: i32",
+                p.github_last_synced_at as "github_last_synced_at: DateTime<Utc>",
                 MAX(ta.updated_at) as "last_attempt_at: DateTime<Utc>"
             FROM projects p
             LEFT JOIN tasks t ON t.project_id = p.id
@@ -721,11 +809,100 @@ impl Project {
                     source_node_public_url: row.source_node_public_url,
                     source_node_status: row.source_node_status,
                     remote_last_synced_at: row.remote_last_synced_at,
+                    github_enabled: row.github_enabled,
+                    github_owner: row.github_owner,
+                    github_repo: row.github_repo,
+                    github_open_issues: row.github_open_issues,
+                    github_open_prs: row.github_open_prs,
+                    github_last_synced_at: row.github_last_synced_at,
                 };
                 (project, row.last_attempt_at)
             })
             .collect();
 
         Ok(results)
+    }
+
+    /// Find all projects with GitHub integration enabled
+    pub async fn find_github_enabled(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            Project,
+            r#"SELECT id as "id!: Uuid",
+                      name,
+                      git_repo_path,
+                      setup_script,
+                      dev_script,
+                      cleanup_script,
+                      copy_files,
+                      parallel_setup_script as "parallel_setup_script!: bool",
+                      remote_project_id as "remote_project_id: Uuid",
+                      created_at as "created_at!: DateTime<Utc>",
+                      updated_at as "updated_at!: DateTime<Utc>",
+                      is_remote as "is_remote!: bool",
+                      source_node_id as "source_node_id: Uuid",
+                      source_node_name,
+                      source_node_public_url,
+                      source_node_status,
+                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
+                      github_enabled as "github_enabled!: bool",
+                      github_owner,
+                      github_repo,
+                      github_open_issues as "github_open_issues!: i32",
+                      github_open_prs as "github_open_prs!: i32",
+                      github_last_synced_at as "github_last_synced_at: DateTime<Utc>"
+               FROM projects
+               WHERE github_enabled = 1 AND is_remote = 0
+               ORDER BY name"#
+        )
+        .fetch_all(pool)
+        .await
+    }
+
+    /// Update GitHub counts for a project
+    pub async fn update_github_counts(
+        pool: &SqlitePool,
+        id: Uuid,
+        open_issues: i32,
+        open_prs: i32,
+    ) -> Result<(), sqlx::Error> {
+        let now = Utc::now();
+        sqlx::query!(
+            r#"UPDATE projects
+               SET github_open_issues = $2,
+                   github_open_prs = $3,
+                   github_last_synced_at = $4
+               WHERE id = $1"#,
+            id,
+            open_issues,
+            open_prs,
+            now
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Enable or disable GitHub integration for a project
+    pub async fn set_github_enabled(
+        pool: &SqlitePool,
+        id: Uuid,
+        enabled: bool,
+        owner: Option<String>,
+        repo: Option<String>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"UPDATE projects
+               SET github_enabled = $2,
+                   github_owner = $3,
+                   github_repo = $4
+               WHERE id = $1"#,
+            id,
+            enabled,
+            owner,
+            repo
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
     }
 }

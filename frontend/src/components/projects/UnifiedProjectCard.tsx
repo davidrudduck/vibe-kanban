@@ -18,9 +18,11 @@ import {
   Edit,
   ExternalLink,
   FolderOpen,
+  Github,
   Link2,
   MapPin,
   MoreHorizontal,
+  Terminal,
   Trash2,
 } from 'lucide-react';
 import type { MergedProject, CachedNodeStatus, Project } from 'shared/types';
@@ -28,8 +30,11 @@ import { useEffect, useRef } from 'react';
 import { useNavigateWithSearch } from '@/hooks';
 import { projectsApi } from '@/lib/api';
 import { LinkToLocalFolderDialog } from '@/components/dialogs/projects/LinkToLocalFolderDialog';
+import { GitHubSettingsDialog } from '@/components/dialogs/projects/GitHubSettingsDialog';
+import { TerminalDialog } from '@/components/dialogs/terminal/TerminalDialog';
 import { useTranslation } from 'react-i18next';
 import { ProjectEditorSelectionDialog } from '@/components/dialogs/projects/ProjectEditorSelectionDialog';
+import { GitHubBadges } from './GitHubBadges';
 
 type Props = {
   project: MergedProject;
@@ -122,6 +127,43 @@ function UnifiedProjectCard({ project, isFocused, onRefresh, onEdit }: Props) {
     navigate(`/projects/${project.id}/tasks`);
   };
 
+  const handleOpenTerminal = async () => {
+    if (!project.has_local || !project.git_repo_path) return;
+    try {
+      await TerminalDialog.show({
+        workingDir: project.git_repo_path,
+        title: `Terminal - ${project.name}`,
+      });
+    } catch (error) {
+      console.error('Failed to open terminal:', error);
+    }
+  };
+
+  const handleGitHubSettings = async () => {
+    if (!project.has_local || !project.local_project_id) return;
+    try {
+      const result = await GitHubSettingsDialog.show({
+        project: {
+          id: project.local_project_id,
+          github_enabled: project.github_enabled,
+          github_owner: project.github_owner,
+          github_repo: project.github_repo,
+          github_open_issues: project.github_open_issues,
+          github_open_prs: project.github_open_prs,
+          github_last_synced_at: project.github_last_synced_at,
+        },
+        onProjectUpdate: () => {
+          onRefresh();
+        },
+      });
+      if (result.action === 'saved') {
+        onRefresh();
+      }
+    } catch (error) {
+      console.error('Failed to open GitHub settings:', error);
+    }
+  };
+
   // Build location badges
   const locations: Array<{ name: string; status?: CachedNodeStatus }> = [];
   if (project.has_local) {
@@ -145,6 +187,17 @@ function UnifiedProjectCard({ project, isFocused, onRefresh, onEdit }: Props) {
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2 flex-wrap">
             <CardTitle className="text-lg">{project.name}</CardTitle>
+            {project.github_enabled && project.has_local && (
+              <GitHubBadges
+                project={{
+                  github_enabled: project.github_enabled,
+                  github_open_issues: project.github_open_issues,
+                  github_open_prs: project.github_open_prs,
+                }}
+                compact
+                onClick={handleGitHubSettings}
+              />
+            )}
           </div>
           <div className="flex items-center gap-2">
             <DropdownMenu>
@@ -173,6 +226,30 @@ function UnifiedProjectCard({ project, isFocused, onRefresh, onEdit }: Props) {
                   >
                     <FolderOpen className="mr-2 h-4 w-4" />
                     {t('openInIDE')}
+                  </DropdownMenuItem>
+                )}
+
+                {project.has_local && (
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenTerminal();
+                    }}
+                  >
+                    <Terminal className="mr-2 h-4 w-4" />
+                    {t('openTerminal')}
+                  </DropdownMenuItem>
+                )}
+
+                {project.has_local && (
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleGitHubSettings();
+                    }}
+                  >
+                    <Github className="mr-2 h-4 w-4" />
+                    {t('github.settings')}
                   </DropdownMenuItem>
                 )}
 

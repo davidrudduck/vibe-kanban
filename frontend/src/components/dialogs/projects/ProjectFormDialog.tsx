@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -21,13 +22,17 @@ export interface ProjectFormDialogProps {
 export type ProjectFormDialogResult = 'saved' | 'canceled';
 
 const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(() => {
+  const { t } = useTranslation('projects');
   const modal = useModal();
   const [name, setName] = useState('');
   const [gitRepoPath, setGitRepoPath] = useState('');
   const [error, setError] = useState('');
-  const [repoMode, setRepoMode] = useState<'existing' | 'new'>('existing');
+  const [repoMode, setRepoMode] = useState<'existing' | 'new' | 'clone'>(
+    'existing'
+  );
   const [parentPath, setParentPath] = useState('');
   const [folderName, setFolderName] = useState('');
+  const [cloneUrl, setCloneUrl] = useState('');
 
   const { createProject } = useProjectMutations({
     onCreateSuccess: () => {
@@ -57,6 +62,7 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(() => {
       name: suggestedName,
       git_repo_path: path,
       use_existing_repo: true,
+      clone_url: null,
       setup_script: null,
       dev_script: null,
       cleanup_script: null,
@@ -69,6 +75,31 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(() => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (repoMode === 'clone') {
+      // Handle clone mode
+      const effectiveParentPath = parentPath.trim();
+      const cleanFolderName = folderName.trim();
+      const finalGitRepoPath = effectiveParentPath
+        ? `${effectiveParentPath}/${cleanFolderName}`.replace(/\/+/g, '/')
+        : cleanFolderName;
+
+      const finalName = name.trim() || cleanFolderName;
+
+      const createData: CreateProject = {
+        name: finalName,
+        git_repo_path: finalGitRepoPath,
+        use_existing_repo: false,
+        clone_url: cloneUrl.trim(),
+        setup_script: null,
+        dev_script: null,
+        cleanup_script: null,
+        copy_files: null,
+      };
+
+      createProject.mutate(createData);
+      return;
+    }
 
     let finalGitRepoPath = gitRepoPath;
     if (repoMode === 'new') {
@@ -87,6 +118,7 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(() => {
       name: finalName,
       git_repo_path: finalGitRepoPath,
       use_existing_repo: repoMode === 'existing',
+      clone_url: null,
       setup_script: null,
       dev_script: null,
       cleanup_script: null,
@@ -102,6 +134,7 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(() => {
     setGitRepoPath('');
     setParentPath('');
     setFolderName('');
+    setCloneUrl('');
     setError('');
 
     modal.resolve('canceled' as ProjectFormDialogResult);
@@ -118,8 +151,10 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(() => {
     <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
       <DialogContent className="overflow-x-hidden">
         <DialogHeader>
-          <DialogTitle>Create Project</DialogTitle>
-          <DialogDescription>Choose your repository source</DialogDescription>
+          <DialogTitle>{t('createDialog.title')}</DialogTitle>
+          <DialogDescription>
+            {t('createDialog.description')}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="mx-auto w-full max-w-2xl overflow-x-hidden px-1">
@@ -147,6 +182,9 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(() => {
               setError={setError}
               projectId={undefined}
               onCreateProject={handleDirectCreate}
+              cloneUrl={cloneUrl}
+              setCloneUrl={setCloneUrl}
+              isCloning={createProject.isPending && repoMode === 'clone'}
             />
             {repoMode === 'new' && (
               <Button
@@ -154,7 +192,18 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(() => {
                 disabled={createProject.isPending || !folderName.trim()}
                 className="w-full"
               >
-                {createProject.isPending ? 'Creating...' : 'Create Project'}
+                {createProject.isPending
+                  ? t('createDialog.createBlank.creating')
+                  : t('createDialog.createBlank.submitButton')}
+              </Button>
+            )}
+            {repoMode === 'clone' && !createProject.isPending && (
+              <Button
+                type="submit"
+                disabled={!cloneUrl.trim() || !name.trim()}
+                className="w-full"
+              >
+                {t('createDialog.cloneFromUrl.submitButton')}
               </Button>
             )}
           </form>

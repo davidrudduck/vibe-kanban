@@ -1737,6 +1737,141 @@ pub async fn abort_conflicts_task_attempt(
     Ok(ResponseJson(ApiResponse::success(())))
 }
 
+/// Response for get_dirty_files endpoint
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct DirtyFilesResponse {
+    pub files: Vec<String>,
+}
+
+/// Request for stash_changes endpoint
+#[derive(Debug, Deserialize, Serialize, TS)]
+pub struct StashChangesRequest {
+    pub message: Option<String>,
+}
+
+/// Response for stash_changes endpoint
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct StashChangesResponse {
+    pub stash_ref: String,
+}
+
+/// Get list of dirty (uncommitted) files in the task attempt worktree.
+/// This is used by the frontend to display which files would be affected by a stash.
+#[axum::debug_handler]
+pub async fn get_dirty_files(
+    Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<DirtyFilesResponse>>, ApiError> {
+    // Check if this is a remote task attempt that should be proxied
+    if let Some((node_url, node_id, shared_task_id)) =
+        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
+    {
+        tracing::debug!(
+            node_id = %node_id,
+            shared_task_id = %shared_task_id,
+            "Proxying get_dirty_files to remote node"
+        );
+
+        let path = format!(
+            "/task-attempts/by-task-id/{}/stash/dirty-files",
+            shared_task_id
+        );
+        let response: ApiResponse<DirtyFilesResponse> = deployment
+            .node_proxy_client()
+            .proxy_get(&node_url, &path, node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
+    // Resolve worktree path for this attempt
+    let worktree_path_buf = ensure_worktree_path(&deployment, &task_attempt).await?;
+    let worktree_path = worktree_path_buf.as_path();
+
+    let files = deployment.git().get_dirty_files(worktree_path)?;
+
+    Ok(ResponseJson(ApiResponse::success(DirtyFilesResponse {
+        files,
+    })))
+}
+
+/// Stash uncommitted changes in the task attempt worktree.
+/// This allows merge/rebase operations to proceed when there are uncommitted changes.
+#[axum::debug_handler]
+pub async fn stash_changes(
+    Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
+    State(deployment): State<DeploymentImpl>,
+    Json(payload): Json<StashChangesRequest>,
+) -> Result<ResponseJson<ApiResponse<StashChangesResponse>>, ApiError> {
+    // Check if this is a remote task attempt that should be proxied
+    if let Some((node_url, node_id, shared_task_id)) =
+        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
+    {
+        tracing::debug!(
+            node_id = %node_id,
+            shared_task_id = %shared_task_id,
+            "Proxying stash_changes to remote node"
+        );
+
+        let path = format!("/task-attempts/by-task-id/{}/stash", shared_task_id);
+        let response: ApiResponse<StashChangesResponse> = deployment
+            .node_proxy_client()
+            .proxy_post(&node_url, &path, &payload, node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
+    // Resolve worktree path for this attempt
+    let worktree_path_buf = ensure_worktree_path(&deployment, &task_attempt).await?;
+    let worktree_path = worktree_path_buf.as_path();
+
+    let stash_ref = deployment
+        .git()
+        .stash_changes(worktree_path, payload.message.as_deref())?;
+
+    Ok(ResponseJson(ApiResponse::success(StashChangesResponse {
+        stash_ref,
+    })))
+}
+
+/// Pop the most recent stash, restoring uncommitted changes to the worktree.
+#[axum::debug_handler]
+pub async fn pop_stash(
+    Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    // Check if this is a remote task attempt that should be proxied
+    if let Some((node_url, node_id, shared_task_id)) =
+        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
+    {
+        tracing::debug!(
+            node_id = %node_id,
+            shared_task_id = %shared_task_id,
+            "Proxying pop_stash to remote node"
+        );
+
+        let path = format!("/task-attempts/by-task-id/{}/stash/pop", shared_task_id);
+        let response: ApiResponse<()> = deployment
+            .node_proxy_client()
+            .proxy_post(&node_url, &path, &(), node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
+    // Resolve worktree path for this attempt
+    let worktree_path_buf = ensure_worktree_path(&deployment, &task_attempt).await?;
+    let worktree_path = worktree_path_buf.as_path();
+
+    deployment.git().pop_stash(worktree_path)?;
+
+    Ok(ResponseJson(ApiResponse::success(())))
+}
+
 #[axum::debug_handler]
 pub async fn start_dev_server(
     Extension(task_attempt): Extension<TaskAttempt>,
@@ -2209,6 +2344,10 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/push/force", post(force_push_task_attempt_branch))
         .route("/rebase", post(rebase_task_attempt))
         .route("/conflicts/abort", post(abort_conflicts_task_attempt))
+        // Stash endpoints for handling uncommitted changes
+        .route("/stash/dirty-files", get(get_dirty_files))
+        .route("/stash", post(stash_changes))
+        .route("/stash/pop", post(pop_stash))
         .route("/pr", post(create_github_pr))
         .route("/pr/attach", post(attach_existing_pr))
         .route("/open-editor", post(open_task_attempt_in_editor))
@@ -2247,6 +2386,10 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/merge", post(merge_task_attempt))
         .route("/rebase", post(rebase_task_attempt))
         .route("/conflicts/abort", post(abort_conflicts_task_attempt))
+        // Stash endpoints for handling uncommitted changes
+        .route("/stash/dirty-files", get(get_dirty_files))
+        .route("/stash", post(stash_changes))
+        .route("/stash/pop", post(pop_stash))
         .route("/change-target-branch", post(change_target_branch))
         .route("/rename-branch", post(rename_branch))
         .route("/pr", post(create_github_pr))

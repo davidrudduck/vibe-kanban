@@ -38,6 +38,14 @@ pub enum GitServiceError {
     WorktreeDirty(String, String),
     #[error("Rebase in progress; resolve or abort it before retrying")]
     RebaseInProgress,
+    #[error("Nothing to stash: working tree is clean")]
+    NothingToStash,
+    #[error("Stash is empty: no stashed changes to pop")]
+    StashEmpty,
+    #[error("Clone failed: {0}")]
+    CloneFailed(String),
+    #[error("Destination not empty: {0}")]
+    DestinationNotEmpty(String),
 }
 /// Service for managing Git operations in task execution workflows
 #[derive(Clone)]
@@ -1835,5 +1843,122 @@ impl GitService {
         }
 
         Ok(stats)
+    }
+
+    /// Stash uncommitted changes in the working tree.
+    ///
+    /// This function stashes all uncommitted changes (including untracked files)
+    /// to allow operations like merge or rebase to proceed without conflicts.
+    ///
+    /// Returns the stash reference (e.g., "stash@{0}") on success.
+    /// Returns `NothingToStash` error if the working tree is clean.
+    pub fn stash_changes(
+        &self,
+        worktree_path: &Path,
+        message: Option<&str>,
+    ) -> Result<String, GitServiceError> {
+        let git = GitCli::new();
+
+        // Check if there are any changes to stash
+        if !git
+            .has_changes(worktree_path)
+            .map_err(|e| GitServiceError::InvalidRepository(format!("git status failed: {e}")))?
+        {
+            return Err(GitServiceError::NothingToStash);
+        }
+
+        // Perform the stash
+        let stash_ref = git.stash_push(worktree_path, message).map_err(|e| {
+            GitServiceError::InvalidRepository(format!("git stash push failed: {e}"))
+        })?;
+
+        tracing::info!(
+            worktree_path = %worktree_path.display(),
+            stash_ref = %stash_ref,
+            "Changes stashed successfully"
+        );
+
+        Ok(stash_ref)
+    }
+
+    /// Pop the most recent stash entry, restoring changes to the working tree.
+    ///
+    /// Returns `StashEmpty` error if there are no stashed changes.
+    pub fn pop_stash(&self, worktree_path: &Path) -> Result<(), GitServiceError> {
+        let git = GitCli::new();
+
+        // Check if there are any stashes
+        let stashes = git.stash_list(worktree_path).map_err(|e| {
+            GitServiceError::InvalidRepository(format!("git stash list failed: {e}"))
+        })?;
+
+        if stashes.is_empty() {
+            return Err(GitServiceError::StashEmpty);
+        }
+
+        // Pop the stash
+        git.stash_pop(worktree_path).map_err(|e| {
+            GitServiceError::InvalidRepository(format!("git stash pop failed: {e}"))
+        })?;
+
+        tracing::info!(
+            worktree_path = %worktree_path.display(),
+            "Stash popped successfully"
+        );
+
+        Ok(())
+    }
+
+    /// Get a list of files with uncommitted changes (dirty files).
+    ///
+    /// This is useful for displaying to users which files have changes
+    /// that would be affected by operations like stash.
+    pub fn get_dirty_files(&self, worktree_path: &Path) -> Result<Vec<String>, GitServiceError> {
+        let git = GitCli::new();
+        git.get_dirty_files(worktree_path)
+            .map_err(|e| GitServiceError::InvalidRepository(format!("git status failed: {e}")))
+    }
+
+    /// Clone a repository from a URL to a destination path.
+    ///
+    /// This function uses the Git CLI with native authentication (SSH agent,
+    /// credential helpers, etc.) for reliable cross-platform support.
+    ///
+    /// # Arguments
+    /// * `clone_url` - The repository URL (https://, git@, file://, etc.)
+    /// * `dest_path` - The target directory to clone into
+    ///
+    /// # Errors
+    /// * `DestinationNotEmpty` - If the destination directory exists and is not empty
+    /// * `CloneFailed` - If the git clone command fails
+    pub fn clone_repo(&self, clone_url: &str, dest_path: &Path) -> Result<(), GitServiceError> {
+        // Check if destination exists and is not empty
+        if dest_path.exists() {
+            // Check if directory is non-empty
+            let is_empty = std::fs::read_dir(dest_path)
+                .map(|mut dir| dir.next().is_none())
+                .unwrap_or(false);
+
+            if !is_empty {
+                return Err(GitServiceError::DestinationNotEmpty(
+                    dest_path.display().to_string(),
+                ));
+            }
+        }
+
+        // Perform the clone using Git CLI
+        let git = GitCli::new();
+        git.clone(clone_url, dest_path).map_err(|e| {
+            // Map CLI errors to CloneFailed with descriptive message
+            GitServiceError::CloneFailed(e.to_string())
+        })?;
+
+        tracing::info!(
+            clone_url = %clone_url,
+            dest_path = %dest_path.display(),
+            "Repository cloned successfully"
+        );
+
+        Ok(())
     }
 }

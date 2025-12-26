@@ -34,9 +34,37 @@ export type Project = { id: string, name: string, git_repo_path: string, setup_s
 /**
  * When true, setup script runs concurrently with the coding agent
  */
-parallel_setup_script: boolean, remote_project_id: string | null, created_at: Date, updated_at: Date, is_remote: boolean, source_node_id: string | null, source_node_name: string | null, source_node_public_url: string | null, source_node_status: string | null, remote_last_synced_at: Date | null, };
+parallel_setup_script: boolean, remote_project_id: string | null, created_at: Date, updated_at: Date, is_remote: boolean, source_node_id: string | null, source_node_name: string | null, source_node_public_url: string | null, source_node_status: string | null, remote_last_synced_at: Date | null, 
+/**
+ * Whether GitHub integration is enabled for this project
+ */
+github_enabled: boolean, 
+/**
+ * GitHub repository owner (e.g., "anthropics" from "anthropics/claude-code")
+ */
+github_owner: string | null, 
+/**
+ * GitHub repository name (e.g., "claude-code" from "anthropics/claude-code")
+ */
+github_repo: string | null, 
+/**
+ * Count of open issues (cached from GitHub API)
+ */
+github_open_issues: number, 
+/**
+ * Count of open pull requests (cached from GitHub API)
+ */
+github_open_prs: number, 
+/**
+ * Timestamp of last successful sync with GitHub API
+ */
+github_last_synced_at: Date | null, };
 
-export type CreateProject = { name: string, git_repo_path: string, use_existing_repo: boolean, setup_script: string | null, dev_script: string | null, cleanup_script: string | null, copy_files: string | null, };
+export type CreateProject = { name: string, git_repo_path: string, use_existing_repo: boolean, 
+/**
+ * URL to clone repository from (mutually exclusive with use_existing_repo=true)
+ */
+clone_url: string | null, setup_script: string | null, dev_script: string | null, cleanup_script: string | null, copy_files: string | null, };
 
 export type UpdateProject = { name: string | null, git_repo_path: string | null, setup_script: string | null, dev_script: string | null, cleanup_script: string | null, copy_files: string | null, parallel_setup_script: boolean | null, };
 
@@ -120,7 +148,11 @@ nodes: Array<NodeLocation>,
 /**
  * For sorting - timestamp of last task attempt
  */
-last_attempt_at: Date | null, };
+last_attempt_at: Date | null, 
+/**
+ * GitHub integration fields
+ */
+github_enabled: boolean, github_owner: string | null, github_repo: string | null, github_open_issues: number, github_open_prs: number, github_last_synced_at: Date | null, };
 
 export type NodeLocation = { node_id: string, 
 /**
@@ -979,3 +1011,9 @@ export type WorktreePathResponse = {
  * Absolute path to the worktree directory
  */
 path: string, };
+
+export type DirtyFilesResponse = { files: Array<string>, };
+
+export type StashChangesRequest = { message: string | null, };
+
+export type StashChangesResponse = { stash_ref: string, };
