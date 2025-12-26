@@ -35,6 +35,7 @@ import {
 import type { TaskWithAttemptStatus, TaskAttempt, TaskStatus } from 'shared/types';
 import { useOpenInEditor } from '@/hooks/useOpenInEditor';
 import { ArchiveTaskConfirmationDialog } from '@/components/dialogs/tasks/ArchiveTaskConfirmationDialog';
+import { CleanupWorktreeConfirmationDialog } from '@/components/dialogs/tasks/CleanupWorktreeConfirmationDialog';
 import { DeleteTaskConfirmationDialog } from '@/components/dialogs/tasks/DeleteTaskConfirmationDialog';
 import { ViewProcessesDialog } from '@/components/dialogs/tasks/ViewProcessesDialog';
 import { ViewRelatedTasksDialog } from '@/components/dialogs/tasks/ViewRelatedTasksDialog';
@@ -238,21 +239,19 @@ export function ActionsDropdown({
     ReassignDialog.show({ sharedTask, isOrgAdmin });
   };
 
-  const handleCleanupWorktree = (e: React.MouseEvent) => {
+  const handleCleanupWorktree = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!attempt?.id) return;
-    // Ask for confirmation
-    if (
-      !window.confirm(
-        t(
-          'actionsMenu.cleanupWorktreeConfirm',
-          'Delete the worktree for this attempt? This cannot be undone.'
-        )
-      )
-    ) {
-      return;
+    try {
+      await CleanupWorktreeConfirmationDialog.show({
+        attemptId: attempt.id,
+        onConfirm: async () => {
+          await cleanupWorktree.mutateAsync(attempt.id);
+        },
+      });
+    } catch {
+      // User cancelled or error occurred
     }
-    cleanupWorktree.mutate(attempt.id);
   };
 
   const handlePurgeArtifacts = (e: React.MouseEvent) => {

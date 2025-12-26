@@ -31,7 +31,14 @@
     "moveToInReview": "レビュー中に移動",
     "moveToDone": "完了に移動",
     "cancelTask": "タスクをキャンセル",
-    "moveToTodo": "未着手に移動"
+    "moveToTodo": "未着手に移動",
+    "purgeArtifacts": "ビルド成果物を削除",
+    "purgeArtifactsDesc": "target/、node_modules/などを削除",
+    "cleanupWorktree": "ワークツリーを削除",
+    "cleanupWorktreeDesc": "ディスクからワークツリーファイルを削除",
+    "cleanupWorktreeConfirm": "この試行のワークツリーを削除しますか？元に戻すことはできません。",
+    "worktreeAlreadyDeleted": "ワークツリーは既に削除されています",
+    "sharedTask": "共有タスク"
   },
   "archiveDialog": {
     "title": "タスクをアーカイブ",
@@ -41,6 +48,16 @@
     "archiving": "アーカイブ中...",
     "confirm": "タスクをアーカイブ",
     "genericError": "タスクをアーカイブできませんでした。もう一度お試しください。"
+  },
+  "cleanupWorktreeDialog": {
+    "title": "ワークツリーを削除",
+    "description": "ディスクからワークツリーファイルを完全に削除します。試行レコードは保持されますが、リモートリポジトリにプッシュされていない限り、コードの変更は失われます。",
+    "warning": "この操作は元に戻せません。重要な変更がコミットされ、プッシュされていることを確認してください。",
+    "deleting": "削除中...",
+    "confirm": "ワークツリーを削除",
+    "genericError": "ワークツリーの削除に失敗しました",
+    "success": "ワークツリーが正常に削除されました",
+    "purgeSuccess": "ビルド成果物が正常に削除されました"
   },
   "remoteTask": "リモートタスク",
   "editBranchName": {

@@ -79,6 +79,15 @@
   "devMode": {
     "banner": "개발 모드 - 개발 빌드입니다"
   },
+  "diskUsage": {
+    "title": "워크트리 디스크 사용량",
+    "loading": "디스크 사용량 로딩 중...",
+    "error": "디스크 사용량을 불러오지 못했습니다",
+    "worktrees": "워크트리",
+    "largestWorktrees": "가장 큰 워크트리",
+    "noWorktrees": "워크트리가 없습니다",
+    "directory": "디렉토리"
+  },
   "oauth": {
     "title": "Vibe Kanban 로그인",
     "description": "로그인하여 조직에 참여하고 팀과 작업을 공유하세요",

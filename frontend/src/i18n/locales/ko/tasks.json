@@ -31,7 +31,14 @@
     "moveToInReview": "검토 중으로 이동",
     "moveToDone": "완료로 이동",
     "cancelTask": "작업 취소",
-    "moveToTodo": "할 일로 이동"
+    "moveToTodo": "할 일로 이동",
+    "purgeArtifacts": "빌드 아티팩트 삭제",
+    "purgeArtifactsDesc": "target/, node_modules/ 등을 삭제",
+    "cleanupWorktree": "워크트리 삭제",
+    "cleanupWorktreeDesc": "디스크에서 워크트리 파일 삭제",
+    "cleanupWorktreeConfirm": "이 시도의 워크트리를 삭제하시겠습니까? 되돌릴 수 없습니다.",
+    "worktreeAlreadyDeleted": "워크트리가 이미 삭제됨",
+    "sharedTask": "공유 작업"
   },
   "archiveDialog": {
     "title": "작업 아카이브",
@@ -41,6 +48,16 @@
     "archiving": "아카이브 중...",
     "confirm": "작업 아카이브",
     "genericError": "작업을 아카이브하지 못했습니다. 다시 시도해 주세요."
+  },
+  "cleanupWorktreeDialog": {
+    "title": "워크트리 삭제",
+    "description": "디스크에서 워크트리 파일을 영구적으로 삭제합니다. 시도 기록은 보존되지만 원격 저장소에 푸시되지 않은 코드 변경 사항은 손실됩니다.",
+    "warning": "이 작업은 되돌릴 수 없습니다. 중요한 변경 사항이 커밋되고 푸시되었는지 확인하세요.",
+    "deleting": "삭제 중...",
+    "confirm": "워크트리 삭제",
+    "genericError": "워크트리 삭제 실패",
+    "success": "워크트리가 성공적으로 삭제되었습니다",
+    "purgeSuccess": "빌드 아티팩트가 성공적으로 삭제되었습니다"
   },
   "remoteTask": "원격 작업",
   "editBranchName": {
