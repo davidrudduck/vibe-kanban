@@ -12,10 +12,10 @@ import {
   FolderPlus,
   ArrowLeft,
   Download,
-  Loader2,
 } from 'lucide-react';
 import { useScriptPlaceholders } from '@/hooks/useScriptPlaceholders';
 import { CopyFilesField } from './CopyFilesField';
+import { CloneProgress } from './CloneProgress';
 // Removed collapsible sections for simplicity; show fields always in edit mode
 import { fileSystemApi } from '@/lib/api';
 import { FolderPickerDialog } from '@/components/dialogs/shared/FolderPickerDialog';
@@ -422,21 +422,7 @@ export function ProjectFormFields({
           </Button>
 
           {/* Cloning progress indicator */}
-          {isCloning && (
-            <div className="p-6 border rounded-lg bg-card">
-              <div className="flex flex-col items-center gap-4">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                <div className="text-center">
-                  <div className="font-medium text-foreground">
-                    {t('createDialog.cloneFromUrl.cloning')}
-                  </div>
-                  <div className="text-sm text-muted-foreground mt-1">
-                    {t('createDialog.cloneFromUrl.cloningDescription')}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+          {isCloning && <CloneProgress cloneUrl={cloneUrl} />}
 
           {!isCloning && (
             <div className="space-y-4">

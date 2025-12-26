@@ -24,6 +24,7 @@ use services::services::{
     filesystem::{FilesystemError, FilesystemService},
     filesystem_watcher::FilesystemWatcherError,
     git::{GitService, GitServiceError},
+    github_sync::GitHubSyncService,
     image::{ImageError, ImageService},
     pr_monitor::PrMonitorService,
     share::{RemoteSync, RemoteSyncHandle, ShareConfig, SharePublisher},
@@ -125,6 +126,11 @@ pub trait Deployment: Clone + Send + Sync + 'static {
         let db = self.db().clone();
         let publisher = self.share_publisher().ok();
         PrMonitorService::spawn(db, publisher).await
+    }
+
+    async fn spawn_github_sync_service(&self) -> tokio::task::JoinHandle<()> {
+        let db = self.db().clone();
+        GitHubSyncService::spawn(db).await
     }
 
     /// Trigger background auto-setup of default projects for new users

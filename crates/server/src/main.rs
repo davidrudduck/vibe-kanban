@@ -54,6 +54,7 @@ async fn main() -> Result<(), VibeKanbanError> {
         .await
         .map_err(DeploymentError::from)?;
     deployment.spawn_pr_monitor_service().await;
+    deployment.spawn_github_sync_service().await;
 
     // Clean up orphaned shared task IDs (tasks shared to Hive but project no longer linked)
     match Task::clear_orphaned_shared_task_ids(&deployment.db().pool).await {
