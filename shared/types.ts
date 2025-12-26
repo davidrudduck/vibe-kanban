@@ -1017,3 +1017,41 @@ export type DirtyFilesResponse = { files: Array<string>, };
 export type StashChangesRequest = { message: string | null, };
 
 export type StashChangesResponse = { stash_ref: string, };
+
+export type PurgeResult = { 
+/**
+ * Number of bytes freed
+ */
+freed_bytes: bigint, 
+/**
+ * Names of directories that were purged
+ */
+purged_dirs: Array<string>, };
+
+export type DiskUsageStats = { 
+/**
+ * Path to the worktree directory
+ */
+worktree_dir: string, 
+/**
+ * Total bytes used by worktrees
+ */
+used_bytes: bigint, 
+/**
+ * Number of worktrees
+ */
+worktree_count: number, 
+/**
+ * Largest worktrees (top 10)
+ */
+largest_worktrees: Array<WorktreeSize>, };
+
+export type WorktreeSize = { 
+/**
+ * Worktree directory name
+ */
+name: string, 
+/**
+ * Size in bytes
+ */
+bytes: bigint, };
