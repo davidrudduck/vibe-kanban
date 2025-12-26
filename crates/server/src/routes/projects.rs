@@ -479,7 +479,22 @@ pub async fn get_project_branches(
     remote_ctx: Option<Extension<RemoteProjectContext>>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<Vec<GitBranch>>>, ApiError> {
-    // Check if this is a remote project that should be proxied
+    // LOCAL-FIRST: If we have a valid local git repo, use it directly
+    // This handles the case where a project exists on multiple nodes and this node has a local copy
+    if !project.git_repo_path.as_os_str().is_empty()
+        && project.git_repo_path.exists()
+        && project.git_repo_path.join(".git").exists()
+    {
+        tracing::debug!(
+            project_id = %project.id,
+            git_repo_path = %project.git_repo_path.display(),
+            "Using local git repository for branches"
+        );
+        let branches = deployment.git().get_all_branches(&project.git_repo_path)?;
+        return Ok(ResponseJson(ApiResponse::success(branches)));
+    }
+
+    // Fall back to proxy only if no local git repository exists
     if let Some((node_url, node_id, remote_project_id)) =
         check_remote_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
@@ -498,9 +513,10 @@ pub async fn get_project_branches(
         return Ok(ResponseJson(response));
     }
 
-    // Local project - execute directly
-    let branches = deployment.git().get_all_branches(&project.git_repo_path)?;
-    Ok(ResponseJson(ApiResponse::success(branches)))
+    // No local git and no remote to proxy to
+    Err(ApiError::BadRequest(
+        "No git repository available for this project".to_string(),
+    ))
 }
 
 /// Create a new local project at a specified folder path and link it to a remote project.
