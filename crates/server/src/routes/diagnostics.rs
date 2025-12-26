@@ -7,6 +7,7 @@ use axum::{Router, extract::State, response::Json as ResponseJson, routing::get}
 use db::{get_wal_size, metrics::{DbMetricsSnapshot, PoolStats}};
 use deployment::Deployment;
 use serde::Serialize;
+use services::services::worktree_manager::{DiskUsageStats, WorktreeManager};
 use ts_rs::TS;
 use utils::{assets::asset_dir, response::ApiResponse};
 
@@ -208,8 +209,21 @@ async fn get_prometheus_metrics(
     output
 }
 
+/// Get worktree disk usage statistics.
+///
+/// Returns information about the worktree directory, including total space used
+/// and the largest worktrees.
+///
+/// # Endpoint
+/// `GET /api/diagnostics/disk-usage`
+async fn get_disk_usage() -> Result<ResponseJson<ApiResponse<DiskUsageStats>>, ApiError> {
+    let stats = WorktreeManager::get_disk_usage().await?;
+    Ok(ResponseJson(ApiResponse::success(stats)))
+}
+
 pub fn router(_deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     Router::new()
         .route("/diagnostics", get(get_diagnostics))
         .route("/diagnostics/prometheus", get(get_prometheus_metrics))
+        .route("/diagnostics/disk-usage", get(get_disk_usage))
 }

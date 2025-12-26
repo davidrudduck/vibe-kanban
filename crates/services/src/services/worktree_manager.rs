@@ -505,4 +505,153 @@ impl WorktreeManager {
     pub fn get_worktree_base_dir() -> std::path::PathBuf {
         utils::path::get_vibe_kanban_temp_dir().join("worktrees")
     }
+
+    /// Purge build artifacts (target/, node_modules/) from a worktree without deleting it
+    /// Returns the number of bytes freed
+    pub async fn purge_build_artifacts(worktree_path: &Path) -> Result<PurgeResult, WorktreeError> {
+        let worktree_path_owned = worktree_path.to_path_buf();
+
+        tokio::task::spawn_blocking(move || -> Result<PurgeResult, WorktreeError> {
+            let mut freed_bytes: u64 = 0;
+            let mut purged_dirs: Vec<String> = Vec::new();
+
+            // List of build artifact directories to purge
+            let artifact_dirs = ["target", "node_modules", ".next", "dist", "build"];
+
+            for dir_name in &artifact_dirs {
+                let dir_path = worktree_path_owned.join(dir_name);
+                if dir_path.exists() && dir_path.is_dir() {
+                    // Calculate size before deletion
+                    let size = Self::get_dir_size_sync(&dir_path);
+
+                    // Delete the directory
+                    if let Err(e) = std::fs::remove_dir_all(&dir_path) {
+                        tracing::warn!(
+                            "Failed to remove {} at {}: {}",
+                            dir_name,
+                            dir_path.display(),
+                            e
+                        );
+                        continue;
+                    }
+
+                    freed_bytes += size;
+                    purged_dirs.push(dir_name.to_string());
+                    tracing::info!(
+                        "Purged {} ({} bytes) from {}",
+                        dir_name,
+                        size,
+                        worktree_path_owned.display()
+                    );
+                }
+            }
+
+            Ok(PurgeResult {
+                freed_bytes,
+                purged_dirs,
+            })
+        })
+        .await
+        .map_err(|e| WorktreeError::TaskJoin(format!("{e}")))?
+    }
+
+    /// Calculate directory size synchronously (for use in spawn_blocking)
+    fn get_dir_size_sync(path: &Path) -> u64 {
+        let mut size: u64 = 0;
+
+        if let Ok(entries) = std::fs::read_dir(path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    size += Self::get_dir_size_sync(&path);
+                } else if let Ok(metadata) = entry.metadata() {
+                    size += metadata.len();
+                }
+            }
+        }
+
+        size
+    }
+
+    /// Get disk usage statistics for the worktree base directory
+    pub async fn get_disk_usage() -> Result<DiskUsageStats, WorktreeError> {
+        let base_dir = Self::get_worktree_base_dir();
+
+        tokio::task::spawn_blocking(move || -> Result<DiskUsageStats, WorktreeError> {
+            if !base_dir.exists() {
+                return Ok(DiskUsageStats {
+                    worktree_dir: base_dir.to_string_lossy().to_string(),
+                    used_bytes: 0,
+                    worktree_count: 0,
+                    largest_worktrees: Vec::new(),
+                });
+            }
+
+            let mut worktrees: Vec<WorktreeSize> = Vec::new();
+            let mut total_used: u64 = 0;
+
+            if let Ok(entries) = std::fs::read_dir(&base_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        let size = Self::get_dir_size_sync(&path);
+                        total_used += size;
+                        worktrees.push(WorktreeSize {
+                            name: path.file_name().unwrap_or_default().to_string_lossy().to_string(),
+                            bytes: size,
+                        });
+                    }
+                }
+            }
+
+            // Sort by size descending and take top 10
+            worktrees.sort_by(|a, b| b.bytes.cmp(&a.bytes));
+            let largest = worktrees.into_iter().take(10).collect();
+
+            Ok(DiskUsageStats {
+                worktree_dir: base_dir.to_string_lossy().to_string(),
+                used_bytes: total_used,
+                worktree_count: std::fs::read_dir(&base_dir)
+                    .map(|e| e.count())
+                    .unwrap_or(0) as u32,
+                largest_worktrees: largest,
+            })
+        })
+        .await
+        .map_err(|e| WorktreeError::TaskJoin(format!("{e}")))?
+    }
+}
+
+/// Result of purging build artifacts
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[ts(export)]
+pub struct PurgeResult {
+    /// Number of bytes freed
+    pub freed_bytes: u64,
+    /// Names of directories that were purged
+    pub purged_dirs: Vec<String>,
+}
+
+/// Disk usage statistics for worktrees
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[ts(export)]
+pub struct DiskUsageStats {
+    /// Path to the worktree directory
+    pub worktree_dir: String,
+    /// Total bytes used by worktrees
+    pub used_bytes: u64,
+    /// Number of worktrees
+    pub worktree_count: u32,
+    /// Largest worktrees (top 10)
+    pub largest_worktrees: Vec<WorktreeSize>,
+}
+
+/// Size info for a single worktree
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[ts(export)]
+pub struct WorktreeSize {
+    /// Worktree directory name
+    pub name: String,
+    /// Size in bytes
+    pub bytes: u64,
 }

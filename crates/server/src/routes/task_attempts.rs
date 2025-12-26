@@ -4,6 +4,8 @@ pub mod drafts;
 pub mod gh_cli_setup;
 pub mod util;
 
+use std::path::PathBuf;
+
 use axum::{
     Extension, Json, Router,
     extract::{
@@ -42,6 +44,7 @@ use services::services::{
     git::{ConflictOp, GitCliError, GitServiceError, WorktreeResetOptions},
     github::{CreatePrRequest, GitHubService, GitHubServiceError},
     variable_expander,
+    worktree_manager::{PurgeResult, WorktreeCleanup, WorktreeManager},
 };
 use sqlx::Error as SqlxError;
 use ts_rs::TS;
@@ -2321,6 +2324,109 @@ pub async fn get_worktree_path(
     })))
 }
 
+/// Clean up the worktree for a task attempt
+///
+/// POST /api/task-attempts/{id}/cleanup
+///
+/// Deletes the worktree filesystem and marks the attempt as cleaned up in the database.
+/// Returns 409 Conflict if there are running processes.
+/// Returns 200 OK if already cleaned up (idempotent).
+pub async fn cleanup_worktree(
+    Extension(task_attempt): Extension<TaskAttempt>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    let pool = &deployment.db().pool;
+
+    // Already cleaned up - return success (idempotent)
+    if task_attempt.worktree_deleted {
+        return Ok(ResponseJson(ApiResponse::success(())));
+    }
+
+    // Check for running processes
+    if deployment
+        .container()
+        .has_running_processes_for_attempt(task_attempt.id)
+        .await?
+    {
+        return Err(ApiError::Conflict(
+            "Task attempt has running execution processes. Stop them first.".to_string(),
+        ));
+    }
+
+    // Get the worktree path
+    let worktree_path = match &task_attempt.container_ref {
+        Some(path) => PathBuf::from(path),
+        None => {
+            // No worktree path set, just mark as deleted
+            TaskAttempt::mark_worktree_deleted(pool, task_attempt.id).await?;
+            return Ok(ResponseJson(ApiResponse::success(())));
+        }
+    };
+
+    // Get git repo path for proper cleanup
+    let task = Task::find_by_id(pool, task_attempt.task_id)
+        .await?
+        .ok_or_else(|| ApiError::Database(SqlxError::RowNotFound))?;
+    let project = Project::find_by_id(pool, task.project_id)
+        .await?
+        .ok_or_else(|| ApiError::Database(SqlxError::RowNotFound))?;
+
+    // Clean up the worktree
+    let cleanup = WorktreeCleanup::new(worktree_path, Some(project.git_repo_path.clone()));
+    if let Err(e) = WorktreeManager::cleanup_worktree(&cleanup).await {
+        tracing::error!(
+            "Failed to cleanup worktree for attempt {}: {}",
+            task_attempt.id,
+            e
+        );
+        return Err(e.into());
+    }
+
+    // Mark worktree as deleted in database
+    TaskAttempt::mark_worktree_deleted(pool, task_attempt.id).await?;
+
+    tracing::info!(
+        "Successfully cleaned up worktree for attempt {}",
+        task_attempt.id
+    );
+
+    Ok(ResponseJson(ApiResponse::success(())))
+}
+
+/// Purge build artifacts from a task attempt's worktree
+///
+/// POST /api/task-attempts/{id}/purge
+///
+/// Removes build artifacts (target/, node_modules/, .next/, dist/, build/) from the worktree
+/// without deleting the worktree itself. Returns the amount of disk space freed.
+pub async fn purge_build_artifacts(
+    Extension(task_attempt): Extension<TaskAttempt>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<PurgeResult>>, ApiError> {
+    // Check if worktree exists
+    if task_attempt.container_ref.is_none() {
+        // No worktree path set, nothing to purge
+        return Ok(ResponseJson(ApiResponse::success(PurgeResult {
+            freed_bytes: 0,
+            purged_dirs: Vec::new(),
+        })));
+    }
+
+    // Ensure the worktree exists (may recreate if missing)
+    let worktree_path = ensure_worktree_path(&deployment, &task_attempt).await?;
+
+    // Purge build artifacts
+    let result = WorktreeManager::purge_build_artifacts(&worktree_path).await?;
+
+    tracing::info!(
+        "Purged {} bytes of build artifacts from attempt {}",
+        result.freed_bytes,
+        task_attempt.id
+    );
+
+    Ok(ResponseJson(ApiResponse::success(result)))
+}
+
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let task_attempt_id_router = Router::new()
         .route("/", get(get_task_attempt))
@@ -2357,6 +2463,10 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/rename-branch", post(rename_branch))
         // Worktree path endpoint (for terminal sessions)
         .route("/worktree-path", get(get_worktree_path))
+        // Worktree cleanup endpoint (deletes worktree filesystem and marks as deleted)
+        .route("/cleanup", post(cleanup_worktree))
+        // Purge build artifacts endpoint (removes target/, node_modules/, etc. without deleting worktree)
+        .route("/purge", post(purge_build_artifacts))
         // File browser endpoints (directory listing only - wildcard route is separate)
         .route("/files", get(list_worktree_files))
         .layer(from_fn_with_state(
