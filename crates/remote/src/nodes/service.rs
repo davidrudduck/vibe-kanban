@@ -34,6 +34,10 @@ pub enum NodeError {
     ApiKeyInvalid,
     #[error("API key revoked")]
     ApiKeyRevoked,
+    #[error("API key blocked: {0}")]
+    ApiKeyBlocked(String),
+    #[error("API key already bound to a different node")]
+    ApiKeyAlreadyBound,
     #[error("project already linked to a node")]
     ProjectAlreadyLinked,
     #[error("task already has an active assignment")]
@@ -61,6 +65,8 @@ impl From<NodeApiKeyError> for NodeError {
         match err {
             NodeApiKeyError::NotFound => NodeError::ApiKeyNotFound,
             NodeApiKeyError::Revoked => NodeError::ApiKeyRevoked,
+            NodeApiKeyError::Blocked(reason) => NodeError::ApiKeyBlocked(reason),
+            NodeApiKeyError::AlreadyBound => NodeError::ApiKeyAlreadyBound,
             NodeApiKeyError::Database(e) => NodeError::Database(e.to_string()),
         }
     }

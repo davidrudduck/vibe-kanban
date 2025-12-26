@@ -862,23 +862,40 @@ async fn extract_and_validate_api_key(
 
 /// Convert NodeError to HTTP response
 fn node_error_response(error: NodeError, context: &str) -> Response {
-    let (status, message) = match &error {
-        NodeError::NodeNotFound => (StatusCode::NOT_FOUND, "node not found"),
-        NodeError::ApiKeyNotFound => (StatusCode::NOT_FOUND, "API key not found"),
-        NodeError::ApiKeyInvalid => (StatusCode::UNAUTHORIZED, "invalid API key"),
-        NodeError::ApiKeyRevoked => (StatusCode::UNAUTHORIZED, "API key revoked"),
-        NodeError::ProjectAlreadyLinked => {
-            (StatusCode::CONFLICT, "project already linked to a node")
-        }
+    let (status, message): (StatusCode, String) = match &error {
+        NodeError::NodeNotFound => (StatusCode::NOT_FOUND, "node not found".to_string()),
+        NodeError::ApiKeyNotFound => (StatusCode::NOT_FOUND, "API key not found".to_string()),
+        NodeError::ApiKeyInvalid => (StatusCode::UNAUTHORIZED, "invalid API key".to_string()),
+        NodeError::ApiKeyRevoked => (StatusCode::UNAUTHORIZED, "API key revoked".to_string()),
+        NodeError::ApiKeyBlocked(reason) => (
+            StatusCode::FORBIDDEN,
+            format!("API key blocked: {}", reason),
+        ),
+        NodeError::ApiKeyAlreadyBound => (
+            StatusCode::CONFLICT,
+            "API key already bound to a different node".to_string(),
+        ),
+        NodeError::ProjectAlreadyLinked => (
+            StatusCode::CONFLICT,
+            "project already linked to a node".to_string(),
+        ),
         NodeError::TaskAlreadyAssigned => (
             StatusCode::CONFLICT,
-            "task already has an active assignment",
+            "task already has an active assignment".to_string(),
         ),
-        NodeError::AssignmentNotFound => (StatusCode::NOT_FOUND, "assignment not found"),
-        NodeError::NodeProjectNotFound => (StatusCode::NOT_FOUND, "node project link not found"),
+        NodeError::AssignmentNotFound => {
+            (StatusCode::NOT_FOUND, "assignment not found".to_string())
+        }
+        NodeError::NodeProjectNotFound => (
+            StatusCode::NOT_FOUND,
+            "node project link not found".to_string(),
+        ),
         NodeError::Database(err) => {
             tracing::error!(?err, context, "database error in node operation");
-            (StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal server error".to_string(),
+            )
         }
     };
 
