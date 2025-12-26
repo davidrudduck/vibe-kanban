@@ -823,22 +823,28 @@ pub async fn archive_task(
     // Archive the main task
     let archived_task = Task::archive(pool, task.id).await?;
 
-    // Gather cleanup data for background worktree cleanup
-    let cleanup_args: Vec<WorktreeCleanup> = attempts
+    // Gather cleanup data for background worktree cleanup (with attempt IDs for DB update)
+    let cleanup_data: Vec<(uuid::Uuid, WorktreeCleanup)> = attempts
         .iter()
         .filter_map(|attempt| {
             attempt
                 .container_ref
                 .as_ref()
-                .map(|worktree_path| WorktreeCleanup {
-                    worktree_path: PathBuf::from(worktree_path),
-                    git_repo_path: Some(project.git_repo_path.clone()),
+                .map(|worktree_path| {
+                    (
+                        attempt.id,
+                        WorktreeCleanup {
+                            worktree_path: PathBuf::from(worktree_path),
+                            git_repo_path: Some(project.git_repo_path.clone()),
+                        },
+                    )
                 })
         })
         .collect();
 
     // Spawn background worktree cleanup task
     let task_id = task.id;
+    let pool = pool.clone();
     tokio::spawn(async move {
         let span = tracing::info_span!("archive_worktree_cleanup", task_id = %task_id);
         let _enter = span.enter();
@@ -846,21 +852,34 @@ pub async fn archive_task(
         tracing::info!(
             "Starting background worktree cleanup for archived task {} ({} worktrees)",
             task_id,
-            cleanup_args.len()
+            cleanup_data.len()
         );
 
-        if let Err(e) = WorktreeManager::batch_cleanup_worktrees(&cleanup_args).await {
-            tracing::error!(
-                "Background worktree cleanup failed for archived task {}: {}",
-                task_id,
-                e
-            );
-        } else {
-            tracing::info!(
-                "Background worktree cleanup completed for archived task {}",
-                task_id
-            );
+        for (attempt_id, cleanup) in &cleanup_data {
+            // Clean up the worktree filesystem
+            if let Err(e) = WorktreeManager::cleanup_worktree(cleanup).await {
+                tracing::error!(
+                    "Background worktree cleanup failed for attempt {}: {}",
+                    attempt_id,
+                    e
+                );
+                continue;
+            }
+
+            // Mark worktree as deleted in database
+            if let Err(e) = TaskAttempt::mark_worktree_deleted(&pool, *attempt_id).await {
+                tracing::error!(
+                    "Failed to mark worktree as deleted for attempt {}: {}",
+                    attempt_id,
+                    e
+                );
+            }
         }
+
+        tracing::info!(
+            "Background worktree cleanup completed for archived task {}",
+            task_id
+        );
     });
 
     // Return 202 Accepted to indicate archival was scheduled with background cleanup

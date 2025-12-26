@@ -103,14 +103,27 @@ pub trait ContainerService {
         let attempts = TaskAttempt::fetch_all(&self.db().pool, Some(task_id)).await?;
 
         for attempt in attempts {
-            if let Ok(processes) =
-                ExecutionProcess::find_by_task_attempt_id(&self.db().pool, attempt.id, false).await
+            if self.has_running_processes_for_attempt(attempt.id).await? {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
+    /// Check if a task attempt has any running execution processes (excluding dev server)
+    async fn has_running_processes_for_attempt(
+        &self,
+        attempt_id: Uuid,
+    ) -> Result<bool, ContainerError> {
+        let processes =
+            ExecutionProcess::find_by_task_attempt_id(&self.db().pool, attempt_id, false).await?;
+
+        for process in processes {
+            if process.status == ExecutionProcessStatus::Running
+                && !matches!(process.run_reason, ExecutionProcessRunReason::DevServer)
             {
-                for process in processes {
-                    if process.status == ExecutionProcessStatus::Running {
-                        return Ok(true);
-                    }
-                }
+                return Ok(true);
             }
         }
 
