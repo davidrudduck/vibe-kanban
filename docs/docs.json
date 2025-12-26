@@ -60,6 +60,7 @@
         "group": "Advanced Features",
         "pages": [
           "core-features/subtasks",
+          "core-features/task-variables",
           "core-features/new-task-attempts",
           "core-features/resolving-rebase-conflicts"
         ]
