@@ -10,7 +10,7 @@ use db::models::{
 use executors::{
     approvals::ToolCallMetadata,
     logs::{
-        NormalizedEntry, NormalizedEntryType, ToolStatus,
+        ActionType, NormalizedEntry, NormalizedEntryType, ToolStatus,
         utils::patch::{ConversationPatch, extract_normalized_entry_from_patch},
     },
 };
@@ -164,6 +164,57 @@ impl Approvals {
                     request.tool_name,
                     idx
                 );
+            } else if let Some(ref questions) = request.questions {
+                // For AskUserQuestion, create entry directly if not found
+                // This handles the race condition where log processor is slow
+                let entry = NormalizedEntry {
+                    timestamp: None,
+                    entry_type: NormalizedEntryType::ToolUse {
+                        tool_name: "AskUserQuestion".to_string(),
+                        action_type: ActionType::Tool {
+                            tool_name: "AskUserQuestion".to_string(),
+                            arguments: Some(serde_json::json!({ "questions": questions })),
+                            result: None,
+                        },
+                        status: ToolStatus::Created,
+                    },
+                    content: if questions.len() == 1 {
+                        questions[0].question.clone()
+                    } else {
+                        format!("{} questions", questions.len())
+                    },
+                    metadata: Some(serde_json::json!({ "tool_call_id": request.tool_call_id })),
+                };
+
+                let idx = store.get_history().len();
+                let tool_status = ToolStatus::PendingQuestion {
+                    question_id: req_id.clone(),
+                    questions: questions.clone(),
+                    requested_at: request.created_at,
+                    timeout_at: request.timeout_at,
+                };
+
+                if let Some(approval_entry) = entry.clone().with_tool_status(tool_status) {
+                    store.push_patch(ConversationPatch::add_normalized_entry(idx, approval_entry));
+
+                    self.pending.insert(
+                        req_id.clone(),
+                        PendingApproval {
+                            entry_index: idx,
+                            entry,
+                            execution_process_id: request.execution_process_id,
+                            tool_name: request.tool_name.clone(),
+                            questions: request.questions.clone(),
+                            response_tx: tx,
+                        },
+                    );
+
+                    tracing::info!(
+                        "Created AskUserQuestion entry directly (log processor was slow): question_id={}, tool_call_id='{}'",
+                        req_id,
+                        request.tool_call_id
+                    );
+                }
             } else {
                 tracing::warn!(
                     "No matching tool use entry found after {} retries: tool='{}', tool_call_id='{}', execution_process_id={}",
