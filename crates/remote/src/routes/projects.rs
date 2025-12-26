@@ -216,44 +216,47 @@ async fn list_project_nodes(
     // Verify user has access to the organization
     ensure_member_access(state.pool(), project.organization_id, ctx.user.id).await?;
 
-    // Find the node-project link for this project
+    // Find ALL node-project links for this project (supports multi-node projects)
     let node_project_repo = NodeProjectRepository::new(state.pool());
-    let node_project = node_project_repo
-        .find_by_project(project_id)
+    let node_projects = node_project_repo
+        .find_all_by_project(project_id)
         .await
         .map_err(|error| {
-            tracing::error!(?error, %project_id, "failed to find node project link");
+            tracing::error!(?error, %project_id, "failed to find node project links");
             ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
         })?;
 
     // If no node has this project, return empty list
-    let Some(node_project) = node_project else {
+    if node_projects.is_empty() {
         return Ok(Json(ListProjectNodesResponse { nodes: vec![] }));
-    };
+    }
 
-    // Get the node info
+    // Get node info for each linked node
     let node_repo = NodeRepository::new(state.pool());
-    let node = node_repo
-        .find_by_id(node_project.node_id)
-        .await
-        .map_err(|error| {
-            tracing::error!(?error, node_id = %node_project.node_id, "failed to load node");
-            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
-        })?;
+    let mut nodes = Vec::with_capacity(node_projects.len());
 
-    let Some(node) = node else {
-        // Node was deleted but link still exists - return empty
-        return Ok(Json(ListProjectNodesResponse { nodes: vec![] }));
-    };
+    for np in node_projects {
+        match node_repo.find_by_id(np.node_id).await {
+            Ok(Some(node)) => {
+                nodes.push(ProjectNodeInfo {
+                    node_id: node.id,
+                    node_name: node.name,
+                    node_status: node.status,
+                    node_public_url: node.public_url,
+                    node_project_id: np.id,
+                    local_project_id: np.local_project_id,
+                });
+            }
+            Ok(None) => {
+                // Node was deleted but link still exists - skip it
+                tracing::warn!(node_id = %np.node_id, "node project link references deleted node");
+            }
+            Err(error) => {
+                tracing::error!(?error, node_id = %np.node_id, "failed to load node");
+                // Continue with other nodes rather than failing entirely
+            }
+        }
+    }
 
-    Ok(Json(ListProjectNodesResponse {
-        nodes: vec![ProjectNodeInfo {
-            node_id: node.id,
-            node_name: node.name,
-            node_status: node.status,
-            node_public_url: node.public_url,
-            node_project_id: node_project.id,
-            local_project_id: node_project.local_project_id,
-        }],
-    }))
+    Ok(Json(ListProjectNodesResponse { nodes }))
 }

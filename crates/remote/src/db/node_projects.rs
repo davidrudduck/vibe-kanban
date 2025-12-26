@@ -60,9 +60,8 @@ impl<'a> NodeProjectRepository<'a> {
         .await
         .map_err(|e| {
             if let sqlx::Error::Database(ref db_err) = e {
-                if db_err.constraint() == Some("node_projects_project_id_key") {
-                    return NodeProjectError::ProjectAlreadyLinked;
-                }
+                // Note: node_projects_project_id_key constraint was removed in migration
+                // 20251226000000_full_swarm_visibility.sql to allow multiple nodes per project
                 if db_err.constraint() == Some("node_projects_node_id_local_project_id_key") {
                     return NodeProjectError::LocalProjectAlreadyLinked;
                 }
@@ -98,7 +97,7 @@ impl<'a> NodeProjectRepository<'a> {
         Ok(link)
     }
 
-    /// Find a node project link by project ID
+    /// Find a node project link by project ID (returns first match only)
     pub async fn find_by_project(
         &self,
         project_id: Uuid,
@@ -124,6 +123,38 @@ impl<'a> NodeProjectRepository<'a> {
         .await?;
 
         Ok(link)
+    }
+
+    /// Find ALL node project links by project ID (supports multi-node projects)
+    ///
+    /// Returns all nodes that have this project linked, enabling execution
+    /// on any node that has a local copy of the project.
+    pub async fn find_all_by_project(
+        &self,
+        project_id: Uuid,
+    ) -> Result<Vec<NodeProject>, NodeProjectError> {
+        let links = sqlx::query_as::<_, NodeProject>(
+            r#"
+            SELECT
+                id,
+                node_id,
+                project_id,
+                local_project_id,
+                git_repo_path,
+                default_branch,
+                sync_status,
+                last_synced_at,
+                created_at
+            FROM node_projects
+            WHERE project_id = $1
+            ORDER BY created_at ASC
+            "#,
+        )
+        .bind(project_id)
+        .fetch_all(self.pool)
+        .await?;
+
+        Ok(links)
     }
 
     /// List all project links for a node
