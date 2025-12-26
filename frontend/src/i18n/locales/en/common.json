@@ -13,7 +13,8 @@
     "connect": "Connect",
     "disconnect": "Disconnect",
     "close": "Close",
-    "replay": "Replay"
+    "replay": "Replay",
+    "back": "Back"
   },
   "states": {
     "loading": "Loading...",

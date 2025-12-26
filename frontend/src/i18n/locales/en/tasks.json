@@ -123,7 +123,9 @@
     "loadingAttempts": "Loading attempts...",
     "errorLoadingAttempts": "Failed to load attempts",
     "attemptsCount": "Attempts ({{count}})",
-    "noAttempts": "No attempts yet"
+    "noAttempts": "No attempts yet",
+    "parentTask": "Parent Task",
+    "viewParent": "View"
   },
   "processes": {
     "selectAttempt": "Select an attempt to view execution processes.",
@@ -303,6 +305,10 @@
     "files": "Files",
     "terminal": "Terminal",
     "relatedTasks": "Related tasks"
+  },
+  "mobileViewModeSheet": {
+    "title": "View Mode",
+    "logs": "Logs"
   },
   "actionsMenu": {
     "attempt": "Attempt",

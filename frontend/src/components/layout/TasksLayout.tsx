@@ -2,6 +2,7 @@ import { ReactNode, useState } from 'react';
 import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels';
 import { AnimatePresence, motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import { useSwipe } from '@/hooks/useSwipe';
 
 export type LayoutMode = 'preview' | 'diffs' | 'files' | 'terminal' | null;
 
@@ -13,6 +14,8 @@ interface TasksLayoutProps {
   mode: LayoutMode;
   isMobile?: boolean;
   rightHeader?: ReactNode;
+  /** Called when user swipes right on the detail panel (mobile only) */
+  onSwipeClose?: () => void;
 }
 
 type SplitSizes = [number, number];
@@ -275,8 +278,21 @@ export function TasksLayout({
   mode,
   isMobile = false,
   rightHeader,
+  onSwipeClose,
 }: TasksLayoutProps) {
   const desktopKey = isPanelOpen ? 'desktop-with-panel' : 'kanban-only';
+
+  // Swipe-to-close for mobile detail panel
+  const swipeHandlers = useSwipe(
+    {
+      onSwipeRight: () => {
+        if (isMobile && isPanelOpen && onSwipeClose) {
+          onSwipeClose();
+        }
+      },
+    },
+    { threshold: 75, maxTime: 400 }
+  );
 
   if (isMobile) {
     const columns = isPanelOpen ? ['0fr', '1fr', '0fr'] : ['1fr', '0fr', '0fr'];
@@ -309,6 +325,8 @@ export function TasksLayout({
           aria-label="Details"
           role="region"
           style={{ pointerEvents: isAttemptVisible ? 'auto' : 'none' }}
+          {...(isAttemptVisible ? swipeHandlers : {})}
+          data-testid="mobile-detail-panel"
         >
           {rightHeader && (
             <div className="shrink-0 sticky top-0 z-20 bg-background border-b">
