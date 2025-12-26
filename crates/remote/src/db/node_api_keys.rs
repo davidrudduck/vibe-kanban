@@ -46,7 +46,12 @@ impl<'a> NodeApiKeyRepository<'a> {
                 created_by,
                 last_used_at,
                 revoked_at,
-                created_at
+                created_at,
+                node_id,
+                takeover_count,
+                takeover_window_start,
+                blocked_at,
+                blocked_reason
             "#,
         )
         .bind(organization_id)
@@ -76,7 +81,12 @@ impl<'a> NodeApiKeyRepository<'a> {
                 created_by,
                 last_used_at,
                 revoked_at,
-                created_at
+                created_at,
+                node_id,
+                takeover_count,
+                takeover_window_start,
+                blocked_at,
+                blocked_reason
             FROM node_api_keys
             WHERE key_prefix = $1
             "#,
@@ -104,7 +114,12 @@ impl<'a> NodeApiKeyRepository<'a> {
                 created_by,
                 last_used_at,
                 revoked_at,
-                created_at
+                created_at,
+                node_id,
+                takeover_count,
+                takeover_window_start,
+                blocked_at,
+                blocked_reason
             FROM node_api_keys
             WHERE organization_id = $1
             ORDER BY created_at DESC
