@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.6
 
-ARG APP_NAME=remote
+ARG APP_NAME=vks-hive-server
 
 FROM node:20-alpine AS fe-builder
 WORKDIR /repo
@@ -50,7 +50,7 @@ RUN mkdir -p /app/bin
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
-    cargo build --locked --release -p "${APP_NAME}" \
+    cargo build --locked --release -p remote \
  && cp target/release/${APP_NAME} /app/bin/${APP_NAME}
 
 FROM debian:bookworm-slim AS runtime
@@ -76,4 +76,4 @@ EXPOSE 8081
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD ["wget","--spider","-q","http://127.0.0.1:8081/v1/health"]
 
-ENTRYPOINT ["/usr/local/bin/remote"]
+ENTRYPOINT ["/usr/local/bin/vks-hive-server"]
