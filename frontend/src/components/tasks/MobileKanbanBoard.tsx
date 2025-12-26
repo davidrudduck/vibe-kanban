@@ -8,7 +8,13 @@ import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
 import MobileColumnHeader from './MobileColumnHeader';
 import { TaskCard } from './TaskCard';
 import { SharedTaskCard } from './SharedTaskCard';
+import { SwipeableTaskCard } from './SwipeableTaskCard';
 import { useAuth, useIsOrgAdmin } from '@/hooks';
+import { tasksApi } from '@/lib/api';
+import {
+  useTaskOptimistic,
+  getArchivedCallback,
+} from '@/contexts/TaskOptimisticContext';
 
 /**
  * Ordered list of task statuses for navigation
@@ -47,8 +53,36 @@ function MobileKanbanBoard({
   const [currentColumnIndex, setCurrentColumnIndex] = useState(0);
   const { userId } = useAuth();
   const isOrgAdmin = useIsOrgAdmin();
+  const taskOptimisticContext = useTaskOptimistic();
+
+  // Get optimistic archived callback from context or global registry
+  const updateTaskArchivedOptimistically =
+    taskOptimisticContext?.updateTaskArchivedOptimistically ??
+    getArchivedCallback(projectId);
 
   const currentStatus = COLUMN_ORDER[currentColumnIndex];
+
+  // Handle swipe-to-archive for a task
+  const handleSwipeArchive = useCallback(
+    async (task: TaskWithAttemptStatus) => {
+      if (task.is_remote || task.archived_at) return;
+
+      try {
+        // Apply optimistic update immediately for instant UI feedback
+        if (updateTaskArchivedOptimistically) {
+          updateTaskArchivedOptimistically(task.id, new Date().toISOString());
+        }
+        await tasksApi.archive(task.id, { include_subtasks: false });
+      } catch (err) {
+        console.error('Failed to archive task:', err);
+        // Rollback optimistic update on error
+        if (updateTaskArchivedOptimistically) {
+          updateTaskArchivedOptimistically(task.id, null);
+        }
+      }
+    },
+    [updateTaskArchivedOptimistically]
+  );
 
   const goToPrevColumn = useCallback(() => {
     setCurrentColumnIndex((prev) => Math.max(0, prev - 1));
@@ -129,17 +163,25 @@ function MobileKanbanBoard({
                       isOrgAdmin);
 
                   if (isOwnTask) {
+                    const isArchived = item.task.archived_at !== null;
                     return (
-                      <TaskCard
+                      <SwipeableTaskCard
                         key={item.task.id}
                         task={item.task}
-                        index={index}
-                        status={status}
-                        onViewDetails={onViewTaskDetails}
-                        isOpen={selectedTaskId === item.task.id}
-                        projectId={projectId}
-                        sharedTask={item.sharedTask}
-                      />
+                        onArchive={handleSwipeArchive}
+                        isArchived={isArchived}
+                        disabled={item.task.is_remote}
+                      >
+                        <TaskCard
+                          task={item.task}
+                          index={index}
+                          status={status}
+                          onViewDetails={onViewTaskDetails}
+                          isOpen={selectedTaskId === item.task.id}
+                          projectId={projectId}
+                          sharedTask={item.sharedTask}
+                        />
+                      </SwipeableTaskCard>
                     );
                   }
 
