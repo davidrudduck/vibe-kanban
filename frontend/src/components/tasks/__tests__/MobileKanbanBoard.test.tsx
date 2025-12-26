@@ -114,13 +114,10 @@ function createMockColumns(): KanbanColumns {
       },
     ],
     inreview: [],
-    done: [
-      { type: 'task', task: createMockTask('task-4', 'Task 4', 'done') },
-    ],
+    done: [{ type: 'task', task: createMockTask('task-4', 'Task 4', 'done') }],
     cancelled: [],
   };
 }
-
 
 describe('MobileKanbanBoard', () => {
   const mockOnViewTaskDetails = vi.fn();
@@ -312,9 +309,7 @@ describe('MobileKanbanBoard', () => {
   });
 
   it('should highlight selected task', () => {
-    render(
-      <MobileKanbanBoard {...defaultProps} selectedTaskId="task-1" />
-    );
+    render(<MobileKanbanBoard {...defaultProps} selectedTaskId="task-1" />);
 
     // The selected task should have isOpen prop passed to TaskCard
     // This is tested implicitly by rendering without errors
