@@ -1,0 +1,175 @@
+---
+title: "Task Variables"
+description: "Define reusable variables that are automatically expanded in task descriptions when sent to coding agents"
+---
+
+Task variables let you define key-value pairs that are automatically substituted into task descriptions when a coding agent executes the task. This is useful for sharing configuration values, file paths, or other dynamic content across related tasks.
+
+## Variable Syntax
+
+Variables use shell-style syntax with two forms:
+
+| Syntax | Example | Use Case |
+|--------|---------|----------|
+| `$VAR_NAME` | `$API_KEY` | Simple variable reference |
+| `${VAR_NAME}` | `${API_KEY}` | When variable is adjacent to other text |
+
+**Variable naming rules:**
+- Must start with an uppercase letter
+- Can contain uppercase letters, numbers, and underscores
+- Examples: `API_KEY`, `DATABASE_URL`, `PLAN_FILE_PATH`
+
+<Note>
+Variables are expanded at **execution time**, not when the task is saved. This means you can update a variable's value and all tasks using it will automatically get the new value on their next execution.
+</Note>
+
+## Adding Variables
+
+<Steps>
+<Step title="Open the task edit dialog">
+  Click on a task to view it, then click the edit button or use the keyboard shortcut.
+</Step>
+
+<Step title="Scroll to the Variables section">
+  Below the task description and status fields, you'll find the **Variables** section.
+</Step>
+
+<Step title="Click Add to create a variable">
+  Click the **+ Add** button to create a new variable. Enter:
+  - **Name**: An uppercase identifier (e.g., `PLAN_FILE`)
+  - **Value**: The content to substitute (e.g., `~/.claude/plans/my-feature.md`)
+</Step>
+
+<Step title="Save the task">
+  Click **Update Task** to save your changes.
+</Step>
+</Steps>
+
+## Using Variables in Descriptions
+
+Once you've defined variables, reference them in your task description:
+
+```text
+Follow the implementation plan at $PLAN_FILE and complete Phase 1.
+
+Use the API endpoint at ${API_BASE_URL}/users for authentication.
+The database connection string is $DATABASE_URL.
+```
+
+When a coding agent executes this task, all variables are replaced with their values before the prompt is sent.
+
+## Variable Inheritance
+
+Child tasks (subtasks) automatically inherit variables from their parent task. This creates a powerful pattern for sharing context across related work.
+
+### How Inheritance Works
+
+```text
+Parent Task
+├── Variables: PLAN_FILE = ~/.claude/plans/feature.md
+│              API_KEY = sk-test-123
+│
+├── Child Task 1 (inherits both variables)
+│   └── Variables: (none defined, uses parent's)
+│
+└── Child Task 2 (inherits and overrides)
+    └── Variables: API_KEY = sk-prod-456 (overrides parent)
+```
+
+- Child tasks see all parent variables marked as **Inherited**
+- Inherited variables are displayed with a dimmed style and "Inherited" badge
+- The inheritance chain walks up through all ancestor tasks
+
+<Tip>
+Define common variables on a parent task, then create subtasks that all share those values. This keeps your configuration DRY (Don't Repeat Yourself).
+</Tip>
+
+## Overriding Inherited Variables
+
+To override an inherited variable with a local value:
+
+<Steps>
+<Step title="Find the inherited variable">
+  In the Variables section, inherited variables show an "Inherited" badge.
+</Step>
+
+<Step title="Click the edit icon">
+  Hover over the inherited variable and click the edit (pencil) icon.
+</Step>
+
+<Step title="Enter a new value">
+  This creates a local copy of the variable with your new value. The parent's value remains unchanged.
+</Step>
+</Steps>
+
+<Info>
+Overriding creates a new variable on the current task. Deleting your override will restore the inherited value from the parent.
+</Info>
+
+## Example Workflow
+
+A practical example using task variables for a multi-phase feature implementation:
+
+### Parent Task: "Implement User Authentication"
+
+**Variables:**
+| Name | Value |
+|------|-------|
+| `PLAN_FILE` | `~/.claude/plans/user-auth.md` |
+| `API_BASE` | `https://api.example.com/v1` |
+| `TEST_USER` | `test@example.com` |
+
+**Description:**
+```text
+Implement user authentication following the plan at $PLAN_FILE.
+API endpoints should use $API_BASE as the base URL.
+```
+
+### Subtask 1: "Backend API"
+
+**Variables:** (inherits all from parent)
+
+**Description:**
+```text
+Complete Phase 1 of $PLAN_FILE - implement the backend API.
+Create endpoints under $API_BASE/auth for login, logout, and registration.
+```
+
+### Subtask 2: "Frontend Integration"
+
+**Variables:**
+| Name | Value |
+|------|-------|
+| `API_BASE` | `http://localhost:3000/api/v1` | (override for local dev)
+
+**Description:**
+```text
+Complete Phase 2 of $PLAN_FILE - integrate frontend with auth API.
+Use $API_BASE for API calls (local development override).
+Test with $TEST_USER credentials.
+```
+
+## MCP Tools for AI Agents
+
+Coding agents can manage variables programmatically using MCP (Model Context Protocol) tools:
+
+| Tool | Description |
+|------|-------------|
+| `get_task_variables` | Get all resolved variables for a task (including inherited) |
+| `set_task_variable` | Create or update a variable on a task |
+| `delete_task_variable` | Remove a variable from a task |
+
+<Tip>
+AI agents can use these tools to dynamically set configuration values based on the execution environment, or to pass context between related tasks.
+</Tip>
+
+## Undefined Variables
+
+If a task description references a variable that isn't defined:
+
+- **In the UI**: The Variables panel shows a warning listing undefined variables
+- **At execution**: The variable reference is left unexpanded (e.g., `$UNDEFINED_VAR` remains as-is) and a warning is logged
+
+<Warning>
+Always verify your variables are defined before starting a task. Undefined variables may cause the coding agent to misinterpret your instructions.
+</Warning>
