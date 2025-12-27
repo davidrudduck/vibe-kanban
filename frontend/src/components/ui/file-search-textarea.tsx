@@ -44,7 +44,7 @@ interface FileSearchTextareaProps {
   projectId?: string;
   onKeyDown?: (e: React.KeyboardEvent) => void;
   maxRows?: number;
-  onPasteFiles?: (files: File[]) => void;
+  onPasteFiles?: (files: File[], cursorPosition: number) => void;
   onFocus?: (e: React.FocusEvent<HTMLTextAreaElement>) => void;
   onBlur?: (e: React.FocusEvent<HTMLTextAreaElement>) => void;
   disableScroll?: boolean;
@@ -172,7 +172,9 @@ export const FileSearchTextarea = forwardRef<
 
     if (imageFiles.length > 0) {
       e.preventDefault();
-      onPasteFiles(imageFiles);
+      // Capture cursor position at paste time
+      const cursorPosition = e.currentTarget.selectionStart ?? value.length;
+      onPasteFiles(imageFiles, cursorPosition);
     }
   };
 

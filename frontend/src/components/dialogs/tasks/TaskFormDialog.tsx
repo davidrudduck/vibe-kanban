@@ -58,6 +58,7 @@ import type {
 import { LabelSelect } from '@/components/labels';
 import { labelsApi } from '@/lib/api';
 import { useTaskLabels } from '@/hooks/useTaskLabels';
+import { insertImageMarkdownAtPosition } from '@/utils/markdownImages';
 
 export type TaskFormDialogProps =
   | { mode: 'create'; projectId: string }
@@ -100,6 +101,9 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
   const imageUploadRef = useRef<ImageUploadSectionHandle>(null);
   const [pendingFiles, setPendingFiles] = useState<File[] | null>(null);
   const forceCreateOnlyRef = useRef(false);
+
+  // Track insert position for pasted images (sequential insertion)
+  const insertPositionRef = useRef<number>(0);
 
   const { data: branches, isLoading: branchesLoading } =
     useProjectBranches(projectId);
@@ -283,6 +287,15 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
     }
   }, []);
 
+  // Handle paste with cursor position tracking
+  const handlePasteFiles = useCallback(
+    (files: File[], cursorPosition: number) => {
+      insertPositionRef.current = cursorPosition;
+      onDrop(files);
+    },
+    [onDrop]
+  );
+
   const {
     getRootProps,
     getInputProps,
@@ -307,10 +320,16 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
   // Image upload callback
   const handleImageUploaded = useCallback(
     (img: ImageResponse) => {
-      const markdownText = `![${img.original_name}](${img.file_path})`;
-      form.setFieldValue('description', (prev) =>
-        prev.trim() === '' ? markdownText : `${prev} ${markdownText}`
-      );
+      form.setFieldValue('description', (prev) => {
+        const { newText, newCursorPosition } = insertImageMarkdownAtPosition(
+          prev,
+          img,
+          insertPositionRef.current
+        );
+        // Advance position for next image (sequential insertion)
+        insertPositionRef.current = newCursorPosition;
+        return newText;
+      });
       setImages((prev) => [...prev, img]);
       setNewlyUploadedImageIds((prev) => [...prev, img.id]);
     },
@@ -501,7 +520,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                     className="border-none shadow-none px-0 resize-none placeholder:text-muted-foreground/60 focus-visible:ring-0 text-md font-normal"
                     disabled={isSubmitting}
                     projectId={projectId}
-                    onPasteFiles={onDrop}
+                    onPasteFiles={handlePasteFiles}
                     disableScroll={true}
                   />
                 )}

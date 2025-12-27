@@ -12,7 +12,7 @@ type Props = {
   disabled: boolean;
   // Loading overlay
   showLoadingOverlay: boolean;
-  onPasteFiles?: (files: File[]) => void;
+  onPasteFiles?: (files: File[], cursorPosition: number) => void;
   textareaClassName?: string;
   onFocusChange?: (isFocused: boolean) => void;
 };
