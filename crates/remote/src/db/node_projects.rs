@@ -270,6 +270,30 @@ impl<'a> NodeProjectRepository<'a> {
         Ok(())
     }
 
+    /// Bulk update node_id for all projects belonging to a source node.
+    ///
+    /// Used when merging nodes - moves all project links from source to target.
+    /// Returns the number of projects that were updated.
+    pub async fn bulk_update_node_id(
+        &self,
+        source_node_id: Uuid,
+        target_node_id: Uuid,
+    ) -> Result<u64, NodeProjectError> {
+        let result = sqlx::query(
+            r#"
+            UPDATE node_projects
+            SET node_id = $2
+            WHERE node_id = $1
+            "#,
+        )
+        .bind(source_node_id)
+        .bind(target_node_id)
+        .execute(self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
     /// List all project links for an organization with node ownership info.
     ///
     /// Returns projects linked to ANY node in the organization, with info about

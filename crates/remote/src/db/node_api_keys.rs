@@ -423,6 +423,39 @@ impl<'a> NodeApiKeyRepository<'a> {
         Ok(key)
     }
 
+    /// Find all API keys bound to a specific node
+    pub async fn find_by_node_id(
+        &self,
+        node_id: Uuid,
+    ) -> Result<Vec<NodeApiKey>, NodeApiKeyError> {
+        let keys = sqlx::query_as::<_, NodeApiKey>(
+            r#"
+            SELECT
+                id,
+                organization_id,
+                name,
+                key_hash,
+                key_prefix,
+                created_by,
+                last_used_at,
+                revoked_at,
+                created_at,
+                node_id,
+                takeover_count,
+                takeover_window_start,
+                blocked_at,
+                blocked_reason
+            FROM node_api_keys
+            WHERE node_id = $1
+            "#,
+        )
+        .bind(node_id)
+        .fetch_all(self.pool)
+        .await?;
+
+        Ok(keys)
+    }
+
     /// Update the node binding for an API key (used during takeover)
     pub async fn update_node_binding(
         &self,

@@ -20,6 +20,19 @@ use crate::db::{
     task_assignments::{TaskAssignmentError, TaskAssignmentRepository},
 };
 
+/// Result of a node merge operation.
+#[derive(Debug, Clone)]
+pub struct MergeNodesResult {
+    /// ID of the node that was merged (and deleted)
+    pub source_node_id: Uuid,
+    /// ID of the node that received the merged data
+    pub target_node_id: Uuid,
+    /// Number of projects moved from source to target
+    pub projects_moved: u64,
+    /// Number of API keys rebound from source to target
+    pub keys_rebound: u64,
+}
+
 /// API key prefix used for identification (first 8 characters of the key)
 const API_KEY_PREFIX_LEN: usize = 8;
 
@@ -434,6 +447,94 @@ impl NodeServiceImpl {
     pub async fn delete_node(&self, node_id: Uuid) -> Result<(), NodeError> {
         let repo = NodeRepository::new(&self.pool);
         Ok(repo.delete(node_id).await?)
+    }
+
+    /// Merge one node into another.
+    ///
+    /// This operation:
+    /// 1. Moves all projects from source node to target node
+    /// 2. Rebinds any API keys from source to target
+    /// 3. Deletes the source node
+    ///
+    /// Returns a summary of the merge operation.
+    pub async fn merge_nodes(
+        &self,
+        source_node_id: Uuid,
+        target_node_id: Uuid,
+    ) -> Result<MergeNodesResult, NodeError> {
+        let node_repo = NodeRepository::new(&self.pool);
+        let project_repo = NodeProjectRepository::new(&self.pool);
+        let key_repo = NodeApiKeyRepository::new(&self.pool);
+
+        // Verify both nodes exist
+        let source = node_repo
+            .find_by_id(source_node_id)
+            .await?
+            .ok_or(NodeError::NodeNotFound)?;
+        let target = node_repo
+            .find_by_id(target_node_id)
+            .await?
+            .ok_or(NodeError::NodeNotFound)?;
+
+        // Verify both nodes are in the same organization
+        if source.organization_id != target.organization_id {
+            return Err(NodeError::Database(
+                "Cannot merge nodes from different organizations".to_string(),
+            ));
+        }
+
+        info!(
+            source_id = %source_node_id,
+            source_name = %source.name,
+            target_id = %target_node_id,
+            target_name = %target.name,
+            "Merging nodes"
+        );
+
+        // Move all projects from source to target
+        let projects_moved = project_repo
+            .bulk_update_node_id(source_node_id, target_node_id)
+            .await?;
+
+        info!(
+            source_id = %source_node_id,
+            target_id = %target_node_id,
+            projects_moved = projects_moved,
+            "Moved projects to target node"
+        );
+
+        // Rebind any API keys from source to target
+        let source_keys = key_repo.find_by_node_id(source_node_id).await?;
+        let keys_rebound = source_keys.len();
+
+        for key in source_keys {
+            key_repo
+                .update_node_binding(key.id, target_node_id, true)
+                .await?;
+        }
+
+        info!(
+            source_id = %source_node_id,
+            target_id = %target_node_id,
+            keys_rebound = keys_rebound,
+            "Rebound API keys to target node"
+        );
+
+        // Delete the source node
+        node_repo.delete(source_node_id).await?;
+
+        info!(
+            source_id = %source_node_id,
+            target_id = %target_node_id,
+            "Source node deleted, merge complete"
+        );
+
+        Ok(MergeNodesResult {
+            source_node_id,
+            target_node_id,
+            projects_moved,
+            keys_rebound: keys_rebound as u64,
+        })
     }
 
     /// Update a node's status (used by WebSocket session)
