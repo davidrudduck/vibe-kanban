@@ -95,6 +95,21 @@ pub enum NormalizedEntryType {
         execution_processes: usize,
         needs_setup: bool,
     },
+    /// Marks the start of an execution process (injected by frontend)
+    ExecutionStart {
+        process_id: String,
+        process_name: String,
+        started_at: String,
+    },
+    /// Marks the end of an execution process (injected by frontend)
+    ExecutionEnd {
+        process_id: String,
+        process_name: String,
+        started_at: String,
+        ended_at: String,
+        duration_seconds: u64,
+        status: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

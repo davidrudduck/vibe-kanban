@@ -18,6 +18,7 @@ import {
   Brain,
   CheckSquare,
   ChevronDown,
+  Clock,
   ExternalLink,
   Hammer,
   Edit,
@@ -29,6 +30,7 @@ import {
   Terminal,
   User,
 } from 'lucide-react';
+import { useUserSystem } from '@/components/ConfigProvider';
 import RawLogText from '../common/RawLogText';
 import UserMessage from './UserMessage';
 import PendingApprovalEntry from './PendingApprovalEntry';
@@ -632,6 +634,90 @@ const LoadingCard = () => {
   );
 };
 
+/**
+ * Format duration in seconds to a human-readable string
+ */
+const formatDuration = (seconds: number): string => {
+  if (seconds < 60) {
+    return `${seconds} second${seconds !== 1 ? 's' : ''}`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  if (minutes < 60) {
+    if (remainingSeconds === 0) {
+      return `${minutes} minute${minutes !== 1 ? 's' : ''}`;
+    }
+    return `${minutes}m ${remainingSeconds}s`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (remainingMinutes === 0) {
+    return `${hours} hour${hours !== 1 ? 's' : ''}`;
+  }
+  return `${hours}h ${remainingMinutes}m`;
+};
+
+/**
+ * Format an ISO timestamp to a display string based on configured timezone
+ */
+const formatTimestamp = (isoString: string, timezone: string): string => {
+  try {
+    const date = new Date(isoString);
+    if (isNaN(date.getTime())) return isoString;
+
+    const options: Intl.DateTimeFormatOptions = {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour12: false,
+    };
+
+    // If timezone is "LOCAL", use browser's default (undefined)
+    if (timezone !== 'LOCAL') {
+      options.timeZone = timezone;
+    }
+
+    return new Intl.DateTimeFormat('en-GB', options).format(date);
+  } catch {
+    return isoString;
+  }
+};
+
+/**
+ * IRC-style execution boundary marker component
+ */
+const ExecutionMarker: React.FC<{
+  type: 'start' | 'end';
+  processName: string;
+  startedAt: string;
+  endedAt?: string;
+  durationSeconds?: number;
+  status?: string;
+}> = ({ type, processName, startedAt, endedAt, durationSeconds, status }) => {
+  const { config } = useUserSystem();
+  const timezone = config?.timestamps?.timezone ?? 'LOCAL';
+
+  const formattedStartTime = formatTimestamp(startedAt, timezone);
+  const formattedEndTime = endedAt ? formatTimestamp(endedAt, timezone) : '';
+
+  const statusLabel = status ? ` (${status})` : '';
+  const durationLabel = durationSeconds !== undefined ? ` - ${formatDuration(durationSeconds)}` : '';
+
+  return (
+    <div className="px-4 py-1.5 text-xs font-mono text-muted-foreground flex items-center gap-2">
+      <Clock className="h-3 w-3" />
+      {type === 'start' ? (
+        <span>[***] {processName} started at {formattedStartTime}</span>
+      ) : (
+        <span>[***] {processName} finished at {formattedEndTime}{statusLabel}{durationLabel}</span>
+      )}
+    </div>
+  );
+};
+
 const isPendingApprovalStatus = (
   status: ToolStatus
 ): status is Extract<ToolStatus, { status: 'pending_approval' }> =>
@@ -867,6 +953,32 @@ function DisplayConversationEntry({
           needsSetup={entry.entry_type.needs_setup}
         />
       </div>
+    );
+  }
+
+  // Handle execution boundary markers
+  if (entry.entry_type.type === 'execution_start') {
+    const startEntry = entry.entry_type;
+    return (
+      <ExecutionMarker
+        type="start"
+        processName={startEntry.process_name}
+        startedAt={startEntry.started_at}
+      />
+    );
+  }
+
+  if (entry.entry_type.type === 'execution_end') {
+    const endEntry = entry.entry_type;
+    return (
+      <ExecutionMarker
+        type="end"
+        processName={endEntry.process_name}
+        startedAt={endEntry.started_at}
+        endedAt={endEntry.ended_at}
+        durationSeconds={Number(endEntry.duration_seconds)}
+        status={endEntry.status}
+      />
     );
   }
 
