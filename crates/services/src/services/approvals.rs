@@ -266,6 +266,13 @@ impl Approvals {
         id: &str,
         req: ApprovalResponse,
     ) -> Result<(ApprovalStatus, ToolContext), ApprovalError> {
+        tracing::info!(
+            approval_id = %id,
+            status = ?req.status,
+            answers = ?req.answers,
+            "Approval respond called"
+        );
+
         if let Some((_, p)) = self.pending.remove(id) {
             self.completed.insert(id.to_string(), req.status.clone());
 
