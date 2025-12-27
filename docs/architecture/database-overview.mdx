@@ -1,0 +1,153 @@
+---
+title: Database Architecture Overview
+description: Understanding Vibe Kanban's dual-database architecture
+---
+
+# Database Architecture Overview
+
+Vibe Kanban uses a distributed database architecture with two database systems working together:
+
+1. **SQLite** - Local database on each node (developer machine)
+2. **PostgreSQL** - Central database on the hive server (shared infrastructure)
+
+## Architecture Diagram
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           HIVE SERVER                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                      PostgreSQL Database                             │    │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌────────────┐  │    │
+│  │  │organizations│  │shared_tasks │  │   nodes     │  │  activity  │  │    │
+│  │  │   users     │  │  projects   │  │node_projects│  │ (partitioned)│ │    │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘  └────────────┘  │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                    │                                         │
+│                    ┌───────────────┼───────────────┐                        │
+│                    │               │               │                        │
+│              ElectricSQL      WebSocket       REST API                      │
+│              (real-time)    (events/logs)    (legacy)                       │
+└────────────────────┼───────────────┼───────────────┼────────────────────────┘
+                     │               │               │
+        ┌────────────┴───────────────┴───────────────┴────────────┐
+        │                                                          │
+        ▼                                                          ▼
+┌───────────────────────────┐                      ┌───────────────────────────┐
+│      NODE: Mac Studio     │                      │      NODE: Linux Server   │
+│  ┌─────────────────────┐  │                      │  ┌─────────────────────┐  │
+│  │  SQLite Database    │  │                      │  │  SQLite Database    │  │
+│  │  ┌───────┐ ┌──────┐ │  │                      │  │  ┌───────┐ ┌──────┐ │  │
+│  │  │project│ │ task │ │  │                      │  │  │project│ │ task │ │  │
+│  │  │ tasks │ │attempt│ │  │                      │  │  │ tasks │ │attempt│ │  │
+│  │  │ logs  │ │merges│ │  │                      │  │  │ logs  │ │merges│ │  │
+│  │  └───────┘ └──────┘ │  │                      │  │  └───────┘ └──────┘ │  │
+│  └─────────────────────┘  │                      │  └─────────────────────┘  │
+└───────────────────────────┘                      └───────────────────────────┘
+```
+
+## Database Purposes
+
+### SQLite (Local Node)
+
+| Aspect | Description |
+|--------|-------------|
+| **Purpose** | Local task execution, project management, execution history |
+| **Location** | `dev_assets/db.sqlite` (dev) or platform data directory (prod) |
+| **Scope** | Single machine |
+| **Availability** | Works offline, no network required |
+| **Primary Use** | Storing execution logs, git worktree state, local project config |
+
+The local SQLite database is the source of truth for:
+- Execution processes and their logs
+- Git worktree and branch management
+- Task attempt history
+- Merge and PR tracking
+- Local project configuration
+
+### PostgreSQL (Central Hive)
+
+| Aspect | Description |
+|--------|-------------|
+| **Purpose** | Organization management, shared task registry, node coordination |
+| **Location** | Remote server (e.g., `postgres://hive.example.com/vibe_remote`) |
+| **Scope** | Organization-wide, multi-tenant |
+| **Availability** | Requires network connection to hive |
+| **Primary Use** | Task assignment, user auth, activity feed, node discovery |
+
+The PostgreSQL hive database is the source of truth for:
+- Organizations and user accounts
+- Shared task definitions and assignments
+- Node registration and capabilities
+- Organization-wide activity feed
+- Authentication and OAuth tokens
+
+## How They Work Together
+
+### Task Lifecycle Example
+
+```bash
+1. USER CREATES TASK (via web UI connected to hive)
+   └─► PostgreSQL: INSERT into shared_tasks
+
+2. HIVE ASSIGNS TASK TO NODE (via WebSocket)
+   └─► PostgreSQL: INSERT into node_task_assignments
+   └─► WebSocket: TaskAssign message to node
+
+3. NODE RECEIVES ASSIGNMENT
+   └─► SQLite: INSERT into tasks (linked via shared_task_id)
+   └─► SQLite: INSERT into task_attempts
+
+4. NODE EXECUTES TASK (coding agent runs)
+   └─► SQLite: INSERT into execution_processes
+   └─► SQLite: INSERT into log_entries (streaming)
+   └─► WebSocket: TaskProgress events to hive
+   └─► WebSocket: TaskOutput logs to hive
+
+5. NODE COMPLETES TASK
+   └─► SQLite: UPDATE task_attempts.status
+   └─► SQLite: INSERT into merges (if PR created)
+   └─► WebSocket: TaskStatus update to hive
+   └─► PostgreSQL: UPDATE shared_tasks.status
+```
+
+### Data Flow Summary
+
+| Data Type | Primary Location | Sync Direction | Method |
+|-----------|-----------------|----------------|--------|
+| Task definitions | PostgreSQL | Hive → Node | ElectricSQL |
+| Task status | Both | Bidirectional | ElectricSQL + WebSocket |
+| Task assignments | PostgreSQL | Hive → Node | WebSocket |
+| Execution logs | SQLite | Node → Hive | WebSocket (streaming) |
+| Execution history | SQLite | Node only | Not synced |
+| Node status | PostgreSQL | Node → Hive | WebSocket (heartbeat) |
+| Organizations/Users | PostgreSQL | Hive only | Not synced |
+
+## Key Design Decisions
+
+### Why Two Databases?
+
+1. **Offline Capability**: Nodes can work without network connectivity
+2. **Performance**: Execution logs stay local, avoiding network latency
+3. **Scalability**: Execution data doesn't burden the central server
+4. **Privacy**: Sensitive code and logs can stay on local machines
+5. **Resilience**: Node failures don't affect other nodes or the hive
+
+### Why SQLite Locally?
+
+- Zero configuration, embedded database
+- Fast local reads/writes for streaming logs
+- Single file, easy to backup and restore
+- Works on all platforms (macOS, Linux, Windows)
+
+### Why PostgreSQL Remotely?
+
+- Robust multi-user support
+- Advanced features (partitioning, logical replication)
+- ElectricSQL compatibility for real-time sync
+- Proven reliability for production workloads
+
+## Related Documentation
+
+- [SQLite Local Schema](./sqlite-local-schema.mdx) - Complete local database schema
+- [PostgreSQL Hive Schema](./postgresql-hive-schema.mdx) - Complete hive database schema
+- [Database Synchronization](./database-synchronization.mdx) - Sync mechanisms and protocols
