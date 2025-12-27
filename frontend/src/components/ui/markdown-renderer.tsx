@@ -116,10 +116,11 @@ function InlineCodeOverride({
   );
 }
 
-// Check if src is a .vibe-images path
+// Check if src is a .vibe-images path (relative or absolute)
 function isVibeImagePath(src?: string): boolean {
   if (!src) return false;
-  return src.startsWith('.vibe-images/');
+  // Match both relative (.vibe-images/) and absolute paths (/.vibe-images/)
+  return src.startsWith('.vibe-images/') || src.includes('/.vibe-images/');
 }
 
 // Find image by matching file_path against taskImages
@@ -131,11 +132,18 @@ function findImageByPath(
   return taskImages.find((img) => img.file_path === src) || null;
 }
 
-// Extract filename from .vibe-images path
+// Extract filename from .vibe-images path (relative or absolute)
 function getFilenameFromVibeImagePath(src: string): string | null {
-  const prefix = '.vibe-images/';
-  if (src.startsWith(prefix)) {
-    return src.slice(prefix.length);
+  // Handle relative paths like ".vibe-images/uuid.png"
+  const relativePrefix = '.vibe-images/';
+  if (src.startsWith(relativePrefix)) {
+    return src.slice(relativePrefix.length);
+  }
+  // Handle absolute paths like "/var/tmp/.../worktrees/xxx/.vibe-images/uuid.png"
+  const absoluteMarker = '/.vibe-images/';
+  const absoluteIdx = src.indexOf(absoluteMarker);
+  if (absoluteIdx !== -1) {
+    return src.slice(absoluteIdx + absoluteMarker.length);
   }
   return null;
 }
