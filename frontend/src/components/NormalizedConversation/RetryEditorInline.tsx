@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FollowUpEditorCard } from '@/components/tasks/follow-up/FollowUpEditorCard';
 import { FollowUpStatusRow } from '@/components/tasks/FollowUpStatusRow';
@@ -27,7 +27,7 @@ import {
   isCodingAgent,
   PROCESS_RUN_REASONS,
 } from '@/constants/processes';
-import { appendImageMarkdown } from '@/utils/markdownImages';
+import { insertImageMarkdownAtPosition } from '@/utils/markdownImages';
 import type { RestoreLogsDialogResult } from '@/components/dialogs';
 
 export function RetryEditorInline({
@@ -76,6 +76,18 @@ export function RetryEditorInline({
 
   // Presentation-only: show/hide image upload panel
   const [showImageUpload, setShowImageUpload] = useState(false);
+
+  // Track insert position for pasted images (sequential insertion)
+  const insertPositionRef = useRef<number>(0);
+
+  const handlePasteImages = useCallback(
+    (files: File[], cursorPosition: number) => {
+      if (files.length === 0) return;
+      insertPositionRef.current = cursorPosition;
+      setShowImageUpload(true);
+    },
+    []
+  );
 
   // Variant selection: start with initialVariant or draft.variant
   const [selectedVariant, setSelectedVariant] = useState<string | null>(
@@ -269,6 +281,7 @@ export function RetryEditorInline({
         disabled={isSending || !!isFinalizing}
         showLoadingOverlay={isSending || !!isFinalizing}
         textareaClassName="bg-background"
+        onPasteFiles={handlePasteImages}
       />
 
       {/* Draft save/load status (no queue/sending for retry) */}
@@ -329,7 +342,17 @@ export function RetryEditorInline({
             onDelete={imagesApi.delete}
             onImageUploaded={(image) => {
               handleImageUploaded(image);
-              setMessage((prev) => appendImageMarkdown(prev, image));
+              setMessage((prev) => {
+                const { newText, newCursorPosition } =
+                  insertImageMarkdownAtPosition(
+                    prev,
+                    image,
+                    insertPositionRef.current
+                  );
+                // Advance position for next image (sequential insertion)
+                insertPositionRef.current = newCursorPosition;
+                return newText;
+              });
             }}
             disabled={isSending || !!isFinalizing}
             collapsible={false}
