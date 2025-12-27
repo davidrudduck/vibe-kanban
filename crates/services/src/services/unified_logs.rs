@@ -4,7 +4,7 @@
 //! paginated log entries regardless of whether the execution is local or remote.
 
 use async_trait::async_trait;
-use db::models::execution_process_logs::ExecutionProcessLogs;
+use db::models::log_entry::DbLogEntry;
 use sqlx::SqlitePool;
 use thiserror::Error;
 use utils::unified_log::{Direction, PaginatedLogs};
@@ -95,7 +95,8 @@ impl LogService for LocalLogService {
         limit: i64,
         direction: Direction,
     ) -> Result<PaginatedLogs, LogServiceError> {
-        let paginated = ExecutionProcessLogs::find_paginated(
+        // Use log_entries table for efficient pagination with individual rows
+        let paginated = DbLogEntry::find_paginated(
             &self.pool,
             execution_id,
             cursor,
@@ -103,7 +104,7 @@ impl LogService for LocalLogService {
             direction,
         )
         .await?;
-        Ok(paginated)
+        Ok(paginated.to_paginated_logs())
     }
 
     async fn get_execution_status(
