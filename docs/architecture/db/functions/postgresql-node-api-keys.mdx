@@ -1,0 +1,392 @@
+---
+title: Node API Key Functions
+description: PostgreSQL functions for API key management and security in the Hive
+---
+
+# Node API Key Functions
+
+Functions for managing node API keys in the PostgreSQL Hive database. API keys authenticate nodes connecting to the Hive with security features for duplicate detection.
+
+**Source:** `crates/remote/src/db/node_api_keys.rs`
+
+## Quick Reference
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `create` | Create new key | `NodeApiKey` |
+| `find_by_prefix` | Lookup by prefix | `Option<NodeApiKey>` |
+| `find_by_id` | Lookup by UUID | `Option<NodeApiKey>` |
+| `find_by_node_id` | Find by bound node | `Vec<NodeApiKey>` |
+| `list_by_organization` | List org keys | `Vec<NodeApiKey>` |
+| `touch` | Update last used | `()` |
+| `revoke` | Revoke key | `()` |
+| `delete` | Delete permanently | `()` |
+| `bind_to_node` | Establish identity | `NodeApiKey` |
+| `increment_takeover` | Track duplicate use | `NodeApiKey` |
+| `block_key` | Security block | `NodeApiKey` |
+| `unblock_key` | Remove block | `NodeApiKey` |
+| `reset_takeover_count` | Reset counter | `()` |
+| `update_node_binding` | Update binding | `NodeApiKey` |
+
+---
+
+## Key Creation
+
+### create
+
+Create a new API key. The raw key value is only available at creation.
+
+**Signature:**
+```rust
+async fn create(
+    &self,
+    organization_id: Uuid,
+    data: CreateNodeApiKey,
+    created_by: Uuid,
+    key_hash: &str,
+    key_prefix: &str,
+) -> Result<NodeApiKey, NodeApiKeyError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `organization_id` | `Uuid` | Organization the key belongs to |
+| `data` | `CreateNodeApiKey` | Key creation data (name) |
+| `created_by` | `Uuid` | User who created the key |
+| `key_hash` | `&str` | SHA256 hash of the key |
+| `key_prefix` | `&str` | First 8 characters for lookup |
+
+**Returns:** Created API key (without raw value).
+
+**Used By:**
+- `routes/nodes.rs` - POST /api/nodes/api-keys
+
+**Notes:**
+- Raw key returned separately by service layer
+- Hash stored for validation, prefix for lookup
+
+---
+
+## Query Operations
+
+### find_by_prefix
+
+Find an API key by its prefix (first 8 chars). Used for fast validation lookup.
+
+**Signature:**
+```rust
+async fn find_by_prefix(&self, prefix: &str) -> Result<Option<NodeApiKey>, NodeApiKeyError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `prefix` | `&str` | First 8 characters of key |
+
+**Returns:** API key if found.
+
+**Used By:**
+- `nodes/auth.rs` - Key validation
+
+**Notes:**
+- Indexed for O(1) lookup
+- Followed by hash verification
+
+---
+
+### find_by_id
+
+Find an API key by UUID.
+
+**Signature:**
+```rust
+async fn find_by_id(&self, key_id: Uuid) -> Result<Option<NodeApiKey>, NodeApiKeyError>
+```
+
+**Used By:**
+- `routes/nodes.rs` - Key management
+
+---
+
+### find_by_node_id
+
+Find all API keys bound to a specific node.
+
+**Signature:**
+```rust
+async fn find_by_node_id(&self, node_id: Uuid) -> Result<Vec<NodeApiKey>, NodeApiKeyError>
+```
+
+**Used By:**
+- `nodes/service.rs` - Node key lookup
+
+---
+
+### list_by_organization
+
+List all API keys for an organization.
+
+**Signature:**
+```rust
+async fn list_by_organization(
+    &self,
+    organization_id: Uuid,
+) -> Result<Vec<NodeApiKey>, NodeApiKeyError>
+```
+
+**Returns:** Keys ordered by creation date descending.
+
+**Used By:**
+- `routes/nodes.rs` - GET /api/nodes/api-keys
+
+---
+
+## Key Lifecycle
+
+### touch
+
+Update the last_used_at timestamp.
+
+**Signature:**
+```rust
+async fn touch(&self, key_id: Uuid) -> Result<(), NodeApiKeyError>
+```
+
+**Used By:**
+- `nodes/auth.rs` - On successful authentication
+
+---
+
+### revoke
+
+Revoke an API key (soft delete).
+
+**Signature:**
+```rust
+async fn revoke(&self, key_id: Uuid) -> Result<(), NodeApiKeyError>
+```
+
+**Used By:**
+- `routes/nodes.rs` - DELETE /api/nodes/api-keys/:id
+
+**Notes:**
+- Sets `revoked_at` timestamp
+- Key can no longer be used but record preserved
+
+---
+
+### delete
+
+Permanently delete an API key.
+
+**Signature:**
+```rust
+async fn delete(&self, key_id: Uuid) -> Result<(), NodeApiKeyError>
+```
+
+**Used By:**
+- `routes/nodes.rs` - Hard delete option
+
+---
+
+## Node Binding
+
+### bind_to_node
+
+Bind an API key to a specific node. Establishes "One API Key = One Node" identity.
+
+**Signature:**
+```rust
+async fn bind_to_node(
+    &self,
+    key_id: Uuid,
+    node_id: Uuid,
+) -> Result<NodeApiKey, NodeApiKeyError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `key_id` | `Uuid` | API key ID |
+| `node_id` | `Uuid` | Node ID to bind to |
+
+**Returns:** Updated API key.
+
+**Errors:**
+- `AlreadyBound` - Key bound to different node
+- `NotFound` - Key revoked or blocked
+
+**Used By:**
+- `nodes/auth.rs` - First connection with key
+
+**Notes:**
+- Once bound, key can only be used by this node
+- Resets takeover counter on bind
+
+---
+
+### update_node_binding
+
+Update the node binding (used during takeover).
+
+**Signature:**
+```rust
+async fn update_node_binding(
+    &self,
+    key_id: Uuid,
+    node_id: Uuid,
+    reset_takeover: bool,
+) -> Result<NodeApiKey, NodeApiKeyError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `key_id` | `Uuid` | API key ID |
+| `node_id` | `Uuid` | New node ID |
+| `reset_takeover` | `bool` | Reset takeover counter |
+
+**Used By:**
+- `nodes/auth.rs` - Legitimate takeover (node was offline)
+
+---
+
+## Security Operations
+
+### increment_takeover
+
+Increment takeover count for detecting duplicate key usage.
+
+**Signature:**
+```rust
+async fn increment_takeover(
+    &self,
+    key_id: Uuid,
+    window_duration_minutes: i64,
+) -> Result<NodeApiKey, NodeApiKeyError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `key_id` | `Uuid` | API key ID |
+| `window_duration_minutes` | `i64` | Takeover window (default 5 min) |
+
+**Returns:** Updated key with new takeover count.
+
+**Used By:**
+- `nodes/auth.rs` - When different node uses bound key
+
+**Notes:**
+- Resets window if expired (> 5 minutes)
+- 3 takeovers in window triggers block
+
+---
+
+### block_key
+
+Block an API key due to suspected duplicate use.
+
+**Signature:**
+```rust
+async fn block_key(
+    &self,
+    key_id: Uuid,
+    reason: &str,
+) -> Result<NodeApiKey, NodeApiKeyError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `key_id` | `Uuid` | API key ID |
+| `reason` | `&str` | Reason for blocking |
+
+**Returns:** Blocked key.
+
+**Used By:**
+- `nodes/auth.rs` - After 3 takeovers
+
+**Notes:**
+- Blocked keys cannot be used
+- Requires admin unblock
+
+---
+
+### unblock_key
+
+Unblock a previously blocked API key.
+
+**Signature:**
+```rust
+async fn unblock_key(&self, key_id: Uuid) -> Result<NodeApiKey, NodeApiKeyError>
+```
+
+**Returns:** Unblocked key with reset counters.
+
+**Used By:**
+- `routes/nodes.rs` - POST /api/nodes/api-keys/:id/unblock
+
+---
+
+### reset_takeover_count
+
+Reset takeover count without unblocking.
+
+**Signature:**
+```rust
+async fn reset_takeover_count(&self, key_id: Uuid) -> Result<(), NodeApiKeyError>
+```
+
+**Used By:**
+- `nodes/auth.rs` - Legitimate takeover allowed
+
+---
+
+## Data Model
+
+### NodeApiKey Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `Uuid` | Primary key |
+| `organization_id` | `Uuid` | Foreign key to organizations |
+| `name` | `String` | Human-readable name |
+| `key_hash` | `String` | SHA256 hash of key |
+| `key_prefix` | `String` | First 8 chars for lookup |
+| `created_by` | `Uuid` | User who created key |
+| `last_used_at` | `Option<DateTime<Utc>>` | Last usage time |
+| `revoked_at` | `Option<DateTime<Utc>>` | Revocation time |
+| `created_at` | `DateTime<Utc>` | Creation time |
+| `node_id` | `Option<Uuid>` | Bound node ID |
+| `takeover_count` | `i32` | Takeover attempts in window |
+| `takeover_window_start` | `Option<DateTime<Utc>>` | Window start |
+| `blocked_at` | `Option<DateTime<Utc>>` | Block time |
+| `blocked_reason` | `Option<String>` | Block reason |
+
+---
+
+## Security Flow
+
+### Normal Connection
+
+1. Node sends API key
+2. `find_by_prefix` lookup
+3. Hash verification
+4. `bind_to_node` on first use
+5. `touch` to update last used
+
+### Takeover Detection
+
+1. Different node uses same key
+2. `increment_takeover` called
+3. If count >= 3 in window
+4. `block_key` with reason
+5. Admin must `unblock_key`
+
+### Legitimate Takeover
+
+1. Node was offline (detected by monitor)
+2. Different machine uses key
+3. `update_node_binding` with `reset_takeover = true`

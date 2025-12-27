@@ -1,0 +1,308 @@
+---
+title: Shared Task Functions
+description: PostgreSQL functions for shared task management in the Hive
+---
+
+# Shared Task Functions
+
+Functions for managing shared tasks in the PostgreSQL Hive database. Shared tasks are the central task registry that nodes sync with via ElectricSQL.
+
+**Source:** `crates/remote/src/db/tasks.rs`
+
+## Quick Reference
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `find_by_id` | Lookup by UUID | `Option<SharedTask>` |
+| `create` | Create shared task | `SharedTask` |
+| `bulk_fetch` | Fetch all for project | `Vec<SharedTask>` |
+| `update` | Update task fields | `SharedTask` |
+| `assign_task` | Change assignee | `SharedTask` |
+| `update_status_from_node` | Node status update | `SharedTask` |
+| `delete_task` | Soft delete | `()` |
+| `organization_id` | Get org for task | `Option<Uuid>` |
+
+---
+
+## Query Operations
+
+### find_by_id
+
+Retrieve a shared task by UUID.
+
+**Signature:**
+```rust
+async fn find_by_id(
+    &self,
+    task_id: Uuid,
+    user_id: Option<Uuid>,
+) -> Result<Option<SharedTask>, TaskDbError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `task_id` | `Uuid` | Task's unique identifier |
+| `user_id` | `Option<Uuid>` | Optional user for assignee info |
+
+**Returns:** Task with optional user details populated.
+
+**Used By:**
+- `routes/tasks.rs` - GET /api/shared-tasks/:id
+- `nodes/service.rs` - Task validation
+
+---
+
+### bulk_fetch
+
+Fetch all tasks for a project.
+
+**Signature:**
+```rust
+async fn bulk_fetch(
+    &self,
+    project_id: Uuid,
+) -> Result<Vec<SharedTask>, TaskDbError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `project_id` | `Uuid` | Project ID |
+
+**Returns:** All non-deleted tasks for the project.
+
+**Used By:**
+- `routes/projects.rs` - Project tasks list
+- ElectricSQL shape initialization
+
+---
+
+### organization_id
+
+Get the organization ID for a task.
+
+**Signature:**
+```rust
+async fn organization_id(
+    &self,
+    task_id: Uuid,
+) -> Result<Option<Uuid>, TaskDbError>
+```
+
+**Returns:** Organization ID the task belongs to.
+
+**Used By:**
+- `routes/tasks.rs` - Authorization checks
+
+---
+
+## CRUD Operations
+
+### create
+
+Create a new shared task.
+
+**Signature:**
+```rust
+async fn create(
+    &self,
+    project_id: Uuid,
+    organization_id: Uuid,
+    title: String,
+    description: Option<String>,
+    creator_user_id: Uuid,
+) -> Result<SharedTask, TaskDbError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `project_id` | `Uuid` | Parent project |
+| `organization_id` | `Uuid` | Parent organization |
+| `title` | `String` | Task title |
+| `description` | `Option<String>` | Task description |
+| `creator_user_id` | `Uuid` | User creating the task |
+
+**Returns:** Created task with status 'todo'.
+
+**Used By:**
+- `routes/tasks.rs` - POST /api/shared-tasks
+
+**Notes:**
+- Initializes version to 1
+- Sets `shared_at` to current timestamp
+
+---
+
+### update
+
+Update task fields.
+
+**Signature:**
+```rust
+async fn update(
+    &self,
+    task_id: Uuid,
+    title: Option<String>,
+    description: Option<String>,
+    status: Option<TaskStatus>,
+) -> Result<SharedTask, TaskDbError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `task_id` | `Uuid` | Task ID |
+| `title` | `Option<String>` | New title |
+| `description` | `Option<String>` | New description |
+| `status` | `Option<TaskStatus>` | New status |
+
+**Returns:** Updated task with incremented version.
+
+**Used By:**
+- `routes/tasks.rs` - PUT /api/shared-tasks/:id
+
+**Notes:**
+- Increments version on each update
+- Uses COALESCE for optional fields
+
+---
+
+### assign_task
+
+Assign or reassign a task to a user.
+
+**Signature:**
+```rust
+async fn assign_task(
+    &self,
+    task_id: Uuid,
+    assignee_user_id: Option<Uuid>,
+) -> Result<SharedTask, TaskDbError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `task_id` | `Uuid` | Task ID |
+| `assignee_user_id` | `Option<Uuid>` | User to assign (None to unassign) |
+
+**Returns:** Updated task.
+
+**Used By:**
+- `routes/tasks.rs` - POST /api/shared-tasks/:id/assign
+
+---
+
+### update_status_from_node
+
+Update task status from a node's execution result.
+
+**Signature:**
+```rust
+async fn update_status_from_node(
+    &self,
+    task_id: Uuid,
+    status: TaskStatus,
+) -> Result<SharedTask, TaskDbError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `task_id` | `Uuid` | Task ID |
+| `status` | `TaskStatus` | New status from node |
+
+**Returns:** Updated task.
+
+**Used By:**
+- `nodes/ws/handler.rs` - Execution status updates
+
+**Notes:**
+- Called when node reports execution completion
+- Status typically transitions to InReview or Done
+
+---
+
+### delete_task
+
+Soft-delete a task.
+
+**Signature:**
+```rust
+async fn delete_task(
+    &self,
+    task_id: Uuid,
+    deleted_by_user_id: Uuid,
+) -> Result<(), TaskDbError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `task_id` | `Uuid` | Task ID |
+| `deleted_by_user_id` | `Uuid` | User deleting the task |
+
+**Used By:**
+- `routes/tasks.rs` - DELETE /api/shared-tasks/:id
+
+**Notes:**
+- Sets `deleted_at` and `deleted_by_user_id`
+- Task excluded from normal queries
+- ElectricSQL syncs deletion to nodes
+
+---
+
+## Data Model
+
+### SharedTask Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `Uuid` | Primary key |
+| `organization_id` | `Uuid` | Foreign key to organizations |
+| `project_id` | `Uuid` | Foreign key to projects |
+| `creator_user_id` | `Uuid` | User who created task |
+| `assignee_user_id` | `Option<Uuid>` | Assigned user |
+| `deleted_by_user_id` | `Option<Uuid>` | User who deleted |
+| `title` | `String` | Task title |
+| `description` | `Option<String>` | Task description |
+| `status` | `TaskStatus` | todo, in-progress, in-review, done, cancelled |
+| `version` | `i64` | Optimistic locking version |
+| `deleted_at` | `Option<DateTime<Utc>>` | Deletion timestamp |
+| `shared_at` | `DateTime<Utc>` | When shared to Hive |
+| `created_at` | `DateTime<Utc>` | Creation timestamp |
+| `updated_at` | `DateTime<Utc>` | Last update timestamp |
+
+### TaskStatus Enum
+
+- `todo` - Not started
+- `in-progress` - Being worked on
+- `in-review` - Awaiting review
+- `done` - Completed
+- `cancelled` - Cancelled
+
+---
+
+## ElectricSQL Integration
+
+The `shared_tasks` table is enabled for ElectricSQL sync:
+
+```sql
+SELECT electric_sync_table('public', 'shared_tasks');
+```
+
+### Sync Flow
+
+1. Task created/updated in Hive
+2. PostgreSQL logical replication captures change
+3. Electric shapes stream to connected nodes
+4. Nodes upsert to local `tasks` table via `sync_from_shared_task`
+
+### Shape Subscription
+
+Nodes subscribe with project filter:
+```text
+GET /v1/shape/shared_tasks?where=project_id=:id
+```
