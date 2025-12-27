@@ -2,7 +2,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useUserOrganizations } from '@/hooks/useUserOrganizations';
 import { useOrganizationSelection } from '@/hooks/useOrganizationSelection';
 import { NodesProvider, useNodes } from '@/contexts/NodesContext';
-import { NodeList } from '@/components/nodes';
+import { NodeList, NodeDetailPanel } from '@/components/nodes';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { AlertCircle, Loader2, RefreshCw, Server } from 'lucide-react';
+import { AlertCircle, Loader2, RefreshCw, Server, ArrowLeft } from 'lucide-react';
 import type { Node } from '@/types/nodes';
 
 function NodesPageContent() {
@@ -57,6 +57,32 @@ function NodesPageContent() {
   );
 }
 
+interface NodeDetailContentProps {
+  nodeId: string;
+}
+
+function NodeDetailContent({ nodeId }: NodeDetailContentProps) {
+  const { nodes } = useNodes();
+  const navigate = useNavigate();
+
+  const handleDelete = () => {
+    navigate('/nodes');
+  };
+
+  const handleMerge = () => {
+    navigate('/nodes');
+  };
+
+  return (
+    <NodeDetailPanel
+      nodeId={nodeId}
+      availableNodes={nodes}
+      onDelete={handleDelete}
+      onMerge={handleMerge}
+    />
+  );
+}
+
 export function Nodes() {
   const { nodeId } = useParams<{ nodeId: string }>();
   const navigate = useNavigate();
@@ -67,22 +93,29 @@ export function Nodes() {
       organizations,
     });
 
-  // If viewing a specific node, show detail view (TODO: implement NodeDetail)
+  // If viewing a specific node, show detail view
   if (nodeId) {
     return (
       <div className="space-y-6 p-8 pb-16 md:pb-8 h-full overflow-auto">
         <div className="flex items-center gap-4">
           <Button variant="ghost" onClick={() => navigate('/nodes')}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
             Back to Nodes
           </Button>
         </div>
-        <Card>
-          <CardContent className="py-12 text-center">
-            <p className="text-muted-foreground">
-              Node detail view coming soon. Node ID: {nodeId}
-            </p>
-          </CardContent>
-        </Card>
+        {selectedOrgId ? (
+          <NodesProvider organizationId={selectedOrgId}>
+            <NodeDetailContent nodeId={nodeId} />
+          </NodesProvider>
+        ) : (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <p className="text-muted-foreground">
+                Select an organization to view node details
+              </p>
+            </CardContent>
+          </Card>
+        )}
       </div>
     );
   }

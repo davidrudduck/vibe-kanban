@@ -28,7 +28,15 @@ import {
   Check,
   Eye,
   EyeOff,
+  AlertTriangle,
+  Unlock,
+  Server,
 } from 'lucide-react';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { nodesApi } from '@/lib/api';
 import type { NodeApiKey } from '@/types/nodes';
@@ -86,6 +94,33 @@ export function NodeApiKeySection({
       setError(err instanceof Error ? err.message : 'Failed to revoke API key');
     },
   });
+
+  // Unblock API key mutation
+  const unblockMutation = useMutation({
+    mutationFn: (keyId: string) => nodesApi.unblockApiKey(keyId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ['nodeApiKeys', organizationId],
+      });
+    },
+    onError: (err) => {
+      setError(
+        err instanceof Error ? err.message : 'Failed to unblock API key'
+      );
+    },
+  });
+
+  const handleUnblock = (keyId: string) => {
+    if (
+      !confirm(
+        'Are you sure you want to unblock this API key? The node will be able to connect again.'
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    unblockMutation.mutate(keyId);
+  };
 
   const handleCreate = () => {
     if (!newKeyName.trim()) return;
@@ -184,7 +219,9 @@ export function NodeApiKeySection({
                 key={key.id}
                 apiKey={key}
                 onRevoke={handleRevoke}
+                onUnblock={handleUnblock}
                 isRevoking={revokeMutation.isPending}
+                isUnblocking={unblockMutation.isPending}
                 isAdmin={isAdmin}
               />
             ))}
@@ -280,25 +317,54 @@ export function NodeApiKeySection({
 interface ApiKeyItemProps {
   apiKey: NodeApiKey;
   onRevoke: (keyId: string) => void;
+  onUnblock: (keyId: string) => void;
   isRevoking: boolean;
+  isUnblocking: boolean;
   isAdmin: boolean;
 }
 
 function ApiKeyItem({
   apiKey,
   onRevoke,
+  onUnblock,
   isRevoking,
+  isUnblocking,
   isAdmin,
 }: ApiKeyItemProps) {
   const createdAt = new Date(apiKey.created_at);
   const lastUsed = apiKey.last_used_at ? new Date(apiKey.last_used_at) : null;
+  const isBlocked = !!apiKey.blocked_at;
 
   return (
-    <div className="flex items-center justify-between p-3 border rounded-lg">
+    <div
+      className={`flex items-center justify-between p-3 border rounded-lg ${isBlocked ? 'border-destructive/50 bg-destructive/5' : ''}`}
+    >
       <div className="flex items-center gap-3">
-        <Key className="h-5 w-5 text-muted-foreground" />
-        <div>
-          <div className="font-medium text-sm">{apiKey.name}</div>
+        <Key
+          className={`h-5 w-5 ${isBlocked ? 'text-destructive' : 'text-muted-foreground'}`}
+        />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium text-sm">{apiKey.name}</span>
+            {apiKey.node_id && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex items-center gap-1 text-xs text-muted-foreground bg-secondary px-1.5 py-0.5 rounded">
+                    <Server className="h-3 w-3" />
+                    Bound
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Bound to node: {apiKey.node_id.slice(0, 8)}...</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
+            {!apiKey.node_id && !apiKey.revoked_at && (
+              <span className="text-xs text-muted-foreground bg-secondary/50 px-1.5 py-0.5 rounded">
+                Unbound
+              </span>
+            )}
+          </div>
           <div className="text-xs text-muted-foreground">
             <code>{apiKey.key_prefix}...</code>
             {' · '}
@@ -311,9 +377,54 @@ function ApiKeyItem({
           )}
         </div>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-shrink-0">
         {apiKey.revoked_at ? (
           <Badge variant="destructive">Revoked</Badge>
+        ) : isBlocked ? (
+          <>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge
+                  variant="destructive"
+                  className="flex items-center gap-1"
+                >
+                  <AlertTriangle className="h-3 w-3" />
+                  Blocked
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">
+                <p className="font-medium">Key blocked</p>
+                <p className="text-xs opacity-80">
+                  {apiKey.blocked_reason || 'Duplicate key use detected'}
+                </p>
+                {apiKey.blocked_at && (
+                  <p className="text-xs opacity-60 mt-1">
+                    Blocked{' '}
+                    {formatDistanceToNow(new Date(apiKey.blocked_at), {
+                      addSuffix: true,
+                    })}
+                  </p>
+                )}
+              </TooltipContent>
+            </Tooltip>
+            {isAdmin && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onUnblock(apiKey.id)}
+                disabled={isUnblocking}
+              >
+                {isUnblocking ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <>
+                    <Unlock className="h-4 w-4 mr-1" />
+                    Unblock
+                  </>
+                )}
+              </Button>
+            )}
+          </>
         ) : (
           <>
             <Badge variant="outline">Active</Badge>
