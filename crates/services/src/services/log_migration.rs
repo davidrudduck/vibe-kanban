@@ -18,6 +18,7 @@
 //! duplicate entries. This is achieved by checking if entries already exist
 //! before insertion.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -28,13 +29,13 @@ use db::models::log_entry::{CreateLogEntry, DbLogEntry};
 use executors::actions::ExecutorActionType;
 use executors::profile::ExecutorConfigs;
 use executors::executors::StandardCodingAgentExecutor;
+use json_patch::Patch;
+use serde_json::Value;
 use sqlx::{Row, SqlitePool};
 use thiserror::Error;
 use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 use utils::log_msg::LogMsg;
-use json_patch::{Patch, patch as apply_patch};
-use serde_json::Value;
 use utils::unified_log::OutputType;
 use uuid::Uuid;
 use utils::msg_store::MsgStore;
@@ -343,27 +344,40 @@ pub async fn migrate_execution_logs(
         "Collected normalized patches"
     );
 
-    // Apply all patches to build the final entries array
-    // This reconstructs the full conversation state from incremental patches
-    let mut container: Value = serde_json::json!({ "entries": [] });
+    // Extract final entries directly from patches instead of applying sequentially.
+    // This avoids errors when "replace" operations target indices that don't exist yet
+    // (which happens when streaming content creates add+replace sequences).
+    // We build a map of entry_index -> latest value, then sort by index.
+    let mut entry_map: BTreeMap<usize, Value> = BTreeMap::new();
 
     for patch in &patches {
-        if let Err(e) = apply_patch(&mut container, patch) {
-            warn!(
-                execution_id = %execution_id,
-                error = %e,
-                "Failed to apply patch during migration"
-            );
-            result.errors += 1;
+        // Each patch is a Vec of operations; extract the value from add/replace ops
+        if let Ok(ops) = serde_json::to_value(patch) {
+            if let Some(ops_array) = ops.as_array() {
+                for op in ops_array {
+                    let op_type = op.get("op").and_then(|v| v.as_str());
+                    let path = op.get("path").and_then(|v| v.as_str());
+                    let value = op.get("value");
+
+                    // Only process add/replace operations on /entries/{index}
+                    if matches!(op_type, Some("add") | Some("replace")) {
+                        if let Some(path_str) = path {
+                            if let Some(idx_str) = path_str.strip_prefix("/entries/") {
+                                if let Ok(idx) = idx_str.parse::<usize>() {
+                                    if let Some(val) = value {
+                                        entry_map.insert(idx, val.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
-    // Extract the final entries from the container
-    let entries = container
-        .get("entries")
-        .and_then(|e| e.as_array())
-        .cloned()
-        .unwrap_or_default();
+    // Convert the map to a sorted vector of entries
+    let entries: Vec<Value> = entry_map.into_values().collect();
 
     debug!(
         execution_id = %execution_id,
