@@ -57,6 +57,7 @@ pub struct SharedTask {
     pub version: i64,
     pub deleted_at: Option<DateTime<Utc>>,
     pub shared_at: Option<DateTime<Utc>>,
+    pub archived_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -82,6 +83,7 @@ pub struct UpdateSharedTaskData {
     pub title: Option<String>,
     pub description: Option<String>,
     pub status: Option<TaskStatus>,
+    pub archived_at: Option<Option<DateTime<Utc>>>,
     pub version: Option<i64>,
     pub acting_user_id: Uuid,
 }
@@ -145,6 +147,7 @@ impl<'a> SharedTaskRepository<'a> {
                 version             AS "version!",
                 deleted_at          AS "deleted_at?",
                 shared_at           AS "shared_at?",
+                archived_at         AS "archived_at?",
                 created_at          AS "created_at!",
                 updated_at          AS "updated_at!"
             FROM shared_tasks
@@ -211,6 +214,7 @@ impl<'a> SharedTaskRepository<'a> {
                       version            AS "version!",
                       deleted_at         AS "deleted_at?",
                       shared_at          AS "shared_at?",
+                      archived_at        AS "archived_at?",
                       created_at         AS "created_at!",
                       updated_at         AS "updated_at!"
             "#,
@@ -256,6 +260,7 @@ impl<'a> SharedTaskRepository<'a> {
                 st.version                AS "version!",
                 st.deleted_at             AS "deleted_at?",
                 st.shared_at              AS "shared_at?",
+                st.archived_at            AS "archived_at?",
                 st.created_at             AS "created_at!",
                 st.updated_at             AS "updated_at!",
                 u.id                      AS "user_id?: Uuid",
@@ -289,6 +294,7 @@ impl<'a> SharedTaskRepository<'a> {
                     version: row.version,
                     deleted_at: row.deleted_at,
                     shared_at: row.shared_at,
+                    archived_at: row.archived_at,
                     created_at: row.created_at,
                     updated_at: row.updated_at,
                 };
@@ -345,6 +351,15 @@ impl<'a> SharedTaskRepository<'a> {
     ) -> Result<SharedTaskWithUser, SharedTaskError> {
         let mut tx = self.pool.begin().await.map_err(SharedTaskError::from)?;
 
+        // Flatten Option<Option<DateTime<Utc>>> for archived_at:
+        // - None (outer): don't update archived_at
+        // - Some(None): set archived_at to NULL (unarchive)
+        // - Some(Some(ts)): set archived_at to timestamp (archive)
+        let (should_update_archived, archived_at_value) = match &data.archived_at {
+            None => (false, None),
+            Some(inner) => (true, *inner),
+        };
+
         let task = sqlx::query_as!(
             SharedTask,
             r#"
@@ -352,6 +367,7 @@ impl<'a> SharedTaskRepository<'a> {
         SET title       = COALESCE($2, t.title),
             description = COALESCE($3, t.description),
             status      = COALESCE($4, t.status),
+            archived_at = CASE WHEN $7 THEN $8 ELSE t.archived_at END,
             version     = t.version + 1,
             updated_at  = NOW()
         WHERE t.id = $1
@@ -371,6 +387,7 @@ impl<'a> SharedTaskRepository<'a> {
             t.version           AS "version!",
             t.deleted_at        AS "deleted_at?",
             t.shared_at         AS "shared_at?",
+            t.archived_at       AS "archived_at?",
             t.created_at        AS "created_at!",
             t.updated_at        AS "updated_at!"
         "#,
@@ -379,7 +396,9 @@ impl<'a> SharedTaskRepository<'a> {
             data.description,
             data.status as Option<TaskStatus>,
             data.version,
-            data.acting_user_id
+            data.acting_user_id,
+            should_update_archived,
+            archived_at_value
         )
         .fetch_optional(&mut *tx)
         .await?
@@ -427,6 +446,7 @@ impl<'a> SharedTaskRepository<'a> {
             t.version           AS "version!",
             t.deleted_at        AS "deleted_at?",
             t.shared_at         AS "shared_at?",
+            t.archived_at       AS "archived_at?",
             t.created_at        AS "created_at!",
             t.updated_at        AS "updated_at!"
         "#,
@@ -482,6 +502,7 @@ impl<'a> SharedTaskRepository<'a> {
                 t.version           AS "version!",
                 t.deleted_at        AS "deleted_at?",
                 t.shared_at         AS "shared_at?",
+                t.archived_at       AS "archived_at?",
                 t.created_at        AS "created_at!",
                 t.updated_at        AS "updated_at!"
             "#,
@@ -526,6 +547,7 @@ impl<'a> SharedTaskRepository<'a> {
             t.version           AS "version!",
             t.deleted_at        AS "deleted_at?",
             t.shared_at         AS "shared_at?",
+            t.archived_at       AS "archived_at?",
             t.created_at        AS "created_at!",
             t.updated_at        AS "updated_at!"
         "#,

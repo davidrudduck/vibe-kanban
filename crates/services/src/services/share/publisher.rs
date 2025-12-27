@@ -71,6 +71,8 @@ impl SharePublisher {
             title: Some(task.title.clone()),
             description: task.description.clone(),
             status: Some(status::to_remote(&task.status)),
+            // Always sync archived_at - use Some(None) to unarchive, Some(Some(ts)) to archive
+            archived_at: Some(task.archived_at),
             version: None,
         };
 

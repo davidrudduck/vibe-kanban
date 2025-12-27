@@ -156,6 +156,28 @@ pub async fn create_task(
                 ));
             }
         }
+
+        // Auto-unarchive the parent task when a subtask is created
+        if Task::unarchive_if_archived(pool, parent_task_id).await? {
+            tracing::info!(
+                parent_task_id = %parent_task_id,
+                "Auto-unarchived parent task due to subtask creation"
+            );
+
+            // Sync unarchive to Hive if parent is shared
+            if parent_task.shared_task_id.is_some() {
+                if let Ok(publisher) = deployment.share_publisher() {
+                    if let Some(updated_parent) = Task::find_by_id(pool, parent_task_id).await? {
+                        let publisher = publisher.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = publisher.update_shared_task(&updated_parent).await {
+                                tracing::warn!(?e, "failed to sync parent task unarchive to Hive");
+                            }
+                        });
+                    }
+                }
+            }
+        }
     }
 
     let id = Uuid::new_v4();
@@ -263,6 +285,7 @@ async fn create_remote_task(
         response.user.as_ref().and_then(|u| u.username.clone()),
         response.task.version,
         Some(response.task.updated_at), // Use updated_at as activity_at for new tasks
+        response.task.archived_at,
     )
     .await?;
 
@@ -409,6 +432,16 @@ pub async fn update_task(
     )
     .await?;
 
+    // Auto-unarchive the task if it was archived (user is actively editing it)
+    let task = if Task::unarchive_if_archived(&deployment.db().pool, task.id).await? {
+        // Re-fetch to get updated archived_at = NULL
+        Task::find_by_id(&deployment.db().pool, task.id)
+            .await?
+            .ok_or(ApiError::Database(SqlxError::RowNotFound))?
+    } else {
+        task
+    };
+
     if let Some(image_ids) = &payload.image_ids {
         TaskImage::delete_by_task_id(&deployment.db().pool, task.id).await?;
         TaskImage::associate_many_dedup(&deployment.db().pool, task.id, image_ids).await?;
@@ -467,6 +500,7 @@ async fn update_remote_task(
         title: payload.title.clone(),
         description: payload.description.clone(),
         status: payload.status.as_ref().map(task_status::to_remote),
+        archived_at: None, // Don't modify archived_at when updating a remote task
         version: Some(existing_task.remote_version),
     };
 
@@ -495,6 +529,7 @@ async fn update_remote_task(
         response.user.as_ref().and_then(|u| u.username.clone()),
         response.task.version,
         Some(response.task.updated_at), // Use updated_at as activity_at for task updates
+        response.task.archived_at,
     )
     .await?;
 

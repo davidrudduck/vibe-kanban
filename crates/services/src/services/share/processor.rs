@@ -31,6 +31,7 @@ struct PreparedBulkTask {
     remote_task_status: remote::db::tasks::TaskStatus,
     remote_task_assignee_user_id: Option<Uuid>,
     remote_task_version: i64,
+    remote_task_archived_at: Option<chrono::DateTime<chrono::Utc>>,
     remote_user_first_name: Option<String>,
     remote_user_last_name: Option<String>,
     remote_user_username: Option<String>,
@@ -217,6 +218,7 @@ impl ActivityProcessor {
                             user.as_ref().and_then(|u| u.username.clone()),
                             task.version,
                             Some(event.created_at),
+                            task.archived_at,
                         )
                         .await?;
                     } else {
@@ -321,6 +323,7 @@ impl ActivityProcessor {
                 remote_task_status: payload.task.status,
                 remote_task_assignee_user_id: payload.task.assignee_user_id,
                 remote_task_version: payload.task.version,
+                remote_task_archived_at: payload.task.archived_at,
                 remote_user_first_name: payload.user.as_ref().and_then(|u| u.first_name.clone()),
                 remote_user_last_name: payload.user.as_ref().and_then(|u| u.last_name.clone()),
                 remote_user_username: payload.user.as_ref().and_then(|u| u.username.clone()),
@@ -363,6 +366,7 @@ impl ActivityProcessor {
             remote_task_status,
             remote_task_assignee_user_id,
             remote_task_version,
+            remote_task_archived_at,
             remote_user_first_name,
             remote_user_last_name,
             remote_user_username,
@@ -394,6 +398,7 @@ impl ActivityProcessor {
                         remote_user_username,
                         remote_task_version,
                         shared_task.activity_at,
+                        remote_task_archived_at,
                     )
                     .await?;
                 } else {
