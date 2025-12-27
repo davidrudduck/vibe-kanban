@@ -17,6 +17,7 @@ use crate::executors::{
         types::{PermissionMode, SDKControlRequestType},
     },
 };
+use workspace_utils::approvals::Question;
 
 /// Handles bidirectional control protocol communication
 #[derive(Clone)]
@@ -122,6 +123,48 @@ impl ProtocolPeer {
                 permission_suggestions,
                 tool_use_id,
             } => {
+                // Special case: AskUserQuestion arriving via CanUseTool needs different response format
+                // Claude Code expects { "answers": {...} } not { "behavior": "allow", "updatedInput": {...} }
+                if tool_name == "AskUserQuestion" {
+                    // Extract questions from input and use the existing AskUserQuestion handler
+                    let questions_result: Result<Vec<Question>, _> = input
+                        .get("questions")
+                        .map(|q| serde_json::from_value(q.clone()))
+                        .unwrap_or(Ok(vec![]));
+
+                    match questions_result {
+                        Ok(questions) if !questions.is_empty() => {
+                            // Use the SAME handler as direct AskUserQuestion control request
+                            // This ensures the response format is { "answers": {...} }
+                            match client.on_ask_user_question(questions, tool_use_id).await {
+                                Ok(result) => {
+                                    if let Err(e) =
+                                        self.send_hook_response(request_id, result).await
+                                    {
+                                        tracing::error!("Failed to send question answer: {e}");
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::error!("Error in on_ask_user_question: {e}");
+                                    if let Err(e2) =
+                                        self.send_error(request_id, e.to_string()).await
+                                    {
+                                        tracing::error!("Failed to send error response: {e2}");
+                                    }
+                                }
+                            }
+                            return;
+                        }
+                        _ => {
+                            tracing::warn!(
+                                "AskUserQuestion via CanUseTool missing or invalid questions"
+                            );
+                            // Fall through to normal CanUseTool handling which will deny
+                        }
+                    }
+                }
+
+                // Normal CanUseTool handling (non-AskUserQuestion or fallback)
                 match client
                     .on_can_use_tool(tool_name, input, permission_suggestions, tool_use_id)
                     .await

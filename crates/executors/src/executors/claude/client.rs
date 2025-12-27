@@ -123,13 +123,8 @@ impl ClaudeAgentClient {
         _permission_suggestions: Option<Vec<PermissionUpdate>>,
         tool_use_id: Option<String>,
     ) -> Result<PermissionResult, ExecutorError> {
-        // Special handling for AskUserQuestion - route to the correct code path
-        // that properly populates the questions field in the approval request
-        if tool_name == "AskUserQuestion" {
-            return self
-                .handle_ask_user_question_via_can_use_tool(input, tool_use_id)
-                .await;
-        }
+        // Note: AskUserQuestion via CanUseTool is handled in protocol.rs before reaching here,
+        // because it needs a different response format ({ "answers": {...} } vs PermissionResult)
 
         if self.auto_approve {
             Ok(PermissionResult::Allow {
@@ -148,52 +143,6 @@ impl ClaudeAgentClient {
             );
             Ok(PermissionResult::Allow {
                 updated_input: input,
-                updated_permissions: None,
-            })
-        }
-    }
-
-    /// Handle AskUserQuestion when it arrives via CanUseTool instead of the dedicated control request.
-    /// This ensures the approval request includes the questions field for proper UI rendering.
-    async fn handle_ask_user_question_via_can_use_tool(
-        &self,
-        input: serde_json::Value,
-        tool_use_id: Option<String>,
-    ) -> Result<PermissionResult, ExecutorError> {
-        // Extract questions from input
-        let questions: Vec<Question> = match input.get("questions") {
-            Some(q) => match serde_json::from_value(q.clone()) {
-                Ok(questions) => questions,
-                Err(e) => {
-                    tracing::warn!("Failed to parse AskUserQuestion questions: {e}");
-                    return Ok(PermissionResult::Deny {
-                        message: "Invalid questions format".to_string(),
-                        interrupt: Some(false),
-                    });
-                }
-            },
-            None => {
-                tracing::warn!("AskUserQuestion called without questions in input");
-                return Ok(PermissionResult::Deny {
-                    message: "No questions provided".to_string(),
-                    interrupt: Some(false),
-                });
-            }
-        };
-
-        // Call the existing question handling logic
-        let result = self.on_ask_user_question(questions, tool_use_id).await?;
-
-        // Convert the JSON result to PermissionResult
-        if let Some(error) = result.get("error") {
-            Ok(PermissionResult::Deny {
-                message: error.as_str().unwrap_or("Question failed").to_string(),
-                interrupt: Some(false),
-            })
-        } else {
-            // Return answers in updated_input for the caller
-            Ok(PermissionResult::Allow {
-                updated_input: result,
                 updated_permissions: None,
             })
         }
