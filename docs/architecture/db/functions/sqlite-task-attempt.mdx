@@ -1,0 +1,446 @@
+---
+title: Task Attempt Functions
+description: Database functions for task attempt lifecycle management in SQLite
+---
+
+# Task Attempt Functions
+
+Functions for managing task attempts in the local SQLite database. Task attempts represent individual execution runs of a task by an AI coding agent.
+
+**Source:** `crates/db/src/models/task_attempt.rs`
+
+## Quick Reference
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `parent_task` | Load parent task | `Option<Task>` |
+| `fetch_all` | List all attempts | `Vec<TaskAttempt>` |
+| `load_context` | Load with full validation | `TaskAttemptContext` |
+| `update_container_ref` | Set worktree path | `()` |
+| `mark_worktree_deleted` | Mark cleanup done | `()` |
+| `find_by_id` | Lookup by UUID | `Option<TaskAttempt>` |
+| `find_by_rowid` | Lookup by SQLite rowid | `Option<TaskAttempt>` |
+| `find_by_task_id_with_project` | Cleanup context | `Vec<(Uuid, Option<String>, String)>` |
+| `find_by_worktree_deleted` | Find active worktrees | `Vec<(Uuid, String)>` |
+| `container_ref_exists` | Check worktree exists | `bool` |
+| `find_expired_for_cleanup` | Find stale attempts | `Vec<(Uuid, String, String)>` |
+| `create` | Insert new attempt | `TaskAttempt` |
+| `update_target_branch` | Change target | `()` |
+| `update_branch_name` | Rename branch | `()` |
+| `update_target_branch_for_children_of_task` | Cascade update | `u64` |
+| `resolve_container_ref` | Lookup by worktree | `(Uuid, Uuid, Uuid)` |
+| `task_uses_shared_worktree` | Check sharing | `bool` |
+| `find_active_without_pr` | Find PR candidates | `Vec<(Uuid, String, String, String)>` |
+
+---
+
+## Query Operations
+
+### fetch_all
+
+Fetch all task attempts, optionally filtered by task ID.
+
+**Signature:**
+```rust
+async fn fetch_all(
+    pool: &SqlitePool,
+    task_id: Option<Uuid>,
+) -> Result<Vec<Self>, TaskAttemptError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `task_id` | `Option<Uuid>` | Optional task filter |
+
+**Returns:** Attempts ordered by creation date descending.
+
+**Used By:**
+- `routes/task_attempts.rs` - GET /api/task-attempts
+
+---
+
+### load_context
+
+Load task attempt with full validation. Ensures attempt belongs to task and task belongs to project.
+
+**Signature:**
+```rust
+async fn load_context(
+    pool: &SqlitePool,
+    attempt_id: Uuid,
+    task_id: Uuid,
+    project_id: Uuid,
+) -> Result<TaskAttemptContext, TaskAttemptError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `attempt_id` | `Uuid` | Attempt ID |
+| `task_id` | `Uuid` | Expected task ID |
+| `project_id` | `Uuid` | Expected project ID |
+
+**Returns:** `TaskAttemptContext` containing attempt, task, and project.
+
+**Used By:**
+- `routes/task_attempts.rs` - All attempt operations
+- `services/execution.rs` - Execution context
+
+**Notes:**
+- Uses JOIN validation for security
+- Returns `TaskNotFound` if relationships don't match
+
+---
+
+### find_by_id
+
+Retrieve a single task attempt by UUID.
+
+**Signature:**
+```rust
+async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `id` | `Uuid` | Attempt's unique identifier |
+
+**Returns:** `Some(TaskAttempt)` if found.
+
+**Used By:**
+- `routes/task_attempts.rs` - GET /api/task-attempts/:id
+- `services/execution.rs` - Process management
+
+---
+
+### find_by_rowid
+
+Retrieve task attempt by SQLite rowid (for change detection).
+
+**Signature:**
+```rust
+async fn find_by_rowid(pool: &SqlitePool, rowid: i64) -> Result<Option<Self>, sqlx::Error>
+```
+
+**Used By:**
+- Internal change tracking
+
+---
+
+### find_by_task_id_with_project
+
+Find attempts with project context for cleanup operations.
+
+**Signature:**
+```rust
+async fn find_by_task_id_with_project(
+    pool: &SqlitePool,
+    task_id: Uuid,
+) -> Result<Vec<(Uuid, Option<String>, String)>, sqlx::Error>
+```
+
+**Returns:** Tuples of (attempt_id, container_ref, git_repo_path).
+
+**Used By:**
+- `services/worktree.rs` - Worktree cleanup
+
+---
+
+### find_by_worktree_deleted
+
+Find attempts with active (not deleted) worktrees.
+
+**Signature:**
+```rust
+async fn find_by_worktree_deleted(
+    pool: &SqlitePool,
+) -> Result<Vec<(Uuid, String)>, sqlx::Error>
+```
+
+**Returns:** Tuples of (attempt_id, container_ref) for active worktrees.
+
+**Used By:**
+- `services/worktree.rs` - Orphan detection
+
+---
+
+### find_expired_for_cleanup
+
+Find attempts eligible for worktree cleanup (72+ hours inactive).
+
+**Signature:**
+```rust
+async fn find_expired_for_cleanup(
+    pool: &SqlitePool,
+) -> Result<Vec<(Uuid, String, String)>, sqlx::Error>
+```
+
+**Returns:** Tuples of (attempt_id, container_ref, git_repo_path).
+
+**Used By:**
+- `services/worktree.rs` - Background cleanup service
+
+**Notes:**
+- Excludes attempts with running processes
+- Activity includes execution completion and attempt updates
+- 72-hour threshold configurable via `DISABLE_WORKTREE_ORPHAN_CLEANUP`
+
+---
+
+### container_ref_exists
+
+Check if a container reference (worktree path) exists.
+
+**Signature:**
+```rust
+async fn container_ref_exists(
+    pool: &SqlitePool,
+    container_ref: &str,
+) -> Result<bool, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `container_ref` | `&str` | Worktree path |
+
+**Returns:** `true` if an attempt uses this container.
+
+**Used By:**
+- `services/worktree.rs` - Orphan detection
+
+---
+
+### resolve_container_ref
+
+Lookup attempt, task, and project IDs from a worktree path.
+
+**Signature:**
+```rust
+async fn resolve_container_ref(
+    pool: &SqlitePool,
+    container_ref: &str,
+) -> Result<(Uuid, Uuid, Uuid), sqlx::Error>
+```
+
+**Returns:** Tuple of (attempt_id, task_id, project_id).
+
+**Used By:**
+- `services/mcp.rs` - MCP server context resolution
+- `routes/filesystem.rs` - Path validation
+
+---
+
+### task_uses_shared_worktree
+
+Check if a task shares a worktree with its parent task.
+
+**Signature:**
+```rust
+async fn task_uses_shared_worktree(
+    pool: &SqlitePool,
+    task_id: Uuid,
+    parent_task_id: Uuid,
+) -> Result<bool, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `task_id` | `Uuid` | Child task ID |
+| `parent_task_id` | `Uuid` | Parent task ID |
+
+**Returns:** `true` if any attempt shares a container_ref.
+
+**Used By:**
+- `services/worktree.rs` - Shared worktree handling
+
+---
+
+### find_active_without_pr
+
+Find active attempts without PR merge records. Used for PR discovery.
+
+**Signature:**
+```rust
+async fn find_active_without_pr(
+    pool: &SqlitePool,
+) -> Result<Vec<(Uuid, String, String, String)>, sqlx::Error>
+```
+
+**Returns:** Tuples of (attempt_id, branch, github_owner, github_repo).
+
+**Used By:**
+- `services/github.rs` - PR monitoring
+
+**Notes:**
+- Only includes tasks not in done/cancelled status
+- Only includes GitHub-enabled projects
+
+---
+
+## CRUD Operations
+
+### create
+
+Insert a new task attempt.
+
+**Signature:**
+```rust
+async fn create(
+    pool: &SqlitePool,
+    data: &CreateTaskAttempt,
+    id: Uuid,
+    task_id: Uuid,
+) -> Result<Self, TaskAttemptError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `data` | `&CreateTaskAttempt` | Attempt creation data |
+| `id` | `Uuid` | Pre-generated UUID |
+| `task_id` | `Uuid` | Parent task ID |
+
+**Returns:** Created task attempt.
+
+**Used By:**
+- `routes/task_attempts.rs` - POST /api/task-attempts
+
+---
+
+### update_container_ref
+
+Update the container reference (worktree path) for an attempt.
+
+**Signature:**
+```rust
+async fn update_container_ref(
+    pool: &SqlitePool,
+    attempt_id: Uuid,
+    container_ref: &str,
+) -> Result<(), sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `attempt_id` | `Uuid` | Attempt ID |
+| `container_ref` | `&str` | New worktree path |
+
+**Used By:**
+- `services/worktree.rs` - Worktree creation
+
+---
+
+### mark_worktree_deleted
+
+Mark a worktree as deleted in the database.
+
+**Signature:**
+```rust
+async fn mark_worktree_deleted(
+    pool: &SqlitePool,
+    attempt_id: Uuid,
+) -> Result<(), sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `attempt_id` | `Uuid` | Attempt ID |
+
+**Used By:**
+- `services/worktree.rs` - Cleanup operations
+- `routes/task_attempts.rs` - POST /api/task-attempts/:id/cleanup
+
+---
+
+### update_target_branch
+
+Update the target branch for an attempt.
+
+**Signature:**
+```rust
+async fn update_target_branch(
+    pool: &SqlitePool,
+    attempt_id: Uuid,
+    new_target_branch: &str,
+) -> Result<(), TaskAttemptError>
+```
+
+**Used By:**
+- `routes/task_attempts.rs` - POST /api/task-attempts/:id/change-target-branch
+
+---
+
+### update_branch_name
+
+Rename the branch for an attempt.
+
+**Signature:**
+```rust
+async fn update_branch_name(
+    pool: &SqlitePool,
+    attempt_id: Uuid,
+    new_branch_name: &str,
+) -> Result<(), TaskAttemptError>
+```
+
+**Used By:**
+- `routes/task_attempts.rs` - POST /api/task-attempts/:id/rename-branch
+
+---
+
+### update_target_branch_for_children_of_task
+
+Update target branch for all child task attempts when parent branch changes.
+
+**Signature:**
+```rust
+async fn update_target_branch_for_children_of_task(
+    pool: &SqlitePool,
+    parent_task_id: Uuid,
+    old_branch: &str,
+    new_branch: &str,
+) -> Result<u64, TaskAttemptError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `parent_task_id` | `Uuid` | Parent task ID |
+| `old_branch` | `&str` | Current target branch |
+| `new_branch` | `&str` | New target branch |
+
+**Returns:** Number of attempts updated.
+
+**Used By:**
+- `services/git.rs` - Branch cascade updates
+
+---
+
+## Helper Methods
+
+### parent_task
+
+Load the parent task for this attempt.
+
+**Signature:**
+```rust
+async fn parent_task(&self, pool: &SqlitePool) -> Result<Option<Task>, sqlx::Error>
+```
+
+**Used By:**
+- `services/execution.rs` - Context loading

@@ -1,0 +1,530 @@
+---
+title: Project Functions
+description: Database functions for local project management in SQLite
+---
+
+# Project Functions
+
+Functions for managing projects in the local SQLite database. Projects represent git repositories that can be linked to the Hive for remote task management.
+
+**Source:** `crates/db/src/models/project.rs`
+
+## Quick Reference
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `count` | Count all projects | `i64` |
+| `find_all` | List all projects | `Vec<Project>` |
+| `find_most_active` | Find by recent task activity | `Vec<Project>` |
+| `find_by_id` | Lookup by UUID | `Option<Project>` |
+| `find_by_remote_project_id` | Find by hive link | `Option<Project>` |
+| `find_by_git_repo_path` | Find by path | `Option<Project>` |
+| `find_by_git_repo_path_excluding_id` | Uniqueness check | `Option<Project>` |
+| `create` | Insert new project | `Project` |
+| `update` | Update project fields | `Project` |
+| `set_remote_project_id` | Link to hive | `()` |
+| `set_remote_project_id_tx` | Link to hive (transactional) | `()` |
+| `delete` | Remove project | `u64` |
+| `exists` | Check existence | `bool` |
+| `find_remote_projects` | List remote projects | `Vec<Project>` |
+| `find_local_projects` | List local projects | `Vec<Project>` |
+| `upsert_remote_project` | Sync from hive | `Project` |
+| `update_remote_sync_status` | Update sync state | `()` |
+| `delete_stale_remote_projects` | Cleanup orphans | `u64` |
+| `find_local_project_remote_ids` | Get linked IDs | `Vec<Uuid>` |
+| `find_local_projects_with_last_attempt` | Activity sort | `Vec<(Project, Option<DateTime>)>` |
+| `find_github_enabled` | GitHub integration filter | `Vec<Project>` |
+| `update_github_counts` | Cache GitHub stats | `()` |
+| `set_github_enabled` | Toggle GitHub | `()` |
+
+---
+
+## CRUD Operations
+
+### count
+
+Count all projects in the database.
+
+**Signature:**
+```rust
+async fn count(pool: &SqlitePool) -> Result<i64, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+
+**Returns:** Total count of projects.
+
+**Used By:**
+- `routes/dashboard.rs` - Dashboard summary statistics
+
+---
+
+### find_all
+
+Retrieve all projects ordered by creation date (newest first).
+
+**Signature:**
+```rust
+async fn find_all(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+
+**Returns:** Vector of all projects.
+
+**Used By:**
+- `routes/projects.rs` - GET /api/projects
+- `routes/unified_projects.rs` - Merged projects view
+
+---
+
+### find_most_active
+
+Find projects with the most recent task attempt activity.
+
+**Signature:**
+```rust
+async fn find_most_active(pool: &SqlitePool, limit: i32) -> Result<Vec<Self>, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `limit` | `i32` | Maximum number of projects to return |
+
+**Returns:** Projects ordered by recent task activity.
+
+**Used By:**
+- `routes/projects.rs` - Project activity ranking
+
+---
+
+### find_by_id
+
+Retrieve a single project by its UUID.
+
+**Signature:**
+```rust
+async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `id` | `Uuid` | Project's unique identifier |
+
+**Returns:** `Some(Project)` if found, `None` otherwise.
+
+**Used By:**
+- `routes/projects.rs` - GET /api/projects/:id
+- `routes/tasks.rs` - Task validation
+- `services/worktree.rs` - Worktree operations
+
+---
+
+### find_by_remote_project_id
+
+Find a local project by its linked remote (Hive) project ID.
+
+**Signature:**
+```rust
+async fn find_by_remote_project_id(
+    pool: &SqlitePool,
+    remote_project_id: Uuid,
+) -> Result<Option<Self>, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `remote_project_id` | `Uuid` | Remote project ID from Hive |
+
+**Returns:** Local project if linked to the remote project.
+
+**Used By:**
+- `services/hive_sync.rs` - Remote project synchronization
+- `routes/unified_projects.rs` - Project linking
+
+---
+
+### find_by_git_repo_path
+
+Find a project by its git repository path.
+
+**Signature:**
+```rust
+async fn find_by_git_repo_path(
+    pool: &SqlitePool,
+    git_repo_path: &str,
+) -> Result<Option<Self>, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `git_repo_path` | `&str` | Filesystem path to git repository |
+
+**Returns:** Project if found at the given path.
+
+**Used By:**
+- `routes/projects.rs` - Duplicate path validation
+- `services/project.rs` - Project creation validation
+
+**Limitations:**
+- Path must be an exact match (no normalization)
+
+---
+
+### find_by_git_repo_path_excluding_id
+
+Find projects at a path excluding a specific project ID. Used for uniqueness validation during updates.
+
+**Signature:**
+```rust
+async fn find_by_git_repo_path_excluding_id(
+    pool: &SqlitePool,
+    git_repo_path: &str,
+    exclude_id: Uuid,
+) -> Result<Option<Self>, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `git_repo_path` | `&str` | Filesystem path to git repository |
+| `exclude_id` | `Uuid` | Project ID to exclude from search |
+
+**Returns:** Conflicting project if another project uses this path.
+
+**Used By:**
+- `services/project.rs` - Update validation
+
+---
+
+### create
+
+Insert a new project.
+
+**Signature:**
+```rust
+async fn create(
+    pool: &SqlitePool,
+    data: &CreateProject,
+    project_id: Uuid,
+) -> Result<Self, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `data` | `&CreateProject` | Project creation data |
+| `project_id` | `Uuid` | Pre-generated UUID for the project |
+
+**Returns:** Created project with all fields populated.
+
+**Used By:**
+- `routes/projects.rs` - POST /api/projects
+- `services/project.rs` - Project creation service
+
+---
+
+### update
+
+Update an existing project's fields.
+
+**Signature:**
+```rust
+async fn update(
+    pool: &SqlitePool,
+    id: Uuid,
+    name: String,
+    git_repo_path: String,
+    setup_script: Option<String>,
+    dev_script: Option<String>,
+    cleanup_script: Option<String>,
+    copy_files: Option<String>,
+    parallel_setup_script: bool,
+) -> Result<Self, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `id` | `Uuid` | Project ID to update |
+| `name` | `String` | New project name |
+| `git_repo_path` | `String` | New git repository path |
+| `setup_script` | `Option<String>` | Setup script command |
+| `dev_script` | `Option<String>` | Dev server script |
+| `cleanup_script` | `Option<String>` | Cleanup script command |
+| `copy_files` | `Option<String>` | Files to copy specification |
+| `parallel_setup_script` | `bool` | Run setup concurrently |
+
+**Returns:** Updated project.
+
+**Used By:**
+- `routes/projects.rs` - PUT /api/projects/:id
+
+---
+
+### delete
+
+Remove a project from the database.
+
+**Signature:**
+```rust
+async fn delete(pool: &SqlitePool, id: Uuid) -> Result<u64, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `id` | `Uuid` | Project ID to delete |
+
+**Returns:** Number of rows affected (0 or 1).
+
+**Used By:**
+- `routes/projects.rs` - DELETE /api/projects/:id
+
+**Limitations:**
+- Cascades to delete all tasks and task attempts
+
+---
+
+### exists
+
+Check if a project exists by ID.
+
+**Signature:**
+```rust
+async fn exists(pool: &SqlitePool, id: Uuid) -> Result<bool, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `id` | `Uuid` | Project ID to check |
+
+**Returns:** `true` if project exists.
+
+**Used By:**
+- `routes/tasks.rs` - Task creation validation
+
+---
+
+## Remote Sync Operations
+
+### find_remote_projects
+
+Find all projects synced from other nodes via the Hive.
+
+**Signature:**
+```rust
+async fn find_remote_projects(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error>
+```
+
+**Returns:** Vector of remote projects ordered by name.
+
+**Used By:**
+- `routes/unified_projects.rs` - Remote projects list
+- `services/hive_sync.rs` - Sync status
+
+---
+
+### find_local_projects
+
+Find all projects created on this node (not synced from Hive).
+
+**Signature:**
+```rust
+async fn find_local_projects(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error>
+```
+
+**Returns:** Vector of local projects ordered by creation date.
+
+**Used By:**
+- `routes/unified_projects.rs` - Local projects list
+- `services/hive_sync.rs` - Project sharing
+
+---
+
+### upsert_remote_project
+
+Create or update a remote project synced from the Hive. Uses `ON CONFLICT` for atomic upsert.
+
+**Signature:**
+```rust
+async fn upsert_remote_project(
+    pool: &SqlitePool,
+    local_id: Uuid,
+    remote_project_id: Uuid,
+    name: String,
+    git_repo_path: String,
+    source_node_id: Uuid,
+    source_node_name: String,
+    source_node_public_url: Option<String>,
+    source_node_status: Option<String>,
+) -> Result<Self, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `local_id` | `Uuid` | Local project ID (for insert) |
+| `remote_project_id` | `Uuid` | Hive project ID |
+| `name` | `String` | Project name |
+| `git_repo_path` | `String` | Git repository path |
+| `source_node_id` | `Uuid` | Node that owns this project |
+| `source_node_name` | `String` | Human-readable node name |
+| `source_node_public_url` | `Option<String>` | Direct connection URL |
+| `source_node_status` | `Option<String>` | Node status (online/offline) |
+
+**Returns:** Upserted project.
+
+**Used By:**
+- `services/electric_sync.rs` - ElectricSQL shape processing
+- `services/hive_sync.rs` - WebSocket sync
+
+---
+
+### delete_stale_remote_projects
+
+Delete remote projects no longer present in the Hive. Uses bulk `NOT IN` clause for efficiency.
+
+**Signature:**
+```rust
+async fn delete_stale_remote_projects(
+    pool: &SqlitePool,
+    active_remote_project_ids: &[Uuid],
+) -> Result<u64, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `active_remote_project_ids` | `&[Uuid]` | IDs of projects still in Hive |
+
+**Returns:** Number of deleted projects.
+
+**Used By:**
+- `services/electric_sync.rs` - Sync cleanup
+
+**Limitations:**
+- Returns 0 if `active_remote_project_ids` is empty (safety check)
+
+---
+
+### set_remote_project_id
+
+Link a local project to a Hive project.
+
+**Signature:**
+```rust
+async fn set_remote_project_id(
+    pool: &SqlitePool,
+    id: Uuid,
+    remote_project_id: Option<Uuid>,
+) -> Result<(), sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `id` | `Uuid` | Local project ID |
+| `remote_project_id` | `Option<Uuid>` | Hive project ID (None to unlink) |
+
+**Used By:**
+- `routes/projects.rs` - Project linking
+- `services/hive.rs` - Share project to Hive
+
+---
+
+## GitHub Integration
+
+### find_github_enabled
+
+Find all local projects with GitHub integration enabled.
+
+**Signature:**
+```rust
+async fn find_github_enabled(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error>
+```
+
+**Returns:** Projects with `github_enabled = true` and `is_remote = false`.
+
+**Used By:**
+- `services/github.rs` - Background sync service
+- `routes/projects.rs` - GitHub status
+
+---
+
+### update_github_counts
+
+Update cached GitHub issue and PR counts for a project.
+
+**Signature:**
+```rust
+async fn update_github_counts(
+    pool: &SqlitePool,
+    id: Uuid,
+    open_issues: i32,
+    open_prs: i32,
+) -> Result<(), sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `id` | `Uuid` | Project ID |
+| `open_issues` | `i32` | Count of open issues |
+| `open_prs` | `i32` | Count of open PRs |
+
+**Used By:**
+- `services/github.rs` - Periodic sync
+
+---
+
+### set_github_enabled
+
+Enable or disable GitHub integration for a project.
+
+**Signature:**
+```rust
+async fn set_github_enabled(
+    pool: &SqlitePool,
+    id: Uuid,
+    enabled: bool,
+    owner: Option<String>,
+    repo: Option<String>,
+) -> Result<(), sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `id` | `Uuid` | Project ID |
+| `enabled` | `bool` | Enable/disable GitHub |
+| `owner` | `Option<String>` | GitHub owner (e.g., "anthropics") |
+| `repo` | `Option<String>` | GitHub repo name (e.g., "claude-code") |
+
+**Used By:**
+- `routes/projects.rs` - POST /api/projects/:id/github
