@@ -347,6 +347,16 @@
         },
         "reset": "Reset to Defaults"
       },
+      "timestamps": {
+        "title": "Timestamps",
+        "description": "Configure how execution timestamps are displayed in conversations.",
+        "timezone": {
+          "label": "Timezone",
+          "placeholder": "Select timezone",
+          "helper": "Choose which timezone to use when displaying execution start and end times.",
+          "local": "Local (Browser)"
+        }
+      },
       "performance": {
         "title": "Performance",
         "description": "Configure log loading and display settings for optimal performance.",

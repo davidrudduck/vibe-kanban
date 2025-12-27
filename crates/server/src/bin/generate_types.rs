@@ -146,6 +146,7 @@ fn generate_types_content() -> String {
         services::services::config::UiFont::decl(),
         services::services::config::CodeFont::decl(),
         services::services::config::ProseFont::decl(),
+        services::services::config::TimestampConfig::decl(),
         services::services::git::GitBranch::decl(),
         utils::diff::Diff::decl(),
         utils::diff::DiffChangeKind::decl(),

@@ -93,6 +93,57 @@ const nextActionPatch: (
   executionProcessId: '',
 });
 
+const executionStartPatch = (
+  processId: string,
+  processName: string,
+  startedAt: string
+): PatchTypeWithKey => ({
+  type: 'NORMALIZED_ENTRY',
+  content: {
+    entry_type: {
+      type: 'execution_start',
+      process_id: processId,
+      process_name: processName,
+      started_at: startedAt,
+    },
+    content: '',
+    timestamp: startedAt,
+  },
+  patchKey: `${processId}:execution_start`,
+  executionProcessId: processId,
+});
+
+const executionEndPatch = (
+  processId: string,
+  processName: string,
+  startedAt: string,
+  endedAt: string,
+  status: string
+): PatchTypeWithKey => {
+  const startTime = new Date(startedAt).getTime();
+  const endTime = new Date(endedAt).getTime();
+  const durationSeconds = Math.max(0, Math.floor((endTime - startTime) / 1000));
+
+  return {
+    type: 'NORMALIZED_ENTRY',
+    content: {
+      entry_type: {
+        type: 'execution_end',
+        process_id: processId,
+        process_name: processName,
+        started_at: startedAt,
+        ended_at: endedAt,
+        duration_seconds: BigInt(durationSeconds),
+        status: status,
+      },
+      content: '',
+      timestamp: endedAt,
+    },
+    patchKey: `${processId}:execution_end`,
+    executionProcessId: processId,
+  };
+};
+
 export const useConversationHistory = ({
   attempt,
   onEntriesUpdated,
@@ -267,6 +318,27 @@ export const useConversationHistory = ({
       let needsSetup = false;
       let setupHelpText: string | undefined;
 
+      // Helper to get process name from executor action
+      const getProcessName = (executorAction: ExecutorAction): string => {
+        const typ = executorAction.typ;
+        if (typ.type === 'CodingAgentInitialRequest' || typ.type === 'CodingAgentFollowUpRequest') {
+          return 'Coding Agent';
+        }
+        if (typ.type === 'ScriptRequest') {
+          switch (typ.context) {
+            case 'SetupScript':
+              return 'Setup Script';
+            case 'CleanupScript':
+              return 'Cleanup Script';
+            case 'ToolInstallScript':
+              return 'Tool Install Script';
+            default:
+              return 'Script';
+          }
+        }
+        return 'Execution';
+      };
+
       // Create user messages + tool calls for setup/cleanup scripts
       const allEntries = Object.values(executionProcessState)
         .sort(
@@ -280,6 +352,20 @@ export const useConversationHistory = ({
         )
         .flatMap((p, index) => {
           const entries: PatchTypeWithKey[] = [];
+          const liveProcess = getLiveExecutionProcess(p.executionProcess.id);
+          const processName = getProcessName(p.executionProcess.executor_action);
+
+          // Add execution start marker
+          if (liveProcess?.started_at) {
+            entries.push(
+              executionStartPatch(
+                p.executionProcess.id,
+                processName,
+                liveProcess.started_at
+              )
+            );
+          }
+
           if (
             p.executionProcess.executor_action.typ.type ===
               'CodingAgentInitialRequest' ||
@@ -329,9 +415,7 @@ export const useConversationHistory = ({
 
             entries.push(...entriesExcludingUser);
 
-            const liveProcessStatus = getLiveExecutionProcess(
-              p.executionProcess.id
-            )?.status;
+            const liveProcessStatus = liveProcess?.status;
             const isProcessRunning =
               liveProcessStatus === ExecutionProcessStatus.running;
             const processFailedOrKilled =
@@ -369,6 +453,19 @@ export const useConversationHistory = ({
             if (isProcessRunning && !hasPendingApprovalEntry) {
               entries.push(loadingPatch);
             }
+
+            // Add execution end marker for completed processes
+            if (!isProcessRunning && liveProcess?.started_at && liveProcess?.completed_at) {
+              entries.push(
+                executionEndPatch(
+                  p.executionProcess.id,
+                  processName,
+                  liveProcess.started_at,
+                  liveProcess.completed_at,
+                  liveProcess.status
+                )
+              );
+            }
           } else if (
             p.executionProcess.executor_action.typ.type === 'ScriptRequest'
           ) {
@@ -388,9 +485,7 @@ export const useConversationHistory = ({
                 return [];
             }
 
-            const executionProcess = getLiveExecutionProcess(
-              p.executionProcess.id
-            );
+            const executionProcess = liveProcess;
 
             if (executionProcess?.status === ExecutionProcessStatus.running) {
               hasRunningProcess = true;
@@ -450,6 +545,20 @@ export const useConversationHistory = ({
             );
 
             entries.push(toolPatchWithKey);
+
+            // Add execution end marker for completed script processes
+            if (executionProcess?.status !== ExecutionProcessStatus.running &&
+                executionProcess?.started_at && executionProcess?.completed_at) {
+              entries.push(
+                executionEndPatch(
+                  p.executionProcess.id,
+                  processName,
+                  executionProcess.started_at,
+                  executionProcess.completed_at,
+                  executionProcess.status
+                )
+              );
+            }
           }
 
           return entries;
