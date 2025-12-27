@@ -1,0 +1,310 @@
+---
+title: Auth Functions
+description: PostgreSQL functions for authentication and sessions in the Hive
+---
+
+# Auth Functions
+
+Functions for managing authentication, sessions, and OAuth in the PostgreSQL Hive database.
+
+## Sessions
+
+**Source:** `crates/remote/src/db/auth.rs`
+
+Auth sessions track authenticated user sessions.
+
+### Quick Reference
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `create_session` | Create new session | `AuthSession` |
+| `find_by_id` | Lookup session | `Option<AuthSession>` |
+| `find_by_secret` | Validate session | `Option<AuthSession>` |
+| `touch` | Update last used | `()` |
+| `revoke` | Revoke session | `()` |
+| `revoke_all_for_user` | Revoke all user sessions | `u64` |
+
+### create_session
+
+Create a new authenticated session.
+
+**Signature:**
+```rust
+async fn create_session(
+    &self,
+    user_id: Uuid,
+    session_secret_hash: &str,
+) -> Result<AuthSession, AuthDbError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `user_id` | `Uuid` | User ID |
+| `session_secret_hash` | `&str` | Hashed session secret |
+
+**Returns:** Created session.
+
+**Used By:**
+- `routes/oauth.rs` - After OAuth completion
+
+---
+
+### find_by_secret
+
+Find session by secret hash for validation.
+
+**Signature:**
+```rust
+async fn find_by_secret(
+    &self,
+    secret_hash: &str,
+) -> Result<Option<AuthSession>, AuthDbError>
+```
+
+**Used By:**
+- `middleware/auth.rs` - Request authentication
+
+---
+
+### Data Model
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `Uuid` | Primary key |
+| `user_id` | `Uuid` | Foreign key to users |
+| `session_secret_hash` | `String` | Hashed session token |
+| `created_at` | `DateTime<Utc>` | Session creation |
+| `last_used_at` | `DateTime<Utc>` | Last activity |
+| `revoked_at` | `Option<DateTime<Utc>>` | Revocation time |
+
+---
+
+## OAuth Handoffs
+
+**Source:** `crates/remote/src/db/oauth.rs`
+
+OAuth handoffs manage the OAuth 2.0 authorization code flow for local clients.
+
+### Quick Reference
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `create` | Start OAuth flow | `OAuthHandoff` |
+| `find_by_state` | Lookup by state | `Option<OAuthHandoff>` |
+| `mark_authorized` | Complete authorization | `OAuthHandoff` |
+| `mark_redeemed` | Mark token used | `()` |
+| `find_pending_for_challenge` | Check app challenge | `Option<OAuthHandoff>` |
+
+### create
+
+Start a new OAuth handoff flow.
+
+**Signature:**
+```rust
+async fn create(
+    &self,
+    provider: &str,
+    state: &str,
+    return_to: &str,
+    app_challenge: &str,
+    app_code_hash: &str,
+    expires_at: DateTime<Utc>,
+) -> Result<OAuthHandoff, OAuthDbError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `provider` | `&str` | OAuth provider (github, google) |
+| `state` | `&str` | CSRF state parameter |
+| `return_to` | `&str` | Redirect URL after auth |
+| `app_challenge` | `&str` | Client challenge for local apps |
+| `app_code_hash` | `&str` | Hash of client code |
+| `expires_at` | `DateTime<Utc>` | Expiration time |
+
+**Used By:**
+- `routes/oauth.rs` - POST /api/oauth/init
+
+---
+
+### mark_authorized
+
+Complete authorization and store user info.
+
+**Signature:**
+```rust
+async fn mark_authorized(
+    &self,
+    handoff_id: Uuid,
+    user_id: Uuid,
+    session_id: Uuid,
+) -> Result<OAuthHandoff, OAuthDbError>
+```
+
+**Used By:**
+- `routes/oauth.rs` - OAuth callback handler
+
+---
+
+### Data Model
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `Uuid` | Primary key |
+| `provider` | `String` | OAuth provider |
+| `state` | `String` | CSRF state |
+| `return_to` | `String` | Redirect URL |
+| `app_challenge` | `String` | Client challenge |
+| `app_code_hash` | `String` | Code hash |
+| `status` | `String` | pending, authorized, redeemed |
+| `error_code` | `Option<String>` | Error if failed |
+| `expires_at` | `DateTime<Utc>` | Expiration |
+| `authorized_at` | `Option<DateTime<Utc>>` | Auth time |
+| `redeemed_at` | `Option<DateTime<Utc>>` | Redemption time |
+| `user_id` | `Option<Uuid>` | Authenticated user |
+| `session_id` | `Option<Uuid>` | Created session |
+
+---
+
+## OAuth Accounts
+
+**Source:** `crates/remote/src/db/oauth_accounts.rs`
+
+OAuth accounts link external provider identities to users.
+
+### Quick Reference
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `find_by_provider_id` | Find by external ID | `Option<OAuthAccount>` |
+| `create` | Link provider account | `OAuthAccount` |
+| `update` | Update account info | `OAuthAccount` |
+| `list_by_user` | User's linked accounts | `Vec<OAuthAccount>` |
+
+### find_by_provider_id
+
+Find OAuth account by provider and external ID.
+
+**Signature:**
+```rust
+async fn find_by_provider_id(
+    &self,
+    provider: &str,
+    provider_user_id: &str,
+) -> Result<Option<OAuthAccount>, OAuthDbError>
+```
+
+**Used By:**
+- `routes/oauth.rs` - Account lookup/creation
+
+---
+
+### create
+
+Create new OAuth account link.
+
+**Signature:**
+```rust
+async fn create(
+    &self,
+    user_id: Uuid,
+    provider: &str,
+    provider_user_id: &str,
+    email: &str,
+    username: Option<&str>,
+    display_name: Option<&str>,
+    avatar_url: Option<&str>,
+) -> Result<OAuthAccount, OAuthDbError>
+```
+
+**Used By:**
+- `routes/oauth.rs` - First-time OAuth login
+
+---
+
+### Data Model
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `Uuid` | Primary key |
+| `user_id` | `Uuid` | Foreign key to users |
+| `provider` | `String` | github, google, etc. |
+| `provider_user_id` | `String` | External user ID |
+| `email` | `String` | User's email |
+| `username` | `Option<String>` | External username |
+| `display_name` | `Option<String>` | Display name |
+| `avatar_url` | `Option<String>` | Avatar URL |
+| `created_at` | `DateTime<Utc>` | Link creation |
+| `updated_at` | `DateTime<Utc>` | Last update |
+
+---
+
+## Revoked Refresh Tokens
+
+**Source:** `crates/remote/src/db/auth.rs`
+
+Tracks revoked JWT refresh tokens for security.
+
+### add_revoked_token
+
+Add a token to the revocation list.
+
+**Signature:**
+```rust
+async fn add_revoked_token(
+    &self,
+    token_id: &str,
+    expires_at: DateTime<Utc>,
+) -> Result<(), AuthDbError>
+```
+
+**Used By:**
+- `routes/auth.rs` - Token revocation
+
+---
+
+### is_token_revoked
+
+Check if a token has been revoked.
+
+**Signature:**
+```rust
+async fn is_token_revoked(&self, token_id: &str) -> Result<bool, AuthDbError>
+```
+
+**Used By:**
+- `middleware/auth.rs` - Token validation
+
+---
+
+## Organization Invitations
+
+**Source:** `crates/remote/src/db/invitations.rs`
+
+Manages organization membership invitations.
+
+### Quick Reference
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `create` | Create invitation | `Invitation` |
+| `find_by_token` | Lookup by token | `Option<Invitation>` |
+| `list_by_organization` | Org invitations | `Vec<Invitation>` |
+| `accept` | Accept invitation | `()` |
+| `revoke` | Revoke invitation | `()` |
+
+### Data Model
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `Uuid` | Primary key |
+| `organization_id` | `Uuid` | Target organization |
+| `invited_by_user_id` | `Uuid` | Inviting user |
+| `email` | `String` | Invitee email |
+| `role` | `MemberRole` | admin, member |
+| `status` | `String` | pending, accepted, revoked |
+| `token` | `String` | Unique invite token |
+| `expires_at` | `DateTime<Utc>` | Expiration |
+| `created_at` | `DateTime<Utc>` | Creation time |
+| `updated_at` | `DateTime<Utc>` | Last update |

@@ -129,7 +129,7 @@ Connect your local Vibe Kanban instance to a central hive server for distributed
 | `VK_NODE_PUBLIC_URL` | No | Public URL for direct log streaming (e.g., `http://192.168.1.50:3000`) |
 | `VK_CONNECTION_TOKEN_SECRET` | No | JWT secret for validating direct connection tokens |
 
-See [docs/swarm-hive-setup.md](docs/swarm-hive-setup.md) for the complete setup guide.
+See [docs/swarm-hive-setup.mdx](docs/swarm-hive-setup.mdx) for the complete setup guide.
 
 **Build-time variables** must be set when running `pnpm run build`. **Runtime variables** are read when the application starts.
 
@@ -166,7 +166,7 @@ export VK_NODE_API_KEY=your-api-key
 pnpm run dev
 ```
 
-See [docs/swarm-hive-setup.md](docs/swarm-hive-setup.md) for detailed instructions.
+See [docs/swarm-hive-setup.mdx](docs/swarm-hive-setup.mdx) for detailed instructions.
 
 ### Remote Deployment
 

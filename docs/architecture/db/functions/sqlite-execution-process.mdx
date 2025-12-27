@@ -1,0 +1,512 @@
+---
+title: Execution Process Functions
+description: Database functions for execution process tracking in SQLite
+---
+
+# Execution Process Functions
+
+Functions for managing execution processes in the local SQLite database. Execution processes track individual runs of scripts and coding agents within a task attempt.
+
+**Source:** `crates/db/src/models/execution_process.rs`
+
+## Quick Reference
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `find_by_id` | Lookup by UUID | `Option<ExecutionProcess>` |
+| `find_by_rowid` | Lookup by SQLite rowid | `Option<ExecutionProcess>` |
+| `find_by_task_attempt_id` | List for attempt | `Vec<ExecutionProcess>` |
+| `find_running` | Find active processes | `Vec<ExecutionProcess>` |
+| `find_running_dev_servers_by_project` | Project dev servers | `Vec<ExecutionProcess>` |
+| `find_running_dev_servers_by_task_attempt` | Attempt dev servers | `Vec<ExecutionProcess>` |
+| `find_latest_session_id_by_task_attempt` | Session lookup | `Option<String>` |
+| `find_latest_by_task_attempt_and_run_reason` | Latest by type | `Option<ExecutionProcess>` |
+| `list_missing_before_context` | Backfill query | `Vec<MissingBeforeContext>` |
+| `count_later_than` | Count newer processes | `i64` |
+| `create` | Insert new process | `ExecutionProcess` |
+| `was_stopped` | Check if terminated | `bool` |
+| `update_completion` | Set completion state | `()` |
+| `update_after_head_commit` | Set after commit | `()` |
+| `update_before_head_commit` | Set before commit | `()` |
+| `delete_by_task_attempt_id` | Cleanup | `()` |
+| `update_pid` | Set system PID | `()` |
+| `find_running_with_pids` | Find for tree discovery | `Vec<ExecutionProcess>` |
+| `set_restore_boundary` | Mark dropped | `()` |
+| `drop_at_and_after` | Soft delete | `i64` |
+| `find_prev_after_head_commit` | Previous commit | `Option<String>` |
+| `load_context` | Load with task/attempt | `ExecutionContext` |
+| `latest_executor_profile_for_attempt` | Get profile | `ExecutorProfileId` |
+
+---
+
+## Query Operations
+
+### find_by_id
+
+Retrieve an execution process by UUID.
+
+**Signature:**
+```rust
+async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `id` | `Uuid` | Process's unique identifier |
+
+**Returns:** `Some(ExecutionProcess)` if found.
+
+**Used By:**
+- `routes/execution_processes.rs` - GET /api/execution-processes/:id
+- `services/execution.rs` - Process management
+
+---
+
+### find_by_task_attempt_id
+
+Find all execution processes for a task attempt.
+
+**Signature:**
+```rust
+async fn find_by_task_attempt_id(
+    pool: &SqlitePool,
+    task_attempt_id: Uuid,
+    show_soft_deleted: bool,
+) -> Result<Vec<Self>, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `task_attempt_id` | `Uuid` | Parent attempt ID |
+| `show_soft_deleted` | `bool` | Include dropped processes |
+
+**Returns:** Processes ordered by creation date ascending.
+
+**Used By:**
+- `routes/task_attempts.rs` - Process history
+- `services/execution.rs` - Resume operations
+
+---
+
+### find_running
+
+Find all currently running execution processes.
+
+**Signature:**
+```rust
+async fn find_running(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error>
+```
+
+**Returns:** Processes with `status = 'running'`.
+
+**Used By:**
+- `routes/processes.rs` - GET /api/processes
+- `services/execution.rs` - Status monitoring
+
+---
+
+### find_running_dev_servers_by_project
+
+Find running dev servers for a specific project.
+
+**Signature:**
+```rust
+async fn find_running_dev_servers_by_project(
+    pool: &SqlitePool,
+    project_id: Uuid,
+) -> Result<Vec<Self>, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `project_id` | `Uuid` | Project ID |
+
+**Returns:** Running processes with `run_reason = 'devserver'`.
+
+**Used By:**
+- `routes/projects.rs` - Project status
+- `services/dev_server.rs` - Port allocation
+
+---
+
+### find_running_dev_servers_by_task_attempt
+
+Find running dev servers for a specific task attempt.
+
+**Signature:**
+```rust
+async fn find_running_dev_servers_by_task_attempt(
+    pool: &SqlitePool,
+    task_attempt_id: Uuid,
+) -> Result<Vec<Self>, sqlx::Error>
+```
+
+**Used By:**
+- `routes/task_attempts.rs` - Attempt status
+
+---
+
+### find_latest_session_id_by_task_attempt
+
+Find the latest Claude/AMP session ID for an attempt.
+
+**Signature:**
+```rust
+async fn find_latest_session_id_by_task_attempt(
+    pool: &SqlitePool,
+    task_attempt_id: Uuid,
+) -> Result<Option<String>, sqlx::Error>
+```
+
+**Returns:** Session ID from most recent coding agent execution.
+
+**Used By:**
+- `services/execution.rs` - Resume operations
+
+**Notes:**
+- Joins with `executor_sessions` table
+- Only returns non-dropped processes
+
+---
+
+### find_latest_by_task_attempt_and_run_reason
+
+Find the most recent process by type.
+
+**Signature:**
+```rust
+async fn find_latest_by_task_attempt_and_run_reason(
+    pool: &SqlitePool,
+    task_attempt_id: Uuid,
+    run_reason: &ExecutionProcessRunReason,
+) -> Result<Option<Self>, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `task_attempt_id` | `Uuid` | Attempt ID |
+| `run_reason` | `&ExecutionProcessRunReason` | SetupScript, CleanupScript, CodingAgent, DevServer |
+
+**Returns:** Most recent non-dropped process of the given type.
+
+**Used By:**
+- `services/execution.rs` - Status checks
+- `routes/task_attempts.rs` - Latest execution info
+
+---
+
+### list_missing_before_context
+
+Find processes needing `before_head_commit` backfill.
+
+**Signature:**
+```rust
+async fn list_missing_before_context(
+    pool: &SqlitePool,
+) -> Result<Vec<MissingBeforeContext>, sqlx::Error>
+```
+
+**Returns:** `MissingBeforeContext` containing:
+- `id` - Process ID
+- `task_attempt_id` - Parent attempt
+- `prev_after_head_commit` - Previous process's after commit
+- `target_branch` - Attempt's target branch
+- `git_repo_path` - Project git path
+
+**Used By:**
+- `services/git.rs` - Migration backfill
+
+---
+
+### find_running_with_pids
+
+Find running processes that have a stored PID.
+
+**Signature:**
+```rust
+async fn find_running_with_pids(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error>
+```
+
+**Returns:** Running processes with `pid IS NOT NULL`.
+
+**Used By:**
+- `services/execution.rs` - Process tree discovery
+
+---
+
+### load_context
+
+Load execution process with related task attempt and task.
+
+**Signature:**
+```rust
+async fn load_context(
+    pool: &SqlitePool,
+    exec_id: Uuid,
+) -> Result<ExecutionContext, sqlx::Error>
+```
+
+**Returns:** `ExecutionContext` containing process, attempt, and task.
+
+**Used By:**
+- `routes/execution_processes.rs` - Process details
+- `services/execution.rs` - Context loading
+
+---
+
+## CRUD Operations
+
+### create
+
+Insert a new execution process.
+
+**Signature:**
+```rust
+async fn create(
+    pool: &SqlitePool,
+    data: &CreateExecutionProcess,
+    process_id: Uuid,
+    before_head_commit: Option<&str>,
+) -> Result<Self, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `data` | `&CreateExecutionProcess` | Process creation data |
+| `process_id` | `Uuid` | Pre-generated UUID |
+| `before_head_commit` | `Option<&str>` | Git HEAD before execution |
+
+**Returns:** Created process with status `Running`.
+
+**Used By:**
+- `services/execution.rs` - Process spawning
+
+---
+
+### update_completion
+
+Update process status and completion info.
+
+**Signature:**
+```rust
+async fn update_completion(
+    pool: &SqlitePool,
+    id: Uuid,
+    status: ExecutionProcessStatus,
+    exit_code: Option<i64>,
+) -> Result<(), sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `id` | `Uuid` | Process ID |
+| `status` | `ExecutionProcessStatus` | Running, Completed, Failed, Killed |
+| `exit_code` | `Option<i64>` | Process exit code |
+
+**Used By:**
+- `services/execution.rs` - Process completion
+
+**Notes:**
+- Automatically sets `completed_at` for non-Running statuses
+
+---
+
+### update_after_head_commit
+
+Update the Git HEAD commit after process ends.
+
+**Signature:**
+```rust
+async fn update_after_head_commit(
+    pool: &SqlitePool,
+    id: Uuid,
+    after_head_commit: &str,
+) -> Result<(), sqlx::Error>
+```
+
+**Used By:**
+- `services/execution.rs` - Post-execution tracking
+
+---
+
+### update_before_head_commit
+
+Update the Git HEAD commit before process started.
+
+**Signature:**
+```rust
+async fn update_before_head_commit(
+    pool: &SqlitePool,
+    id: Uuid,
+    before_head_commit: &str,
+) -> Result<(), sqlx::Error>
+```
+
+**Used By:**
+- `services/git.rs` - Backfill operations
+
+---
+
+### update_pid
+
+Store the system process ID for tree discovery.
+
+**Signature:**
+```rust
+async fn update_pid(pool: &SqlitePool, id: Uuid, pid: i64) -> Result<(), sqlx::Error>
+```
+
+**Used By:**
+- `services/execution.rs` - Process spawning
+
+---
+
+### delete_by_task_attempt_id
+
+Delete all processes for a task attempt.
+
+**Signature:**
+```rust
+async fn delete_by_task_attempt_id(
+    pool: &SqlitePool,
+    task_attempt_id: Uuid,
+) -> Result<(), sqlx::Error>
+```
+
+**Used By:**
+- `routes/task_attempts.rs` - Purge operation
+
+---
+
+## Soft Delete / Restore Operations
+
+### set_restore_boundary
+
+Mark processes newer than the boundary as dropped (soft-deleted).
+
+**Signature:**
+```rust
+async fn set_restore_boundary(
+    pool: &SqlitePool,
+    task_attempt_id: Uuid,
+    boundary_process_id: Uuid,
+) -> Result<(), sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `task_attempt_id` | `Uuid` | Attempt ID |
+| `boundary_process_id` | `Uuid` | Restore point process |
+
+**Used By:**
+- `routes/task_attempts.rs` - Restore to commit
+
+**Notes:**
+- Monotonic: only marks newer records as dropped, never undrop
+
+---
+
+### drop_at_and_after
+
+Soft-drop processes at and after the boundary (inclusive).
+
+**Signature:**
+```rust
+async fn drop_at_and_after(
+    pool: &SqlitePool,
+    task_attempt_id: Uuid,
+    boundary_process_id: Uuid,
+) -> Result<i64, sqlx::Error>
+```
+
+**Returns:** Number of processes dropped.
+
+**Used By:**
+- `routes/task_attempts.rs` - Trim history
+
+---
+
+### find_prev_after_head_commit
+
+Find the previous process's after commit before a boundary.
+
+**Signature:**
+```rust
+async fn find_prev_after_head_commit(
+    pool: &SqlitePool,
+    task_attempt_id: Uuid,
+    boundary_process_id: Uuid,
+) -> Result<Option<String>, sqlx::Error>
+```
+
+**Returns:** The `after_head_commit` of the process immediately before the boundary.
+
+**Used By:**
+- `services/git.rs` - Restore operations
+
+---
+
+## Helper Methods
+
+### was_stopped
+
+Check if a process was terminated.
+
+**Signature:**
+```rust
+async fn was_stopped(pool: &SqlitePool, id: Uuid) -> bool
+```
+
+**Returns:** `true` if status is Killed or Completed.
+
+**Used By:**
+- `services/execution.rs` - Stop detection
+
+---
+
+### executor_action
+
+Parse the executor action JSON field.
+
+**Signature:**
+```rust
+fn executor_action(&self) -> Result<&ExecutorAction, anyhow::Error>
+```
+
+**Returns:** Reference to the parsed `ExecutorAction`.
+
+**Used By:**
+- `services/execution.rs` - Action inspection
+
+---
+
+### latest_executor_profile_for_attempt
+
+Get the executor profile from the latest coding agent process.
+
+**Signature:**
+```rust
+async fn latest_executor_profile_for_attempt(
+    pool: &SqlitePool,
+    attempt_id: Uuid,
+) -> Result<ExecutorProfileId, ExecutionProcessError>
+```
+
+**Returns:** Profile ID from the initial/follow-up request action.
+
+**Used By:**
+- `services/execution.rs` - Profile lookup for follow-ups

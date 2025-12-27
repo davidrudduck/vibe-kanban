@@ -1,0 +1,304 @@
+---
+title: Supporting Model Functions
+description: Database functions for templates, labels, images, and other supporting models
+---
+
+# Supporting Model Functions
+
+Functions for managing supporting models in the local SQLite database: templates, labels, images, task variables, drafts, and activity dismissals.
+
+## Templates
+
+**Source:** `crates/db/src/models/template.rs`
+
+Templates store reusable task descriptions and prompts.
+
+### Quick Reference
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `find_all` | List all templates | `Vec<Template>` |
+| `find_by_id` | Lookup by UUID | `Option<Template>` |
+| `create` | Insert new template | `Template` |
+| `update` | Update template | `Template` |
+| `delete` | Remove template | `u64` |
+
+### find_all
+
+```rust
+async fn find_all(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error>
+```
+
+**Used By:** `routes/templates.rs` - GET /api/templates
+
+### create
+
+```rust
+async fn create(
+    pool: &SqlitePool,
+    id: Uuid,
+    template_name: &str,
+    content: &str,
+) -> Result<Self, sqlx::Error>
+```
+
+**Used By:** `routes/templates.rs` - POST /api/templates
+
+---
+
+## Labels
+
+**Source:** `crates/db/src/models/label.rs`
+
+Labels provide categorization for tasks with icons and colors.
+
+### Quick Reference
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `find_all` | List all labels | `Vec<Label>` |
+| `find_by_id` | Lookup by UUID | `Option<Label>` |
+| `find_by_project_id` | Project labels | `Vec<Label>` |
+| `find_global` | Global labels | `Vec<Label>` |
+| `create` | Insert new label | `Label` |
+| `update` | Update label | `Label` |
+| `delete` | Remove label | `u64` |
+
+### Task Label Association
+
+```rust
+async fn get_task_labels(pool: &SqlitePool, task_id: Uuid) -> Result<Vec<Label>, sqlx::Error>
+async fn set_task_labels(pool: &SqlitePool, task_id: Uuid, label_ids: &[Uuid]) -> Result<(), sqlx::Error>
+```
+
+**Used By:**
+- `routes/labels.rs` - GET/PUT /api/tasks/:id/labels
+- Frontend label picker
+
+**Notes:**
+- Labels can be global (`project_id = NULL`) or project-specific
+- Task-label associations stored in `task_labels` junction table
+
+---
+
+## Images
+
+**Source:** `crates/db/src/models/image.rs`
+
+Images store file uploads associated with tasks.
+
+### Quick Reference
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `find_by_id` | Lookup by UUID | `Option<Image>` |
+| `find_by_task_id` | Task images | `Vec<Image>` |
+| `create` | Insert new image | `Image` |
+| `delete` | Remove image | `u64` |
+| `associate_with_task` | Link to task | `()` |
+
+### create
+
+```rust
+async fn create(
+    pool: &SqlitePool,
+    id: Uuid,
+    filename: &str,
+    content_type: &str,
+    data: &[u8],
+) -> Result<Self, sqlx::Error>
+```
+
+**Used By:** `routes/images.rs` - POST /api/images
+
+**Notes:**
+- Images stored as BLOB in SQLite
+- Supports PNG, JPEG, GIF content types
+- Can be associated with tasks for context in agent prompts
+
+---
+
+## Task Variables
+
+**Source:** `crates/db/src/models/task_variable.rs`
+
+Task variables enable dynamic value substitution in task descriptions.
+
+### Quick Reference
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `find_by_task_id` | Task's own variables | `Vec<TaskVariable>` |
+| `find_resolved_by_task_id` | All variables including inherited | `Vec<TaskVariable>` |
+| `create` | Insert new variable | `TaskVariable` |
+| `update` | Update variable | `TaskVariable` |
+| `delete` | Remove variable | `u64` |
+| `preview_expansion` | Preview variable substitution | `String` |
+
+### find_resolved_by_task_id
+
+```rust
+async fn find_resolved_by_task_id(
+    pool: &SqlitePool,
+    task_id: Uuid,
+) -> Result<Vec<TaskVariable>, sqlx::Error>
+```
+
+**Returns:** Variables from task and all ancestor tasks.
+
+**Used By:**
+- `routes/task_variables.rs` - GET /api/tasks/:id/variables/resolved
+- `services/execution.rs` - Prompt expansion
+
+**Notes:**
+- Variables inherit from parent tasks
+- Child variables override parent variables with same name
+- Supports `{{variable_name}}` syntax in descriptions
+
+---
+
+## Drafts
+
+**Source:** `crates/db/src/models/draft.rs`
+
+Drafts store in-progress follow-up prompts for task attempts.
+
+### Quick Reference
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `find_by_attempt_and_type` | Get draft | `Option<Draft>` |
+| `upsert` | Create or update | `Draft` |
+| `delete` | Remove draft | `u64` |
+| `set_queued` | Mark for auto-run | `()` |
+
+### upsert
+
+```rust
+async fn upsert(
+    pool: &SqlitePool,
+    task_attempt_id: Uuid,
+    draft_type: DraftType,
+    content: &str,
+) -> Result<Self, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `task_attempt_id` | `Uuid` | Parent attempt ID |
+| `draft_type` | `DraftType` | FollowUp, etc. |
+| `content` | `&str` | Draft content |
+
+**Used By:**
+- `routes/task_attempts.rs` - PUT /api/task-attempts/:id/draft
+
+**Notes:**
+- Drafts persist across browser refreshes
+- `queued = true` means auto-run when agent completes
+
+---
+
+## Activity Dismissals
+
+**Source:** `crates/db/src/models/activity_dismissal.rs`
+
+Activity dismissals track which activity feed items have been dismissed by the user.
+
+### Quick Reference
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `find_by_task_id` | Check if dismissed | `Option<ActivityDismissal>` |
+| `find_all_dismissed` | List dismissed | `Vec<Uuid>` |
+| `dismiss` | Dismiss task | `()` |
+| `undismiss` | Restore task | `()` |
+| `clear_for_task` | Auto-restore on status change | `()` |
+
+### dismiss
+
+```rust
+async fn dismiss(pool: &SqlitePool, task_id: Uuid) -> Result<(), sqlx::Error>
+```
+
+**Used By:** `routes/dashboard.rs` - POST /api/dashboard/activity/dismiss
+
+### clear_for_task
+
+```rust
+async fn clear_for_task(pool: &SqlitePool, task_id: Uuid) -> Result<(), sqlx::Error>
+```
+
+**Used By:** `Task::update_status` - Auto-restore on status change
+
+**Notes:**
+- Dismissals are task-based, not attempt-based
+- Status changes automatically clear dismissals
+
+---
+
+## Activity Feed
+
+**Source:** `crates/db/src/models/activity_feed.rs`
+
+The activity feed provides computed views of recent task activity.
+
+### fetch
+
+```rust
+async fn fetch(pool: &SqlitePool) -> Result<ActivityFeed, sqlx::Error>
+```
+
+**Returns:** `ActivityFeed` containing categorized tasks:
+- `needs_review` - Tasks with status `InReview`
+- `in_progress` - Tasks with status `InProgress` and running execution
+- `completed` - Tasks with status `Done` updated within 24 hours
+
+**Used By:** `routes/dashboard.rs` - GET /api/dashboard/activity
+
+**Notes:**
+- Results computed via SQL queries, not stored
+- Excludes dismissed tasks unless `include_dismissed = true`
+- Includes category counts for badges
+
+---
+
+## Shared Tasks (Deprecated)
+
+**Source:** `crates/db/src/models/shared_task.rs`
+
+Legacy caching of remote tasks from the Hive. Being replaced by ElectricSQL shape subscriptions.
+
+### Quick Reference
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `find_by_id` | Lookup by UUID | `Option<SharedTask>` |
+| `find_by_remote_project_id` | Project tasks | `Vec<SharedTask>` |
+| `upsert` | Create or update | `SharedTask` |
+| `delete` | Remove task | `()` |
+
+**Notes:**
+- Used for WebSocket-based sync (being deprecated)
+- ElectricSQL provides real-time sync to `tasks` table directly
+
+---
+
+## Cached Nodes (Deprecated)
+
+**Source:** `crates/db/src/models/cached_node.rs`
+
+Legacy node caching for swarm visibility. Being replaced by ElectricSQL.
+
+### Quick Reference
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `find_all` | List cached nodes | `Vec<CachedNode>` |
+| `upsert` | Create or update | `CachedNode` |
+| `delete_stale` | Cleanup | `u64` |
+
+**Notes:**
+- Used for polling-based node status
+- ElectricSQL provides real-time node sync

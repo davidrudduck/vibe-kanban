@@ -1,0 +1,233 @@
+---
+title: Project Functions
+description: PostgreSQL functions for project management in the Hive
+---
+
+# Project Functions
+
+Functions for managing projects in the PostgreSQL Hive database. Projects in the Hive represent shared workspaces that nodes can link their local projects to.
+
+**Source:** `crates/remote/src/db/projects.rs`
+
+## Quick Reference
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `find_by_id` | Lookup by UUID | `Option<Project>` |
+| `find_by_organization` | List org projects | `Vec<Project>` |
+| `create` | Create project | `Project` |
+| `update` | Update project | `Project` |
+| `delete` | Remove project | `()` |
+
+---
+
+## Query Operations
+
+### find_by_id
+
+Retrieve a project by UUID.
+
+**Signature:**
+```rust
+async fn find_by_id(&self, project_id: Uuid) -> Result<Option<Project>, ProjectDbError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `project_id` | `Uuid` | Project's unique identifier |
+
+**Returns:** `Some(Project)` if found.
+
+**Used By:**
+- `routes/projects.rs` - GET /api/projects/:id
+- `nodes/service.rs` - Project validation
+
+---
+
+### find_by_organization
+
+List all projects for an organization.
+
+**Signature:**
+```rust
+async fn find_by_organization(
+    &self,
+    organization_id: Uuid,
+) -> Result<Vec<Project>, ProjectDbError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `organization_id` | `Uuid` | Organization ID |
+
+**Returns:** Projects ordered by name.
+
+**Used By:**
+- `routes/projects.rs` - GET /api/projects
+- `routes/organizations.rs` - Org projects list
+
+---
+
+## CRUD Operations
+
+### create
+
+Create a new project in the Hive.
+
+**Signature:**
+```rust
+async fn create(
+    &self,
+    organization_id: Uuid,
+    name: String,
+    metadata: Option<serde_json::Value>,
+) -> Result<Project, ProjectDbError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `organization_id` | `Uuid` | Parent organization |
+| `name` | `String` | Project name |
+| `metadata` | `Option<Value>` | Additional metadata JSON |
+
+**Returns:** Created project.
+
+**Used By:**
+- `routes/projects.rs` - POST /api/projects
+- `nodes/service.rs` - Project sharing
+
+---
+
+### update
+
+Update project fields.
+
+**Signature:**
+```rust
+async fn update(
+    &self,
+    project_id: Uuid,
+    name: Option<String>,
+    metadata: Option<serde_json::Value>,
+) -> Result<Project, ProjectDbError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `project_id` | `Uuid` | Project ID |
+| `name` | `Option<String>` | New name |
+| `metadata` | `Option<Value>` | New metadata |
+
+**Returns:** Updated project.
+
+**Used By:**
+- `routes/projects.rs` - PUT /api/projects/:id
+
+---
+
+### delete
+
+Delete a project from the Hive.
+
+**Signature:**
+```rust
+async fn delete(&self, project_id: Uuid) -> Result<(), ProjectDbError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `project_id` | `Uuid` | Project ID to delete |
+
+**Used By:**
+- `routes/projects.rs` - DELETE /api/projects/:id
+
+**Notes:**
+- Cascades to delete node_projects links
+- Tasks become orphaned (soft-deleted)
+
+---
+
+## Data Model
+
+### Project Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `Uuid` | Primary key |
+| `organization_id` | `Uuid` | Foreign key to organizations |
+| `name` | `String` | Project name |
+| `metadata` | `Option<Value>` | Additional metadata (JSON) |
+| `created_at` | `DateTime<Utc>` | Creation timestamp |
+
+---
+
+## Node Project Links
+
+Projects are linked to nodes via the `node_projects` table.
+
+### NodeProject Functions
+
+**Source:** `crates/remote/src/db/node_projects.rs`
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `create` | Link project to node | `NodeProject` |
+| `find_by_project` | Get owning node | `Option<NodeProject>` |
+| `find_all_by_project` | Get all nodes | `Vec<NodeProject>` |
+| `list_by_node` | Get node's projects | `Vec<NodeProject>` |
+| `delete` | Unlink project | `()` |
+
+### NodeProject Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `Uuid` | Primary key |
+| `node_id` | `Uuid` | Foreign key to nodes |
+| `project_id` | `Uuid` | Foreign key to projects |
+| `local_project_id` | `Uuid` | Node's local SQLite project ID |
+| `git_repo_path` | `String` | Path on node |
+| `default_branch` | `String` | Default git branch |
+| `sync_status` | `String` | Sync status |
+| `last_synced_at` | `Option<DateTime<Utc>>` | Last sync time |
+| `created_at` | `DateTime<Utc>` | Link creation time |
+
+---
+
+## ElectricSQL Integration
+
+The `projects` table is enabled for ElectricSQL sync:
+
+```sql
+SELECT electric_sync_table('public', 'projects');
+```
+
+### Sync Flow
+
+1. Node shares local project to Hive
+2. `projects` record created
+3. `node_projects` link established
+4. Other nodes receive via ElectricSQL shape
+5. Nodes create local remote project copies
+
+---
+
+## Usage Patterns
+
+### Project Sharing
+
+1. User selects local project to share
+2. `create` project in Hive
+3. `node_projects.create` to link
+4. Project synced to other nodes via Electric
+
+### Full Swarm Visibility
+
+Since migration 20251226, all nodes in an org can see all projects:
+- Removed unique constraint on `node_projects(project_id)`
+- Multiple nodes can link to same project
+- Enables distributed task execution
