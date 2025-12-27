@@ -710,9 +710,9 @@ const ExecutionMarker: React.FC<{
     <div className="px-4 py-1.5 text-xs font-mono text-muted-foreground flex items-center gap-2">
       <Clock className="h-3 w-3" />
       {type === 'start' ? (
-        <span>[***] {processName} started at {formattedStartTime}</span>
+        <span>{processName} started at {formattedStartTime}</span>
       ) : (
-        <span>[***] {processName} finished at {formattedEndTime}{statusLabel}{durationLabel}</span>
+        <span>{processName} finished at {formattedEndTime}{durationLabel}{statusLabel}</span>
       )}
     </div>
   );
