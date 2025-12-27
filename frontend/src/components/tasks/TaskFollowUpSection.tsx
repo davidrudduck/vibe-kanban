@@ -40,7 +40,7 @@ import { useDraftQueue } from '@/hooks/follow-up/useDraftQueue';
 import { useFollowUpSend } from '@/hooks/follow-up/useFollowUpSend';
 import { useDefaultVariant } from '@/hooks/follow-up/useDefaultVariant';
 import { buildResolveConflictsInstructions } from '@/lib/conflicts';
-import { appendImageMarkdown } from '@/utils/markdownImages';
+import { insertImageMarkdownAtPosition } from '@/utils/markdownImages';
 import { useTranslation } from 'react-i18next';
 
 interface TaskFollowUpSectionProps {
@@ -118,11 +118,19 @@ export function TaskFollowUpSection({
   const [showImageUpload, setShowImageUpload] = useState(false);
   const imageUploadRef = useRef<ImageUploadSectionHandle>(null);
 
-  const handlePasteImages = useCallback((files: File[]) => {
-    if (files.length === 0) return;
-    setShowImageUpload(true);
-    void imageUploadRef.current?.addFiles(files);
-  }, []);
+  // Track insert position for pasted images (sequential insertion)
+  const insertPositionRef = useRef<number>(0);
+
+  const handlePasteImages = useCallback(
+    (files: File[], cursorPosition: number) => {
+      if (files.length === 0) return;
+      // Store cursor position for use when images finish uploading
+      insertPositionRef.current = cursorPosition;
+      setShowImageUpload(true);
+      void imageUploadRef.current?.addFiles(files);
+    },
+    []
+  );
 
   // Track whether the follow-up textarea is focused
   const [isTextareaFocused, setIsTextareaFocused] = useState(false);
@@ -443,9 +451,17 @@ export function TaskFollowUpSection({
                   onDelete={imagesApi.delete}
                   onImageUploaded={(image) => {
                     handleImageUploaded(image);
-                    setFollowUpMessage((prev) =>
-                      appendImageMarkdown(prev, image)
-                    );
+                    setFollowUpMessage((prev) => {
+                      const { newText, newCursorPosition } =
+                        insertImageMarkdownAtPosition(
+                          prev,
+                          image,
+                          insertPositionRef.current
+                        );
+                      // Advance position for next image (sequential insertion)
+                      insertPositionRef.current = newCursorPosition;
+                      return newText;
+                    });
                   }}
                   disabled={!isEditable}
                   collapsible={false}
