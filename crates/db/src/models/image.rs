@@ -103,6 +103,28 @@ impl Image {
         .await
     }
 
+    pub async fn find_by_file_path(
+        pool: &SqlitePool,
+        file_path: &str,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            Image,
+            r#"SELECT id as "id!: Uuid",
+                      file_path as "file_path!",
+                      original_name as "original_name!",
+                      mime_type,
+                      size_bytes as "size_bytes!",
+                      hash as "hash!",
+                      created_at as "created_at!: DateTime<Utc>",
+                      updated_at as "updated_at!: DateTime<Utc>"
+               FROM images
+               WHERE file_path = $1"#,
+            file_path
+        )
+        .fetch_optional(pool)
+        .await
+    }
+
     pub async fn find_by_task_id(
         pool: &SqlitePool,
         task_id: Uuid,

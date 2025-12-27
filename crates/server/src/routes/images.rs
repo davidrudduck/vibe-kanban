@@ -116,7 +116,27 @@ pub async fn serve_image(
         .get_image(image_id)
         .await?
         .ok_or_else(|| ApiError::Image(ImageError::NotFound))?;
-    let file_path = image_service.get_absolute_path(&image);
+    serve_image_response(&image_service, &image).await
+}
+
+/// Serve an image file by filename (the file_path stored in DB)
+pub async fn serve_image_by_filename(
+    Path(filename): Path<String>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<Response, ApiError> {
+    let image_service = deployment.image();
+    let image = Image::find_by_file_path(&deployment.db().pool, &filename)
+        .await?
+        .ok_or_else(|| ApiError::Image(ImageError::NotFound))?;
+    serve_image_response(&image_service, &image).await
+}
+
+/// Helper to serve an image response
+async fn serve_image_response(
+    image_service: &services::services::image::ImageService,
+    image: &Image,
+) -> Result<Response, ApiError> {
+    let file_path = image_service.get_absolute_path(image);
 
     let file = File::open(&file_path).await?;
     let metadata = file.metadata().await?;
@@ -165,6 +185,7 @@ pub fn routes() -> Router<DeploymentImpl> {
             post(upload_image).layer(DefaultBodyLimit::max(20 * 1024 * 1024)), // 20MB limit
         )
         .route("/{id}/file", get(serve_image))
+        .route("/file/{filename}", get(serve_image_by_filename))
         .route("/{id}", delete(delete_image))
         .route("/task/{task_id}", get(get_task_images))
         .route(
