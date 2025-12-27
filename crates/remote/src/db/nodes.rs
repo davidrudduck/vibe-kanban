@@ -60,7 +60,9 @@ impl<'a> NodeRepository<'a> {
         Self { pool }
     }
 
-    /// Register a new node or update existing one by machine_id
+    /// Register a new node or update existing one by machine_id.
+    /// Uses SELECT + INSERT/UPDATE pattern since unique constraint was removed
+    /// (machine_id is now metadata, not identity).
     pub async fn upsert(
         &self,
         organization_id: Uuid,
@@ -68,41 +70,64 @@ impl<'a> NodeRepository<'a> {
     ) -> Result<Node, NodeDbError> {
         let capabilities = serde_json::to_value(&data.capabilities).unwrap_or_default();
 
-        let row = sqlx::query_as::<_, NodeRow>(
+        // First, try to find existing node by org + machine_id
+        let existing = sqlx::query_as::<_, NodeRow>(
             r#"
-            INSERT INTO nodes (organization_id, name, machine_id, capabilities, public_url, status)
-            VALUES ($1, $2, $3, $4, $5, 'online')
-            ON CONFLICT (organization_id, machine_id)
-            DO UPDATE SET
-                name = EXCLUDED.name,
-                capabilities = EXCLUDED.capabilities,
-                public_url = EXCLUDED.public_url,
-                status = 'online',
-                connected_at = NOW(),
-                last_heartbeat_at = NOW(),
-                updated_at = NOW()
-            RETURNING
-                id,
-                organization_id,
-                name,
-                machine_id,
-                status,
-                capabilities,
-                public_url,
-                last_heartbeat_at,
-                connected_at,
-                disconnected_at,
-                created_at,
-                updated_at
+            SELECT id, organization_id, name, machine_id, status, capabilities,
+                   public_url, last_heartbeat_at, connected_at, disconnected_at,
+                   created_at, updated_at
+            FROM nodes
+            WHERE organization_id = $1 AND machine_id = $2
             "#,
         )
         .bind(organization_id)
-        .bind(&data.name)
         .bind(&data.machine_id)
-        .bind(&capabilities)
-        .bind(&data.public_url)
-        .fetch_one(self.pool)
+        .fetch_optional(self.pool)
         .await?;
+
+        let row = if let Some(existing) = existing {
+            // Update existing node
+            sqlx::query_as::<_, NodeRow>(
+                r#"
+                UPDATE nodes SET
+                    name = $2,
+                    capabilities = $3,
+                    public_url = $4,
+                    status = 'online',
+                    connected_at = NOW(),
+                    last_heartbeat_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = $1
+                RETURNING id, organization_id, name, machine_id, status, capabilities,
+                          public_url, last_heartbeat_at, connected_at, disconnected_at,
+                          created_at, updated_at
+                "#,
+            )
+            .bind(existing.id)
+            .bind(&data.name)
+            .bind(&capabilities)
+            .bind(&data.public_url)
+            .fetch_one(self.pool)
+            .await?
+        } else {
+            // Insert new node
+            sqlx::query_as::<_, NodeRow>(
+                r#"
+                INSERT INTO nodes (organization_id, name, machine_id, capabilities, public_url, status)
+                VALUES ($1, $2, $3, $4, $5, 'online')
+                RETURNING id, organization_id, name, machine_id, status, capabilities,
+                          public_url, last_heartbeat_at, connected_at, disconnected_at,
+                          created_at, updated_at
+                "#,
+            )
+            .bind(organization_id)
+            .bind(&data.name)
+            .bind(&data.machine_id)
+            .bind(&capabilities)
+            .bind(&data.public_url)
+            .fetch_one(self.pool)
+            .await?
+        };
 
         Ok(Node::from(row))
     }
