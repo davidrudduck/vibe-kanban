@@ -23,6 +23,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use db::models::execution_process_logs::ExecutionProcessLogs;
+use db::models::log_entry::{CreateLogEntry, DbLogEntry};
 use db::retry::{RetryConfig, with_retry};
 use db::DBService;
 use sqlx::SqlitePool;
@@ -30,6 +31,7 @@ use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 use tokio::time::interval;
 use utils::log_msg::LogMsg;
+use utils::unified_log::OutputType;
 use uuid::Uuid;
 
 /// Maximum messages to buffer before forced flush.
@@ -180,6 +182,10 @@ impl LogBatcher {
     }
 
     /// Flush all buffered logs for a specific execution.
+    ///
+    /// Writes to both:
+    /// 1. `execution_process_logs` (JSONL) - for backward compatibility
+    /// 2. `log_entries` (individual rows) - for efficient REST pagination
     async fn flush_execution(&self, execution_id: Uuid) {
         let lines = {
             let mut buffers = self.buffers.write().await;
@@ -193,6 +199,7 @@ impl LogBatcher {
         let line_count = lines.len();
         let batch_content = lines.join("");
 
+        // 1. Write to JSONL (existing behavior for backward compatibility)
         if let Err(e) = self.insert_with_retry(execution_id, &batch_content).await {
             tracing::error!(
                 execution_id = %execution_id,
@@ -204,8 +211,44 @@ impl LogBatcher {
             tracing::debug!(
                 execution_id = %execution_id,
                 line_count = line_count,
-                "Flushed log batch to database"
+                "Flushed log batch to JSONL"
             );
+        }
+
+        // 2. Write to log_entries table for efficient pagination
+        for line in &lines {
+            let line = line.trim_end();
+            if let Ok(log_msg) = serde_json::from_str::<LogMsg>(line) {
+                let (output_type, content) = Self::log_msg_to_entry(&log_msg);
+                let create_entry = CreateLogEntry {
+                    execution_id,
+                    output_type: output_type.as_str().to_string(),
+                    content,
+                };
+                if let Err(e) = DbLogEntry::create(&self.pool, create_entry).await {
+                    tracing::warn!(
+                        execution_id = %execution_id,
+                        error = %e,
+                        "Failed to insert log_entry"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Convert LogMsg to (OutputType, content) for log_entries table.
+    fn log_msg_to_entry(log_msg: &LogMsg) -> (OutputType, String) {
+        match log_msg {
+            LogMsg::Stdout(s) => (OutputType::Stdout, s.clone()),
+            LogMsg::Stderr(s) => (OutputType::Stderr, s.clone()),
+            LogMsg::JsonPatch(patch) => {
+                let content =
+                    serde_json::to_string(patch).unwrap_or_else(|_| "[]".to_string());
+                (OutputType::JsonPatch, content)
+            }
+            LogMsg::SessionId(s) => (OutputType::SessionId, s.clone()),
+            LogMsg::Finished => (OutputType::Finished, String::new()),
+            LogMsg::RefreshRequired { reason } => (OutputType::RefreshRequired, reason.clone()),
         }
     }
 
