@@ -715,7 +715,40 @@ pub trait ContainerService {
                             }
                             break;
                         }
-                        LogMsg::JsonPatch(_) | LogMsg::RefreshRequired { .. } => continue,
+                        LogMsg::JsonPatch(_) => {
+                            // Persist JsonPatch to database via log batcher
+                            if let Some(ref batcher) = log_batcher {
+                                batcher.add_log(execution_id, msg.clone()).await;
+                            } else {
+                                // Fallback to direct writes (legacy behavior)
+                                match serde_json::to_string(&msg) {
+                                    Ok(jsonl_line) => {
+                                        let jsonl_line_with_newline = format!("{jsonl_line}\n");
+                                        if let Err(e) = ExecutionProcessLogs::append_log_line(
+                                            &db.pool,
+                                            execution_id,
+                                            &jsonl_line_with_newline,
+                                        )
+                                        .await
+                                        {
+                                            tracing::error!(
+                                                "Failed to append JsonPatch log for execution {}: {}",
+                                                execution_id,
+                                                e
+                                            );
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(
+                                            "Failed to serialize JsonPatch for execution {}: {}",
+                                            execution_id,
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        LogMsg::RefreshRequired { .. } => continue,
                     }
                 }
             }
