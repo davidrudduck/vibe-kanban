@@ -5,6 +5,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{delete, get, patch, post},
 };
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::{Span, instrument};
@@ -247,6 +248,7 @@ pub async fn update_shared_task(
         title,
         description,
         status,
+        archived_at,
         version,
     } = payload;
 
@@ -261,6 +263,7 @@ pub async fn update_shared_task(
         title,
         description,
         status,
+        archived_at,
         version,
         acting_user_id: ctx.user.id,
     };
@@ -433,6 +436,9 @@ pub struct UpdateSharedTaskRequest {
     pub title: Option<String>,
     pub description: Option<String>,
     pub status: Option<TaskStatus>,
+    /// When Some(None), unarchive the task. When Some(Some(ts)), archive at that timestamp.
+    /// When None, don't change archived status.
+    pub archived_at: Option<Option<DateTime<Utc>>>,
     pub version: Option<i64>,
 }
 
