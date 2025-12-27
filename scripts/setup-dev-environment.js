@@ -295,9 +295,10 @@ if (require.main === module) {
     case "env":
       // Output env vars for backend dev server, respecting .env first
       // loadEnvFile() already called at top of script
-      // Default DISABLE_WORKTREE_ORPHAN_CLEANUP to "1" (disabled) for dev if not set
+      // Default DISABLE_WORKTREE_ORPHAN_CLEANUP to "0" (enabled) for dev if not set
+      // Set to "1" or "true" in .env to disable cleanup
       {
-        const disableCleanup = process.env.DISABLE_WORKTREE_ORPHAN_CLEANUP ?? "1";
+        const disableCleanup = process.env.DISABLE_WORKTREE_ORPHAN_CLEANUP ?? "0";
         const rustLog = process.env.RUST_LOG ?? "debug";
         // Output in format suitable for shell eval
         console.log(`export DISABLE_WORKTREE_ORPHAN_CLEANUP=${disableCleanup}`);

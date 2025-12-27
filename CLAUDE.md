@@ -453,7 +453,7 @@ Runtime:
 - `BACKEND_PORT`: Backend server port (default: auto-assign)
 - `FRONTEND_PORT`: Frontend dev port (default: 3000)
 - `HOST`: Backend host (default: 127.0.0.1)
-- `DISABLE_WORKTREE_ORPHAN_CLEANUP`: Debug flag for worktrees
+- `DISABLE_WORKTREE_ORPHAN_CLEANUP`: Set to `1` or `true` to disable automatic worktree cleanup (default: `0`, cleanup enabled)
 
 MCP Server:
 - `MCP_PORT`: Port for HTTP MCP server. If set, backend auto-spawns MCP HTTP server at `http://{HOST}:{MCP_PORT}/mcp`. This allows executors to connect to a locally running MCP server instead of the published npm package.
