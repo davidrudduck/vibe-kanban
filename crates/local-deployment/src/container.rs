@@ -152,9 +152,13 @@ impl LocalContainerService {
     /// Find and delete orphaned worktrees that don't correspond to any task attempts
     async fn cleanup_orphaned_worktrees(&self) {
         // Check if orphan cleanup is disabled via environment variable
-        if std::env::var("DISABLE_WORKTREE_ORPHAN_CLEANUP").is_ok() {
+        // Only "1" or "true" (case-insensitive) disables cleanup; unset or "0"/"false" enables it
+        if std::env::var("DISABLE_WORKTREE_ORPHAN_CLEANUP")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+        {
             tracing::debug!(
-                "Orphan worktree cleanup is disabled via DISABLE_WORKTREE_ORPHAN_CLEANUP environment variable"
+                "Orphan worktree cleanup is disabled via DISABLE_WORKTREE_ORPHAN_CLEANUP=1"
             );
             return;
         }
