@@ -238,6 +238,10 @@ enum AuthError {
     InvalidApiKey,
     #[error("API key revoked")]
     ApiKeyRevoked,
+    #[error("API key blocked: {0}")]
+    ApiKeyBlocked(String),
+    #[error("takeover detected: {0}")]
+    TakeoverDetected(String),
     #[error("protocol version mismatch: client={client}, server={server}")]
     ProtocolMismatch { client: u32, server: u32 },
     #[error("registration failed: {0}")]
@@ -294,15 +298,29 @@ async fn wait_for_auth(
         tracing::debug!(?e, "API key validation failed");
         match e {
             crate::nodes::service::NodeError::ApiKeyRevoked => AuthError::ApiKeyRevoked,
+            crate::nodes::service::NodeError::ApiKeyBlocked(reason) => {
+                AuthError::ApiKeyBlocked(reason)
+            }
             _ => AuthError::InvalidApiKey,
         }
     })?;
+
+    // Check if API key is blocked (additional check after validation)
+    if let Some(reason) = &api_key.blocked_reason {
+        tracing::info!(
+            key_id = %api_key.id,
+            key_name = %api_key.name,
+            reason = %reason,
+            "Rejecting blocked API key"
+        );
+        return Err(AuthError::ApiKeyBlocked(reason.clone()));
+    }
 
     // Store name and public_url for later use in broadcasts
     let node_name = auth.name.clone();
     let node_public_url = auth.public_url.clone();
 
-    // Register or update the node
+    // Register or update the node using API key-based identity
     let register_data = RegisterNode {
         name: auth.name,
         machine_id: auth.machine_id,
@@ -311,9 +329,20 @@ async fn wait_for_auth(
     };
 
     let node = service
-        .register_node(api_key.organization_id, register_data)
+        .register_node_with_api_key(&api_key, register_data)
         .await
-        .map_err(|e| AuthError::RegistrationFailed(e.to_string()))?;
+        .map_err(|e| {
+            tracing::debug!(?e, "Node registration failed");
+            match e {
+                crate::nodes::service::NodeError::TakeoverDetected(msg) => {
+                    AuthError::TakeoverDetected(msg)
+                }
+                crate::nodes::service::NodeError::ApiKeyBlocked(reason) => {
+                    AuthError::ApiKeyBlocked(reason)
+                }
+                _ => AuthError::RegistrationFailed(e.to_string()),
+            }
+        })?;
 
     // Get ALL projects in the organization (not just this node's linked projects)
     // This enables full visibility across the swarm

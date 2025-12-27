@@ -16,8 +16,8 @@ use crate::{
     auth::RequestContext,
     db::organizations::{MemberRole, OrganizationRepository},
     nodes::{
-        CreateNodeApiKey, HeartbeatPayload, LinkProjectData, Node, NodeApiKey, NodeError,
-        NodeProject, NodeRegistration, NodeServiceImpl,
+        CreateNodeApiKey, HeartbeatPayload, LinkProjectData, MergeNodesResult, Node, NodeApiKey,
+        NodeError, NodeProject, NodeRegistration, NodeServiceImpl,
     },
 };
 
@@ -46,10 +46,15 @@ pub fn protected_router() -> Router<AppState> {
         .route("/nodes/api-keys", post(create_api_key))
         .route("/nodes/api-keys", get(list_api_keys))
         .route("/nodes/api-keys/{key_id}", delete(revoke_api_key))
+        .route("/nodes/api-keys/{key_id}/unblock", post(unblock_api_key))
         .route("/nodes", get(list_nodes))
         .route("/nodes/{node_id}", get(get_node))
         .route("/nodes/{node_id}", delete(delete_node))
         .route("/nodes/{node_id}/projects", get(list_node_projects))
+        .route(
+            "/nodes/{source_id}/merge-to/{target_id}",
+            post(merge_nodes),
+        )
         .route(
             "/nodes/assignments/{assignment_id}/logs",
             get(get_assignment_logs),
@@ -433,6 +438,155 @@ pub async fn list_node_projects(
     match service.list_node_projects(node_id).await {
         Ok(projects) => (StatusCode::OK, Json(projects)).into_response(),
         Err(error) => node_error_response(error, "failed to list node projects"),
+    }
+}
+
+// ============================================================================
+// Node Merge (User JWT Auth - Admin Only)
+// ============================================================================
+
+#[derive(Debug, Serialize)]
+pub struct MergeNodesResponse {
+    pub source_node_id: Uuid,
+    pub target_node_id: Uuid,
+    pub projects_moved: u64,
+    pub keys_rebound: u64,
+}
+
+impl From<MergeNodesResult> for MergeNodesResponse {
+    fn from(result: MergeNodesResult) -> Self {
+        Self {
+            source_node_id: result.source_node_id,
+            target_node_id: result.target_node_id,
+            projects_moved: result.projects_moved,
+            keys_rebound: result.keys_rebound,
+        }
+    }
+}
+
+#[instrument(
+    name = "nodes.merge",
+    skip(state, ctx),
+    fields(user_id = %ctx.user.id, source_id = %source_id, target_id = %target_id)
+)]
+pub async fn merge_nodes(
+    State(state): State<AppState>,
+    Extension(ctx): Extension<RequestContext>,
+    Path((source_id, target_id)): Path<(Uuid, Uuid)>,
+) -> Response {
+    let pool = state.pool();
+    let service = NodeServiceImpl::new(pool.clone());
+
+    // Get source node to verify organization access
+    let source_node = match service.get_node(source_id).await {
+        Ok(node) => node,
+        Err(NodeError::NodeNotFound) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "Source node not found" })),
+            )
+                .into_response();
+        }
+        Err(error) => return node_error_response(error, "failed to get source node"),
+    };
+
+    // Verify user is admin of the node's organization
+    let org_repo = OrganizationRepository::new(pool);
+    match org_repo
+        .check_user_role(source_node.organization_id, ctx.user.id)
+        .await
+    {
+        Ok(Some(MemberRole::Admin)) => {}
+        Ok(_) => {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({ "error": "Admin access required to merge nodes" })),
+            )
+                .into_response();
+        }
+        Err(_) => {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({ "error": "Admin access required to merge nodes" })),
+            )
+                .into_response();
+        }
+    }
+
+    // Perform the merge
+    match service.merge_nodes(source_id, target_id).await {
+        Ok(result) => (StatusCode::OK, Json(MergeNodesResponse::from(result))).into_response(),
+        Err(error) => node_error_response(error, "failed to merge nodes"),
+    }
+}
+
+// ============================================================================
+// Unblock API Key (User JWT Auth - Admin Only)
+// ============================================================================
+
+#[instrument(
+    name = "nodes.unblock_api_key",
+    skip(state, ctx),
+    fields(user_id = %ctx.user.id, key_id = %key_id)
+)]
+pub async fn unblock_api_key(
+    State(state): State<AppState>,
+    Extension(ctx): Extension<RequestContext>,
+    Path(key_id): Path<Uuid>,
+) -> Response {
+    use crate::db::node_api_keys::NodeApiKeyRepository;
+
+    let pool = state.pool();
+    let service = NodeServiceImpl::new(pool.clone());
+
+    // Get the API key to verify organization access
+    let key_repo = NodeApiKeyRepository::new(pool);
+    let api_key = match key_repo.find_by_id(key_id).await {
+        Ok(Some(key)) => key,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "API key not found" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!(?e, "failed to fetch API key");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal server error" })),
+            )
+                .into_response();
+        }
+    };
+
+    // Verify user is admin of the API key's organization
+    let org_repo = OrganizationRepository::new(pool);
+    match org_repo
+        .check_user_role(api_key.organization_id, ctx.user.id)
+        .await
+    {
+        Ok(Some(MemberRole::Admin)) => {}
+        Ok(_) => {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({ "error": "Admin access required to unblock API keys" })),
+            )
+                .into_response();
+        }
+        Err(_) => {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({ "error": "Admin access required to unblock API keys" })),
+            )
+                .into_response();
+        }
+    }
+
+    // Unblock the key
+    match service.unblock_api_key(key_id).await {
+        Ok(key) => (StatusCode::OK, Json(key)).into_response(),
+        Err(error) => node_error_response(error, "failed to unblock API key"),
     }
 }
 
@@ -862,23 +1016,44 @@ async fn extract_and_validate_api_key(
 
 /// Convert NodeError to HTTP response
 fn node_error_response(error: NodeError, context: &str) -> Response {
-    let (status, message) = match &error {
-        NodeError::NodeNotFound => (StatusCode::NOT_FOUND, "node not found"),
-        NodeError::ApiKeyNotFound => (StatusCode::NOT_FOUND, "API key not found"),
-        NodeError::ApiKeyInvalid => (StatusCode::UNAUTHORIZED, "invalid API key"),
-        NodeError::ApiKeyRevoked => (StatusCode::UNAUTHORIZED, "API key revoked"),
-        NodeError::ProjectAlreadyLinked => {
-            (StatusCode::CONFLICT, "project already linked to a node")
-        }
+    let (status, message): (StatusCode, String) = match &error {
+        NodeError::NodeNotFound => (StatusCode::NOT_FOUND, "node not found".to_string()),
+        NodeError::ApiKeyNotFound => (StatusCode::NOT_FOUND, "API key not found".to_string()),
+        NodeError::ApiKeyInvalid => (StatusCode::UNAUTHORIZED, "invalid API key".to_string()),
+        NodeError::ApiKeyRevoked => (StatusCode::UNAUTHORIZED, "API key revoked".to_string()),
+        NodeError::ApiKeyBlocked(reason) => (
+            StatusCode::FORBIDDEN,
+            format!("API key blocked: {}", reason),
+        ),
+        NodeError::ApiKeyAlreadyBound => (
+            StatusCode::CONFLICT,
+            "API key already bound to a different node".to_string(),
+        ),
+        NodeError::TakeoverDetected(msg) => (
+            StatusCode::CONFLICT,
+            format!("takeover detected: {}", msg),
+        ),
+        NodeError::ProjectAlreadyLinked => (
+            StatusCode::CONFLICT,
+            "project already linked to a node".to_string(),
+        ),
         NodeError::TaskAlreadyAssigned => (
             StatusCode::CONFLICT,
-            "task already has an active assignment",
+            "task already has an active assignment".to_string(),
         ),
-        NodeError::AssignmentNotFound => (StatusCode::NOT_FOUND, "assignment not found"),
-        NodeError::NodeProjectNotFound => (StatusCode::NOT_FOUND, "node project link not found"),
+        NodeError::AssignmentNotFound => {
+            (StatusCode::NOT_FOUND, "assignment not found".to_string())
+        }
+        NodeError::NodeProjectNotFound => (
+            StatusCode::NOT_FOUND,
+            "node project link not found".to_string(),
+        ),
         NodeError::Database(err) => {
             tracing::error!(?err, context, "database error in node operation");
-            (StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal server error".to_string(),
+            )
         }
     };
 

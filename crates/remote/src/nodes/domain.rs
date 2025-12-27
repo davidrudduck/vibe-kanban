@@ -59,6 +59,16 @@ pub struct NodeApiKey {
     pub last_used_at: Option<DateTime<Utc>>,
     pub revoked_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+    /// The node this API key is bound to (set on first connection)
+    pub node_id: Option<Uuid>,
+    /// Number of takeover attempts within the current window
+    pub takeover_count: i32,
+    /// Start of the current takeover detection window
+    pub takeover_window_start: Option<DateTime<Utc>>,
+    /// When the key was blocked due to suspected duplicate use
+    pub blocked_at: Option<DateTime<Utc>>,
+    /// Reason for blocking (e.g., "Duplicate key use detected")
+    pub blocked_reason: Option<String>,
 }
 
 /// Data for creating a new API key
