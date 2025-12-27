@@ -69,6 +69,7 @@ pub struct ElectricTaskData {
     pub assignee_last_name: Option<String>,
     pub assignee_username: Option<String>,
     pub updated_at: Option<String>,
+    pub archived_at: Option<String>,
 }
 
 impl ElectricTaskData {
@@ -110,6 +111,14 @@ impl ElectricTaskData {
             (None, Some(last)) => Some(last.clone()),
             (None, None) => None,
         }
+    }
+
+    /// Parse the archived_at timestamp.
+    pub fn parse_archived_at(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        self.archived_at
+            .as_ref()
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&chrono::Utc))
     }
 }
 
@@ -272,6 +281,7 @@ impl ElectricTaskSyncService {
             task_data.assignee_username.clone(),
             task_data.version,
             None, // activity_at - could parse from updated_at
+            task_data.parse_archived_at(),
         )
         .await?;
 

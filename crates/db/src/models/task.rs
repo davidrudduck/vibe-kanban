@@ -684,6 +684,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
         remote_assignee_username: Option<String>,
         remote_version: i64,
         activity_at: Option<DateTime<Utc>>,
+        archived_at: Option<DateTime<Utc>>,
     ) -> Result<Self, sqlx::Error>
     where
         E: Executor<'e, Database = Sqlite>,
@@ -704,9 +705,10 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                     remote_assignee_username,
                     remote_version,
                     remote_last_synced_at,
-                    activity_at
+                    activity_at,
+                    archived_at
                 ) VALUES (
-                    $1, $2, $3, $4, $5, $6, 1, $7, $8, $9, $10, $11, $12
+                    $1, $2, $3, $4, $5, $6, 1, $7, $8, $9, $10, $11, $12, $13
                 )
                 ON CONFLICT(shared_task_id) WHERE shared_task_id IS NOT NULL DO UPDATE SET
                     title = excluded.title,
@@ -719,6 +721,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                     remote_version = excluded.remote_version,
                     remote_last_synced_at = excluded.remote_last_synced_at,
                     activity_at = excluded.activity_at,
+                    archived_at = excluded.archived_at,
                     updated_at = datetime('now', 'subsec')
                 RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", shared_task_id as "shared_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
                           is_remote as "is_remote!: bool",
@@ -742,7 +745,8 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
             remote_assignee_username,
             remote_version,
             now,
-            activity_at
+            activity_at,
+            archived_at
         )
         .fetch_one(executor)
         .await
@@ -820,6 +824,20 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
         builder.push(")");
         let result = builder.build().execute(pool).await?;
         Ok(result.rows_affected())
+    }
+
+    /// Auto-unarchive a task if it's currently archived.
+    /// Returns true if the task was unarchived, false if it was already active.
+    /// This is useful for auto-unarchiving tasks when they receive activity
+    /// (edits, new attempts, subtasks, or follow-up prompts).
+    pub async fn unarchive_if_archived(pool: &SqlitePool, id: Uuid) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query!(
+            "UPDATE tasks SET archived_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND archived_at IS NOT NULL",
+            id
+        )
+        .execute(pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
     }
 
     /// Update remote stream location for a task
