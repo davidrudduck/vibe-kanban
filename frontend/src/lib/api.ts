@@ -107,6 +107,8 @@ import {
   DirtyFilesResponse,
   StashChangesRequest,
   StashChangesResponse,
+  PurgeResult,
+  DiskUsageStats,
 } from 'shared/types';
 
 // Re-export types for convenience
@@ -944,6 +946,28 @@ export const attemptsApi = {
     );
     return handleApiResponse<void>(response);
   },
+
+  /** Clean up a task attempt's worktree (deletes filesystem and marks as deleted in DB). */
+  cleanup: async (attemptId: string): Promise<void> => {
+    const response = await makeRequest(
+      `/api/task-attempts/${attemptId}/cleanup`,
+      {
+        method: 'POST',
+      }
+    );
+    return handleApiResponse<void>(response);
+  },
+
+  /** Purge build artifacts from worktree without deleting it. */
+  purge: async (attemptId: string): Promise<PurgeResult> => {
+    const response = await makeRequest(
+      `/api/task-attempts/${attemptId}/purge`,
+      {
+        method: 'POST',
+      }
+    );
+    return handleApiResponse<PurgeResult>(response);
+  },
 };
 
 // Extra helpers
@@ -1603,6 +1627,18 @@ export const backupsApi = {
       throw new Error(result.message || 'Failed to restore backup');
     }
     return result.data!;
+  },
+};
+
+// === Diagnostics API ===
+export const diagnosticsApi = {
+  /**
+   * Get disk usage statistics for worktrees.
+   * Returns total space used, worktree count, and largest worktrees.
+   */
+  getDiskUsage: async (): Promise<DiskUsageStats> => {
+    const response = await makeRequest('/api/diagnostics/disk-usage');
+    return handleApiResponse<DiskUsageStats>(response);
   },
 };
 

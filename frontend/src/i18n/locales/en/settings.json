@@ -376,6 +376,10 @@
           "description": "Reset the onboarding flow.",
           "button": "Reset"
         }
+      },
+      "diskUsage": {
+        "title": "Disk Usage",
+        "description": "Monitor and manage disk space used by worktrees."
       }
     },
     "agents": {

@@ -31,7 +31,14 @@
     "moveToInReview": "Mover a En Revisión",
     "moveToDone": "Mover a Completada",
     "cancelTask": "Cancelar Tarea",
-    "moveToTodo": "Mover a Por Hacer"
+    "moveToTodo": "Mover a Por Hacer",
+    "purgeArtifacts": "Eliminar artefactos de compilación",
+    "purgeArtifactsDesc": "Eliminar target/, node_modules/, etc.",
+    "cleanupWorktree": "Eliminar Worktree",
+    "cleanupWorktreeDesc": "Eliminar archivos del worktree del disco",
+    "cleanupWorktreeConfirm": "¿Eliminar el worktree de este intento? Esta acción no se puede deshacer.",
+    "worktreeAlreadyDeleted": "Worktree ya eliminado",
+    "sharedTask": "Tarea Compartida"
   },
   "archiveDialog": {
     "title": "Archivar Tarea",
@@ -41,6 +48,16 @@
     "archiving": "Archivando...",
     "confirm": "Archivar Tarea",
     "genericError": "No se pudo archivar la tarea. Por favor, inténtalo de nuevo."
+  },
+  "cleanupWorktreeDialog": {
+    "title": "Eliminar Worktree",
+    "description": "Esto eliminará permanentemente los archivos del worktree del disco. El registro del intento se conservará, pero los cambios de código se perderán a menos que se hayan enviado al repositorio remoto.",
+    "warning": "Esta acción no se puede deshacer. Asegúrate de que los cambios importantes se hayan confirmado y enviado.",
+    "deleting": "Eliminando...",
+    "confirm": "Eliminar Worktree",
+    "genericError": "Error al eliminar worktree",
+    "success": "Worktree eliminado correctamente",
+    "purgeSuccess": "Artefactos de compilación eliminados correctamente"
   },
   "remoteTask": "Tarea remota",
   "editBranchName": {

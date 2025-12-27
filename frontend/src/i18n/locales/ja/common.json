@@ -79,6 +79,15 @@
   "devMode": {
     "banner": "開発モード - これは開発ビルドです"
   },
+  "diskUsage": {
+    "title": "ワークツリーのディスク使用量",
+    "loading": "ディスク使用量を読み込み中...",
+    "error": "ディスク使用量の読み込みに失敗しました",
+    "worktrees": "ワークツリー",
+    "largestWorktrees": "最大のワークツリー",
+    "noWorktrees": "ワークツリーが見つかりません",
+    "directory": "ディレクトリ"
+  },
   "oauth": {
     "title": "Vibe Kanbanにサインイン",
     "description": "サインインして組織に参加し、チームとタスクを共有します",

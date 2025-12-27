@@ -234,6 +234,10 @@ fn generate_types_content() -> String {
         server::routes::task_attempts::DirtyFilesResponse::decl(),
         server::routes::task_attempts::StashChangesRequest::decl(),
         server::routes::task_attempts::StashChangesResponse::decl(),
+        // Worktree management types
+        services::services::worktree_manager::PurgeResult::decl(),
+        services::services::worktree_manager::DiskUsageStats::decl(),
+        services::services::worktree_manager::WorktreeSize::decl(),
     ];
 
     let body = decls

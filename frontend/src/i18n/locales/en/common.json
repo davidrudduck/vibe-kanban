@@ -81,6 +81,15 @@
     "banner": "Development Mode - This is a development build",
     "bannerShort": "Development Mode"
   },
+  "diskUsage": {
+    "title": "Worktree Disk Usage",
+    "loading": "Loading disk usage...",
+    "error": "Failed to load disk usage",
+    "worktrees": "worktrees",
+    "largestWorktrees": "Largest worktrees",
+    "noWorktrees": "No worktrees found",
+    "directory": "Directory"
+  },
   "oauth": {
     "title": "Sign in to Vibe Kanban",
     "description": "Sign in to join organizations and share tasks with your team",

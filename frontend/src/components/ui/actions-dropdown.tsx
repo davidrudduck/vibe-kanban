@@ -29,10 +29,13 @@ import {
   CheckCircle,
   XCircle,
   Circle,
+  HardDrive,
+  FolderX,
 } from 'lucide-react';
 import type { TaskWithAttemptStatus, TaskAttempt, TaskStatus } from 'shared/types';
 import { useOpenInEditor } from '@/hooks/useOpenInEditor';
 import { ArchiveTaskConfirmationDialog } from '@/components/dialogs/tasks/ArchiveTaskConfirmationDialog';
+import { CleanupWorktreeConfirmationDialog } from '@/components/dialogs/tasks/CleanupWorktreeConfirmationDialog';
 import { DeleteTaskConfirmationDialog } from '@/components/dialogs/tasks/DeleteTaskConfirmationDialog';
 import { ViewProcessesDialog } from '@/components/dialogs/tasks/ViewProcessesDialog';
 import { ViewRelatedTasksDialog } from '@/components/dialogs/tasks/ViewRelatedTasksDialog';
@@ -47,6 +50,7 @@ import { openTaskForm } from '@/lib/openTaskForm';
 import { useNavigate } from 'react-router-dom';
 import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
 import { useAuth, useTaskUsesSharedWorktree, useIsMobile } from '@/hooks';
+import { useAttemptCleanupMutations } from '@/hooks/useAttemptCleanupMutations';
 import { tasksApi } from '@/lib/api';
 import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
@@ -73,6 +77,19 @@ export function ActionsDropdown({
   const navigate = useNavigate();
   const { userId } = useAuth();
   const isMobile = useIsMobile();
+
+  // Worktree cleanup mutations
+  const { cleanupWorktree, purgeArtifacts } = useAttemptCleanupMutations({
+    onCleanupSuccess: () => {
+      // Could show a toast here
+    },
+    onPurgeSuccess: (result) => {
+      // Could show a toast with freed bytes
+      console.info(
+        `Purged ${result.purged_dirs.join(', ')} - freed ${result.freed_bytes} bytes`
+      );
+    },
+  });
 
   // Mobile sheet state
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
@@ -220,6 +237,27 @@ export function ActionsDropdown({
     e.stopPropagation();
     if (!sharedTask) return;
     ReassignDialog.show({ sharedTask, isOrgAdmin });
+  };
+
+  const handleCleanupWorktree = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!attempt?.id) return;
+    try {
+      await CleanupWorktreeConfirmationDialog.show({
+        attemptId: attempt.id,
+        onConfirm: async () => {
+          await cleanupWorktree.mutateAsync(attempt.id);
+        },
+      });
+    } catch {
+      // User cancelled or error occurred
+    }
+  };
+
+  const handlePurgeArtifacts = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!attempt?.id) return;
+    purgeArtifacts.mutate(attempt.id);
   };
 
   const [isUnarchiving, setIsUnarchiving] = useState(false);
@@ -442,6 +480,30 @@ export function ActionsDropdown({
                         disabled={!attempt?.id || isRemote}
                       />
                       <MobileSeparator />
+                      <MobileMenuItem
+                        icon={HardDrive}
+                        label={t('actionsMenu.purgeArtifacts', 'Purge Build Artifacts')}
+                        onClick={handlePurgeArtifacts}
+                        disabled={
+                          !attempt?.id ||
+                          isRemote ||
+                          attempt.worktree_deleted ||
+                          purgeArtifacts.isPending
+                        }
+                      />
+                      <MobileMenuItem
+                        icon={FolderX}
+                        label={t('actionsMenu.cleanupWorktree', 'Delete Worktree')}
+                        onClick={handleCleanupWorktree}
+                        disabled={
+                          !attempt?.id ||
+                          isRemote ||
+                          attempt.worktree_deleted ||
+                          cleanupWorktree.isPending
+                        }
+                        destructive
+                      />
+                      <MobileSeparator />
                     </>
                   )}
 
@@ -638,6 +700,58 @@ export function ActionsDropdown({
             >
               <Tag className="mr-2 h-4 w-4" />
               {t('actionsMenu.editBranchName')}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              disabled={
+                !attempt?.id ||
+                isRemote ||
+                attempt.worktree_deleted ||
+                purgeArtifacts.isPending
+              }
+              onClick={handlePurgeArtifacts}
+              title={
+                isRemote
+                  ? t('actionsMenu.remoteTaskCannotExecute')
+                  : attempt?.worktree_deleted
+                    ? t(
+                        'actionsMenu.worktreeAlreadyDeleted',
+                        'Worktree already deleted'
+                      )
+                    : t(
+                        'actionsMenu.purgeArtifactsDesc',
+                        'Remove target/, node_modules/, etc.'
+                      )
+              }
+            >
+              <HardDrive className="mr-2 h-4 w-4" />
+              {t('actionsMenu.purgeArtifacts', 'Purge Build Artifacts')}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={
+                !attempt?.id ||
+                isRemote ||
+                attempt.worktree_deleted ||
+                cleanupWorktree.isPending
+              }
+              onClick={handleCleanupWorktree}
+              className="text-destructive"
+              title={
+                isRemote
+                  ? t('actionsMenu.remoteTaskCannotExecute')
+                  : attempt?.worktree_deleted
+                    ? t(
+                        'actionsMenu.worktreeAlreadyDeleted',
+                        'Worktree already deleted'
+                      )
+                    : t(
+                        'actionsMenu.cleanupWorktreeDesc',
+                        'Delete worktree files from disk'
+                      )
+              }
+            >
+              <FolderX className="mr-2 h-4 w-4" />
+              {t('actionsMenu.cleanupWorktree', 'Delete Worktree')}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
           </>

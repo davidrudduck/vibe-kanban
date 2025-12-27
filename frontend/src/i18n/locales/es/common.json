@@ -79,6 +79,15 @@
   "devMode": {
     "banner": "Modo de Desarrollo - Esta es una compilación de desarrollo"
   },
+  "diskUsage": {
+    "title": "Uso de disco del worktree",
+    "loading": "Cargando uso de disco...",
+    "error": "Error al cargar uso de disco",
+    "worktrees": "worktrees",
+    "largestWorktrees": "Worktrees más grandes",
+    "noWorktrees": "No se encontraron worktrees",
+    "directory": "Directorio"
+  },
   "oauth": {
     "title": "Iniciar sesión en Vibe Kanban",
     "description": "Inicia sesión para unirte a organizaciones y compartir tareas con tu equipo",

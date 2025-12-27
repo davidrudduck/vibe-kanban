@@ -325,7 +325,14 @@
     "moveToInReview": "Move to In Review",
     "moveToDone": "Move to Done",
     "cancelTask": "Cancel Task",
-    "moveToTodo": "Move to To Do"
+    "moveToTodo": "Move to To Do",
+    "purgeArtifacts": "Purge Build Artifacts",
+    "purgeArtifactsDesc": "Remove target/, node_modules/, etc.",
+    "cleanupWorktree": "Delete Worktree",
+    "cleanupWorktreeDesc": "Delete worktree files from disk",
+    "cleanupWorktreeConfirm": "Delete the worktree for this attempt? This cannot be undone.",
+    "worktreeAlreadyDeleted": "Worktree already deleted",
+    "sharedTask": "Shared Task"
   },
   "archiveDialog": {
     "title": "Archive Task",
@@ -335,6 +342,16 @@
     "archiving": "Archiving...",
     "confirm": "Archive Task",
     "genericError": "Failed to archive task. Please try again."
+  },
+  "cleanupWorktreeDialog": {
+    "title": "Delete Worktree",
+    "description": "This will permanently delete the worktree files from disk. The attempt record will be preserved, but the code changes will be lost unless they were pushed to the remote repository.",
+    "warning": "This action cannot be undone. Make sure any important changes have been committed and pushed.",
+    "deleting": "Deleting...",
+    "confirm": "Delete Worktree",
+    "genericError": "Failed to delete worktree",
+    "success": "Worktree deleted successfully",
+    "purgeSuccess": "Build artifacts purged successfully"
   },
   "remoteTask": "Remote task",
   "editBranchName": {
