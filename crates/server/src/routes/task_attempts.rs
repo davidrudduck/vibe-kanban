@@ -272,6 +272,28 @@ pub async fn create_task_attempt(
         .await?
         .ok_or(SqlxError::RowNotFound)?;
 
+    // Auto-unarchive the task when a new attempt is created
+    if Task::unarchive_if_archived(pool, task.id).await? {
+        tracing::info!(
+            task_id = %task.id,
+            "Auto-unarchived task due to new attempt creation"
+        );
+
+        // Sync unarchive to Hive if task is shared
+        if task.shared_task_id.is_some() {
+            if let Ok(publisher) = deployment.share_publisher() {
+                if let Some(updated_task) = Task::find_by_id(pool, task.id).await? {
+                    let publisher = publisher.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = publisher.update_shared_task(&updated_task).await {
+                            tracing::warn!(?e, "failed to sync task unarchive to Hive");
+                        }
+                    });
+                }
+            }
+        }
+    }
+
     let attempt_id = Uuid::new_v4();
 
     // Determine branch name and parent worktree info based on use_parent_worktree flag
@@ -551,9 +573,32 @@ pub async fn follow_up(
         .await?
         .ok_or(SqlxError::RowNotFound)?;
 
+    // Auto-unarchive the task when user continues execution with input
+    let pool = &deployment.db().pool;
+    if Task::unarchive_if_archived(pool, task.id).await? {
+        tracing::info!(
+            task_id = %task.id,
+            "Auto-unarchived task due to follow-up execution"
+        );
+
+        // Sync unarchive to Hive if task is shared
+        if task.shared_task_id.is_some() {
+            if let Ok(publisher) = deployment.share_publisher() {
+                if let Some(updated_task) = Task::find_by_id(pool, task.id).await? {
+                    let publisher = publisher.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = publisher.update_shared_task(&updated_task).await {
+                            tracing::warn!(?e, "failed to sync task unarchive to Hive");
+                        }
+                    });
+                }
+            }
+        }
+    }
+
     // Get parent project
     let project = task
-        .parent_project(&deployment.db().pool)
+        .parent_project(pool)
         .await?
         .ok_or(SqlxError::RowNotFound)?;
 

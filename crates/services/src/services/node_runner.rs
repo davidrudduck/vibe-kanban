@@ -687,6 +687,7 @@ async fn sync_remote_project_tasks(
             user.as_ref().and_then(|u| u.username.clone()),
             task.version,
             Some(task.updated_at), // Use updated_at as activity_at for bulk sync
+            task.archived_at,
         )
         .await?;
 
