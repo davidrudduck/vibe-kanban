@@ -15,6 +15,7 @@ type Props = {
   onPasteFiles?: (files: File[], cursorPosition: number) => void;
   textareaClassName?: string;
   onFocusChange?: (isFocused: boolean) => void;
+  onSelectionChange?: (cursorPosition: number) => void;
 };
 
 export function FollowUpEditorCard({
@@ -27,6 +28,7 @@ export function FollowUpEditorCard({
   onPasteFiles,
   textareaClassName,
   onFocusChange,
+  onSelectionChange,
 }: Props) {
   const { projectId } = useProject();
 
@@ -53,6 +55,7 @@ export function FollowUpEditorCard({
         rows={1}
         maxRows={80}
         onPasteFiles={onPasteFiles}
+        onSelectionChange={onSelectionChange}
       />
       {showLoadingOverlay && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-background/60">

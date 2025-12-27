@@ -132,6 +132,11 @@ export function TaskFollowUpSection({
     []
   );
 
+  // Track cursor position on selection change (for image button clicks)
+  const handleSelectionChange = useCallback((cursorPosition: number) => {
+    insertPositionRef.current = cursorPosition;
+  }, []);
+
   // Track whether the follow-up textarea is focused
   const [isTextareaFocused, setIsTextareaFocused] = useState(false);
 
@@ -517,6 +522,7 @@ export function TaskFollowUpSection({
                   showLoadingOverlay={isUnqueuing || !isDraftLoaded}
                   onPasteFiles={handlePasteImages}
                   onFocusChange={setIsTextareaFocused}
+                  onSelectionChange={handleSelectionChange}
                 />
                 <FollowUpStatusRow
                   status={{

@@ -296,6 +296,11 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
     [onDrop]
   );
 
+  // Track cursor position on selection change (for image button clicks)
+  const handleSelectionChange = useCallback((cursorPosition: number) => {
+    insertPositionRef.current = cursorPosition;
+  }, []);
+
   const {
     getRootProps,
     getInputProps,
@@ -521,6 +526,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                     disabled={isSubmitting}
                     projectId={projectId}
                     onPasteFiles={handlePasteFiles}
+                    onSelectionChange={handleSelectionChange}
                     disableScroll={true}
                   />
                 )}
