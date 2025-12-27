@@ -199,7 +199,7 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
               }
             >
               <SelectTrigger
-                className="w-8 h-8 p-0 rounded-full shadow-lg bg-background/90 backdrop-blur-sm border-input [&>svg:last-child]:hidden"
+                className="w-8 h-8 p-0 justify-center rounded-full shadow-lg bg-background/90 backdrop-blur-sm border-input [&>svg:last-child]:hidden"
                 aria-label="Pagination settings"
               >
                 <Settings2 className="h-4 w-4" />
