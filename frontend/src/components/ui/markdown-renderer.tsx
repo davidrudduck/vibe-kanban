@@ -8,7 +8,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip.tsx';
 import { Button } from '@/components/ui/button.tsx';
-import { Check, Clipboard, ImageOff } from 'lucide-react';
+import { Check, Clipboard, ImageOff, Maximize2 } from 'lucide-react';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
 import { ImageLightboxDialog } from '@/components/dialogs';
 import { cn } from '@/lib/utils';
@@ -116,10 +116,11 @@ function InlineCodeOverride({
   );
 }
 
-// Check if src is a .vibe-images path
+// Check if src is a .vibe-images path (relative or absolute)
 function isVibeImagePath(src?: string): boolean {
   if (!src) return false;
-  return src.startsWith('.vibe-images/');
+  // Match both relative (.vibe-images/) and absolute paths (/.vibe-images/)
+  return src.startsWith('.vibe-images/') || src.includes('/.vibe-images/');
 }
 
 // Find image by matching file_path against taskImages
@@ -131,11 +132,18 @@ function findImageByPath(
   return taskImages.find((img) => img.file_path === src) || null;
 }
 
-// Extract filename from .vibe-images path
+// Extract filename from .vibe-images path (relative or absolute)
 function getFilenameFromVibeImagePath(src: string): string | null {
-  const prefix = '.vibe-images/';
-  if (src.startsWith(prefix)) {
-    return src.slice(prefix.length);
+  // Handle relative paths like ".vibe-images/uuid.png"
+  const relativePrefix = '.vibe-images/';
+  if (src.startsWith(relativePrefix)) {
+    return src.slice(relativePrefix.length);
+  }
+  // Handle absolute paths like "/var/tmp/.../worktrees/xxx/.vibe-images/uuid.png"
+  const absoluteMarker = '/.vibe-images/';
+  const absoluteIdx = src.indexOf(absoluteMarker);
+  if (absoluteIdx !== -1) {
+    return src.slice(absoluteIdx + absoluteMarker.length);
   }
   return null;
 }
@@ -189,16 +197,31 @@ function createImageOverride(taskImages?: ImageResponse[]) {
     }
 
     return (
-      <img
-        src={imageUrl}
-        alt={alt || ''}
-        onClick={matchedImage ? handleClick : undefined}
-        onError={() => setError(true)}
-        className={cn(
-          'max-w-full rounded my-2',
-          matchedImage && 'cursor-pointer hover:opacity-90 transition-opacity'
+      <span className="relative inline-block group my-2">
+        <img
+          src={imageUrl}
+          alt={alt || ''}
+          onClick={matchedImage ? handleClick : undefined}
+          onError={() => setError(true)}
+          className={cn(
+            // Thumbnail sizing - responsive
+            'max-w-[200px] max-h-[150px] sm:max-w-[300px] sm:max-h-[200px]',
+            'object-contain rounded',
+            // Clickable affordance
+            matchedImage && [
+              'cursor-pointer',
+              'transition-all duration-200',
+              'group-hover:ring-2 group-hover:ring-primary/50',
+              'group-hover:shadow-lg',
+            ]
+          )}
+        />
+        {matchedImage && (
+          <span className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 transition-colors rounded pointer-events-none">
+            <Maximize2 className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
+          </span>
         )}
-      />
+      </span>
     );
   };
 }
