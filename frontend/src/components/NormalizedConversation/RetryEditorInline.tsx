@@ -89,6 +89,11 @@ export function RetryEditorInline({
     []
   );
 
+  // Track cursor position on selection change (for image button clicks)
+  const handleSelectionChange = useCallback((cursorPosition: number) => {
+    insertPositionRef.current = cursorPosition;
+  }, []);
+
   // Variant selection: start with initialVariant or draft.variant
   const [selectedVariant, setSelectedVariant] = useState<string | null>(
     draft?.variant ?? initialVariant ?? null
@@ -282,6 +287,7 @@ export function RetryEditorInline({
         showLoadingOverlay={isSending || !!isFinalizing}
         textareaClassName="bg-background"
         onPasteFiles={handlePasteImages}
+        onSelectionChange={handleSelectionChange}
       />
 
       {/* Draft save/load status (no queue/sending for retry) */}
