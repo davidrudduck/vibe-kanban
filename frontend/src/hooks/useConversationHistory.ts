@@ -13,6 +13,8 @@ import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesConte
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { streamJsonPatchEntries } from '@/utils/streamJsonPatchEntries';
 import { useEffectivePagination } from './useEffectivePagination';
+import { logsApi } from '@/lib/api';
+import { logEntriesToPatches } from '@/utils/logEntryToPatch';
 
 export type PatchTypeWithKey = PatchType & {
   patchKey: string;
@@ -141,33 +143,63 @@ export const useConversationHistory = ({
     );
   }, [executionProcessesRaw]);
 
-  const loadEntriesForHistoricExecutionProcess = (
-    executionProcess: ExecutionProcess
-  ) => {
-    let url = '';
-    if (executionProcess.executor_action.typ.type === 'ScriptRequest') {
-      url = `/api/execution-processes/${executionProcess.id}/raw-logs/ws`;
-    } else {
-      url = `/api/execution-processes/${executionProcess.id}/normalized-logs/ws`;
-    }
+  /**
+   * Load entries for a historic execution process.
+   * - For script requests: Use WebSocket streaming (stdout/stderr)
+   * - For coding agent: Use REST pagination API with backward direction
+   *   to get newest entries first, then reverse for chronological display.
+   */
+  const loadEntriesForHistoricExecutionProcess = useCallback(
+    async (executionProcess: ExecutionProcess): Promise<PatchType[]> => {
+      // For script requests, use WebSocket streaming (stdout/stderr content)
+      if (executionProcess.executor_action.typ.type === 'ScriptRequest') {
+        const url = `/api/execution-processes/${executionProcess.id}/raw-logs/ws`;
+        return new Promise<PatchType[]>((resolve) => {
+          const controller = streamJsonPatchEntries<PatchType>(url, {
+            onFinished: (allEntries) => {
+              controller.close();
+              resolve(allEntries);
+            },
+            onError: (err) => {
+              console.warn(
+                `Error loading raw logs for ${executionProcess.id}`,
+                err
+              );
+              controller.close();
+              resolve([]);
+            },
+          });
+        });
+      }
 
-    return new Promise<PatchType[]>((resolve) => {
-      const controller = streamJsonPatchEntries<PatchType>(url, {
-        onFinished: (allEntries) => {
-          controller.close();
-          resolve(allEntries);
-        },
-        onError: (err) => {
-          console.warn!(
-            `Error loading entries for historic execution process ${executionProcess.id}`,
-            err
-          );
-          controller.close();
-          resolve([]);
-        },
-      });
-    });
-  };
+      // For coding agent processes, use REST pagination API
+      try {
+        const result = await logsApi.getPaginated(executionProcess.id, {
+          limit: effectiveLimit,
+          direction: 'backward', // Get newest entries first
+        });
+
+        // Convert LogEntry[] to PatchType[] using JSON patch reconstruction
+        const patches = logEntriesToPatches(result.entries, executionProcess.id);
+
+        // Reverse to display oldest-first (backward returns newest-first)
+        const orderedPatches = [...patches].reverse();
+
+        // Strip patchKey and executionProcessId for internal use
+        return orderedPatches.map((p) => ({
+          type: p.type,
+          content: p.content,
+        })) as PatchType[];
+      } catch (err) {
+        console.warn(
+          `Error loading entries for historic execution process ${executionProcess.id}`,
+          err
+        );
+        return [];
+      }
+    },
+    [effectiveLimit]
+  );
 
   const getLiveExecutionProcess = (
     executionProcessId: string
@@ -555,7 +587,7 @@ export const useConversationHistory = ({
       }
 
       return localDisplayedExecutionProcesses;
-    }, [executionProcesses]);
+    }, [executionProcesses, loadEntriesForHistoricExecutionProcess]);
 
   const loadRemainingEntriesInBatches = useCallback(
     async (batchSize: number): Promise<boolean> => {
@@ -595,7 +627,7 @@ export const useConversationHistory = ({
       }
       return anyUpdated;
     },
-    [executionProcesses]
+    [executionProcesses, loadEntriesForHistoricExecutionProcess]
   );
 
   const ensureProcessVisible = useCallback((p: ExecutionProcess) => {
