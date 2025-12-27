@@ -17,6 +17,14 @@ pub async fn respond_to_approval(
     Path(id): Path<String>,
     Json(request): Json<ApprovalResponse>,
 ) -> Result<ResponseJson<ApiResponse<ApprovalStatus>>, ApiError> {
+    tracing::info!(
+        approval_id = %id,
+        execution_process_id = %request.execution_process_id,
+        status = ?request.status,
+        has_answers = request.answers.is_some(),
+        "Received approval response request"
+    );
+
     let service = deployment.approvals();
 
     let (status, _context) = service.respond(&deployment.db().pool, &id, request).await?;
