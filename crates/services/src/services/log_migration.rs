@@ -2,16 +2,15 @@
 //!
 //! This module provides functionality to migrate execution logs from the legacy
 //! `execution_process_logs` table (which stores batched JSONL) to the new
-//! `log_entries` table (which stores individual rows). This migration is required
-//! for ElectricSQL compatibility.
+//! `log_entries` table (which stores individual normalized rows).
 //!
 //! ## Migration Process
 //!
 //! 1. Fetch all JSONL records from `execution_process_logs` for an execution
 //! 2. Parse each JSONL line into a `LogMsg` enum
-//! 3. Convert `LogMsg` to the unified `OutputType` format
-//! 4. Insert individual entries into `log_entries` table
-//! 5. Track migration progress (migrated, skipped, errors)
+//! 3. Create a temporary MsgStore and populate with Stdout/Stderr
+//! 4. Run the executor's normalization logic to produce JsonPatch entries
+//! 5. Insert normalized entries into `log_entries` table
 //!
 //! ## Idempotency
 //!
@@ -19,14 +18,26 @@
 //! duplicate entries. This is achieved by checking if entries already exist
 //! before insertion.
 
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+
 use chrono::{DateTime, Utc};
+use db::models::execution_process::ExecutionProcess;
 use db::models::log_entry::{CreateLogEntry, DbLogEntry};
+use executors::actions::ExecutorActionType;
+use executors::profile::ExecutorConfigs;
+use executors::executors::StandardCodingAgentExecutor;
 use sqlx::{Row, SqlitePool};
 use thiserror::Error;
+use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 use utils::log_msg::LogMsg;
+use json_patch::{Patch, patch as apply_patch};
+use serde_json::Value;
 use utils::unified_log::OutputType;
 use uuid::Uuid;
+use utils::msg_store::MsgStore;
 
 /// Error types for log migration operations.
 #[derive(Debug, Error)]
@@ -36,6 +47,15 @@ pub enum LogMigrationError {
 
     #[error("failed to parse JSONL: {0}")]
     JsonParse(#[from] serde_json::Error),
+
+    #[error("execution process not found: {0}")]
+    ExecutionNotFound(Uuid),
+
+    #[error("invalid executor action")]
+    InvalidExecutorAction,
+
+    #[error("normalization timeout")]
+    NormalizationTimeout,
 }
 
 /// Result of migrating logs for a single execution.
@@ -82,21 +102,6 @@ pub struct LegacyLogRecord {
     pub inserted_at: DateTime<Utc>,
 }
 
-/// Convert a LogMsg to (output_type, content) tuple.
-fn log_msg_to_entry(log_msg: &LogMsg) -> (OutputType, String) {
-    match log_msg {
-        LogMsg::Stdout(s) => (OutputType::Stdout, s.clone()),
-        LogMsg::Stderr(s) => (OutputType::Stderr, s.clone()),
-        LogMsg::JsonPatch(patch) => {
-            let content = serde_json::to_string(patch).unwrap_or_else(|_| "[]".to_string());
-            (OutputType::JsonPatch, content)
-        }
-        LogMsg::SessionId(s) => (OutputType::SessionId, s.clone()),
-        LogMsg::Finished => (OutputType::Finished, String::new()),
-        LogMsg::RefreshRequired { reason } => (OutputType::RefreshRequired, reason.clone()),
-    }
-}
-
 /// Fetch legacy log records for an execution.
 pub async fn fetch_legacy_logs(
     pool: &SqlitePool,
@@ -135,12 +140,23 @@ async fn count_existing_entries(pool: &SqlitePool, execution_id: Uuid) -> Result
     Ok(row.get::<i64, _>("count"))
 }
 
-/// Migrate logs for a single execution process.
+/// Delete existing log entries for an execution (for re-migration).
+async fn delete_existing_entries(pool: &SqlitePool, execution_id: Uuid) -> Result<(), sqlx::Error> {
+    sqlx::query(r#"DELETE FROM log_entries WHERE execution_id = $1"#)
+        .bind(execution_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Migrate logs for a single execution process using normalization.
 ///
 /// This function reads all JSONL records from `execution_process_logs`,
-/// parses each line, and inserts individual entries into `log_entries`.
+/// runs the executor's normalization logic to produce JsonPatch entries,
+/// and inserts them into `log_entries`.
 ///
-/// The migration is idempotent - if entries already exist, they will be skipped.
+/// The migration is idempotent - if entries already exist, they will be re-migrated
+/// (deleted and recreated) to ensure correct normalization.
 pub async fn migrate_execution_logs(
     pool: &SqlitePool,
     execution_id: Uuid,
@@ -150,23 +166,13 @@ pub async fn migrate_execution_logs(
     // Check if already migrated
     let existing_count = count_existing_entries(pool, execution_id).await?;
     if existing_count > 0 {
-        // Count how many lines we have in the old table
-        let records = fetch_legacy_logs(pool, execution_id).await?;
-        let total_lines: usize = records
-            .iter()
-            .map(|r| r.logs.lines().filter(|l| !l.trim().is_empty()).count())
-            .sum();
-
-        if total_lines <= existing_count as usize {
-            // All lines already migrated
-            result.skipped = total_lines;
-            debug!(
-                execution_id = %execution_id,
-                skipped = total_lines,
-                "Execution already migrated, skipping"
-            );
-            return Ok(result);
-        }
+        // Delete existing entries to re-migrate with proper normalization
+        debug!(
+            execution_id = %execution_id,
+            existing_count = existing_count,
+            "Deleting existing entries for re-migration"
+        );
+        delete_existing_entries(pool, execution_id).await?;
     }
 
     // Fetch legacy log records
@@ -177,7 +183,40 @@ pub async fn migrate_execution_logs(
         return Ok(result);
     }
 
-    // Process each record and line
+    // Get the execution process to determine executor type
+    let process = ExecutionProcess::find_by_id(pool, execution_id)
+        .await?
+        .ok_or(LogMigrationError::ExecutionNotFound(execution_id))?;
+
+    let executor_action = match process.executor_action() {
+        Ok(action) => action,
+        Err(e) => {
+            debug!(
+                execution_id = %execution_id,
+                error = %e,
+                "Could not parse executor action, skipping execution"
+            );
+            return Ok(result);
+        }
+    };
+
+    // Get executor profile ID from the action
+    let executor_profile_id = match executor_action.typ() {
+        ExecutorActionType::CodingAgentInitialRequest(request) => &request.executor_profile_id,
+        ExecutorActionType::CodingAgentFollowUpRequest(request) => &request.executor_profile_id,
+        _ => {
+            debug!(
+                execution_id = %execution_id,
+                "Executor action type doesn't support normalization, skipping"
+            );
+            return Ok(result);
+        }
+    };
+
+    // Create temporary MsgStore and populate with stdout/stderr
+    let msg_store = Arc::new(MsgStore::new());
+    let mut line_count = 0;
+
     for record in &records {
         for line in record.logs.lines() {
             let line = line.trim();
@@ -188,27 +227,12 @@ pub async fn migrate_execution_logs(
             // Parse JSONL line
             match serde_json::from_str::<LogMsg>(line) {
                 Ok(log_msg) => {
-                    let (output_type, content) = log_msg_to_entry(&log_msg);
-
-                    // Insert into log_entries
-                    let create_entry = CreateLogEntry {
-                        execution_id,
-                        output_type: output_type.as_str().to_string(),
-                        content,
-                    };
-
-                    match DbLogEntry::create(pool, create_entry).await {
-                        Ok(_) => {
-                            result.migrated += 1;
-                        }
-                        Err(e) => {
-                            error!(
-                                execution_id = %execution_id,
-                                error = %e,
-                                "Failed to insert log entry"
-                            );
-                            result.errors += 1;
-                        }
+                    if matches!(
+                        log_msg,
+                        LogMsg::Stdout(_) | LogMsg::Stderr(_) | LogMsg::JsonPatch(_)
+                    ) {
+                        msg_store.push(log_msg);
+                        line_count += 1;
                     }
                 }
                 Err(e) => {
@@ -220,6 +244,162 @@ pub async fn migrate_execution_logs(
                     );
                     result.errors += 1;
                 }
+            }
+        }
+    }
+
+    if line_count == 0 {
+        debug!(execution_id = %execution_id, "No stdout/stderr lines found to normalize");
+        return Ok(result);
+    }
+
+    debug!(
+        execution_id = %execution_id,
+        line_count = line_count,
+        "Populated MsgStore with log lines"
+    );
+
+    // Signal end of input
+    msg_store.push_finished();
+
+    // Get the executor and run normalization
+    let executor =
+        ExecutorConfigs::get_cached().get_coding_agent_or_default(executor_profile_id);
+
+    debug!(
+        execution_id = %execution_id,
+        executor_type = ?executor_profile_id.executor,
+        "Running normalization with executor"
+    );
+
+    // Use a placeholder worktree path since we don't have the actual directory
+    // The path is only used for making file paths relative in tool output
+    let worktree_path = PathBuf::from("/");
+
+    executor.normalize_logs(msg_store.clone(), &worktree_path);
+
+    // Wait for normalization to complete by polling until no new patches appear
+    // The normalizer processes stdout_lines_stream and pushes JsonPatch entries to the store
+    let collect_result = timeout(Duration::from_secs(30), async {
+        // Give the normalizer task time to start and process
+        // We poll the history until patch count stabilizes
+        let mut last_count = 0;
+        let mut stable_iterations = 0;
+
+        loop {
+            // Small delay to let normalizer process
+            tokio::time::sleep(Duration::from_millis(50)).await;
+
+            let current_patches: Vec<_> = msg_store
+                .get_history()
+                .into_iter()
+                .filter(|msg| matches!(msg, LogMsg::JsonPatch(_)))
+                .collect();
+
+            let current_count = current_patches.len();
+
+            if current_count == last_count {
+                stable_iterations += 1;
+                // If count is stable for 3 iterations (150ms), normalization is likely done
+                if stable_iterations >= 3 {
+                    debug!(
+                        execution_id = %execution_id,
+                        patch_count = current_count,
+                        "Normalization complete, patch count stable"
+                    );
+                    return current_patches
+                        .into_iter()
+                        .filter_map(|msg| {
+                            if let LogMsg::JsonPatch(patch) = msg {
+                                Some(patch)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                }
+            } else {
+                stable_iterations = 0;
+                last_count = current_count;
+            }
+        }
+    })
+    .await;
+
+    let patches: Vec<Patch> = match collect_result {
+        Ok(patches) => patches,
+        Err(_) => {
+            error!(
+                execution_id = %execution_id,
+                "Normalization timed out after 30 seconds"
+            );
+            return Err(LogMigrationError::NormalizationTimeout);
+        }
+    };
+
+    debug!(
+        execution_id = %execution_id,
+        patch_count = patches.len(),
+        "Collected normalized patches"
+    );
+
+    // Apply all patches to build the final entries array
+    // This reconstructs the full conversation state from incremental patches
+    let mut container: Value = serde_json::json!({ "entries": [] });
+
+    for patch in &patches {
+        if let Err(e) = apply_patch(&mut container, patch) {
+            warn!(
+                execution_id = %execution_id,
+                error = %e,
+                "Failed to apply patch during migration"
+            );
+            result.errors += 1;
+        }
+    }
+
+    // Extract the final entries from the container
+    let entries = container
+        .get("entries")
+        .and_then(|e| e.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    debug!(
+        execution_id = %execution_id,
+        patch_count = patches.len(),
+        final_entries = entries.len(),
+        "Applied patches to build final entries"
+    );
+
+    // Insert each final entry into log_entries as an "add" patch operation
+    // Each database row = one conversation message wrapped in a patch that appends it
+    // Using "/entries/-" appends to the array (RFC 6902)
+    for entry in entries {
+        // Wrap the entry in an "add" operation that appends to the entries array
+        let add_patch = serde_json::json!([{
+            "op": "add",
+            "path": "/entries/-",
+            "value": entry
+        }]);
+        let content = serde_json::to_string(&add_patch).unwrap_or_else(|_| "[]".to_string());
+        let create_entry = CreateLogEntry {
+            execution_id,
+            output_type: OutputType::JsonPatch.as_str().to_string(),
+            content,
+        };
+
+        match DbLogEntry::create(pool, create_entry).await {
+            Ok(_) => {
+                result.migrated += 1;
+            }
+            Err(e) => {
+                error!(
+                    execution_id = %execution_id,
+                    error = %e,
+                    "Failed to insert log entry"
+                );
+                result.errors += 1;
             }
         }
     }
@@ -280,8 +460,9 @@ pub async fn migrate_execution_logs_dry_run(
     }
 
     // Calculate what would be migrated vs skipped
-    if existing_count > 0 && existing_count as usize >= line_count {
-        result.would_skip = line_count - result.errors;
+    if existing_count > 0 {
+        result.would_skip = 0; // We would delete and re-migrate
+        result.would_migrate = line_count - result.errors;
     } else {
         result.would_migrate = line_count - result.errors;
     }
@@ -337,6 +518,15 @@ pub async fn migrate_all_logs(pool: &SqlitePool) -> Result<AllMigrationResult, L
                 result.total_errors += 1;
             }
         }
+
+        // Log progress every 10 executions
+        if result.executions_processed % 10 == 0 {
+            info!(
+                processed = result.executions_processed,
+                migrated = result.total_migrated,
+                "Migration progress"
+            );
+        }
     }
 
     info!(
@@ -353,48 +543,6 @@ pub async fn migrate_all_logs(pool: &SqlitePool) -> Result<AllMigrationResult, L
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_log_msg_to_entry_stdout() {
-        let msg = LogMsg::Stdout("hello".to_string());
-        let (output_type, content) = log_msg_to_entry(&msg);
-        assert_eq!(output_type, OutputType::Stdout);
-        assert_eq!(content, "hello");
-    }
-
-    #[test]
-    fn test_log_msg_to_entry_stderr() {
-        let msg = LogMsg::Stderr("error".to_string());
-        let (output_type, content) = log_msg_to_entry(&msg);
-        assert_eq!(output_type, OutputType::Stderr);
-        assert_eq!(content, "error");
-    }
-
-    #[test]
-    fn test_log_msg_to_entry_session_id() {
-        let msg = LogMsg::SessionId("abc123".to_string());
-        let (output_type, content) = log_msg_to_entry(&msg);
-        assert_eq!(output_type, OutputType::SessionId);
-        assert_eq!(content, "abc123");
-    }
-
-    #[test]
-    fn test_log_msg_to_entry_finished() {
-        let msg = LogMsg::Finished;
-        let (output_type, content) = log_msg_to_entry(&msg);
-        assert_eq!(output_type, OutputType::Finished);
-        assert!(content.is_empty());
-    }
-
-    #[test]
-    fn test_log_msg_to_entry_refresh_required() {
-        let msg = LogMsg::RefreshRequired {
-            reason: "reconnect".to_string(),
-        };
-        let (output_type, content) = log_msg_to_entry(&msg);
-        assert_eq!(output_type, OutputType::RefreshRequired);
-        assert_eq!(content, "reconnect");
-    }
 
     #[test]
     fn test_execution_migration_result_default() {

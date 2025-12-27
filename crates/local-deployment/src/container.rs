@@ -46,6 +46,7 @@ use services::services::{
     git::{Commit, DiffTarget, GitService},
     image::ImageService,
     log_batcher::{LogBatcher, LogBatcherHandle},
+    log_migration,
     share::SharePublisher,
     worktree_manager::{WorktreeCleanup, WorktreeManager},
 };
@@ -351,6 +352,26 @@ impl LocalContainerService {
                     ExecutionProcess::update_completion(&db.pool, exec_id, status, exit_code).await
             {
                 tracing::error!("Failed to update execution process completion: {}", e);
+            }
+
+            // Run normalization to populate log_entries with JsonPatch entries for REST pagination
+            // This processes the raw JSONL from execution_process_logs and creates normalized entries
+            match log_migration::migrate_execution_logs(&db.pool, exec_id).await {
+                Ok(result) => {
+                    tracing::info!(
+                        exec_id = %exec_id,
+                        migrated = result.migrated,
+                        errors = result.errors,
+                        "Normalized logs for completed execution"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        exec_id = %exec_id,
+                        error = %e,
+                        "Failed to normalize logs for completed execution"
+                    );
+                }
             }
 
             if let Ok(ctx) = ExecutionProcess::load_context(&db.pool, exec_id).await {
@@ -1083,6 +1104,17 @@ impl ContainerService for LocalContainerService {
         // Mark the process finished in the MsgStore
         if let Some(msg) = self.msg_stores.write().await.remove(&execution_process.id) {
             msg.push_finished();
+        }
+
+        // Run normalization to populate log_entries with JsonPatch entries for REST pagination
+        if let Err(e) =
+            log_migration::migrate_execution_logs(&self.db.pool, execution_process.id).await
+        {
+            tracing::warn!(
+                execution_process_id = %execution_process.id,
+                error = %e,
+                "Failed to normalize logs for stopped execution"
+            );
         }
 
         // Update task status to InReview when execution is stopped
