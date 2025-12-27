@@ -46,6 +46,14 @@ npx vibe-kanban
 
 Please head to the [website](https://vibekanban.com/docs) for the latest documentation and user guides.
 
+### Architecture Documentation
+
+For developers working on the codebase, see the [Architecture Documentation](docs/architecture/README.md) for detailed technical documentation including:
+- [Database Overview](docs/architecture/database-overview.mdx) - Dual-database architecture (SQLite + PostgreSQL)
+- [SQLite Local Schema](docs/architecture/sqlite-local-schema.mdx) - Local node database schema
+- [PostgreSQL Hive Schema](docs/architecture/postgresql-hive-schema.mdx) - Central hive database schema
+- [Database Synchronization](docs/architecture/database-synchronization.mdx) - How data syncs between nodes and hive
+
 ## Support
 
 We use [GitHub Discussions](https://github.com/BloopAI/vibe-kanban/discussions) for feature requests. Please open a discussion to create a feature request. For bugs please open an issue on this repo.

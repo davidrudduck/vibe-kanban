@@ -1,0 +1,348 @@
+---
+title: Database Synchronization
+description: How data synchronizes between local nodes and the central hive
+---
+
+# Database Synchronization
+
+Vibe Kanban uses multiple synchronization mechanisms to keep local nodes and the central hive in sync. This document explains what data flows where and how.
+
+## Synchronization Methods
+
+The system uses three complementary sync methods:
+
+| Method | Direction | Use Case | Status |
+|--------|-----------|----------|--------|
+| **ElectricSQL** | Bidirectional | Task data, projects, nodes | Modern (recommended) |
+| **WebSocket** | Bidirectional | Events, logs, heartbeats | Active |
+| **REST API** | Pull only | Node cache, activity polling | Legacy (deprecated) |
+
+## Architecture Diagram
+
+```text
+┌─────────────────────────────────────────────────────────────────────┐
+│                         HIVE (PostgreSQL)                            │
+│                                                                      │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │                    Logical Replication (WAL)                  │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                               │                                      │
+│                               ▼                                      │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │                       ElectricSQL                             │   │
+│  │              (Shape API: /v1/shape?table=...)                 │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                               │                                      │
+└───────────────────────────────┼──────────────────────────────────────┘
+                                │
+              ┌─────────────────┼─────────────────┐
+              │ HTTP (NDJSON)   │   WebSocket     │
+              │                 │                 │
+              ▼                 ▼                 ▼
+┌──────────────────┐   ┌──────────────────┐   ┌──────────────────┐
+│   NODE: Mac      │   │   NODE: Linux    │   │   NODE: Windows  │
+│                  │   │                  │   │                  │
+│  ElectricSync ◄──┼───┼──► Tasks         │   │                  │
+│  HiveClient  ◄───┼───┼──► Events        │   │                  │
+│                  │   │                  │   │                  │
+│  [SQLite DB]     │   │  [SQLite DB]     │   │  [SQLite DB]     │
+└──────────────────┘   └──────────────────┘   └──────────────────┘
+```
+
+---
+
+## ElectricSQL Sync
+
+ElectricSQL provides real-time, bidirectional sync using PostgreSQL's logical replication.
+
+### How It Works
+
+1. PostgreSQL writes changes to WAL (Write-Ahead Log)
+2. ElectricSQL reads WAL via logical replication
+3. Exposes changes via Shape API (`/v1/shape?table=...`)
+4. Nodes poll Shape API and receive NDJSON stream of operations
+5. Local SQLite updated with insert/update/delete operations
+
+### Synced Tables
+
+| Hive Table | Local Representation | Direction |
+|------------|---------------------|-----------|
+| `shared_tasks` | `tasks` (via `shared_task_id`) | Bidirectional |
+| `projects` | `projects` (via `remote_project_id`) | Bidirectional |
+| `nodes` | `cached_nodes` | Hive → Node |
+| `node_projects` | `cached_node_projects` | Hive → Node |
+| `node_task_assignments` | Task status | Hive → Node |
+
+### ElectricSQL Shape Configuration
+
+```rust
+// Example: Sync tasks for a specific project
+let config = ShapeConfig {
+    base_url: "https://electric.example.com".to_string(),
+    table: "shared_tasks".to_string(),
+    where_clause: Some(format!(r#""project_id" = '{}'"#, project_id)),
+    columns: None,  // All columns
+};
+```
+
+### Control Messages
+
+| Message | Meaning |
+|---------|---------|
+| `UpToDate` | Sync is current, no pending changes |
+| `MustRefetch` | Full resync required (schema change or gap) |
+
+---
+
+## WebSocket Communication
+
+WebSocket provides real-time bidirectional messaging for events that require immediate delivery.
+
+### Connection Management
+
+| Parameter | Value |
+|-----------|-------|
+| Heartbeat Interval | 30 seconds |
+| Reconnect Delay | 5 seconds (initial) |
+| Max Reconnect Delay | 60 seconds (exponential backoff) |
+| URL Format | `wss://hive.example.com/ws/node` |
+
+### Message Types: Node → Hive
+
+| Message | Purpose | Data |
+|---------|---------|------|
+| `Auth` | Initial authentication | API key, node capabilities |
+| `Heartbeat` | Health check | Node status, active tasks |
+| `TaskStatus` | Execution state change | Task ID, status, local IDs |
+| `TaskOutput` | Log streaming | Stdout/stderr content |
+| `TaskProgress` | Execution milestone | Event type, message, metadata |
+| `LinkProject` | Register project | Local project ID, git path |
+| `UnlinkProject` | Deregister project | Project ID |
+
+### Message Types: Hive → Node
+
+| Message | Purpose | Data |
+|---------|---------|------|
+| `AuthResult` | Confirm authentication | Node ID, linked projects |
+| `TaskAssign` | Dispatch task | Task details, project info |
+| `TaskCancel` | Cancel execution | Task ID |
+| `ProjectSync` | New project link | Project info from another node |
+| `NodeRemoved` | Node was removed | - |
+| `StatusRequest` | Request status | - |
+| `HeartbeatAck` | Acknowledge heartbeat | - |
+
+### Task Assignment Flow
+
+```text
+1. HIVE: Create assignment in PostgreSQL
+   INSERT INTO node_task_assignments (task_id, node_id, ...)
+
+2. HIVE: Send WebSocket message
+   TaskAssign { task_id, project_id, title, description, ... }
+
+3. NODE: Receive and create local task
+   INSERT INTO tasks (shared_task_id = task_id, ...)
+   INSERT INTO task_attempts (...)
+
+4. NODE: Start execution
+   TaskStatus { task_id, status: "running", local_task_id, local_attempt_id }
+
+5. NODE: Stream output
+   TaskOutput { task_id, output_type: "stdout", content: "..." }
+
+6. NODE: Report progress
+   TaskProgress { task_id, event_type: "committed", message: "Added feature X" }
+
+7. NODE: Complete execution
+   TaskStatus { task_id, status: "completed" }
+
+8. HIVE: Update shared task
+   UPDATE shared_tasks SET status = 'done' WHERE id = task_id
+```
+
+---
+
+## What Is Synchronized
+
+### Fully Synchronized (Both Databases)
+
+| Entity | SQLite Table | PostgreSQL Table | Sync Method |
+|--------|-------------|-----------------|-------------|
+| Tasks | `tasks` | `shared_tasks` | ElectricSQL |
+| Projects | `projects` | `projects` | ElectricSQL |
+| Task Status | `tasks.status` | `shared_tasks.status` | WebSocket + Electric |
+| Assignee | `tasks.remote_assignee_*` | `shared_tasks.assignee_user_id` | ElectricSQL |
+
+### Synchronized One-Way (Hive → Node)
+
+| Entity | SQLite Table | PostgreSQL Table | Sync Method |
+|--------|-------------|-----------------|-------------|
+| Node Registry | `cached_nodes` | `nodes` | REST API (legacy) → ElectricSQL |
+| Node-Project Links | `cached_node_projects` | `node_projects` | REST API (legacy) → ElectricSQL |
+| Task Assignments | (inline in task) | `node_task_assignments` | WebSocket |
+
+### Synchronized One-Way (Node → Hive)
+
+| Entity | SQLite Table | PostgreSQL Table | Sync Method |
+|--------|-------------|-----------------|-------------|
+| Execution Logs | `log_entries` | `node_task_output_logs` | WebSocket streaming |
+| Progress Events | (inline in process) | `node_task_progress_events` | WebSocket |
+| Node Heartbeat | - | `nodes.last_heartbeat_at` | WebSocket |
+
+### Not Synchronized (Local Only)
+
+| Entity | SQLite Table | Reason |
+|--------|-------------|--------|
+| Task Attempts | `task_attempts` | Execution detail, not relevant to other nodes |
+| Execution Processes | `execution_processes` | Local execution state |
+| Log Entries | `log_entries` | Streamed to hive but not synced back |
+| Executor Sessions | `executor_sessions` | Claude/agent session IDs |
+| Merges | `merges` | PR/merge tracking (local git state) |
+| Templates | `templates` | Local UI configuration |
+| Labels | `labels` | Project-specific categorization |
+| Task Variables | `task_variables` | Task-specific configuration |
+| Activity Dismissals | `activity_dismissals` | UI state |
+| Images | `images` | Task attachments |
+
+### Not Synchronized (Hive Only)
+
+| Entity | PostgreSQL Table | Reason |
+|--------|-----------------|--------|
+| Organizations | `organizations` | Multi-tenant container |
+| Users | `users` | Authentication only |
+| OAuth Accounts | `oauth_accounts` | Authentication only |
+| Auth Sessions | `auth_sessions` | Authentication only |
+| Activity Feed | `activity` | Event history (nodes poll as needed) |
+| Invitations | `organization_invitations` | UI workflow |
+
+---
+
+## Conflict Resolution
+
+### Version-Based Optimistic Locking
+
+The `shared_tasks` table uses a `version` field for conflict detection:
+
+```sql
+-- Hive: Increment version on update
+UPDATE shared_tasks
+SET status = 'done', version = version + 1, updated_at = NOW()
+WHERE id = $1 AND version = $2;
+
+-- If rows affected = 0, concurrent modification detected
+```
+
+### Last-Write-Wins
+
+For most fields, the last write wins. The `updated_at` timestamp determines recency.
+
+### Activity-At vs Updated-At
+
+The `activity_at` field tracks significant changes (status, execution) separately from metadata updates:
+
+- **`updated_at`**: Any field change
+- **`activity_at`**: Status change, execution start/complete
+
+This allows UI sorting by "real" activity without noise from metadata updates.
+
+---
+
+## Node-to-Node Communication
+
+When a node needs to access a project hosted on another node:
+
+### Direct Connection
+
+If the remote node has a `public_url`:
+
+1. Source node generates JWT token with proxy claims
+2. HTTP request sent directly to remote node's API
+3. Remote node validates JWT and processes request
+
+```rust
+// JWT claims for node proxy
+struct ProxyTokenClaims {
+    sub: String,       // Source node ID
+    node_id: String,   // Target node ID
+    iat: i64,          // Issued at
+    exp: i64,          // Expiration (5 min TTL)
+    aud: String,       // "node_proxy"
+}
+```
+
+### Hive Relay Fallback
+
+If direct connection fails or `public_url` is not set:
+
+1. Request goes through hive
+2. Hive relays to target node via WebSocket
+3. Response relayed back
+
+---
+
+## Sync Service Locations
+
+| Service | Crate | File | Purpose |
+|---------|-------|------|---------|
+| ElectricSync | services | `electric_sync.rs` | Shape API client |
+| ElectricTaskSync | services | `electric_task_sync.rs` | Task-specific sync |
+| HiveClient | services | `hive_client.rs` | WebSocket connection |
+| NodeRunner | services | `node_runner.rs` | Task assignment handling |
+| NodeProxyClient | services | `node_proxy_client.rs` | Node-to-node HTTP |
+| RemoteClient | services | `remote_client.rs` | REST API client |
+| NodeCache | services | `node_cache.rs` | Legacy node polling |
+
+---
+
+## Monitoring and Debugging
+
+### Check Sync Status
+
+```sql
+-- SQLite: Check last sync time for a project
+SELECT remote_last_synced_at FROM projects WHERE id = ?;
+
+-- SQLite: Check task sync state
+SELECT shared_task_id, remote_version, remote_last_synced_at
+FROM tasks WHERE is_remote = 1;
+```
+
+### WebSocket Connection State
+
+The `HiveClient` logs connection events:
+
+```text
+INFO  Connected to hive at wss://...
+INFO  Authenticated as node abc123
+WARN  Connection lost, reconnecting in 5s
+ERROR Failed to reconnect after 5 attempts
+```
+
+### ElectricSQL Shape Polling
+
+Shape API returns offset for pagination:
+
+```text
+GET /v1/shape?table=shared_tasks&offset=0_0
+→ Returns NDJSON with operations
+→ Last line contains new offset: 1234_5678
+```
+
+---
+
+## Environment Configuration
+
+| Variable | Purpose | Example |
+|----------|---------|---------|
+| `VK_HIVE_URL` | WebSocket URL for hive | `wss://hive.example.com` |
+| `VK_NODE_API_KEY` | Authentication key | `vk_abc123...` |
+| `VK_NODE_NAME` | Human-readable node name | `Mac Studio` |
+| `VK_NODE_PUBLIC_URL` | Direct connection URL | `http://192.168.1.50:3000` |
+| `VK_CONNECTION_TOKEN_SECRET` | JWT secret for node-to-node | Base64 encoded secret |
+
+## Related Documentation
+
+- [Database Overview](./database-overview.mdx) - Architecture overview
+- [SQLite Local Schema](./sqlite-local-schema.mdx) - Local node database schema
+- [PostgreSQL Hive Schema](./postgresql-hive-schema.mdx) - Central hive schema
+- [Swarm/Hive Setup Guide](../swarm-hive-setup.md) - Configuration guide

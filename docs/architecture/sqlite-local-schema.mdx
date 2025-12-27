@@ -1,0 +1,442 @@
+---
+title: SQLite Local Schema
+description: Complete schema documentation for the local node SQLite database
+---
+
+# SQLite Local Schema
+
+Each Vibe Kanban node maintains a local SQLite database for project management, task execution, and execution history. This database operates independently and can work offline.
+
+**Location:**
+- Development: `<project_root>/dev_assets/db.sqlite`
+- Production: Platform-specific data directory (e.g., `~/.local/share/vibe-kanban/db.sqlite`)
+
+**Migrations:** `crates/db/migrations/`
+
+## Schema Overview
+
+The local database contains 17 tables organized into three categories:
+
+| Category | Tables | Purpose |
+|----------|--------|---------|
+| **Core** | projects, tasks, task_attempts, execution_processes, log_entries, merges, executor_sessions | Task execution and history |
+| **Remote Sync** | shared_tasks, shared_activity_cursors, cached_nodes, cached_node_projects, node_sync_cursors | Hive synchronization (deprecated) |
+| **Supporting** | templates, labels, task_variables, activity_dismissals, images | Configuration and metadata |
+
+## Entity Relationship Diagram
+
+```text
+projects
+├── tasks (FK: project_id)
+│   ├── task_attempts (FK: task_id)
+│   │   ├── execution_processes (FK: task_attempt_id)
+│   │   │   └── log_entries (FK: execution_id)
+│   │   ├── executor_sessions (FK: task_attempt_id, execution_process_id)
+│   │   └── merges (FK: task_attempt_id)
+│   ├── task_variables (FK: task_id)
+│   ├── activity_dismissals (FK: task_id)
+│   └── images (FK: task_id)
+├── labels (FK: project_id)
+└── (remote sync via shared_task_id)
+    └── shared_tasks
+        └── shared_activity_cursors (FK: remote_project_id)
+
+cached_nodes
+└── cached_node_projects (FK: node_id)
+
+node_sync_cursors (standalone)
+templates (standalone)
+```
+
+---
+
+## Core Tables
+
+### projects
+
+Stores project configurations for both local and remote (hive-synced) projects.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | BLOB (UUID) | Primary key |
+| `name` | TEXT | Project name |
+| `git_repo_path` | TEXT | Path to git repository (unique) |
+| `setup_script` | TEXT | Script to run before execution |
+| `dev_script` | TEXT | Development server script |
+| `cleanup_script` | TEXT | Script to run after execution |
+| `copy_files` | TEXT | Files to copy for project setup |
+| `parallel_setup_script` | BOOLEAN | Run setup concurrently with coding agent |
+| `remote_project_id` | UUID | Link to hive project (if synced) |
+| `is_remote` | BOOLEAN | Whether this is a remote project |
+| `source_node_id` | UUID | Origin node for remote projects |
+| `source_node_name` | TEXT | Human-readable name of source node |
+| `source_node_public_url` | TEXT | Public URL for direct streaming |
+| `source_node_status` | TEXT | Status of remote source node |
+| `remote_last_synced_at` | DATETIME | Last sync timestamp |
+| `github_enabled` | BOOLEAN | GitHub integration enabled |
+| `github_owner` | TEXT | GitHub repo owner |
+| `github_repo` | TEXT | GitHub repo name |
+| `github_open_issues` | INTEGER | Cached issue count |
+| `github_open_prs` | INTEGER | Cached PR count |
+| `github_last_synced_at` | DATETIME | Last GitHub sync |
+| `created_at` | DATETIME | Creation timestamp |
+| `updated_at` | DATETIME | Last update timestamp |
+
+**Indexes:**
+- `idx_projects_is_remote` - Filter remote vs local projects
+- `idx_projects_source_node` - Query by source node
+- `idx_projects_remote_project_id` - Link to hive projects
+
+---
+
+### tasks
+
+Core task records with execution tracking and remote sync support.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | BLOB (UUID) | Primary key |
+| `project_id` | BLOB (UUID) | FK to projects |
+| `title` | TEXT | Task title |
+| `description` | TEXT | Task description |
+| `status` | TEXT | `todo`, `inprogress`, `done`, `cancelled`, `inreview` |
+| `parent_task_id` | UUID | Self-reference for hierarchical tasks |
+| `shared_task_id` | UUID | FK to shared_tasks (hive link) |
+| `is_remote` | BOOLEAN | Remote sync flag |
+| `remote_assignee_user_id` | UUID | Assignee from hive |
+| `remote_assignee_name` | TEXT | Cached assignee display name |
+| `remote_assignee_username` | TEXT | Cached assignee username |
+| `remote_version` | INTEGER | Version for conflict resolution |
+| `remote_last_synced_at` | DATETIME | Last sync timestamp |
+| `remote_stream_node_id` | UUID | For direct streaming from remote node |
+| `remote_stream_url` | TEXT | Direct streaming URL |
+| `archived_at` | DATETIME | Archive timestamp (NULL if not archived) |
+| `activity_at` | DATETIME | Last significant activity (status change, execution) |
+| `created_at` | DATETIME | Creation timestamp |
+| `updated_at` | DATETIME | Last update timestamp |
+
+**Indexes:**
+- `idx_tasks_is_remote` - Filter remote tasks
+- `idx_tasks_shared_task_unique` - Unique link to shared task
+- `idx_tasks_shared_task_id` - Query by shared task
+
+**Foreign Keys:**
+- `project_id` → projects.id (CASCADE)
+- `parent_task_id` → tasks.id (self-referential)
+- `shared_task_id` → shared_tasks.id (SET NULL)
+
+---
+
+### task_attempts
+
+Records each attempt to execute a task with a specific executor.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | BLOB (UUID) | Primary key |
+| `task_id` | BLOB (UUID) | FK to tasks |
+| `container_ref` | TEXT | Path to worktree (local) or cloud container ID |
+| `branch` | TEXT | Git branch for this attempt |
+| `target_branch` | TEXT | Target branch for merge |
+| `executor` | TEXT | Executor name: `CLAUDE_CODE`, `AMP`, `GEMINI`, `OPENCODE`, `CURSOR_AGENT` |
+| `worktree_deleted` | BOOLEAN | Whether worktree has been cleaned up |
+| `setup_completed_at` | DATETIME | When setup script last completed |
+| `created_at` | DATETIME | Creation timestamp |
+| `updated_at` | DATETIME | Last update timestamp |
+
+**Foreign Keys:**
+- `task_id` → tasks.id (CASCADE)
+
+---
+
+### execution_processes
+
+Records each execution process (setup script, coding agent, etc.) within a task attempt.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | BLOB (UUID) | Primary key |
+| `task_attempt_id` | BLOB (UUID) | FK to task_attempts |
+| `run_reason` | TEXT | `setupscript`, `cleanupscript`, `codingagent`, `devserver` |
+| `executor_action` | JSON | Serialized ExecutorAction for the process |
+| `before_head_commit` | TEXT | Git HEAD commit before execution |
+| `after_head_commit` | TEXT | Git HEAD commit after execution |
+| `status` | TEXT | `running`, `completed`, `failed`, `killed` |
+| `exit_code` | INTEGER | Process exit code |
+| `dropped` | BOOLEAN | Hidden from logs/timeline due to restore |
+| `pid` | INTEGER | System process ID |
+| `started_at` | DATETIME | Process start time |
+| `completed_at` | DATETIME | Process completion time |
+| `created_at` | DATETIME | Creation timestamp |
+| `updated_at` | DATETIME | Last update timestamp |
+
+**Indexes:**
+- `idx_execution_processes_task_attempt_id` - Query processes for attempt
+- `idx_execution_processes_status` - Filter by execution status
+- `idx_execution_processes_type` - Filter by run reason
+
+**Foreign Keys:**
+- `task_attempt_id` → task_attempts.id (CASCADE)
+
+---
+
+### log_entries
+
+Individual log messages for streaming. Designed for ElectricSQL-compatible row-level sync.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER | Primary key (autoincrement) |
+| `execution_id` | BLOB (UUID) | FK to execution_processes |
+| `output_type` | TEXT | `stdout`, `stderr`, `system`, `json_patch`, `session_id`, `finished`, `refresh_required` |
+| `content` | TEXT | Log message content |
+| `timestamp` | DATETIME | Log timestamp (defaults to now) |
+
+**Indexes:**
+- `idx_log_entries_execution_id_id` - Pagination by execution and ID
+- `idx_log_entries_execution_id_timestamp` - Time-based queries
+
+**Foreign Keys:**
+- `execution_id` → execution_processes.id (CASCADE)
+
+---
+
+### merges
+
+Tracks merge results from task attempts (direct merges or GitHub PRs).
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | BLOB (UUID) | Primary key |
+| `task_attempt_id` | BLOB (UUID) | FK to task_attempts |
+| `merge_type` | TEXT | `direct` or `pr` |
+| `merge_commit` | TEXT | Direct merge commit SHA |
+| `pr_number` | INTEGER | GitHub PR number |
+| `pr_url` | TEXT | GitHub PR URL |
+| `pr_status` | TEXT | `open`, `merged`, `closed` |
+| `pr_merged_at` | DATETIME | PR merge timestamp |
+| `pr_merge_commit_sha` | TEXT | PR merge commit SHA |
+| `target_branch_name` | TEXT | Target branch for merge |
+| `created_at` | DATETIME | Creation timestamp |
+
+**Constraints:**
+- Direct merges require `merge_commit`
+- PR merges require `pr_number`, `pr_url`, `pr_status`
+
+**Indexes:**
+- `idx_merges_task_attempt_id`
+- `idx_merges_open_pr` - Fast lookup of open PRs
+
+**Foreign Keys:**
+- `task_attempt_id` → task_attempts.id (CASCADE)
+
+---
+
+### executor_sessions
+
+Links executor sessions (e.g., Claude session IDs) to execution processes.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | BLOB (UUID) | Primary key |
+| `task_attempt_id` | BLOB (UUID) | FK to task_attempts |
+| `execution_process_id` | BLOB (UUID) | FK to execution_processes |
+| `session_id` | TEXT | External session ID from Claude/Executor |
+| `prompt` | TEXT | The prompt sent to the executor |
+| `assistant_message` | TEXT | Response from assistant |
+| `created_at` | DATETIME | Creation timestamp |
+| `updated_at` | DATETIME | Last update timestamp |
+
+**Indexes:**
+- `idx_executor_sessions_task_attempt_id`
+- `idx_executor_sessions_execution_process_id`
+- `idx_executor_sessions_session_id`
+
+**Foreign Keys:**
+- `task_attempt_id` → task_attempts.id (CASCADE)
+- `execution_process_id` → execution_processes.id (CASCADE)
+
+---
+
+## Remote Sync Tables (Deprecated)
+
+These tables support legacy polling-based sync and are being replaced by ElectricSQL.
+
+### shared_tasks
+
+Remote tasks from the hive server.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | BLOB (UUID) | Primary key (matches hive task ID) |
+| `remote_project_id` | BLOB (UUID) | FK to hive project |
+| `title` | TEXT | Task title |
+| `description` | TEXT | Task description |
+| `status` | TEXT | Task status |
+| `assignee_user_id` | BLOB (UUID) | Hive user ID |
+| `assignee_first_name` | TEXT | Cached user first name |
+| `assignee_last_name` | TEXT | Cached user last name |
+| `assignee_username` | TEXT | Cached username |
+| `version` | INTEGER | Version for conflict detection |
+| `last_event_seq` | INTEGER | Event sequence for polling |
+| `activity_at` | DATETIME | Last activity timestamp |
+| `created_at` | DATETIME | Creation timestamp |
+| `updated_at` | DATETIME | Last update timestamp |
+
+**Status:** Deprecated - Being replaced by ElectricSQL-based sync
+
+---
+
+### shared_activity_cursors
+
+Tracks sync progress for shared tasks per remote project.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `remote_project_id` | BLOB (UUID) | Primary key |
+| `last_seq` | INTEGER | Last synced event sequence |
+| `updated_at` | DATETIME | Last update timestamp |
+
+---
+
+### cached_nodes
+
+Cache of nodes from the hive server.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | BLOB (UUID) | Primary key |
+| `organization_id` | BLOB (UUID) | Organization ID |
+| `name` | TEXT | Human-readable node name |
+| `machine_id` | TEXT | Stable machine hash |
+| `status` | TEXT | `pending`, `online`, `offline`, `busy`, `draining` |
+| `capabilities` | TEXT (JSON) | Serialized NodeCapabilities |
+| `public_url` | TEXT | Public URL for direct connections |
+| `last_heartbeat_at` | DATETIME | Last heartbeat timestamp |
+| `connected_at` | DATETIME | Connection timestamp |
+| `disconnected_at` | DATETIME | Disconnection timestamp |
+| `created_at` | DATETIME | Creation timestamp |
+| `updated_at` | DATETIME | Last update timestamp |
+| `last_synced_at` | DATETIME | Last sync from hive |
+
+**Status:** Deprecated - Will sync via ElectricSQL shapes
+
+---
+
+### cached_node_projects
+
+Maps which projects exist on which nodes.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | BLOB (UUID) | Primary key |
+| `node_id` | BLOB (UUID) | FK to cached_nodes |
+| `project_id` | BLOB (UUID) | Remote project ID in hive |
+| `local_project_id` | BLOB (UUID) | Local project ID on the node |
+| `project_name` | TEXT | Project name |
+| `git_repo_path` | TEXT | Git repository path |
+| `default_branch` | TEXT | Default git branch |
+| `sync_status` | TEXT | Sync status |
+| `last_synced_at` | DATETIME | Last sync timestamp |
+| `created_at` | DATETIME | Creation timestamp |
+| `cached_at` | DATETIME | Cache timestamp |
+
+**Foreign Keys:**
+- `node_id` → cached_nodes.id (CASCADE)
+
+---
+
+### node_sync_cursors
+
+Tracks sync state per organization.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `organization_id` | BLOB (UUID) | Primary key |
+| `last_synced_at` | DATETIME | Last sync timestamp |
+| `sync_version` | INTEGER | Sync version number |
+
+---
+
+## Supporting Tables
+
+### templates
+
+Task templates for common task configurations.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | BLOB (UUID) | Primary key |
+| `name` | TEXT | Template name (unique) |
+| `display_name` | TEXT | Display name |
+| `color` | TEXT | Hex color code |
+
+---
+
+### labels
+
+Project labels for task categorization.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | BLOB (UUID) | Primary key |
+| `project_id` | BLOB (UUID) | FK to projects |
+| `name` | TEXT | Label name |
+| `color` | TEXT | Hex color code |
+| `created_at` | DATETIME | Creation timestamp |
+
+---
+
+### task_variables
+
+Key-value pairs for task-specific configuration.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `task_id` | BLOB (UUID) | Primary key, FK to tasks |
+| `variables` | TEXT (JSON) | Serialized variable definitions |
+| `created_at` | DATETIME | Creation timestamp |
+
+---
+
+### activity_dismissals
+
+Tracks user dismissals of activity notifications.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | BLOB (UUID) | Primary key |
+| `task_id` | BLOB (UUID) | FK to tasks |
+| `dismissed_at` | DATETIME | Dismissal timestamp |
+
+---
+
+### images
+
+Task-associated image metadata.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | BLOB (UUID) | Primary key |
+| `task_id` | BLOB (UUID) | FK to tasks |
+| `url` | TEXT | Image URL |
+| `created_at` | DATETIME | Creation timestamp |
+
+---
+
+## Data Type Conventions
+
+| SQLite Type | Rust Type | TypeScript Type | Notes |
+|-------------|-----------|-----------------|-------|
+| BLOB | Uuid | string | UUID v4 stored as raw binary |
+| TEXT (datetime) | DateTime\<Utc\> | Date | ISO 8601 format with subsecond precision |
+| INTEGER (boolean) | bool | boolean | 0 = false, 1 = true |
+| TEXT (json) | serde_json::Value | object | Serialized JSON |
+| TEXT | String | string | UTF-8 text |
+| INTEGER | i32/i64 | number | Signed integers |
+
+## Related Documentation
+
+- [Database Overview](./database-overview.mdx) - Architecture overview
+- [PostgreSQL Hive Schema](./postgresql-hive-schema.mdx) - Remote database schema
+- [Database Synchronization](./database-synchronization.mdx) - Sync mechanisms
