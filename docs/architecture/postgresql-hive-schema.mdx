@@ -1,0 +1,490 @@
+---
+title: PostgreSQL Hive Schema
+description: Complete schema documentation for the central hive PostgreSQL database
+---
+
+# PostgreSQL Hive Schema
+
+The hive server uses PostgreSQL as the central database for multi-tenant organization management, shared task registry, and distributed node coordination.
+
+**Location:** Remote server (e.g., `postgres://hive.example.com/vibe_remote`)
+
+**Migrations:** `crates/remote/migrations/`
+
+## Schema Overview
+
+The hive database contains 18 tables organized into five categories:
+
+| Category | Tables | Purpose |
+|----------|--------|---------|
+| **Multi-Tenant** | organizations, users, organization_member_metadata, organization_invitations | Organization and user management |
+| **Projects/Tasks** | projects, project_activity_counters, shared_tasks | Shared task registry |
+| **Activity** | activity | Partitioned event feed |
+| **Node Swarm** | nodes, node_api_keys, node_projects, node_task_assignments | Distributed node management |
+| **Execution** | node_task_output_logs, node_task_progress_events | Execution tracking |
+| **Authentication** | auth_sessions, revoked_refresh_tokens, oauth_accounts, oauth_handoffs | Auth and OAuth |
+
+## Entity Relationship Diagram
+
+```text
+organizations
+├── users (via organization_member_metadata)
+│   ├── oauth_accounts (FK: user_id)
+│   ├── auth_sessions (FK: user_id)
+│   └── revoked_refresh_tokens (FK: user_id)
+├── organization_invitations (FK: organization_id)
+├── projects (FK: organization_id)
+│   ├── project_activity_counters (FK: project_id)
+│   ├── shared_tasks (FK: project_id)
+│   └── activity (FK: project_id, partitioned)
+├── nodes (FK: organization_id)
+│   ├── node_api_keys (FK: organization_id, node_id)
+│   └── node_projects (FK: node_id)
+│       └── node_task_assignments (FK: node_id, node_project_id, task_id)
+│           ├── node_task_output_logs (FK: assignment_id)
+│           └── node_task_progress_events (FK: assignment_id)
+└── oauth_handoffs (standalone, links to user_id/session_id)
+```
+
+---
+
+## Multi-Tenant Tables
+
+### organizations
+
+Multi-tenant organization records.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `name` | TEXT | Organization name |
+| `slug` | TEXT | URL-safe slug (unique) |
+| `is_personal` | BOOLEAN | Whether this is a personal org |
+| `created_at` | TIMESTAMPTZ | Creation timestamp |
+| `updated_at` | TIMESTAMPTZ | Last update timestamp |
+
+---
+
+### users
+
+User accounts.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `email` | TEXT | Email address (unique) |
+| `first_name` | TEXT | First name |
+| `last_name` | TEXT | Last name |
+| `username` | TEXT | Username |
+| `created_at` | TIMESTAMPTZ | Creation timestamp |
+| `updated_at` | TIMESTAMPTZ | Last update timestamp |
+
+---
+
+### organization_member_metadata
+
+Maps users to organizations with roles.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `organization_id` | UUID | FK to organizations |
+| `user_id` | UUID | FK to users |
+| `role` | member_role | `admin` or `member` |
+| `joined_at` | TIMESTAMPTZ | Join timestamp |
+| `last_seen_at` | TIMESTAMPTZ | Last activity timestamp |
+
+**Primary Key:** (organization_id, user_id)
+
+---
+
+### organization_invitations
+
+Pending organization invitations.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `organization_id` | UUID | FK to organizations |
+| `invited_by_user_id` | UUID | FK to users (nullable) |
+| `email` | TEXT | Invitee email |
+| `role` | member_role | Invited role |
+| `status` | invitation_status | `pending`, `accepted`, `declined`, `expired` |
+| `token` | TEXT | Invitation token (unique) |
+| `expires_at` | TIMESTAMPTZ | Expiration timestamp |
+| `created_at` | TIMESTAMPTZ | Creation timestamp |
+| `updated_at` | TIMESTAMPTZ | Last update timestamp |
+
+**Constraints:**
+- Unique pending invitation per email per organization
+
+---
+
+## Projects and Tasks
+
+### projects
+
+Organization workspaces.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `organization_id` | UUID | FK to organizations |
+| `name` | TEXT | Project name |
+| `metadata` | JSONB | Project metadata |
+| `created_at` | TIMESTAMPTZ | Creation timestamp |
+
+---
+
+### project_activity_counters
+
+Tracks activity sequence numbers per project.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `project_id` | UUID | Primary key, FK to projects |
+| `last_seq` | BIGINT | Last activity sequence number |
+
+---
+
+### shared_tasks
+
+Central task registry shared across all nodes.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `organization_id` | UUID | FK to organizations |
+| `project_id` | UUID | FK to projects |
+| `creator_user_id` | UUID | FK to users (nullable) |
+| `assignee_user_id` | UUID | FK to users (nullable) |
+| `deleted_by_user_id` | UUID | FK to users (nullable) |
+| `title` | TEXT | Task title |
+| `description` | TEXT | Task description |
+| `status` | task_status | `todo`, `in-progress`, `in-review`, `done`, `cancelled` |
+| `version` | BIGINT | Version for conflict detection |
+| `deleted_at` | TIMESTAMPTZ | Soft delete timestamp |
+| `shared_at` | TIMESTAMPTZ | When task was shared |
+| `created_at` | TIMESTAMPTZ | Creation timestamp |
+| `updated_at` | TIMESTAMPTZ | Last update timestamp |
+
+**Indexes:**
+- `idx_tasks_org_status` - Filter by organization and status
+- `idx_tasks_org_assignee` - Query by assignee
+- `idx_tasks_project` - Query by project
+- `idx_shared_tasks_org_deleted_at` - Deleted task lookup
+
+---
+
+## Activity Feed
+
+### activity
+
+Partitioned activity feed for event streaming.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `seq` | BIGINT | Sequence number |
+| `event_id` | UUID | Unique event ID |
+| `project_id` | UUID | FK to projects |
+| `assignee_user_id` | UUID | FK to users (nullable) |
+| `event_type` | TEXT | Event type identifier |
+| `payload` | JSONB | Event payload |
+| `created_at` | TIMESTAMPTZ | Event timestamp (part of primary key) |
+
+**Partitioning:**
+- Range partitioned by `created_at`
+- 24-hour buckets (e.g., `activity_p_20251228`)
+- Auto-created on demand via `ensure_activity_partition()` function
+- Pre-seeded for current + 2 days
+
+**Indexes:**
+- `idx_activity_project_seq` - Query by project and sequence
+
+**Trigger:**
+- `trg_activity_notify` - Sends PostgreSQL NOTIFY on insert for real-time clients
+
+---
+
+## Node Swarm
+
+### nodes
+
+Connected worker machines.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `organization_id` | UUID | FK to organizations |
+| `name` | TEXT | Human-readable node name |
+| `machine_id` | TEXT | Stable machine hash (metadata only after binding) |
+| `status` | node_status | `pending`, `online`, `offline`, `busy`, `draining` |
+| `capabilities` | JSONB | Node capabilities (see below) |
+| `public_url` | TEXT | Public URL for direct connections |
+| `last_heartbeat_at` | TIMESTAMPTZ | Last heartbeat timestamp |
+| `connected_at` | TIMESTAMPTZ | Connection timestamp |
+| `disconnected_at` | TIMESTAMPTZ | Disconnection timestamp |
+| `created_at` | TIMESTAMPTZ | Creation timestamp |
+| `updated_at` | TIMESTAMPTZ | Last update timestamp |
+
+**Capabilities JSONB structure:**
+```json
+{
+  "executors": ["CLAUDE_CODE", "GEMINI", "OPENCODE"],
+  "max_concurrent_tasks": 3,
+  "os": "darwin",
+  "arch": "arm64",
+  "version": "0.5.0"
+}
+```
+
+**Indexes:**
+- `idx_nodes_org_status` - Filter by organization and status
+- `idx_nodes_heartbeat` - Heartbeat monitoring (WHERE status IN ('online', 'busy'))
+
+---
+
+### node_api_keys
+
+Machine-to-machine authentication keys.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `organization_id` | UUID | FK to organizations |
+| `name` | TEXT | Key name |
+| `key_hash` | TEXT | SHA256 hash of key |
+| `key_prefix` | TEXT | First 8 chars for identification |
+| `created_by` | UUID | FK to users (nullable) |
+| `last_used_at` | TIMESTAMPTZ | Last use timestamp |
+| `revoked_at` | TIMESTAMPTZ | Revocation timestamp |
+| `node_id` | UUID | FK to nodes (bound on first use) |
+| `takeover_count` | INTEGER | Duplicate use detection counter |
+| `takeover_window_start` | TIMESTAMPTZ | Takeover detection window start |
+| `blocked_at` | TIMESTAMPTZ | Block timestamp |
+| `blocked_reason` | TEXT | Block reason |
+| `created_at` | TIMESTAMPTZ | Creation timestamp |
+
+**Indexes:**
+- `idx_node_api_keys_org` - Query by organization
+- `idx_node_api_keys_prefix` - Key lookup by prefix
+- `idx_node_api_keys_node` - Query by bound node
+
+**Security Features:**
+- Keys are bound to a node on first connection
+- Takeover detection tracks multiple machine use
+- Blocking support for suspicious patterns
+
+---
+
+### node_projects
+
+Links projects to the nodes that host them.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `node_id` | UUID | FK to nodes |
+| `project_id` | UUID | FK to projects |
+| `local_project_id` | UUID | Node's local SQLite project ID |
+| `git_repo_path` | TEXT | Git repository path |
+| `default_branch` | TEXT | Default git branch (default: 'main') |
+| `sync_status` | TEXT | Sync status (default: 'pending') |
+| `last_synced_at` | TIMESTAMPTZ | Last sync timestamp |
+| `created_at` | TIMESTAMPTZ | Creation timestamp |
+
+**Visibility Model:**
+- All nodes in an organization can see all projects
+- Only the owning node can execute tasks for a project
+
+**Indexes:**
+- `idx_node_projects_node` - Query by node
+- `node_projects_project_id_idx` - Query by project
+
+---
+
+### node_task_assignments
+
+Tracks task dispatch to nodes.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `task_id` | UUID | FK to shared_tasks |
+| `node_id` | UUID | FK to nodes |
+| `node_project_id` | UUID | FK to node_projects |
+| `local_task_id` | UUID | Node's local SQLite task ID |
+| `local_attempt_id` | UUID | Node's local attempt ID |
+| `execution_status` | TEXT | Status (default: 'pending') |
+| `assigned_at` | TIMESTAMPTZ | Assignment timestamp |
+| `started_at` | TIMESTAMPTZ | Execution start timestamp |
+| `completed_at` | TIMESTAMPTZ | Completion timestamp |
+| `created_at` | TIMESTAMPTZ | Creation timestamp |
+
+**Constraints:**
+- Unique active assignment per task (WHERE completed_at IS NULL)
+
+**Indexes:**
+- `idx_task_assignments_active` - Active assignment lookup
+- `idx_task_assignments_node` - Query by node
+
+---
+
+## Execution Tracking
+
+### node_task_output_logs
+
+Streams execution output (stdout/stderr) from nodes.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | BIGSERIAL | Primary key |
+| `assignment_id` | UUID | FK to node_task_assignments |
+| `output_type` | TEXT | `stdout`, `stderr`, `system` |
+| `content` | TEXT | Log content |
+| `timestamp` | TIMESTAMPTZ | Log timestamp |
+| `created_at` | TIMESTAMPTZ | Creation timestamp |
+
+**Indexes:**
+- `idx_task_output_logs_assignment` - Query by assignment
+- `idx_task_output_logs_assignment_time` - Time-ordered logs
+
+---
+
+### node_task_progress_events
+
+Tracks execution milestones.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | BIGSERIAL | Primary key |
+| `assignment_id` | UUID | FK to node_task_assignments |
+| `event_type` | TEXT | Event type (e.g., `agent_started`, `branch_created`, `committed`) |
+| `message` | TEXT | Human-readable message |
+| `metadata` | JSONB | Additional event metadata |
+| `timestamp` | TIMESTAMPTZ | Event timestamp |
+| `created_at` | TIMESTAMPTZ | Creation timestamp |
+
+**Indexes:**
+- `idx_task_progress_events_assignment` - Query by assignment
+- `idx_task_progress_events_assignment_time` - Time-ordered events
+
+---
+
+## Authentication
+
+### auth_sessions
+
+User authentication sessions.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `user_id` | UUID | FK to users |
+| `session_secret_hash` | TEXT | Hashed session secret |
+| `refresh_token_id` | UUID | JWT refresh token binding |
+| `refresh_token_issued_at` | TIMESTAMPTZ | Token issue timestamp |
+| `created_at` | TIMESTAMPTZ | Creation timestamp |
+| `last_used_at` | TIMESTAMPTZ | Last use timestamp |
+| `revoked_at` | TIMESTAMPTZ | Revocation timestamp |
+
+---
+
+### revoked_refresh_tokens
+
+Tracks revoked JWT refresh tokens.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `token_id` | UUID | Primary key |
+| `user_id` | UUID | FK to users |
+| `revoked_at` | TIMESTAMPTZ | Revocation timestamp |
+| `revoked_reason` | TEXT | Reason for revocation |
+
+---
+
+### oauth_accounts
+
+Links users to OAuth providers.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `user_id` | UUID | FK to users |
+| `provider` | TEXT | OAuth provider (e.g., `github`, `google`) |
+| `provider_user_id` | TEXT | Provider's user ID (unique per provider) |
+| `email` | TEXT | OAuth email |
+| `username` | TEXT | OAuth username |
+| `display_name` | TEXT | Display name |
+| `avatar_url` | TEXT | Avatar URL |
+| `created_at` | TIMESTAMPTZ | Creation timestamp |
+| `updated_at` | TIMESTAMPTZ | Last update timestamp |
+
+---
+
+### oauth_handoffs
+
+OAuth state machine for authentication flow.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `provider` | TEXT | OAuth provider |
+| `state` | TEXT | OAuth state parameter |
+| `return_to` | TEXT | Return URL after auth |
+| `app_challenge` | TEXT | PKCE challenge |
+| `app_code_hash` | TEXT | Hashed app code |
+| `status` | TEXT | `pending`, `authorized`, `redeemed` |
+| `error_code` | TEXT | Error code if failed |
+| `encrypted_provider_tokens` | TEXT | Encrypted OAuth tokens |
+| `expires_at` | TIMESTAMPTZ | Expiration timestamp |
+| `authorized_at` | TIMESTAMPTZ | Authorization timestamp |
+| `redeemed_at` | TIMESTAMPTZ | Redemption timestamp |
+| `user_id` | UUID | FK to users (nullable) |
+| `session_id` | UUID | FK to auth_sessions (nullable) |
+| `created_at` | TIMESTAMPTZ | Creation timestamp |
+| `updated_at` | TIMESTAMPTZ | Last update timestamp |
+
+---
+
+## Custom Types (Enums)
+
+```sql
+CREATE TYPE member_role AS ENUM ('admin', 'member');
+
+CREATE TYPE invitation_status AS ENUM ('pending', 'accepted', 'declined', 'expired');
+
+CREATE TYPE task_status AS ENUM ('todo', 'in-progress', 'in-review', 'done', 'cancelled');
+
+CREATE TYPE node_status AS ENUM ('pending', 'online', 'offline', 'busy', 'draining');
+```
+
+---
+
+## ElectricSQL Configuration
+
+The hive database is configured for ElectricSQL logical replication:
+
+```sql
+-- Role for Electric sync
+CREATE ROLE electric_sync WITH LOGIN PASSWORD '...' REPLICATION;
+
+-- Publication for change capture
+CREATE PUBLICATION electric_publication_default FOR TABLE
+  projects,
+  shared_tasks,
+  nodes,
+  node_projects,
+  node_task_assignments,
+  node_task_output_logs,
+  node_task_progress_events;
+
+-- Tables use REPLICA IDENTITY FULL for complete row tracking
+ALTER TABLE shared_tasks REPLICA IDENTITY FULL;
+-- (repeated for other synced tables)
+```
+
+## Related Documentation
+
+- [Database Overview](./database-overview.mdx) - Architecture overview
+- [SQLite Local Schema](./sqlite-local-schema.mdx) - Local node database schema
+- [Database Synchronization](./database-synchronization.mdx) - Sync mechanisms
