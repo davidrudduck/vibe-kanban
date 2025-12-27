@@ -147,8 +147,11 @@ impl LogBatcher {
 
     /// Buffer a log message, flushing if batch size is reached.
     async fn buffer_log(&self, execution_id: Uuid, msg: LogMsg) {
-        // Only buffer Stdout and Stderr messages
-        if !matches!(msg, LogMsg::Stdout(_) | LogMsg::Stderr(_)) {
+        // Only buffer Stdout, Stderr, and JsonPatch messages
+        if !matches!(
+            msg,
+            LogMsg::Stdout(_) | LogMsg::Stderr(_) | LogMsg::JsonPatch(_)
+        ) {
             return;
         }
 
