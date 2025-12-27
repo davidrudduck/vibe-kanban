@@ -354,14 +354,22 @@ const PendingQuestionEntry = ({
 
     const finalAnswers = buildFinalAnswers();
 
+    // Debug logging for AskUserQuestion flow
+    console.log('Submitting question response:', {
+      question_id: pendingStatus.question_id,
+      execution_process_id: executionProcessId,
+      answers: finalAnswers,
+    });
+
     const status: ApprovalStatus = { status: 'approved' };
 
     try {
-      await approvalsApi.respond(pendingStatus.question_id, {
+      const result = await approvalsApi.respond(pendingStatus.question_id, {
         execution_process_id: executionProcessId,
         status,
         answers: finalAnswers,
       });
+      console.log('Question response submitted successfully:', result);
       setHasResponded(true);
     } catch (e: unknown) {
       console.error('Question respond failed:', e);

@@ -236,6 +236,18 @@ impl ClaudeAgentClient {
             .await
         {
             Ok((status, answers)) => {
+                // Log the user selection for debugging
+                if let Some(ref ans) = answers {
+                    let selection_str = ans
+                        .iter()
+                        .map(|(k, v)| format!("{}: {}", k, v))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    tracing::info!("User selected: {}", selection_str);
+                } else {
+                    tracing::info!("User selection: None (status: {:?})", status);
+                }
+
                 // Log the question response
                 self.log_writer
                     .log_raw(&serde_json::to_string(&ClaudeJson::ApprovalResponse {
