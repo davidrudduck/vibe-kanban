@@ -15,7 +15,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from '@/components/ui/select';
 import {
   PaginationPreset,
@@ -200,11 +199,10 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
               }
             >
               <SelectTrigger
-                className="w-auto h-8 gap-1 px-2 rounded-full shadow-lg bg-background/90 backdrop-blur-sm border-input"
+                className="w-8 h-8 p-0 rounded-full shadow-lg bg-background/90 backdrop-blur-sm border-input [&>svg:last-child]:hidden"
                 aria-label="Pagination settings"
               >
                 <Settings2 className="h-4 w-4" />
-                <SelectValue />
               </SelectTrigger>
               <SelectContent align="end">
                 <SelectItem value="global">
