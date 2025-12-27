@@ -131,6 +131,15 @@ function findImageByPath(
   return taskImages.find((img) => img.file_path === src) || null;
 }
 
+// Extract filename from .vibe-images path
+function getFilenameFromVibeImagePath(src: string): string | null {
+  const prefix = '.vibe-images/';
+  if (src.startsWith(prefix)) {
+    return src.slice(prefix.length);
+  }
+  return null;
+}
+
 // Image override component factory (captures taskImages for lightbox navigation)
 function createImageOverride(taskImages?: ImageResponse[]) {
   return function ImageOverride({ src, alt }: { src?: string; alt?: string }) {
@@ -141,9 +150,13 @@ function createImageOverride(taskImages?: ImageResponse[]) {
     const matchedImage = isVibeImage ? findImageByPath(src!, taskImages) : null;
 
     // Determine the URL to use
+    // If we have a matched image from taskImages, use the ID-based endpoint
+    // Otherwise, if it's a .vibe-images path, use the filename-based endpoint
     const imageUrl = matchedImage
       ? `/api/images/${matchedImage.id}/file`
-      : src || '';
+      : isVibeImage
+        ? `/api/images/file/${getFilenameFromVibeImagePath(src!)}`
+        : src || '';
 
     const handleClick = useCallback(() => {
       if (!matchedImage) return;
