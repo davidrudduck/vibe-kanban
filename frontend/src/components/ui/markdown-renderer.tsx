@@ -8,7 +8,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip.tsx';
 import { Button } from '@/components/ui/button.tsx';
-import { Check, Clipboard, ImageOff } from 'lucide-react';
+import { Check, Clipboard, ImageOff, Maximize2 } from 'lucide-react';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
 import { ImageLightboxDialog } from '@/components/dialogs';
 import { cn } from '@/lib/utils';
@@ -197,16 +197,31 @@ function createImageOverride(taskImages?: ImageResponse[]) {
     }
 
     return (
-      <img
-        src={imageUrl}
-        alt={alt || ''}
-        onClick={matchedImage ? handleClick : undefined}
-        onError={() => setError(true)}
-        className={cn(
-          'max-w-full rounded my-2',
-          matchedImage && 'cursor-pointer hover:opacity-90 transition-opacity'
+      <span className="relative inline-block group my-2">
+        <img
+          src={imageUrl}
+          alt={alt || ''}
+          onClick={matchedImage ? handleClick : undefined}
+          onError={() => setError(true)}
+          className={cn(
+            // Thumbnail sizing - responsive
+            'max-w-[200px] max-h-[150px] sm:max-w-[300px] sm:max-h-[200px]',
+            'object-contain rounded',
+            // Clickable affordance
+            matchedImage && [
+              'cursor-pointer',
+              'transition-all duration-200',
+              'group-hover:ring-2 group-hover:ring-primary/50',
+              'group-hover:shadow-lg',
+            ]
+          )}
+        />
+        {matchedImage && (
+          <span className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 transition-colors rounded pointer-events-none">
+            <Maximize2 className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
+          </span>
         )}
-      />
+      </span>
     );
   };
 }
