@@ -295,6 +295,10 @@
           "description": "Restablece el flujo de Introducción.",
           "button": "Restablecer"
         }
+      },
+      "diskUsage": {
+        "title": "Uso del Disco",
+        "description": "Monitorea y gestiona el espacio en disco usado por los worktrees."
       }
     },
     "agents": {
