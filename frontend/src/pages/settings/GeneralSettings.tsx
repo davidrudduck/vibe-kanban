@@ -920,6 +920,63 @@ export function GeneralSettings() {
         </CardContent>
       </Card>
 
+      {/* Timestamps Settings */}
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('settings.general.timestamps.title')}</CardTitle>
+          <CardDescription>
+            {t('settings.general.timestamps.description')}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="timezone">
+              {t('settings.general.timestamps.timezone.label')}
+            </Label>
+            <Select
+              value={draft?.timestamps?.timezone ?? 'LOCAL'}
+              onValueChange={(value: string) =>
+                updateDraft({
+                  timestamps: {
+                    ...draft!.timestamps,
+                    timezone: value,
+                  },
+                })
+              }
+            >
+              <SelectTrigger id="timezone">
+                <SelectValue
+                  placeholder={t(
+                    'settings.general.timestamps.timezone.placeholder'
+                  )}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="LOCAL">
+                  {t('settings.general.timestamps.timezone.local')}
+                </SelectItem>
+                <SelectItem value="UTC">UTC</SelectItem>
+                <SelectItem value="America/New_York">America/New_York (EST/EDT)</SelectItem>
+                <SelectItem value="America/Chicago">America/Chicago (CST/CDT)</SelectItem>
+                <SelectItem value="America/Denver">America/Denver (MST/MDT)</SelectItem>
+                <SelectItem value="America/Los_Angeles">America/Los_Angeles (PST/PDT)</SelectItem>
+                <SelectItem value="Europe/London">Europe/London (GMT/BST)</SelectItem>
+                <SelectItem value="Europe/Paris">Europe/Paris (CET/CEST)</SelectItem>
+                <SelectItem value="Europe/Berlin">Europe/Berlin (CET/CEST)</SelectItem>
+                <SelectItem value="Asia/Tokyo">Asia/Tokyo (JST)</SelectItem>
+                <SelectItem value="Asia/Shanghai">Asia/Shanghai (CST)</SelectItem>
+                <SelectItem value="Asia/Seoul">Asia/Seoul (KST)</SelectItem>
+                <SelectItem value="Asia/Singapore">Asia/Singapore (SGT)</SelectItem>
+                <SelectItem value="Australia/Sydney">Australia/Sydney (AEST/AEDT)</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">
+              {t('settings.general.timestamps.timezone.helper')}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>{t('settings.general.git.title')}</CardTitle>

@@ -505,7 +505,11 @@ pagination: PaginationConfig,
 /**
  * Font settings for UI, code, and prose contexts
  */
-fonts: FontConfig, };
+fonts: FontConfig, 
+/**
+ * Timestamp display settings
+ */
+timestamps: TimestampConfig, };
 
 export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, };
 
@@ -574,6 +578,13 @@ export type UiFont = "INTER" | "ROBOTO" | "PUBLIC_SANS" | "CHIVO_MONO" | "SYSTEM
 export type CodeFont = "JET_BRAINS_MONO" | "CASCADIA_MONO" | "HACK" | "IBM_PLEX_MONO" | "CHIVO_MONO" | "SYSTEM";
 
 export type ProseFont = "INTER" | "ROBOTO" | "GEORGIA" | "CHIVO_MONO" | "SYSTEM";
+
+export type TimestampConfig = { 
+/**
+ * IANA timezone name (e.g., "America/New_York", "Europe/London")
+ * "LOCAL" means use browser's local timezone
+ */
+timezone: string, };
 
 export type GitBranch = { name: string, is_current: boolean, is_remote: boolean, last_commit_date: Date, };
 
@@ -776,7 +787,7 @@ export type CommandRunResult = { exit_status: CommandExitStatus | null, output: 
 
 export type NormalizedEntry = { timestamp: string | null, entry_type: NormalizedEntryType, content: string, };
 
-export type NormalizedEntryType = { "type": "user_message" } | { "type": "user_feedback", denied_tool: string, } | { "type": "assistant_message" } | { "type": "tool_use", tool_name: string, action_type: ActionType, status: ToolStatus, } | { "type": "system_message" } | { "type": "error_message", error_type: NormalizedEntryError, } | { "type": "thinking" } | { "type": "loading" } | { "type": "next_action", failed: boolean, execution_processes: number, needs_setup: boolean, };
+export type NormalizedEntryType = { "type": "user_message" } | { "type": "user_feedback", denied_tool: string, } | { "type": "assistant_message" } | { "type": "tool_use", tool_name: string, action_type: ActionType, status: ToolStatus, } | { "type": "system_message" } | { "type": "error_message", error_type: NormalizedEntryError, } | { "type": "thinking" } | { "type": "loading" } | { "type": "next_action", failed: boolean, execution_processes: number, needs_setup: boolean, } | { "type": "execution_start", process_id: string, process_name: string, started_at: string, } | { "type": "execution_end", process_id: string, process_name: string, started_at: string, ended_at: string, duration_seconds: bigint, status: string, };
 
 export type FileChange = { "action": "write", content: string, } | { "action": "delete" } | { "action": "rename", new_path: string, } | { "action": "edit", 
 /**
