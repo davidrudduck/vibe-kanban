@@ -13,7 +13,8 @@
     "connect": "Connect",
     "disconnect": "Disconnect",
     "close": "Close",
-    "replay": "Replay"
+    "replay": "Replay",
+    "back": "Back"
   },
   "states": {
     "loading": "Loading...",
@@ -77,6 +78,14 @@
     "currentBadge": " (current)"
   },
   "signOut": "Sign out",
+  "bottomNav": {
+    "ariaLabel": "Main navigation",
+    "projects": "Projects",
+    "tasks": "Tasks",
+    "add": "Add",
+    "activity": "Activity",
+    "menu": "Menu"
+  },
   "devMode": {
     "banner": "Development Mode - This is a development build",
     "bannerShort": "Development Mode"
