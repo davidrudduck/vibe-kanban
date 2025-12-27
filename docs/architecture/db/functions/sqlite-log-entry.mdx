@@ -1,0 +1,234 @@
+---
+title: Log Entry Functions
+description: Database functions for ElectricSQL log storage in SQLite
+---
+
+# Log Entry Functions
+
+Functions for managing log entries in the local SQLite database. Log entries store individual log lines for ElectricSQL shape subscriptions, replacing the legacy JSONL batch storage.
+
+**Source:** `crates/db/src/models/log_entry.rs`
+
+## Quick Reference
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `create` | Insert new log entry | `LogEntry` |
+| `find_by_id` | Lookup by ID | `Option<LogEntry>` |
+| `find_all_for_execution` | Get all entries for execution | `Vec<LogEntry>` |
+| `find_paginated` | Cursor-based pagination | `Vec<LogEntry>` |
+| `delete_by_execution_id` | Cleanup logs | `u64` |
+| `stdout` | Create stdout entry | `LogEntry` |
+| `stderr` | Create stderr entry | `LogEntry` |
+| `system` | Create system entry | `LogEntry` |
+
+---
+
+## Query Operations
+
+### find_by_id
+
+Retrieve a log entry by its auto-increment ID.
+
+**Signature:**
+```rust
+async fn find_by_id(pool: &SqlitePool, id: i64) -> Result<Option<Self>, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `id` | `i64` | Log entry ID (cursor) |
+
+**Returns:** `Some(LogEntry)` if found.
+
+**Used By:**
+- `routes/logs.rs` - Individual log lookup
+
+---
+
+### find_all_for_execution
+
+Get all log entries for an execution process.
+
+**Signature:**
+```rust
+async fn find_all_for_execution(
+    pool: &SqlitePool,
+    execution_id: Uuid,
+) -> Result<Vec<Self>, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `execution_id` | `Uuid` | Execution process ID |
+
+**Returns:** All log entries ordered by timestamp.
+
+**Used By:**
+- `routes/logs.rs` - Full log fetch
+- `services/logs.rs` - Log aggregation
+
+---
+
+### find_paginated
+
+Cursor-based pagination for log entries.
+
+**Signature:**
+```rust
+async fn find_paginated(
+    pool: &SqlitePool,
+    execution_id: Uuid,
+    cursor: Option<i64>,
+    limit: i64,
+    direction: PaginationDirection,
+) -> Result<Vec<Self>, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `execution_id` | `Uuid` | Execution process ID |
+| `cursor` | `Option<i64>` | Starting point (log entry ID) |
+| `limit` | `i64` | Maximum entries to return |
+| `direction` | `PaginationDirection` | Forward or Backward |
+
+**Returns:** Paginated log entries.
+
+**Used By:**
+- `routes/logs.rs` - GET /api/execution-processes/:id/logs
+- Frontend log viewer
+
+**Notes:**
+- Forward: entries newer than cursor
+- Backward: entries older than cursor
+- Uses auto-increment ID for efficient seeking
+
+---
+
+## CRUD Operations
+
+### create
+
+Insert a new log entry.
+
+**Signature:**
+```rust
+async fn create(
+    pool: &SqlitePool,
+    execution_id: Uuid,
+    output_type: &str,
+    content: &str,
+    timestamp: DateTime<Utc>,
+) -> Result<Self, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `execution_id` | `Uuid` | Parent execution process |
+| `output_type` | `&str` | stdout, stderr, system |
+| `content` | `&str` | Log message content |
+| `timestamp` | `DateTime<Utc>` | When the log was generated |
+
+**Returns:** Created log entry with auto-generated ID.
+
+**Used By:**
+- `services/execution.rs` - Log capture
+
+---
+
+### delete_by_execution_id
+
+Delete all log entries for an execution process.
+
+**Signature:**
+```rust
+async fn delete_by_execution_id(
+    pool: &SqlitePool,
+    execution_id: Uuid,
+) -> Result<u64, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `execution_id` | `Uuid` | Execution process ID |
+
+**Returns:** Number of entries deleted.
+
+**Used By:**
+- `routes/task_attempts.rs` - Purge operation
+- Cleanup services
+
+---
+
+## Helper Constructors
+
+### stdout
+
+Create a stdout log entry helper.
+
+**Signature:**
+```rust
+fn stdout(execution_id: Uuid, content: &str, timestamp: DateTime<Utc>) -> NewLogEntry
+```
+
+**Used By:**
+- `services/execution.rs` - Standard output capture
+
+---
+
+### stderr
+
+Create a stderr log entry helper.
+
+**Signature:**
+```rust
+fn stderr(execution_id: Uuid, content: &str, timestamp: DateTime<Utc>) -> NewLogEntry
+```
+
+**Used By:**
+- `services/execution.rs` - Error output capture
+
+---
+
+### system
+
+Create a system log entry helper.
+
+**Signature:**
+```rust
+fn system(execution_id: Uuid, content: &str, timestamp: DateTime<Utc>) -> NewLogEntry
+```
+
+**Used By:**
+- `services/execution.rs` - System messages
+
+---
+
+## Notes
+
+### ElectricSQL Integration
+
+The `log_entries` table is designed for ElectricSQL shape subscriptions:
+
+- **Auto-increment ID**: Provides stable cursor for pagination
+- **Individual rows**: Each log line is a separate row (not JSONL batches)
+- **Efficient syncing**: ElectricSQL can stream new entries incrementally
+
+### Migration from JSONL
+
+This table replaces the legacy `execution_process_logs` table which stored logs as JSONL batches. Benefits:
+
+- Simpler query patterns
+- Native cursor-based pagination
+- Real-time sync via ElectricSQL
+- No JSON parsing overhead

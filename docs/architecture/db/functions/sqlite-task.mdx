@@ -1,0 +1,568 @@
+---
+title: Task Functions
+description: Database functions for task management in SQLite
+---
+
+# Task Functions
+
+Functions for managing tasks in the local SQLite database. Tasks represent work items within projects that can be executed by AI coding agents.
+
+**Source:** `crates/db/src/models/task.rs`
+
+## Quick Reference
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `to_prompt` | Format as agent prompt | `String` |
+| `parent_project` | Load parent project | `Option<Project>` |
+| `find_by_project_id_with_attempt_status` | List with execution flags | `Vec<TaskWithAttemptStatus>` |
+| `find_by_id` | Lookup by UUID | `Option<Task>` |
+| `find_by_rowid` | Lookup by SQLite rowid | `Option<Task>` |
+| `find_by_id_and_project_id` | Validated lookup | `Option<Task>` |
+| `find_by_shared_task_id` | Find by hive link | `Option<Task>` |
+| `create` | Insert new task | `Task` |
+| `update` | Update task fields | `Task` |
+| `sync_from_shared_task` | Sync remote task data | `bool` |
+| `update_status` | Change status | `()` |
+| `nullify_children_by_parent_id` | Break relationships | `u64` |
+| `clear_shared_task_ids_for_remote_project` | Unlink project | `u64` |
+| `delete` | Remove task | `u64` |
+| `set_shared_task_id` | Link to hive | `()` |
+| `exists` | Check existence | `bool` |
+| `find_children_by_parent_id` | Get subtasks | `Vec<Task>` |
+| `find_relationships_for_attempt` | Load hierarchy | `TaskRelationships` |
+| `find_remote_by_project_id` | List remote tasks | `Vec<Task>` |
+| `upsert_remote_task` | Sync from hive | `Task` |
+| `archive` | Soft archive | `Task` |
+| `unarchive` | Restore from archive | `Task` |
+| `archive_many` | Bulk archive | `u64` |
+| `set_remote_stream_location` | Set stream URL | `()` |
+| `delete_stale_remote_tasks` | Cleanup orphans | `u64` |
+| `delete_by_shared_task_id` | Delete by hive ID | `()` |
+| `clear_orphaned_shared_task_ids` | Cleanup orphans | `u64` |
+
+---
+
+## Query Operations
+
+### find_by_project_id_with_attempt_status
+
+Retrieve all tasks for a project with computed execution status flags.
+
+**Signature:**
+```rust
+async fn find_by_project_id_with_attempt_status(
+    pool: &SqlitePool,
+    project_id: Uuid,
+    include_archived: bool,
+) -> Result<Vec<TaskWithAttemptStatus>, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `project_id` | `Uuid` | Project to filter by |
+| `include_archived` | `bool` | Include archived tasks |
+
+**Returns:** Tasks with:
+- `has_in_progress_attempt` - Has running execution process
+- `has_merged_attempt` - Has merged changes (TODO)
+- `last_attempt_failed` - Latest execution failed/killed
+- `executor` - Name of executor for latest attempt
+
+**Used By:**
+- `routes/tasks.rs` - GET /api/projects/:id/tasks
+- Frontend task list rendering
+
+**Notes:**
+- Uses subqueries for status computation
+- Ordered by `activity_at` then `created_at` descending
+
+---
+
+### find_by_id
+
+Retrieve a single task by UUID.
+
+**Signature:**
+```rust
+async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `id` | `Uuid` | Task's unique identifier |
+
+**Returns:** `Some(Task)` if found.
+
+**Used By:**
+- `routes/tasks.rs` - GET /api/tasks/:id
+- `services/execution.rs` - Task validation
+- Parent task resolution
+
+---
+
+### find_by_id_and_project_id
+
+Retrieve task with project validation.
+
+**Signature:**
+```rust
+async fn find_by_id_and_project_id(
+    pool: &SqlitePool,
+    id: Uuid,
+    project_id: Uuid,
+) -> Result<Option<Self>, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `id` | `Uuid` | Task ID |
+| `project_id` | `Uuid` | Expected project ID |
+
+**Returns:** Task only if it belongs to the project.
+
+**Used By:**
+- `routes/tasks.rs` - PUT/DELETE operations
+- Security: Prevents cross-project access
+
+---
+
+### find_by_shared_task_id
+
+Find a local task by its linked shared task ID from the Hive.
+
+**Signature:**
+```rust
+async fn find_by_shared_task_id<'e, E>(
+    executor: E,
+    shared_task_id: Uuid,
+) -> Result<Option<Self>, sqlx::Error>
+where
+    E: Executor<'e, Database = Sqlite>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `executor` | `E` | Database executor (pool or transaction) |
+| `shared_task_id` | `Uuid` | Hive task ID |
+
+**Returns:** Local task linked to the shared task.
+
+**Used By:**
+- `services/electric_sync.rs` - Task synchronization
+- `routes/shared_tasks.rs` - Task reassignment
+
+---
+
+### find_children_by_parent_id
+
+Get all child tasks of a parent task.
+
+**Signature:**
+```rust
+async fn find_children_by_parent_id(
+    pool: &SqlitePool,
+    parent_id: Uuid,
+) -> Result<Vec<Self>, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `parent_id` | `Uuid` | Parent task ID |
+
+**Returns:** Child tasks ordered by creation date descending.
+
+**Used By:**
+- `routes/tasks.rs` - GET /api/tasks/:id/children
+- Task hierarchy UI
+
+---
+
+### find_relationships_for_attempt
+
+Load the full task hierarchy for a task attempt.
+
+**Signature:**
+```rust
+async fn find_relationships_for_attempt(
+    pool: &SqlitePool,
+    task_attempt: &TaskAttempt,
+) -> Result<TaskRelationships, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `task_attempt` | `&TaskAttempt` | The attempt to get relationships for |
+
+**Returns:** `TaskRelationships` containing:
+- `parent_task` - Optional parent task
+- `current_attempt` - The provided attempt
+- `children` - Child tasks
+
+**Used By:**
+- `routes/task_attempts.rs` - Task navigation
+- Agentic follow-up creation
+
+---
+
+## CRUD Operations
+
+### create
+
+Insert a new task.
+
+**Signature:**
+```rust
+async fn create(
+    pool: &SqlitePool,
+    data: &CreateTask,
+    task_id: Uuid,
+) -> Result<Self, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `data` | `&CreateTask` | Task creation data |
+| `task_id` | `Uuid` | Pre-generated UUID |
+
+**Returns:** Created task.
+
+**Used By:**
+- `routes/tasks.rs` - POST /api/tasks
+
+---
+
+### update
+
+Update task fields.
+
+**Signature:**
+```rust
+async fn update(
+    pool: &SqlitePool,
+    id: Uuid,
+    project_id: Uuid,
+    title: String,
+    description: Option<String>,
+    status: TaskStatus,
+    parent_task_id: Option<Uuid>,
+) -> Result<Self, sqlx::Error>
+```
+
+**Returns:** Updated task.
+
+**Used By:**
+- `routes/tasks.rs` - PUT /api/tasks/:id
+
+---
+
+### update_status
+
+Change task status and update `activity_at` timestamp.
+
+**Signature:**
+```rust
+async fn update_status(
+    pool: &SqlitePool,
+    id: Uuid,
+    status: TaskStatus,
+) -> Result<(), sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `id` | `Uuid` | Task ID |
+| `status` | `TaskStatus` | New status (Todo, InProgress, InReview, Done, Cancelled) |
+
+**Used By:**
+- `services/execution.rs` - Status transitions
+- `routes/tasks.rs` - Manual status changes
+
+**Notes:**
+- Also clears any activity dismissals for this task
+
+---
+
+### delete
+
+Remove a task from the database.
+
+**Signature:**
+```rust
+async fn delete<'e, E>(executor: E, id: Uuid) -> Result<u64, sqlx::Error>
+where
+    E: Executor<'e, Database = Sqlite>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `executor` | `E` | Database executor |
+| `id` | `Uuid` | Task ID to delete |
+
+**Returns:** Number of rows affected.
+
+**Used By:**
+- `routes/tasks.rs` - DELETE /api/tasks/:id
+
+**Limitations:**
+- Cascades to delete all task attempts
+
+---
+
+## Archive Operations
+
+### archive
+
+Soft-archive a task by setting `archived_at` timestamp.
+
+**Signature:**
+```rust
+async fn archive(pool: &SqlitePool, id: Uuid) -> Result<Self, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `id` | `Uuid` | Task ID |
+
+**Returns:** Updated task with `archived_at` set.
+
+**Used By:**
+- `routes/tasks.rs` - POST /api/tasks/:id/archive
+
+---
+
+### unarchive
+
+Restore a task from archive.
+
+**Signature:**
+```rust
+async fn unarchive(pool: &SqlitePool, id: Uuid) -> Result<Self, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `id` | `Uuid` | Task ID |
+
+**Returns:** Updated task with `archived_at = NULL`.
+
+**Used By:**
+- `routes/tasks.rs` - POST /api/tasks/:id/unarchive
+
+---
+
+### archive_many
+
+Bulk archive multiple tasks efficiently.
+
+**Signature:**
+```rust
+async fn archive_many(pool: &SqlitePool, ids: &[Uuid]) -> Result<u64, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `ids` | `&[Uuid]` | Task IDs to archive |
+
+**Returns:** Number of tasks archived.
+
+**Used By:**
+- `routes/tasks.rs` - Bulk operations
+
+**Notes:**
+- Uses QueryBuilder with `IN` clause for O(1) DB calls
+
+---
+
+## Remote Sync Operations
+
+### sync_from_shared_task
+
+Sync task data from a Hive shared task. Creates if `create_if_not_exists` is true and task already exists.
+
+**Signature:**
+```rust
+async fn sync_from_shared_task<'e, E>(
+    executor: E,
+    data: SyncTask,
+    create_if_not_exists: bool,
+) -> Result<bool, sqlx::Error>
+where
+    E: Executor<'e, Database = Sqlite>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `executor` | `E` | Database executor |
+| `data` | `SyncTask` | Sync data from Hive |
+| `create_if_not_exists` | `bool` | Create new if doesn't exist |
+
+**Returns:** `true` if rows were affected.
+
+**Used By:**
+- `services/electric_sync.rs` - ElectricSQL updates
+
+---
+
+### upsert_remote_task
+
+Create or update a remote task from the Hive.
+
+**Signature:**
+```rust
+async fn upsert_remote_task<'e, E>(
+    executor: E,
+    local_id: Uuid,
+    project_id: Uuid,
+    shared_task_id: Uuid,
+    title: String,
+    description: Option<String>,
+    status: TaskStatus,
+    remote_assignee_user_id: Option<Uuid>,
+    remote_assignee_name: Option<String>,
+    remote_assignee_username: Option<String>,
+    remote_version: i64,
+    activity_at: Option<DateTime<Utc>>,
+) -> Result<Self, sqlx::Error>
+where
+    E: Executor<'e, Database = Sqlite>
+```
+
+**Returns:** Upserted task.
+
+**Used By:**
+- `services/electric_sync.rs` - Remote task sync
+
+---
+
+### delete_stale_remote_tasks
+
+Delete remote tasks no longer present in the Hive for a project.
+
+**Signature:**
+```rust
+async fn delete_stale_remote_tasks(
+    pool: &SqlitePool,
+    project_id: Uuid,
+    active_shared_task_ids: &[Uuid],
+) -> Result<u64, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `project_id` | `Uuid` | Project to clean up |
+| `active_shared_task_ids` | `&[Uuid]` | IDs still in Hive |
+
+**Returns:** Number of deleted tasks.
+
+**Used By:**
+- `services/electric_sync.rs` - Sync cleanup
+
+---
+
+## Relationship Management
+
+### nullify_children_by_parent_id
+
+Break parent-child relationships before deleting a parent task.
+
+**Signature:**
+```rust
+async fn nullify_children_by_parent_id<'e, E>(
+    executor: E,
+    parent_id: Uuid,
+) -> Result<u64, sqlx::Error>
+where
+    E: Executor<'e, Database = Sqlite>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `executor` | `E` | Database executor |
+| `parent_id` | `Uuid` | Parent task being deleted |
+
+**Returns:** Number of children updated.
+
+**Used By:**
+- `routes/tasks.rs` - Pre-delete cleanup
+
+---
+
+### clear_shared_task_ids_for_remote_project
+
+Unlink local tasks from shared tasks when a project is unlinked from Hive.
+
+**Signature:**
+```rust
+async fn clear_shared_task_ids_for_remote_project<'e, E>(
+    executor: E,
+    remote_project_id: Uuid,
+) -> Result<u64, sqlx::Error>
+where
+    E: Executor<'e, Database = Sqlite>
+```
+
+**Returns:** Number of tasks updated.
+
+**Used By:**
+- `services/hive.rs` - Project unlinking
+
+---
+
+## Helper Methods
+
+### to_prompt
+
+Format task as a prompt string for AI agents.
+
+**Signature:**
+```rust
+fn to_prompt(&self) -> String
+```
+
+**Returns:** Title followed by description (if non-empty).
+
+**Used By:**
+- `services/execution.rs` - Agent prompt generation
+
+---
+
+### parent_project
+
+Load the parent project for this task.
+
+**Signature:**
+```rust
+async fn parent_project(&self, pool: &SqlitePool) -> Result<Option<Project>, sqlx::Error>
+```
+
+**Returns:** Parent project.
+
+**Used By:**
+- `services/execution.rs` - Context loading

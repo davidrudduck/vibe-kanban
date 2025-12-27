@@ -1,0 +1,310 @@
+---
+title: Task Assignment Functions
+description: PostgreSQL functions for task execution tracking in the Hive
+---
+
+# Task Assignment Functions
+
+Functions for managing task assignments in the PostgreSQL Hive database. Assignments track which node is executing which task, with status and progress tracking.
+
+**Source:** `crates/remote/src/db/task_assignments.rs`
+
+## Quick Reference
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `create` | Create assignment | `NodeTaskAssignment` |
+| `find_by_id` | Lookup by UUID | `Option<NodeTaskAssignment>` |
+| `find_active_for_task` | Get current executor | `Option<NodeTaskAssignment>` |
+| `find_latest_by_task_id` | Get most recent | `Option<NodeTaskAssignment>` |
+| `list_by_node` | All node assignments | `Vec<NodeTaskAssignment>` |
+| `list_active_by_node` | Running assignments | `Vec<NodeTaskAssignment>` |
+| `update` | Set local IDs and status | `NodeTaskAssignment` |
+| `complete` | Mark completed | `()` |
+| `fail_node_assignments` | Fail all when offline | `Vec<Uuid>` |
+
+---
+
+## Creation
+
+### create
+
+Create a new task assignment. Enforces unique active constraint (only one active assignment per task).
+
+**Signature:**
+```rust
+async fn create(
+    &self,
+    task_id: Uuid,
+    node_id: Uuid,
+    node_project_id: Uuid,
+) -> Result<NodeTaskAssignment, TaskAssignmentError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `task_id` | `Uuid` | Shared task being assigned |
+| `node_id` | `Uuid` | Node to execute the task |
+| `node_project_id` | `Uuid` | Node's project link |
+
+**Returns:** Created assignment with status 'pending'.
+
+**Errors:**
+- `AlreadyAssigned` - Task already has active assignment
+
+**Used By:**
+- `nodes/service.rs` - Task dispatch
+
+**Notes:**
+- Unique partial index: `(task_id) WHERE completed_at IS NULL`
+- Only one active assignment per task allowed
+
+---
+
+## Query Operations
+
+### find_by_id
+
+Retrieve an assignment by UUID.
+
+**Signature:**
+```rust
+async fn find_by_id(
+    &self,
+    assignment_id: Uuid,
+) -> Result<Option<NodeTaskAssignment>, TaskAssignmentError>
+```
+
+**Used By:**
+- `routes/relay.rs` - Log streaming
+
+---
+
+### find_active_for_task
+
+Find the currently active assignment for a task.
+
+**Signature:**
+```rust
+async fn find_active_for_task(
+    &self,
+    task_id: Uuid,
+) -> Result<Option<NodeTaskAssignment>, TaskAssignmentError>
+```
+
+**Returns:** Active assignment (where `completed_at IS NULL`).
+
+**Used By:**
+- `nodes/service.rs` - Duplicate assignment check
+- `routes/tasks.rs` - Task status
+
+---
+
+### find_latest_by_task_id
+
+Find the most recent assignment for a task (active or completed).
+
+**Signature:**
+```rust
+async fn find_latest_by_task_id(
+    &self,
+    task_id: Uuid,
+) -> Result<Option<NodeTaskAssignment>, TaskAssignmentError>
+```
+
+**Returns:** Most recent assignment ordered by `assigned_at DESC`.
+
+**Used By:**
+- `routes/tasks.rs` - Stream connection info
+- `routes/relay.rs` - Log relay routing
+
+**Notes:**
+- Used to find which node handles a task's logs
+- Returns completed assignments for historical access
+
+---
+
+### list_by_node
+
+List all assignments for a node.
+
+**Signature:**
+```rust
+async fn list_by_node(
+    &self,
+    node_id: Uuid,
+) -> Result<Vec<NodeTaskAssignment>, TaskAssignmentError>
+```
+
+**Returns:** All assignments ordered by `assigned_at DESC`.
+
+**Used By:**
+- `routes/nodes.rs` - Node task history
+
+---
+
+### list_active_by_node
+
+List active (running) assignments for a node.
+
+**Signature:**
+```rust
+async fn list_active_by_node(
+    &self,
+    node_id: Uuid,
+) -> Result<Vec<NodeTaskAssignment>, TaskAssignmentError>
+```
+
+**Returns:** Assignments where `completed_at IS NULL`.
+
+**Used By:**
+- `nodes/service.rs` - Node capacity check
+- `nodes/monitor.rs` - Active task count
+
+---
+
+## Status Updates
+
+### update
+
+Update an assignment with local IDs and execution status.
+
+**Signature:**
+```rust
+async fn update(
+    &self,
+    assignment_id: Uuid,
+    data: UpdateAssignmentData,
+) -> Result<NodeTaskAssignment, TaskAssignmentError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `assignment_id` | `Uuid` | Assignment ID |
+| `data` | `UpdateAssignmentData` | Update fields |
+
+`UpdateAssignmentData`:
+- `local_task_id: Option<Uuid>` - Node's local task ID
+- `local_attempt_id: Option<Uuid>` - Node's local attempt ID
+- `execution_status: Option<String>` - pending, running, success, failed
+
+**Returns:** Updated assignment.
+
+**Used By:**
+- `nodes/ws/handler.rs` - Status update messages
+
+**Notes:**
+- Automatically sets `started_at` when status becomes 'running'
+- Uses COALESCE to preserve existing values
+
+---
+
+### complete
+
+Mark an assignment as completed.
+
+**Signature:**
+```rust
+async fn complete(
+    &self,
+    assignment_id: Uuid,
+    status: &str,
+) -> Result<(), TaskAssignmentError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `assignment_id` | `Uuid` | Assignment ID |
+| `status` | `&str` | Final status (success, failed) |
+
+**Used By:**
+- `nodes/ws/handler.rs` - Completion messages
+
+**Notes:**
+- Sets `completed_at` timestamp
+- Releases the unique constraint for new assignments
+
+---
+
+### fail_node_assignments
+
+Fail all active assignments when a node goes offline.
+
+**Signature:**
+```rust
+async fn fail_node_assignments(
+    &self,
+    node_id: Uuid,
+) -> Result<Vec<Uuid>, TaskAssignmentError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `node_id` | `Uuid` | Node that went offline |
+
+**Returns:** Task IDs of failed assignments.
+
+**Used By:**
+- `nodes/monitor.rs` - After marking node offline
+
+**Notes:**
+- Sets status to 'failed' and completed_at
+- Returned task IDs used to update shared_tasks status
+
+---
+
+## Data Model
+
+### NodeTaskAssignment Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `Uuid` | Primary key |
+| `task_id` | `Uuid` | Foreign key to shared_tasks |
+| `node_id` | `Uuid` | Foreign key to nodes |
+| `node_project_id` | `Uuid` | Foreign key to node_projects |
+| `local_task_id` | `Option<Uuid>` | Node's SQLite task ID |
+| `local_attempt_id` | `Option<Uuid>` | Node's SQLite attempt ID |
+| `execution_status` | `String` | pending, running, success, failed |
+| `assigned_at` | `DateTime<Utc>` | Assignment time |
+| `started_at` | `Option<DateTime<Utc>>` | Execution start |
+| `completed_at` | `Option<DateTime<Utc>>` | Completion time |
+| `created_at` | `DateTime<Utc>` | Creation timestamp |
+
+### Status Values
+
+- `pending` - Assignment created, awaiting node acknowledgment
+- `running` - Node is executing the task
+- `success` - Task completed successfully
+- `failed` - Task execution failed
+
+---
+
+## Usage Patterns
+
+### Task Execution Flow
+
+1. User assigns task to node
+2. `create` assignment with status 'pending'
+3. Node receives via WebSocket
+4. Node creates local task/attempt
+5. `update` with local IDs, status 'running'
+6. Node executes and streams logs
+7. `complete` with final status
+
+### Node Offline Handling
+
+1. Monitor detects stale heartbeat
+2. `mark_stale_offline` on node
+3. `fail_node_assignments` on node
+4. Task becomes available for reassignment
+
+### Log Routing
+
+1. Frontend requests log stream
+2. `find_latest_by_task_id` to find node
+3. Route to node's public_url or Hive relay

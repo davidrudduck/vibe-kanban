@@ -6,10 +6,7 @@ This folder contains technical architecture documentation for Vibe Kanban's inte
 
 | Document | Description |
 |----------|-------------|
-| [database-overview.mdx](./database-overview.mdx) | High-level overview of the dual-database architecture (SQLite + PostgreSQL) |
-| [sqlite-local-schema.mdx](./sqlite-local-schema.mdx) | Complete SQLite schema for local node databases |
-| [postgresql-hive-schema.mdx](./postgresql-hive-schema.mdx) | Complete PostgreSQL schema for the central hive server |
-| [database-synchronization.mdx](./database-synchronization.mdx) | How data synchronizes between local nodes and the hive |
+| [Database Documentation](./db/) | Complete database architecture, schema, and function reference |
 
 ## Quick Reference
 
@@ -21,5 +18,5 @@ This folder contains technical architecture documentation for Vibe Kanban's inte
 
 ## Related Documentation
 
-- [Swarm/Hive Setup Guide](../swarm-hive-setup.md) - How to configure nodes to connect to a hive
+- [Swarm/Hive Setup Guide](../swarm-hive-setup.mdx) - How to configure nodes to connect to a hive
 - [CLAUDE.md](/CLAUDE.md) - Development conventions and API patterns

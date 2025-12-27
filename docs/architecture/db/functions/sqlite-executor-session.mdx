@@ -1,0 +1,280 @@
+---
+title: Executor Session Functions
+description: Database functions for AI agent session tracking in SQLite
+---
+
+# Executor Session Functions
+
+Functions for managing executor sessions in the local SQLite database. Executor sessions track Claude Code and AMP agent sessions, storing prompts and summaries.
+
+**Source:** `crates/db/src/models/executor_session.rs`
+
+## Quick Reference
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `find_by_id` | Lookup by UUID | `Option<ExecutorSession>` |
+| `find_by_execution_process_id` | Lookup by process | `Option<ExecutorSession>` |
+| `find_by_task_attempt_id` | List for attempt | `Vec<ExecutorSession>` |
+| `find_by_session_id` | Lookup by external ID | `Option<ExecutorSession>` |
+| `create` | Insert new session | `ExecutorSession` |
+| `update_session_id` | Set external ID | `()` |
+| `update_prompt` | Update prompt | `()` |
+| `update_summary` | Set completion summary | `()` |
+| `delete_by_task_attempt_id` | Cleanup | `()` |
+
+---
+
+## Query Operations
+
+### find_by_id
+
+Retrieve an executor session by UUID.
+
+**Signature:**
+```rust
+async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `id` | `Uuid` | Session's unique identifier |
+
+**Returns:** `Some(ExecutorSession)` if found.
+
+**Used By:**
+- `routes/executor_sessions.rs` - Session lookup
+
+---
+
+### find_by_execution_process_id
+
+Find session by its parent execution process.
+
+**Signature:**
+```rust
+async fn find_by_execution_process_id(
+    pool: &SqlitePool,
+    execution_process_id: Uuid,
+) -> Result<Option<Self>, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `execution_process_id` | `Uuid` | Parent execution process ID |
+
+**Returns:** Session linked to the execution process.
+
+**Used By:**
+- `services/execution.rs` - Session context
+- `routes/execution_processes.rs` - Process details
+
+**Notes:**
+- One-to-one relationship: each execution process has at most one session
+
+---
+
+### find_by_task_attempt_id
+
+Find all sessions for a task attempt.
+
+**Signature:**
+```rust
+async fn find_by_task_attempt_id(
+    pool: &SqlitePool,
+    task_attempt_id: Uuid,
+) -> Result<Vec<Self>, sqlx::Error>
+```
+
+**Returns:** All sessions for the attempt ordered by creation date.
+
+**Used By:**
+- `routes/task_attempts.rs` - Session history
+- `services/execution.rs` - Resume context
+
+---
+
+### find_by_session_id
+
+Find session by external agent session ID.
+
+**Signature:**
+```rust
+async fn find_by_session_id(
+    pool: &SqlitePool,
+    session_id: &str,
+) -> Result<Option<Self>, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `session_id` | `&str` | External session ID (Claude/AMP) |
+
+**Returns:** Session with matching external ID.
+
+**Used By:**
+- `services/execution.rs` - Resume by session ID
+
+---
+
+## CRUD Operations
+
+### create
+
+Insert a new executor session.
+
+**Signature:**
+```rust
+async fn create(
+    pool: &SqlitePool,
+    id: Uuid,
+    task_attempt_id: Uuid,
+    execution_process_id: Uuid,
+    prompt: Option<&str>,
+) -> Result<Self, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `id` | `Uuid` | Pre-generated session ID |
+| `task_attempt_id` | `Uuid` | Parent attempt ID |
+| `execution_process_id` | `Uuid` | Parent execution process ID |
+| `prompt` | `Option<&str>` | Initial prompt sent to agent |
+
+**Returns:** Created session.
+
+**Used By:**
+- `services/execution.rs` - Agent startup
+
+---
+
+### update_session_id
+
+Set the external agent session ID.
+
+**Signature:**
+```rust
+async fn update_session_id(
+    pool: &SqlitePool,
+    id: Uuid,
+    session_id: &str,
+) -> Result<(), sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `id` | `Uuid` | Session ID |
+| `session_id` | `&str` | External session ID from agent |
+
+**Used By:**
+- `services/execution.rs` - Post-agent-startup
+
+**Notes:**
+- External session ID is assigned by Claude Code / AMP after agent starts
+
+---
+
+### update_prompt
+
+Update the prompt sent to the agent.
+
+**Signature:**
+```rust
+async fn update_prompt(
+    pool: &SqlitePool,
+    id: Uuid,
+    prompt: &str,
+) -> Result<(), sqlx::Error>
+```
+
+**Used By:**
+- `services/execution.rs` - Prompt tracking
+
+---
+
+### update_summary
+
+Set the completion summary from agent's final message.
+
+**Signature:**
+```rust
+async fn update_summary(
+    pool: &SqlitePool,
+    id: Uuid,
+    summary: &str,
+) -> Result<(), sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `id` | `Uuid` | Session ID |
+| `summary` | `&str` | Agent's final assistant message |
+
+**Used By:**
+- `services/execution.rs` - Completion handling
+
+**Notes:**
+- Summary is extracted from the last assistant message when agent completes
+
+---
+
+### delete_by_task_attempt_id
+
+Delete all sessions for a task attempt.
+
+**Signature:**
+```rust
+async fn delete_by_task_attempt_id(
+    pool: &SqlitePool,
+    task_attempt_id: Uuid,
+) -> Result<(), sqlx::Error>
+```
+
+**Used By:**
+- `routes/task_attempts.rs` - Purge operation
+
+---
+
+## Data Model
+
+### ExecutorSession Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `Uuid` | Primary key |
+| `task_attempt_id` | `Uuid` | Foreign key to task_attempts |
+| `execution_process_id` | `Uuid` | Foreign key to execution_processes |
+| `session_id` | `Option<String>` | External Claude/AMP session ID |
+| `prompt` | `Option<String>` | Prompt sent to agent |
+| `summary` | `Option<String>` | Agent's completion summary |
+| `created_at` | `DateTime<Utc>` | Creation timestamp |
+| `updated_at` | `DateTime<Utc>` | Last update timestamp |
+
+---
+
+## Usage Patterns
+
+### Session Lifecycle
+
+1. **Create**: Session created when coding agent process starts
+2. **Update session_id**: External ID set once agent assigns it
+3. **Update prompt**: Prompt tracked for history
+4. **Update summary**: Final message captured on completion
+
+### Resume Operations
+
+Sessions enable resuming agent conversations:
+- `find_by_session_id` locates previous session
+- `session_id` passed to agent for continuation

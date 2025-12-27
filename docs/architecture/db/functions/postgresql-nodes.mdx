@@ -1,0 +1,260 @@
+---
+title: Node Functions
+description: PostgreSQL functions for node registration and management in the Hive
+---
+
+# Node Functions
+
+Functions for managing nodes in the PostgreSQL Hive database. Nodes are worker machines that connect to the central Hive to execute tasks.
+
+**Source:** `crates/remote/src/db/nodes.rs`
+
+## Quick Reference
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `upsert` | Register or update node | `Node` |
+| `find_by_id` | Lookup by UUID | `Option<Node>` |
+| `list_by_organization` | List org nodes | `Vec<Node>` |
+| `heartbeat` | Update status/heartbeat | `()` |
+| `mark_stale_offline` | Timeout detection | `Vec<Uuid>` |
+| `update_public_url` | Set public URL | `()` |
+| `delete` | Remove node | `()` |
+
+---
+
+## Registration Operations
+
+### upsert
+
+Register a new node or update an existing one. Uses SELECT + INSERT/UPDATE pattern since machine_id is metadata, not identity.
+
+**Signature:**
+```rust
+async fn upsert(
+    &self,
+    organization_id: Uuid,
+    data: NodeRegistration,
+) -> Result<Node, NodeDbError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `organization_id` | `Uuid` | Organization the node belongs to |
+| `data` | `NodeRegistration` | Registration data (name, machine_id, capabilities) |
+
+**Returns:** Created or updated node.
+
+**Used By:**
+- `nodes/ws/handler.rs` - Node WebSocket connection
+- `routes/nodes.rs` - Node registration endpoint
+
+**Notes:**
+- Matches existing nodes by (organization_id, machine_id)
+- Sets status to 'online' and updates heartbeat
+- Stores capabilities as JSON
+
+---
+
+## Query Operations
+
+### find_by_id
+
+Retrieve a node by UUID.
+
+**Signature:**
+```rust
+async fn find_by_id(&self, node_id: Uuid) -> Result<Option<Node>, NodeDbError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `node_id` | `Uuid` | Node's unique identifier |
+
+**Returns:** `Some(Node)` if found.
+
+**Used By:**
+- `routes/nodes.rs` - GET /api/nodes/:id
+- `nodes/service.rs` - Node validation
+
+---
+
+### list_by_organization
+
+List all nodes for an organization.
+
+**Signature:**
+```rust
+async fn list_by_organization(
+    &self,
+    organization_id: Uuid,
+) -> Result<Vec<Node>, NodeDbError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `organization_id` | `Uuid` | Organization ID |
+
+**Returns:** Nodes ordered by name.
+
+**Used By:**
+- `routes/nodes.rs` - GET /api/nodes
+- `routes/organizations.rs` - Org node list
+
+---
+
+## Status Operations
+
+### heartbeat
+
+Update node status and heartbeat timestamp.
+
+**Signature:**
+```rust
+async fn heartbeat(&self, node_id: Uuid, status: NodeStatus) -> Result<(), NodeDbError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `node_id` | `Uuid` | Node ID |
+| `status` | `NodeStatus` | online, busy, draining |
+
+**Used By:**
+- `nodes/ws/handler.rs` - Heartbeat message handling
+
+**Notes:**
+- Called periodically (every 30s) by connected nodes
+- Updates `last_heartbeat_at` timestamp
+
+---
+
+### mark_stale_offline
+
+Mark nodes as offline if they haven't sent a heartbeat within threshold.
+
+**Signature:**
+```rust
+async fn mark_stale_offline(
+    &self,
+    threshold: DateTime<Utc>,
+) -> Result<Vec<Uuid>, NodeDbError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `threshold` | `DateTime<Utc>` | Cutoff time for stale nodes |
+
+**Returns:** IDs of nodes marked offline.
+
+**Used By:**
+- `nodes/monitor.rs` - Background heartbeat monitor (90s threshold)
+
+**Notes:**
+- Transitions online/busy nodes to offline
+- Sets `disconnected_at` timestamp
+- Triggers assignment failure via `fail_node_assignments`
+
+---
+
+### update_public_url
+
+Update the node's public URL for direct connections.
+
+**Signature:**
+```rust
+async fn update_public_url(
+    &self,
+    node_id: Uuid,
+    public_url: Option<&str>,
+) -> Result<(), NodeDbError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `node_id` | `Uuid` | Node ID |
+| `public_url` | `Option<&str>` | Public URL or None to clear |
+
+**Used By:**
+- `nodes/ws/handler.rs` - URL update message
+
+**Notes:**
+- Public URL enables direct log streaming
+- Falls back to Hive relay if not set
+
+---
+
+## Delete Operations
+
+### delete
+
+Remove a node from the database.
+
+**Signature:**
+```rust
+async fn delete(&self, node_id: Uuid) -> Result<(), NodeDbError>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `node_id` | `Uuid` | Node ID to delete |
+
+**Used By:**
+- `routes/nodes.rs` - DELETE /api/nodes/:id
+
+**Notes:**
+- Cascades to delete related records (assignments, projects)
+
+---
+
+## Data Model
+
+### Node Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `Uuid` | Primary key |
+| `organization_id` | `Uuid` | Foreign key to organizations |
+| `name` | `String` | Human-readable name |
+| `machine_id` | `String` | OS-level machine identifier (metadata) |
+| `status` | `NodeStatus` | pending, online, offline, busy, draining |
+| `capabilities` | `JSON` | Executors, max_concurrent_tasks, os, arch, version |
+| `public_url` | `Option<String>` | Direct connection URL |
+| `last_heartbeat_at` | `Option<DateTime<Utc>>` | Last heartbeat |
+| `connected_at` | `Option<DateTime<Utc>>` | Connection time |
+| `disconnected_at` | `Option<DateTime<Utc>>` | Disconnection time |
+| `created_at` | `DateTime<Utc>` | Creation timestamp |
+| `updated_at` | `DateTime<Utc>` | Last update timestamp |
+
+### NodeStatus Enum
+
+- `pending` - Registered but never connected
+- `online` - Connected and ready
+- `offline` - Disconnected or stale
+- `busy` - Currently executing tasks
+- `draining` - No new tasks, finishing existing
+
+---
+
+## Usage Patterns
+
+### Node Lifecycle
+
+1. **Registration**: Node connects via WebSocket, calls `upsert`
+2. **Heartbeat**: Node sends periodic heartbeats (30s)
+3. **Stale Detection**: Monitor marks nodes offline after 90s
+4. **Cleanup**: Offline nodes' active assignments are failed
+
+### Direct Streaming
+
+When `public_url` is set:
+1. Frontend requests stream connection info
+2. Hive provides node's public URL
+3. Frontend connects directly to node
+4. Falls back to Hive relay if unavailable

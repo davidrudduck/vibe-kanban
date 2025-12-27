@@ -1,0 +1,241 @@
+---
+title: Merge Functions
+description: Database functions for git merge and PR tracking in SQLite
+---
+
+# Merge Functions
+
+Functions for managing merge records in the local SQLite database. Merge records track both direct git merges and GitHub pull requests for task attempts.
+
+**Source:** `crates/db/src/models/merge.rs`
+
+## Quick Reference
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `create_direct` | Record direct merge | `Merge` |
+| `create_pr` | Record PR creation | `Merge` |
+| `get_open_prs` | List all open PRs | `Vec<Merge>` |
+| `update_status` | Update PR status | `()` |
+| `find_by_task_attempt_id` | List for attempt | `Vec<Merge>` |
+| `find_latest_by_task_attempt_id` | Most recent | `Option<Merge>` |
+
+---
+
+## Merge Types
+
+The `MergeType` enum distinguishes between:
+
+- **Direct**: Direct git merge to target branch
+- **PR**: GitHub pull request
+
+---
+
+## Query Operations
+
+### get_open_prs
+
+List all open pull requests across all projects.
+
+**Signature:**
+```rust
+async fn get_open_prs(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error>
+```
+
+**Returns:** All merges with `merge_type = 'pr'` and `pr_status = 'open'`.
+
+**Used By:**
+- `routes/merges.rs` - GET /api/merges/open-prs
+- `services/github.rs` - PR monitoring
+
+---
+
+### find_by_task_attempt_id
+
+Find all merges for a task attempt.
+
+**Signature:**
+```rust
+async fn find_by_task_attempt_id(
+    pool: &SqlitePool,
+    task_attempt_id: Uuid,
+) -> Result<Vec<Self>, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `task_attempt_id` | `Uuid` | Parent attempt ID |
+
+**Returns:** All merges for the attempt ordered by creation date.
+
+**Used By:**
+- `routes/task_attempts.rs` - Attempt merge history
+- `services/git.rs` - Merge status checks
+
+---
+
+### find_latest_by_task_attempt_id
+
+Find the most recent merge for a task attempt.
+
+**Signature:**
+```rust
+async fn find_latest_by_task_attempt_id(
+    pool: &SqlitePool,
+    task_attempt_id: Uuid,
+) -> Result<Option<Self>, sqlx::Error>
+```
+
+**Returns:** Most recent merge if any.
+
+**Used By:**
+- `routes/task_attempts.rs` - Attempt status
+- Frontend merge button state
+
+---
+
+## CRUD Operations
+
+### create_direct
+
+Record a direct git merge.
+
+**Signature:**
+```rust
+async fn create_direct(
+    pool: &SqlitePool,
+    id: Uuid,
+    task_attempt_id: Uuid,
+    merge_commit: &str,
+    target_branch_name: &str,
+) -> Result<Self, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `id` | `Uuid` | Pre-generated merge ID |
+| `task_attempt_id` | `Uuid` | Parent attempt ID |
+| `merge_commit` | `&str` | Git merge commit SHA |
+| `target_branch_name` | `&str` | Branch merged into |
+
+**Returns:** Created merge record.
+
+**Used By:**
+- `routes/task_attempts.rs` - POST /api/task-attempts/:id/merge
+
+**Notes:**
+- Sets `merge_type = 'direct'`
+- PR fields remain NULL
+
+---
+
+### create_pr
+
+Record a GitHub pull request creation.
+
+**Signature:**
+```rust
+async fn create_pr(
+    pool: &SqlitePool,
+    id: Uuid,
+    task_attempt_id: Uuid,
+    target_branch_name: &str,
+    pr_number: i64,
+    pr_url: &str,
+) -> Result<Self, sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `id` | `Uuid` | Pre-generated merge ID |
+| `task_attempt_id` | `Uuid` | Parent attempt ID |
+| `target_branch_name` | `&str` | PR base branch |
+| `pr_number` | `i64` | GitHub PR number |
+| `pr_url` | `&str` | GitHub PR URL |
+
+**Returns:** Created merge record.
+
+**Used By:**
+- `routes/task_attempts.rs` - POST /api/task-attempts/:id/pr
+- `services/github.rs` - PR discovery
+
+**Notes:**
+- Sets `merge_type = 'pr'`
+- Sets `pr_status = 'open'`
+- `merge_commit` remains NULL until merged
+
+---
+
+### update_status
+
+Update PR status from GitHub.
+
+**Signature:**
+```rust
+async fn update_status(
+    pool: &SqlitePool,
+    id: Uuid,
+    pr_status: &str,
+    pr_merged_at: Option<DateTime<Utc>>,
+    pr_merge_commit_sha: Option<&str>,
+) -> Result<(), sqlx::Error>
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `pool` | `&SqlitePool` | Database connection pool |
+| `id` | `Uuid` | Merge record ID |
+| `pr_status` | `&str` | open, merged, closed |
+| `pr_merged_at` | `Option<DateTime<Utc>>` | When PR was merged |
+| `pr_merge_commit_sha` | `Option<&str>` | Merge commit SHA |
+
+**Used By:**
+- `services/github.rs` - PR status sync
+
+**Notes:**
+- Called by background PR monitoring service
+- Transitions: open → merged or open → closed
+
+---
+
+## Data Model
+
+### Merge Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `Uuid` | Primary key |
+| `task_attempt_id` | `Uuid` | Foreign key to task_attempts |
+| `merge_type` | `MergeType` | direct or pr |
+| `merge_commit` | `Option<String>` | Direct merge commit SHA |
+| `target_branch_name` | `String` | Branch merged into |
+| `pr_number` | `Option<i64>` | GitHub PR number |
+| `pr_url` | `Option<String>` | GitHub PR URL |
+| `pr_status` | `Option<String>` | open, merged, closed |
+| `pr_merged_at` | `Option<DateTime<Utc>>` | When PR merged |
+| `pr_merge_commit_sha` | `Option<String>` | PR merge commit |
+| `created_at` | `DateTime<Utc>` | Creation timestamp |
+
+---
+
+## Usage Patterns
+
+### Direct Merge Flow
+
+1. User clicks "Merge" in UI
+2. Git merge operation performed
+3. `create_direct()` records the merge commit
+
+### PR Flow
+
+1. User clicks "Create PR" or agent creates PR
+2. `create_pr()` records PR creation
+3. Background service polls GitHub
+4. `update_status()` updates when merged/closed
