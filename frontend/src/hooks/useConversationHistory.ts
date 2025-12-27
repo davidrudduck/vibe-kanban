@@ -355,8 +355,11 @@ export const useConversationHistory = ({
           const liveProcess = getLiveExecutionProcess(p.executionProcess.id);
           const processName = getProcessName(p.executionProcess.executor_action);
 
+          // Skip timestamps for Setup/Cleanup scripts (run in parallel, duration inaccurate)
+          const skipTimestamps = processName === 'Setup Script' || processName === 'Cleanup Script';
+
           // Add execution start marker
-          if (liveProcess?.started_at) {
+          if (!skipTimestamps && liveProcess?.started_at) {
             entries.push(
               executionStartPatch(
                 p.executionProcess.id,
@@ -546,8 +549,9 @@ export const useConversationHistory = ({
 
             entries.push(toolPatchWithKey);
 
-            // Add execution end marker for completed script processes
-            if (executionProcess?.status !== ExecutionProcessStatus.running &&
+            // Add execution end marker for completed script processes (skip Setup/Cleanup)
+            if (!skipTimestamps &&
+                executionProcess?.status !== ExecutionProcessStatus.running &&
                 executionProcess?.started_at && executionProcess?.completed_at) {
               entries.push(
                 executionEndPatch(
