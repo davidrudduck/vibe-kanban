@@ -8,7 +8,7 @@ pub use domain::{
     NodeProject, NodeRegistration, NodeStatus, NodeTaskAssignment, UpdateAssignmentData,
 };
 pub use heartbeat::HeartbeatMonitor;
-pub use service::{NodeError, NodeService, NodeServiceImpl, RegisterNode};
+pub use service::{MergeNodesResult, NodeError, NodeService, NodeServiceImpl, RegisterNode};
 pub use ws::{
     AssignResult, ConnectionManager, DispatchError, NodeConnectionInfo, SendError, TaskDispatcher,
 };
