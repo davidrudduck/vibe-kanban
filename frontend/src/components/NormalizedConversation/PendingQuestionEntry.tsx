@@ -9,15 +9,11 @@ import {
 import type { ReactNode } from 'react';
 import type { ApprovalStatus, ToolStatus, Question } from 'shared/types';
 import { Button } from '@/components/ui/button';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { approvalsApi } from '@/lib/api';
 import { Send } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
 
 import { useHotkeysContext } from 'react-hotkeys-hook';
 import { TabNavContext } from '@/contexts/TabNavigationContext';
@@ -142,44 +138,68 @@ function QuestionForm({
             <div className="font-medium text-foreground">
               {question.question}
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-col gap-2">
               {question.options.map((option) => {
                 const isSelected = question.multiSelect
                   ? ((currentAnswer as string[]) || []).includes(option.label)
                   : currentAnswer === option.label;
 
                 return (
-                  <Tooltip key={option.label}>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant={isSelected ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() =>
-                          handleOptionClick(question, option.label, false)
-                        }
-                        disabled={disabled}
-                        className="h-auto py-1.5 px-3"
+                  <button
+                    key={option.label}
+                    onClick={() =>
+                      handleOptionClick(question, option.label, false)
+                    }
+                    disabled={disabled}
+                    className={cn(
+                      'flex flex-col items-start text-left p-3 rounded-md border transition-colors',
+                      isSelected
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'bg-background hover:bg-accent border-border',
+                      disabled && 'opacity-50 cursor-not-allowed'
+                    )}
+                  >
+                    <span className="font-medium">{option.label}</span>
+                    {option.description && (
+                      <span
+                        className={cn(
+                          'text-xs mt-1',
+                          isSelected
+                            ? 'text-primary-foreground/80'
+                            : 'text-muted-foreground'
+                        )}
                       >
-                        {option.label}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="max-w-xs">
-                      <p>{option.description}</p>
-                    </TooltipContent>
-                  </Tooltip>
+                        {option.description}
+                      </span>
+                    )}
+                  </button>
                 );
               })}
 
               {/* "Other" option - always available per spec */}
-              <Button
-                variant={isOtherSelected ? 'default' : 'outline'}
-                size="sm"
+              <button
                 onClick={() => handleOptionClick(question, 'Other', true)}
                 disabled={disabled}
-                className="h-auto py-1.5 px-3"
+                className={cn(
+                  'flex flex-col items-start text-left p-3 rounded-md border transition-colors',
+                  isOtherSelected
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-background hover:bg-accent border-border',
+                  disabled && 'opacity-50 cursor-not-allowed'
+                )}
               >
-                Other
-              </Button>
+                <span className="font-medium">Other</span>
+                <span
+                  className={cn(
+                    'text-xs mt-1',
+                    isOtherSelected
+                      ? 'text-primary-foreground/80'
+                      : 'text-muted-foreground'
+                  )}
+                >
+                  Provide a custom response
+                </span>
+              </button>
             </div>
 
             {/* Other text input - shown when "Other" is selected */}
