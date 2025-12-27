@@ -47,6 +47,7 @@ interface FileSearchTextareaProps {
   onPasteFiles?: (files: File[], cursorPosition: number) => void;
   onFocus?: (e: React.FocusEvent<HTMLTextAreaElement>) => void;
   onBlur?: (e: React.FocusEvent<HTMLTextAreaElement>) => void;
+  onSelectionChange?: (cursorPosition: number) => void;
   disableScroll?: boolean;
 }
 
@@ -67,6 +68,7 @@ export const FileSearchTextarea = forwardRef<
     onPasteFiles,
     onFocus,
     onBlur,
+    onSelectionChange,
     disableScroll = false,
   },
   ref
@@ -442,7 +444,15 @@ export const FileSearchTextarea = forwardRef<
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}
         onFocus={onFocus}
-        onBlur={onBlur}
+        onBlur={(e) => {
+          // Track cursor position when losing focus (for image upload button clicks)
+          onSelectionChange?.(e.currentTarget.selectionStart ?? value.length);
+          onBlur?.(e);
+        }}
+        onSelect={(e) => {
+          // Track cursor position on selection change
+          onSelectionChange?.(e.currentTarget.selectionStart ?? value.length);
+        }}
         disableInternalScroll={disableScroll}
       />
 
