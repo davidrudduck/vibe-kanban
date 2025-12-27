@@ -1520,6 +1520,7 @@ import type {
   NodeApiKey,
   CreateNodeApiKeyRequest,
   CreateNodeApiKeyResponse,
+  MergeNodesResponse,
 } from '@/types/nodes';
 
 export const nodesApi = {
@@ -1569,6 +1570,35 @@ export const nodesApi = {
       method: 'DELETE',
     });
     return handleApiResponse<void>(response);
+  },
+
+  /**
+   * Unblock a blocked API key.
+   * Requires admin access to the key's organization.
+   */
+  unblockApiKey: async (keyId: string): Promise<NodeApiKey> => {
+    const response = await makeRequest(`/api/nodes/api-keys/${keyId}/unblock`, {
+      method: 'POST',
+    });
+    return handleApiResponse<NodeApiKey>(response);
+  },
+
+  /**
+   * Merge source node into target node.
+   * Moves all projects and rebinds API keys from source to target, then deletes source.
+   * Requires admin access to the source node's organization.
+   */
+  mergeNodes: async (
+    sourceNodeId: string,
+    targetNodeId: string
+  ): Promise<MergeNodesResponse> => {
+    const response = await makeRequest(
+      `/api/nodes/${sourceNodeId}/merge-to/${targetNodeId}`,
+      {
+        method: 'POST',
+      }
+    );
+    return handleApiResponse<MergeNodesResponse>(response);
   },
 };
 

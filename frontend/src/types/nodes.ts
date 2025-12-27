@@ -49,6 +49,16 @@ export interface NodeApiKey {
   last_used_at: string | null;
   revoked_at: string | null;
   created_at: string;
+  /** The node this API key is bound to (set on first connection) */
+  node_id: string | null;
+  /** Number of takeover attempts within the current window */
+  takeover_count: number;
+  /** Start of the current takeover detection window */
+  takeover_window_start: string | null;
+  /** When the key was blocked due to suspected duplicate use */
+  blocked_at: string | null;
+  /** Reason for blocking (e.g., "Duplicate key use detected") */
+  blocked_reason: string | null;
 }
 
 export interface CreateNodeApiKeyRequest {
@@ -59,4 +69,12 @@ export interface CreateNodeApiKeyRequest {
 export interface CreateNodeApiKeyResponse {
   api_key: NodeApiKey;
   secret: string;
+}
+
+/** Response from merging two nodes */
+export interface MergeNodesResponse {
+  source_node_id: string;
+  target_node_id: string;
+  projects_moved: number;
+  keys_rebound: number;
 }
