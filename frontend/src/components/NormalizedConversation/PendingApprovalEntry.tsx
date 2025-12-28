@@ -669,9 +669,20 @@ const PendingApprovalEntry = ({
             )}
 
             {/* Response submitted message for AskUserQuestion */}
-            {isAskUserQuestionWithQuestions && hasResponded && (
-              <div className="text-muted-foreground text-center py-2">
-                Response submitted
+            {isAskUserQuestionWithQuestions && hasResponded && extractedQuestions && (
+              <div className="text-muted-foreground py-2 text-sm">
+                <div className="font-medium mb-1">User selected:</div>
+                {extractedQuestions.map((question) => {
+                  const answer = answers[question.header];
+                  const displayAnswer = Array.isArray(answer)
+                    ? answer.join(', ')
+                    : answer || 'No selection';
+                  return (
+                    <div key={question.header} className="ml-2">
+                      • {question.header}: {displayAnswer}
+                    </div>
+                  );
+                })}
               </div>
             )}
 
