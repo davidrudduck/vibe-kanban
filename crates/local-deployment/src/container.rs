@@ -772,15 +772,18 @@ impl LocalContainerService {
         // Ensure worktree exists
         let container_ref = self.ensure_container_exists(&ctx.task_attempt).await?;
 
-        // Get session id
-        let Some(session_id) = ExecutionProcess::find_latest_session_id_by_task_attempt(
+        // Get session id - use find_previous_session_ids to skip invalidated sessions
+        // This automatically filters out sessions with NULL session_id (marked invalid after failure)
+        let session_ids = ExecutionProcess::find_previous_session_ids(
             &self.db.pool,
             ctx.task_attempt.id,
+            5,
         )
-        .await?
-        else {
+        .await?;
+
+        let Some(session_id) = session_ids.into_iter().next() else {
             tracing::warn!(
-                "No session id found for attempt {}. Cannot start queued follow-up.",
+                "No valid session id found for attempt {}. Cannot start queued follow-up.",
                 ctx.task_attempt.id
             );
             return Ok(());
