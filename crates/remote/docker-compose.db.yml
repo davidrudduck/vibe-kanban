@@ -1,0 +1,27 @@
+# Database-only compose for SQLx cache updates and local development
+# Usage: docker compose -f docker-compose.db.yml up -d
+#
+# This standalone compose file allows running migrations and generating
+# SQLx query cache without requiring the full application environment.
+#
+# Workflow:
+#   1. docker compose -f docker-compose.db.yml up -d
+#   2. DATABASE_URL=postgres://postgres:postgres@localhost:5434/vibe_remote_dev cargo sqlx migrate run
+#   3. cargo sqlx prepare
+#   4. docker compose -f docker-compose.db.yml down
+#   5. git add .sqlx/ && git commit -m "chore: update SQLx query cache"
+
+services:
+  sqlx-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: vibe_remote_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d vibe_remote_dev"]
+      interval: 2s
+      timeout: 5s
+      retries: 10

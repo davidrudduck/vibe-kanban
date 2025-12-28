@@ -2,6 +2,7 @@ pub mod activity;
 pub mod auth;
 pub mod identity_errors;
 pub mod invitations;
+pub mod labels;
 pub mod listener;
 pub mod maintenance;
 pub mod node_api_keys;
