@@ -188,8 +188,12 @@ export function TaskFollowUpSection({
   const isRetryActive = !!activeRetryProcessId;
 
   // Check if there's a pending approval - users shouldn't be able to type during approvals
+  // Only block input if the attempt is still running - if the process failed/crashed,
+  // stale pending_approval entries shouldn't block the input forever
   const { entries } = useEntries();
   const hasPendingApproval = useMemo(() => {
+    if (!isAttemptRunning) return false;
+
     return entries.some((entry) => {
       if (entry.type !== 'NORMALIZED_ENTRY') return false;
       const entryType = entry.content.entry_type;
@@ -198,7 +202,7 @@ export function TaskFollowUpSection({
         entryType.status.status === 'pending_approval'
       );
     });
-  }, [entries]);
+  }, [entries, isAttemptRunning]);
 
   // Autosave draft when editing
   const { isSaving, saveStatus } = useDraftAutosave({
