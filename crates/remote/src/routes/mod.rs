@@ -19,7 +19,6 @@ pub mod activity;
 mod electric_proxy;
 mod error;
 mod identity;
-mod labels;
 mod nodes;
 mod oauth;
 pub(crate) mod organization_members;
@@ -64,7 +63,6 @@ pub fn router(state: AppState) -> Router {
         .merge(activity::router())
         .merge(projects::router())
         .merge(tasks::router())
-        .merge(labels::router())
         .merge(organizations::router())
         .merge(organization_members::protected_router())
         .merge(oauth::protected_router())
