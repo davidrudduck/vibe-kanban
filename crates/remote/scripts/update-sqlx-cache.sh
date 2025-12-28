@@ -2,122 +2,53 @@
 #
 # update-sqlx-cache.sh
 #
-# Updates the SQLx query cache (.sqlx/) for the remote crate.
-# This is required after adding new SQL queries to enable offline compilation.
+# Regenerates the SQLx query cache (.sqlx/) for offline Docker builds.
+# Connects to your running Hive database, runs migrations, and updates the cache.
 #
 # Usage:
 #   ./scripts/update-sqlx-cache.sh
 #
-# What it does:
-#   1. Starts the PostgreSQL container (if not running)
-#   2. Waits for database to be ready
-#   3. Runs SQLx migrations
-#   4. Generates the query cache with `cargo sqlx prepare`
-#   5. Stops the database container (unless --keep-db is passed)
-#
-# The generated .sqlx/ files should be committed to git.
+# Requirements:
+#   - Hive database running: docker compose --env-file .env.remote up -d
+#   - .env.remote with POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
+#   - sqlx-cli with postgres support:
+#       cargo install sqlx-cli --no-default-features --features native-tls,postgres
 
 set -euo pipefail
+cd "$(dirname "$0")/.."
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REMOTE_DIR="$(dirname "$SCRIPT_DIR")"
-cd "$REMOTE_DIR"
+log() { echo "[sqlx] $1"; }
+error() { echo "[sqlx] ERROR: $1" >&2; exit 1; }
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
-
-log() { echo -e "${GREEN}[update-sqlx-cache]${NC} $1"; }
-warn() { echo -e "${YELLOW}[update-sqlx-cache]${NC} $1"; }
-error() { echo -e "${RED}[update-sqlx-cache]${NC} $1" >&2; }
-
-# Parse arguments
-KEEP_DB=false
-
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --keep-db)
-            KEEP_DB=true
-            shift
-            ;;
-        -h|--help)
-            echo "Usage: $0 [--keep-db]"
-            echo ""
-            echo "Options:"
-            echo "  --keep-db     Don't stop the database container after running"
-            exit 0
-            ;;
-        *)
-            error "Unknown option: $1"
-            exit 1
-            ;;
-    esac
-done
-
-# Check for required tools
-if ! command -v docker &> /dev/null; then
-    error "docker is not installed"
-    exit 1
-fi
-
-if ! command -v cargo &> /dev/null; then
-    error "cargo is not installed"
-    exit 1
-fi
-
-# Check if sqlx-cli is installed
+# Check sqlx-cli is installed with postgres support
 if ! cargo sqlx --version &> /dev/null; then
-    warn "sqlx-cli not found, installing..."
-    cargo install sqlx-cli --no-default-features --features postgres
+    error "sqlx-cli not found. Install with:
+    cargo install sqlx-cli --no-default-features --features native-tls,postgres"
 fi
 
-# Fixed credentials matching docker-compose.db.yml
-# This uses a standalone container, not your production database
-DATABASE_URL="postgres://postgres:postgres@localhost:5435/vibe_remote_dev"
-export DATABASE_URL
+# Load credentials from .env.remote
+[[ -f ".env.remote" ]] || error ".env.remote not found"
 
-log "Using DATABASE_URL: $DATABASE_URL"
+POSTGRES_USER=$(grep -E "^POSTGRES_USER=" .env.remote | cut -d'=' -f2)
+POSTGRES_PASSWORD=$(grep -E "^POSTGRES_PASSWORD=" .env.remote | cut -d'=' -f2)
+POSTGRES_DB=$(grep -E "^POSTGRES_DB=" .env.remote | cut -d'=' -f2)
+POSTGRES_PORT=$(grep -E "^POSTGRES_PORT=" .env.remote | cut -d'=' -f2 || echo "5434")
+POSTGRES_PORT="${POSTGRES_PORT:-5434}"
 
-log "Starting PostgreSQL container..."
-docker compose -f docker-compose.db.yml up -d sqlx-db
+[[ -n "$POSTGRES_USER" && -n "$POSTGRES_PASSWORD" && -n "$POSTGRES_DB" ]] || \
+    error "Missing POSTGRES_USER, POSTGRES_PASSWORD, or POSTGRES_DB in .env.remote"
 
-log "Waiting for database to be ready..."
-max_attempts=30
-attempt=0
-while ! docker compose -f docker-compose.db.yml exec -T sqlx-db pg_isready -U postgres -d vibe_remote_dev &> /dev/null; do
-    attempt=$((attempt + 1))
-    if [[ $attempt -ge $max_attempts ]]; then
-        error "Database failed to become ready after $max_attempts attempts"
-        exit 1
-    fi
-    echo -n "."
-    sleep 1
-done
-echo ""
-log "Database is ready"
+DB_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT}/${POSTGRES_DB}"
+log "Connecting to localhost:${POSTGRES_PORT}/${POSTGRES_DB}"
 
+# Run migrations and generate cache
 log "Running migrations..."
-cargo sqlx migrate run
+cargo sqlx migrate run --database-url "$DB_URL"
 
-log "Generating SQLx query cache..."
-cargo sqlx prepare
+log "Generating query cache..."
+cargo sqlx prepare --database-url "$DB_URL"
 
-log "Query cache updated successfully!"
+log "Done! Files updated:"
+git status --short .sqlx/ 2>/dev/null || ls .sqlx/*.json 2>/dev/null | wc -l | xargs -I{} echo "  {} cache files"
 echo ""
-log "Files to commit:"
-git status --short .sqlx/ 2>/dev/null || ls -la .sqlx/*.json | head -5
-
-if [[ "$KEEP_DB" == "false" ]]; then
-    log "Stopping database container..."
-    docker compose -f docker-compose.db.yml down
-else
-    log "Database container left running (--keep-db)"
-    log "Connection: $DATABASE_URL"
-fi
-
-echo ""
-log "Done! Don't forget to commit the .sqlx/ changes:"
-echo "  git add .sqlx/"
-echo "  git commit -m 'chore: update SQLx query cache'"
+echo "Commit with: git add .sqlx/ && git commit -m 'chore: update SQLx query cache'"
