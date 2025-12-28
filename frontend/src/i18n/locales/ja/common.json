@@ -86,7 +86,9 @@
     "worktrees": "ワークツリー",
     "largestWorktrees": "最大のワークツリー",
     "noWorktrees": "ワークツリーが見つかりません",
-    "directory": "ディレクトリ"
+    "directory": "ディレクトリ",
+    "purgeArtifacts": "成果物を削除",
+    "deleteWorktree": "ワークツリーを削除"
   },
   "oauth": {
     "title": "Vibe Kanbanにサインイン",
