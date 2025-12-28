@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id              AS \"id!\",\n                organization_id AS \"organization_id!\",\n                project_id      AS \"project_id?\",\n                origin_node_id  AS \"origin_node_id?\",\n                name            AS \"name!\",\n                icon            AS \"icon!\",\n                color           AS \"color!\",\n                version         AS \"version!\",\n                deleted_at      AS \"deleted_at?\",\n                created_at      AS \"created_at!\",\n                updated_at      AS \"updated_at!\"\n            FROM labels\n            WHERE organization_id = $1\n              AND deleted_at IS NULL\n            ORDER BY name ASC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "organization_id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "project_id?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "origin_node_id?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "icon!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "color!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "version!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "deleted_at?",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "updated_at!",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "dd404c866b7d3b48214c57dd3fa9c9dbdcc3a6946dbbe3e1c2ab7e5c20b4fd6f"
+}
