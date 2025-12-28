@@ -419,10 +419,15 @@ const PendingQuestionEntry = ({
     }
   }, [disabled, executionProcessId, pendingStatus.question_id]);
 
+  // Don't render children (ToolCallCard with raw JSON) when we have questions
+  // The QuestionForm below provides the proper UI for questions
+  const hasQuestions =
+    pendingStatus.questions && pendingStatus.questions.length > 0;
+
   return (
     <div className="relative mt-3">
       <div className="overflow-hidden border">
-        {children}
+        {!hasQuestions && children}
 
         <div className="border-t bg-background px-2 py-1.5 text-xs sm:text-sm">
           <TooltipProvider>
