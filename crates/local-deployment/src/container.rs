@@ -16,6 +16,7 @@ use db::{
         execution_process::{
             ExecutionContext, ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus,
         },
+        execution_process_logs::ExecutionProcessLogs,
         executor_session::ExecutorSession,
         image::TaskImage,
         merge::Merge,
@@ -349,7 +350,7 @@ impl LocalContainerService {
 
             if !ExecutionProcess::was_stopped(&db.pool, exec_id).await
                 && let Err(e) =
-                    ExecutionProcess::update_completion(&db.pool, exec_id, status, exit_code).await
+                    ExecutionProcess::update_completion(&db.pool, exec_id, status.clone(), exit_code).await
             {
                 tracing::error!("Failed to update execution process completion: {}", e);
             }
@@ -371,6 +372,52 @@ impl LocalContainerService {
                         error = %e,
                         "Failed to normalize logs for completed execution"
                     );
+                }
+            }
+
+            // Check for session invalid error and mark session as invalid to avoid retry
+            // This handles "No conversation found with session ID" errors from Claude Code
+            if status == ExecutionProcessStatus::Failed {
+                if let Ok(true) =
+                    ExecutionProcessLogs::contains_session_invalid_error(&db.pool, exec_id).await
+                {
+                    // Find and mark the session as invalid so it won't be tried again
+                    if let Ok(Some(session_id)) =
+                        ExecutionProcess::find_latest_session_id_by_task_attempt(
+                            &db.pool,
+                            {
+                                // Get task_attempt_id from execution process
+                                if let Ok(ctx) =
+                                    ExecutionProcess::load_context(&db.pool, exec_id).await
+                                {
+                                    ctx.task_attempt.id
+                                } else {
+                                    // Can't get context, skip marking
+                                    tracing::warn!(
+                                        exec_id = %exec_id,
+                                        "Session invalid error detected but couldn't load context"
+                                    );
+                                    uuid::Uuid::nil() // Will return None
+                                }
+                            },
+                        )
+                        .await
+                    {
+                        tracing::warn!(
+                            exec_id = %exec_id,
+                            session_id = %session_id,
+                            "Marking session as invalid due to 'No conversation found' error"
+                        );
+                        if let Err(e) =
+                            ExecutorSession::mark_session_invalid(&db.pool, &session_id).await
+                        {
+                            tracing::error!(
+                                exec_id = %exec_id,
+                                error = %e,
+                                "Failed to mark session as invalid"
+                            );
+                        }
+                    }
                 }
             }
 
