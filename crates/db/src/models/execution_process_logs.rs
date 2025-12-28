@@ -198,6 +198,26 @@ impl ExecutionProcessLogs {
 
         PaginatedLogs::new(entries_to_return, next_cursor, has_more, None)
     }
+
+    /// Check if logs contain a session invalid error (e.g., "No conversation found with session ID")
+    /// This indicates the Claude Code session file is corrupted/empty and should not be reused
+    pub async fn contains_session_invalid_error(
+        pool: &SqlitePool,
+        execution_id: Uuid,
+    ) -> Result<bool, sqlx::Error> {
+        let records = Self::find_by_execution_id(pool, execution_id).await?;
+
+        // Check stderr messages for the session invalid error
+        for record in &records {
+            for line in record.logs.lines() {
+                if line.contains("No conversation found with session ID") {
+                    return Ok(true);
+                }
+            }
+        }
+
+        Ok(false)
+    }
 }
 
 #[cfg(test)]

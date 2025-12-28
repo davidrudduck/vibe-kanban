@@ -334,6 +334,32 @@ impl ExecutionProcess {
         Ok(row.and_then(|r| r.session_id))
     }
 
+    /// Find previous session_ids by task attempt (for fallback when latest fails)
+    /// Returns up to `limit` session IDs ordered by most recent first
+    pub async fn find_previous_session_ids(
+        pool: &SqlitePool,
+        task_attempt_id: Uuid,
+        limit: i64,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let rows = sqlx::query!(
+            r#"SELECT es.session_id
+               FROM execution_processes ep
+               JOIN executor_sessions es ON ep.id = es.execution_process_id
+               WHERE ep.task_attempt_id = $1
+                 AND ep.run_reason = 'codingagent'
+                 AND ep.dropped = FALSE
+                 AND es.session_id IS NOT NULL
+               ORDER BY ep.created_at DESC
+               LIMIT $2"#,
+            task_attempt_id,
+            limit
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(rows.iter().filter_map(|r| r.session_id.clone()).collect())
+    }
+
     /// Find latest execution process by task attempt and run reason
     pub async fn find_latest_by_task_attempt_and_run_reason(
         pool: &SqlitePool,

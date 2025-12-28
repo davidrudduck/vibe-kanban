@@ -194,6 +194,26 @@ impl ExecutorSession {
         Ok(())
     }
 
+    /// Mark a session as invalid by clearing its session_id
+    /// Used when session resume fails (e.g., "No conversation found" error)
+    pub async fn mark_session_invalid(
+        pool: &SqlitePool,
+        session_id: &str,
+    ) -> Result<(), sqlx::Error> {
+        let now = Utc::now();
+        sqlx::query!(
+            r#"UPDATE executor_sessions
+               SET session_id = NULL, updated_at = $1
+               WHERE session_id = $2"#,
+            now,
+            session_id
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
     /// Update executor session prompt
     #[allow(dead_code)]
     pub async fn update_prompt(
