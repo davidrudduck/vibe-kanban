@@ -320,22 +320,24 @@ const PendingQuestionEntry = ({
   }, []);
 
   const buildFinalAnswers = useCallback((): Record<string, string> => {
+    // Claude SDK expects answer keys to be the full question text, not the header
+    // See: https://platform.claude.com/docs/en/agent-sdk/permissions
     const result: Record<string, string> = {};
     for (const question of pendingStatus.questions) {
-      const answer = answers[question.header];
+      const answer = answers[question.header]; // Internal state uses header
       if (question.multiSelect) {
         const selectedOptions = (answer as string[]) || [];
         // Replace "Other" with the actual text if provided
         const finalOptions = selectedOptions.map((opt) =>
           opt === 'Other' ? otherTexts[question.header] || 'Other' : opt
         );
-        result[question.header] = finalOptions.join(', ');
+        result[question.question] = finalOptions.join(', '); // Key = question text
       } else {
         const selectedOption = answer as string;
         if (selectedOption === 'Other') {
-          result[question.header] = otherTexts[question.header] || 'Other';
+          result[question.question] = otherTexts[question.header] || 'Other'; // Key = question text
         } else {
-          result[question.header] = selectedOption || '';
+          result[question.question] = selectedOption || ''; // Key = question text
         }
       }
     }
