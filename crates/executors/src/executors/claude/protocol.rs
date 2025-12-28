@@ -123,8 +123,9 @@ impl ProtocolPeer {
                 permission_suggestions,
                 tool_use_id,
             } => {
-                // Special case: AskUserQuestion arriving via CanUseTool needs different response format
-                // Claude Code expects { "answers": {...} } not { "behavior": "allow", "updatedInput": {...} }
+                // Special case: AskUserQuestion arriving via CanUseTool needs PermissionResult format
+                // Claude SDK expects { "behavior": "allow", "updatedInput": { "questions": [...], "answers": {...} } }
+                // See: https://platform.claude.com/docs/en/agent-sdk/permissions
                 if tool_name == "AskUserQuestion" {
                     // Extract questions from input and use the existing AskUserQuestion handler
                     let questions_result: Result<Vec<Question>, _> = input
@@ -134,12 +135,30 @@ impl ProtocolPeer {
 
                     match questions_result {
                         Ok(questions) if !questions.is_empty() => {
-                            // Use the SAME handler as direct AskUserQuestion control request
-                            // This ensures the response format is { "answers": {...} }
+                            // Get user answers via the question handler
                             match client.on_ask_user_question(questions, tool_use_id).await {
                                 Ok(result) => {
+                                    // Wrap response in PermissionResult format for CanUseTool
+                                    let permission_response = if let Some(answers) = result.get("answers") {
+                                        // Build updatedInput with original questions + user answers
+                                        let mut updated_input = input.clone();
+                                        updated_input["answers"] = answers.clone();
+                                        serde_json::json!({
+                                            "behavior": "allow",
+                                            "updatedInput": updated_input
+                                        })
+                                    } else {
+                                        // Error case - deny with message
+                                        let error_msg = result.get("error")
+                                            .and_then(|e| e.as_str())
+                                            .unwrap_or("Unknown error");
+                                        serde_json::json!({
+                                            "behavior": "deny",
+                                            "message": error_msg
+                                        })
+                                    };
                                     if let Err(e) =
-                                        self.send_hook_response(request_id, result).await
+                                        self.send_hook_response(request_id, permission_response).await
                                     {
                                         tracing::error!("Failed to send question answer: {e}");
                                     }
