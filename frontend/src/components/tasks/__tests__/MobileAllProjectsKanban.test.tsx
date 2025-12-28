@@ -105,8 +105,8 @@ describe('MobileAllProjectsKanban', () => {
       />
     );
 
-    // Should have 5 indicator dots (one for each column)
-    const dots = screen.getAllByTestId('column-indicator-dot');
+    // Should have 5 indicator dots (rendered as tabs in tablist)
+    const dots = screen.getAllByRole('tab');
     expect(dots).toHaveLength(5);
   });
 
@@ -167,10 +167,9 @@ describe('MobileAllProjectsKanban', () => {
       />
     );
 
-    // Initially on first column, prev button should be disabled/hidden
+    // Initially on first column, prev button should be disabled
     const prevButton = screen.getByRole('button', { name: /previous column/i });
-    // The button is hidden when on first column
-    expect(prevButton).toHaveClass('invisible');
+    expect(prevButton).toBeDisabled();
   });
 
   it('should not navigate past last column', () => {
@@ -188,8 +187,8 @@ describe('MobileAllProjectsKanban', () => {
       fireEvent.click(nextButton);
     }
 
-    // Next button should be hidden on last column
-    expect(nextButton).toHaveClass('invisible');
+    // Next button should be disabled on last column
+    expect(nextButton).toBeDisabled();
   });
 
   it('should show current column name and task count', () => {
@@ -234,9 +233,9 @@ describe('MobileAllProjectsKanban', () => {
       />
     );
 
-    // Should show project names on cards
-    expect(screen.getByText('Project A')).toBeInTheDocument();
-    expect(screen.getByText('Project B')).toBeInTheDocument();
+    // Should show project names on cards (use getAllByText since same project can appear multiple times)
+    expect(screen.getAllByText('Project A').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Project B').length).toBeGreaterThan(0);
   });
 
   it('should call onViewTaskDetails when task card is clicked', () => {
