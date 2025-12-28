@@ -1,9 +1,18 @@
-import { HardDrive, ChevronUp, Loader2 } from 'lucide-react';
+import { HardDrive, ChevronUp, Loader2, MoreHorizontal, Package, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useDiskUsage } from '@/hooks/useDiskUsage';
+import { useAttemptCleanupMutations } from '@/hooks/useAttemptCleanupMutations';
+import { CleanupWorktreeConfirmationDialog } from '@/components/dialogs/tasks/CleanupWorktreeConfirmationDialog';
 import { cn } from '@/lib/utils';
 
 const BANNER_OPEN_KEY = 'disk-usage-banner-open';
@@ -42,16 +51,67 @@ function getUsageColor(bytes: bigint): string {
 function WorktreeItem({
   name,
   bytes,
+  attemptId,
 }: {
   name: string;
   bytes: bigint;
+  attemptId?: string;
 }) {
+  const { t } = useTranslation('common');
+  const { cleanupWorktree, purgeArtifacts } = useAttemptCleanupMutations();
+
+  const handlePurge = () => {
+    if (attemptId) {
+      purgeArtifacts.mutate(attemptId);
+    }
+  };
+
+  const handleDelete = () => {
+    if (attemptId) {
+      CleanupWorktreeConfirmationDialog.show({
+        attemptId,
+        worktreePath: name,
+        onConfirm: () => cleanupWorktree.mutateAsync(attemptId),
+      });
+    }
+  };
+
   return (
-    <div className="flex items-center justify-between py-1 px-2 hover:bg-accent/50 rounded-md transition-colors">
+    <div className="flex items-center justify-between py-1 px-2 hover:bg-accent/50 rounded-md transition-colors group">
       <span className="text-sm font-mono truncate flex-1">{name}</span>
       <span className="text-sm text-muted-foreground ml-2 shrink-0">
         {formatBytes(bytes)}
       </span>
+      {attemptId && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 ml-1 opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={handlePurge}
+              disabled={purgeArtifacts.isPending}
+            >
+              <Package className="mr-2 h-4 w-4" />
+              {t('diskUsage.purgeArtifacts', 'Purge Artifacts')}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={handleDelete}
+              className="text-destructive focus:text-destructive"
+              disabled={cleanupWorktree.isPending}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              {t('diskUsage.deleteWorktree', 'Delete Worktree')}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   );
 }
@@ -135,7 +195,12 @@ export function DiskUsageIndicator() {
             </div>
           ) : (
             data.largest_worktrees.map((wt) => (
-              <WorktreeItem key={wt.name} name={wt.name} bytes={wt.bytes} />
+              <WorktreeItem
+                key={wt.name}
+                name={wt.name}
+                bytes={wt.bytes}
+                attemptId={wt.attempt_id}
+              />
             ))
           )}
         </div>

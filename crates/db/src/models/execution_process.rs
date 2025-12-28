@@ -355,6 +355,26 @@ impl ExecutionProcess {
         .await
     }
 
+    /// Find the most recent execution process for a task attempt
+    /// Used for logging system messages to an attempt's conversation
+    pub async fn find_latest_for_attempt(
+        pool: &SqlitePool,
+        task_attempt_id: Uuid,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            ExecutionProcess,
+            r#"SELECT id as "id!: Uuid", task_attempt_id as "task_attempt_id!: Uuid", run_reason as "run_reason!: ExecutionProcessRunReason", executor_action as "executor_action!: sqlx::types::Json<ExecutorActionField>", before_head_commit,
+                      after_head_commit, status as "status!: ExecutionProcessStatus", exit_code, dropped, pid, started_at as "started_at!: DateTime<Utc>", completed_at as "completed_at?: DateTime<Utc>",
+                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>"
+               FROM execution_processes
+               WHERE task_attempt_id = ? AND dropped = FALSE
+               ORDER BY created_at DESC LIMIT 1"#,
+            task_attempt_id
+        )
+        .fetch_optional(pool)
+        .await
+    }
+
     /// Create a new execution process
     pub async fn create(
         pool: &SqlitePool,
@@ -640,5 +660,158 @@ impl ExecutionProcess {
                 "Couldn't find profile from initial request".to_string(),
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{
+        project::{CreateProject, Project},
+        task::{CreateTask, Task},
+    };
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
+    use std::str::FromStr;
+    use tempfile::TempDir;
+
+    /// Create a test SQLite pool with migrations applied.
+    async fn setup_test_pool() -> (SqlitePool, TempDir) {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let db_path = temp_dir.path().join("test.db");
+
+        let options =
+            SqliteConnectOptions::from_str(&format!("sqlite://{}", db_path.to_string_lossy()))
+                .expect("Invalid database URL")
+                .create_if_missing(true)
+                .journal_mode(SqliteJournalMode::Wal);
+
+        let pool = SqlitePool::connect_with(options)
+            .await
+            .expect("Failed to create pool");
+
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .expect("Failed to run migrations");
+
+        (pool, temp_dir)
+    }
+
+    /// Create a test attempt and return (attempt_id, project_id, task_id)
+    async fn create_test_attempt(pool: &SqlitePool) -> (Uuid, Uuid, Uuid) {
+        let project_id = Uuid::new_v4();
+        let project_data = CreateProject {
+            name: "Test Project".to_string(),
+            git_repo_path: format!("/tmp/test-repo-{}", project_id),
+            use_existing_repo: true,
+            clone_url: None,
+            setup_script: None,
+            dev_script: None,
+            cleanup_script: None,
+            copy_files: None,
+        };
+        let _project = Project::create(pool, &project_data, project_id)
+            .await
+            .expect("Failed to create project");
+
+        let task_id = Uuid::new_v4();
+        let task_data =
+            CreateTask::from_title_description(project_id, "Test Task".to_string(), None);
+        let _task = Task::create(pool, &task_data, task_id)
+            .await
+            .expect("Failed to create task");
+
+        let attempt_id = Uuid::new_v4();
+        sqlx::query(
+            r#"INSERT INTO task_attempts (id, task_id, executor, branch, target_branch)
+               VALUES ($1, $2, 'CLAUDE_CODE', 'test-branch', 'main')"#,
+        )
+        .bind(attempt_id)
+        .bind(task_id)
+        .execute(pool)
+        .await
+        .expect("Failed to create task attempt");
+
+        (attempt_id, project_id, task_id)
+    }
+
+    /// Create an execution process for the given attempt
+    async fn create_execution_for_attempt(pool: &SqlitePool, attempt_id: Uuid) -> Uuid {
+        let execution_id = Uuid::new_v4();
+        sqlx::query(
+            r#"INSERT INTO execution_processes (id, task_attempt_id, status, run_reason, executor_action)
+               VALUES ($1, $2, 'running', 'codingagent', '{}')"#,
+        )
+        .bind(execution_id)
+        .bind(attempt_id)
+        .execute(pool)
+        .await
+        .expect("Failed to create execution process");
+        execution_id
+    }
+
+    #[tokio::test]
+    async fn test_find_latest_for_attempt() {
+        let (pool, _temp_dir) = setup_test_pool().await;
+        let (attempt_id, _, _) = create_test_attempt(&pool).await;
+
+        // Create first execution process
+        let exec1_id = create_execution_for_attempt(&pool, attempt_id).await;
+
+        // Small delay to ensure different timestamps
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+        // Create second execution process (most recent)
+        let exec2_id = create_execution_for_attempt(&pool, attempt_id).await;
+
+        // find_latest_for_attempt should return the most recent one
+        let latest = ExecutionProcess::find_latest_for_attempt(&pool, attempt_id)
+            .await
+            .expect("Query should succeed")
+            .expect("Should find an execution process");
+
+        assert_eq!(latest.id, exec2_id, "Should return the most recent execution process");
+        assert_ne!(latest.id, exec1_id, "Should not return the older execution process");
+    }
+
+    #[tokio::test]
+    async fn test_find_latest_for_attempt_none() {
+        let (pool, _temp_dir) = setup_test_pool().await;
+        let (attempt_id, _, _) = create_test_attempt(&pool).await;
+
+        // Don't create any execution processes
+
+        let result = ExecutionProcess::find_latest_for_attempt(&pool, attempt_id)
+            .await
+            .expect("Query should succeed");
+
+        assert!(result.is_none(), "Should return None when no execution processes exist");
+    }
+
+    #[tokio::test]
+    async fn test_find_latest_for_attempt_excludes_dropped() {
+        let (pool, _temp_dir) = setup_test_pool().await;
+        let (attempt_id, _, _) = create_test_attempt(&pool).await;
+
+        // Create first execution process
+        let exec1_id = create_execution_for_attempt(&pool, attempt_id).await;
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+        // Create second execution process and mark it as dropped
+        let exec2_id = create_execution_for_attempt(&pool, attempt_id).await;
+        sqlx::query("UPDATE execution_processes SET dropped = TRUE WHERE id = $1")
+            .bind(exec2_id)
+            .execute(&pool)
+            .await
+            .expect("Failed to mark as dropped");
+
+        // find_latest_for_attempt should return exec1 (since exec2 is dropped)
+        let latest = ExecutionProcess::find_latest_for_attempt(&pool, attempt_id)
+            .await
+            .expect("Query should succeed")
+            .expect("Should find an execution process");
+
+        assert_eq!(latest.id, exec1_id, "Should return the non-dropped execution process");
     }
 }

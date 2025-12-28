@@ -88,7 +88,9 @@
     "worktrees": "worktrees",
     "largestWorktrees": "Largest worktrees",
     "noWorktrees": "No worktrees found",
-    "directory": "Directory"
+    "directory": "Directory",
+    "purgeArtifacts": "Purge Artifacts",
+    "deleteWorktree": "Delete Worktree"
   },
   "oauth": {
     "title": "Sign in to Vibe Kanban",
