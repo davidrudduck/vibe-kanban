@@ -1065,4 +1065,8 @@ name: string,
 /**
  * Size in bytes
  */
-bytes: bigint, };
+bytes: bigint, 
+/**
+ * Associated task attempt ID (if found via container_ref matching)
+ */
+attempt_id?: string, };

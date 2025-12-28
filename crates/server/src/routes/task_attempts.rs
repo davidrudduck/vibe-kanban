@@ -20,12 +20,14 @@ use axum::{
 use db::models::{
     draft::{Draft, DraftType},
     execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
+    log_entry::{CreateLogEntry, DbLogEntry},
     merge::{Merge, MergeStatus, PrMerge, PullRequestInfo},
     project::{Project, ProjectError},
     task::{Task, TaskRelationships, TaskStatus},
     task_attempt::{CreateTaskAttempt, TaskAttempt, TaskAttemptError},
     task_variable::TaskVariable,
 };
+use utils::unified_log::OutputType;
 use deployment::Deployment;
 use executors::{
     actions::{
@@ -2430,6 +2432,21 @@ pub async fn cleanup_worktree(
     // Mark worktree as deleted in database
     TaskAttempt::mark_worktree_deleted(pool, task_attempt.id).await?;
 
+    // Log cleanup to attempt's conversation
+    if let Ok(Some(execution)) =
+        ExecutionProcess::find_latest_for_attempt(pool, task_attempt.id).await
+    {
+        let log_content = format!(
+            "[System] Worktree deleted: {}",
+            task_attempt.container_ref.as_deref().unwrap_or("unknown")
+        );
+        let _ = DbLogEntry::create(
+            pool,
+            CreateLogEntry::new(execution.id, OutputType::System, log_content),
+        )
+        .await;
+    }
+
     tracing::info!(
         "Successfully cleaned up worktree for attempt {}",
         task_attempt.id
@@ -2462,6 +2479,28 @@ pub async fn purge_build_artifacts(
 
     // Purge build artifacts
     let result = WorktreeManager::purge_build_artifacts(&worktree_path).await?;
+
+    // Log purge result to attempt's conversation
+    let pool = &deployment.db().pool;
+    if let Ok(Some(execution)) =
+        ExecutionProcess::find_latest_for_attempt(pool, task_attempt.id).await
+    {
+        let log_content = if result.purged_dirs.is_empty() {
+            "[System] Purge: No build artifacts found to remove".to_string()
+        } else {
+            let freed_mb = result.freed_bytes as f64 / (1024.0 * 1024.0);
+            format!(
+                "[System] Purged build artifacts: {} - freed {:.1} MB",
+                result.purged_dirs.join(", "),
+                freed_mb
+            )
+        };
+        let _ = DbLogEntry::create(
+            pool,
+            CreateLogEntry::new(execution.id, OutputType::System, log_content),
+        )
+        .await;
+    }
 
     tracing::info!(
         "Purged {} bytes of build artifacts from attempt {}",

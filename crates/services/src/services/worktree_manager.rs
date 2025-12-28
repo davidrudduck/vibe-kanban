@@ -5,6 +5,7 @@ use std::{
 };
 
 use git2::{Error as GitError, Repository};
+use uuid::Uuid;
 use thiserror::Error;
 use tracing::{debug, info, trace};
 use utils::shell::resolve_executable_path;
@@ -599,6 +600,7 @@ impl WorktreeManager {
                         worktrees.push(WorktreeSize {
                             name: path.file_name().unwrap_or_default().to_string_lossy().to_string(),
                             bytes: size,
+                            attempt_id: None,
                         });
                     }
                 }
@@ -654,4 +656,7 @@ pub struct WorktreeSize {
     pub name: String,
     /// Size in bytes
     pub bytes: u64,
+    /// Associated task attempt ID (if found via container_ref matching)
+    #[ts(optional)]
+    pub attempt_id: Option<Uuid>,
 }

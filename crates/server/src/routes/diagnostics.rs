@@ -4,7 +4,7 @@
 //! and WAL file monitoring data.
 
 use axum::{Router, extract::State, response::Json as ResponseJson, routing::get};
-use db::{get_wal_size, metrics::{DbMetricsSnapshot, PoolStats}};
+use db::{get_wal_size, metrics::{DbMetricsSnapshot, PoolStats}, models::task_attempt::TaskAttempt};
 use deployment::Deployment;
 use serde::Serialize;
 use services::services::worktree_manager::{DiskUsageStats, WorktreeManager};
@@ -212,12 +212,38 @@ async fn get_prometheus_metrics(
 /// Get worktree disk usage statistics.
 ///
 /// Returns information about the worktree directory, including total space used
-/// and the largest worktrees.
+/// and the largest worktrees. Each worktree includes an attempt_id if it matches
+/// a known task attempt's container_ref.
 ///
 /// # Endpoint
 /// `GET /api/diagnostics/disk-usage`
-async fn get_disk_usage() -> Result<ResponseJson<ApiResponse<DiskUsageStats>>, ApiError> {
-    let stats = WorktreeManager::get_disk_usage().await?;
+async fn get_disk_usage(
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<DiskUsageStats>>, ApiError> {
+    let mut stats = WorktreeManager::get_disk_usage().await?;
+
+    // Query all active task attempts with container refs
+    let pool = &deployment.db().pool;
+    if let Ok(refs) = TaskAttempt::find_by_worktree_deleted(pool).await {
+        // Build a map of worktree directory names to attempt IDs
+        // container_ref is a full path like "/path/to/worktrees/vk-1234abcd"
+        // We need to match against the worktree name (last path component)
+        let ref_map: std::collections::HashMap<String, uuid::Uuid> = refs
+            .into_iter()
+            .filter_map(|(id, path)| {
+                std::path::Path::new(&path)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|name| (name.to_string(), id))
+            })
+            .collect();
+
+        // Populate attempt_id for each worktree
+        for worktree in &mut stats.largest_worktrees {
+            worktree.attempt_id = ref_map.get(&worktree.name).copied();
+        }
+    }
+
     Ok(ResponseJson(ApiResponse::success(stats)))
 }
 
