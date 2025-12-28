@@ -56,6 +56,12 @@ pub struct SetTaskLabelsData {
     pub label_ids: Vec<Uuid>,
 }
 
+/// Payload for label activity events
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LabelActivityPayload {
+    pub label: Label,
+}
+
 #[derive(Debug, Error)]
 pub enum LabelError {
     #[error("label not found")]

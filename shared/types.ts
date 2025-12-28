@@ -230,7 +230,19 @@ icon: string,
 /**
  * Hex color code (e.g., "#3b82f6")
  */
-color: string, created_at: string, updated_at: string, };
+color: string, 
+/**
+ * UUID of the label in the Hive (NULL if not yet synced)
+ */
+shared_label_id?: string, 
+/**
+ * Optimistic locking version for conflict resolution
+ */
+version: bigint, 
+/**
+ * Timestamp of last successful sync to Hive
+ */
+synced_at?: string, created_at: string, updated_at: string, };
 
 export type CreateLabel = { 
 /**

@@ -344,6 +344,9 @@ impl From<ShareError> for ApiError {
             ShareError::ProjectNotFound(_) => {
                 ApiError::Conflict("Project not found for sharing".to_string())
             }
+            ShareError::LabelNotFound(_) => {
+                ApiError::Conflict("Label not found for sync".to_string())
+            }
             ShareError::ProjectNotLinked(project_id) => {
                 tracing::warn!(
                     %project_id,

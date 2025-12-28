@@ -242,10 +242,13 @@ impl Project {
         .await
     }
 
-    pub async fn find_by_remote_project_id(
-        pool: &SqlitePool,
+    pub async fn find_by_remote_project_id<'e, E>(
+        executor: E,
         remote_project_id: Uuid,
-    ) -> Result<Option<Self>, sqlx::Error> {
+    ) -> Result<Option<Self>, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
         sqlx::query_as!(
             Project,
             r#"SELECT id as "id!: Uuid",
@@ -276,7 +279,7 @@ impl Project {
                LIMIT 1"#,
             remote_project_id
         )
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
     }
 

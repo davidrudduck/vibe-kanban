@@ -33,6 +33,7 @@
 //! - `frontend/src/hooks/useElectricTasks.ts` - React hook for Electric tasks
 
 mod config;
+mod label_publisher;
 mod processor;
 mod publisher;
 pub mod status;
@@ -54,6 +55,7 @@ use db::{
         task::{SyncTask, Task},
     },
 };
+pub use label_publisher::LabelPublisher;
 use processor::ActivityProcessor;
 pub use publisher::SharePublisher;
 use remote::{
@@ -102,6 +104,8 @@ pub enum ShareError {
     ProjectNotFound(Uuid),
     #[error("project {0} is not linked to a remote project")]
     ProjectNotLinked(Uuid),
+    #[error("label {0} not found")]
+    LabelNotFound(Uuid),
     #[error("invalid response from remote share service")]
     InvalidResponse,
     #[error("task {0} is already shared")]
