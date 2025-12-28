@@ -244,11 +244,16 @@ impl DraftsService {
                 .await?;
         }
 
-        let latest_session_id =
-            ExecutionProcess::find_latest_session_id_by_task_attempt(self.pool(), task_attempt.id)
-                .await?;
+        // Get previous session IDs - automatically skips invalidated sessions (NULL session_id)
+        // This enables fallback to earlier valid sessions when recent ones are corrupted
+        let session_ids = ExecutionProcess::find_previous_session_ids(
+            self.pool(),
+            task_attempt.id,
+            5,
+        )
+        .await?;
 
-        let action_type = if let Some(session_id) = latest_session_id {
+        let action_type = if let Some(session_id) = session_ids.into_iter().next() {
             ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
                 prompt: prompt.clone(),
                 session_id,
