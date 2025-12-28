@@ -281,7 +281,23 @@ impl Approvals {
                 status: req.status.clone(),
                 answers: req.answers.clone(),
             };
-            let _ = p.response_tx.send(response_data);
+
+            match p.response_tx.send(response_data) {
+                Ok(()) => {
+                    tracing::info!(
+                        approval_id = %id,
+                        answers = ?req.answers,
+                        "Approval response sent successfully to executor"
+                    );
+                }
+                Err(failed_data) => {
+                    tracing::error!(
+                        approval_id = %id,
+                        answers = ?failed_data.answers,
+                        "Failed to send approval response - receiver dropped"
+                    );
+                }
+            }
 
             if let Some(store) = self.msg_store_by_id(&p.execution_process_id).await {
                 let status = ToolStatus::from_approval_status(&req.status).ok_or(
