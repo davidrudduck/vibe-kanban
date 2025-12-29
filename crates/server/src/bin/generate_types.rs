@@ -239,6 +239,11 @@ fn generate_types_content() -> String {
         services::services::worktree_manager::PurgeResult::decl(),
         services::services::worktree_manager::DiskUsageStats::decl(),
         services::services::worktree_manager::WorktreeSize::decl(),
+        // Message queue types
+        local_deployment::message_queue::QueuedMessage::decl(),
+        local_deployment::message_queue::AddQueuedMessageRequest::decl(),
+        local_deployment::message_queue::UpdateQueuedMessageRequest::decl(),
+        local_deployment::message_queue::ReorderQueuedMessagesRequest::decl(),
     ];
 
     let body = decls
