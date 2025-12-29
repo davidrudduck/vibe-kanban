@@ -205,7 +205,13 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
           useParentWorktree: false,
         };
     }
-  }, [mode, props, system.config?.executor_profile, branches, parentWorktreeAvailable]);
+  }, [
+    mode,
+    props,
+    system.config?.executor_profile,
+    branches,
+    parentWorktreeAvailable,
+  ]);
 
   // Form submission handler
   const handleSubmit = async ({ value }: { value: TaskFormValues }) => {
@@ -670,7 +676,9 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                         <BranchSelector
                           branches={branches ?? []}
                           selectedBranch={field.state.value}
-                          onBranchSelect={(branch) => field.handleChange(branch)}
+                          onBranchSelect={(branch) =>
+                            field.handleChange(branch)
+                          }
                           placeholder="Branch"
                           className={cn(
                             'h-9 flex-1 min-w-0 text-xs',
@@ -702,7 +710,8 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                             htmlFor="use-parent-worktree"
                             className={cn(
                               'text-sm cursor-pointer',
-                              !parentWorktreeAvailable && 'text-muted-foreground'
+                              !parentWorktreeAvailable &&
+                                'text-muted-foreground'
                             )}
                           >
                             {t(

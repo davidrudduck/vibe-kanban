@@ -5,7 +5,10 @@ import type { Node } from '@/types/nodes';
 /**
  * Hook to fetch a single node by ID.
  */
-export function useNode(nodeId: string | undefined, options?: { enabled?: boolean }) {
+export function useNode(
+  nodeId: string | undefined,
+  options?: { enabled?: boolean }
+) {
   return useQuery<Node>({
     queryKey: ['node', nodeId],
     queryFn: () => nodesApi.getById(nodeId!),

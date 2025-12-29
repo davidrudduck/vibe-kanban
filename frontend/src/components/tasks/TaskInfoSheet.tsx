@@ -178,10 +178,7 @@ export function TaskInfoTrigger({
       aria-label={isOpen ? 'Collapse task info' : 'Expand task info'}
     >
       <ChevronRight
-        className={cn(
-          'h-3 w-3 transition-transform',
-          isOpen && 'rotate-90'
-        )}
+        className={cn('h-3 w-3 transition-transform', isOpen && 'rotate-90')}
       />
       <span className="ml-1">Info</span>
     </Button>

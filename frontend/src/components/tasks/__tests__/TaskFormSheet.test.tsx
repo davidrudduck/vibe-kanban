@@ -30,7 +30,7 @@ describe('TaskFormSheet Component Interface', () => {
     const module = await import('../TaskFormSheet');
     expect(module.TaskFormSheet).toBeDefined();
     expect(typeof module.TaskFormSheet).toBe('function');
-  });
+  }, 10000); // Increase timeout for large component with many dependencies
 
   it('should have create mode props type', async () => {
     // Type assertion for documentation
@@ -210,7 +210,10 @@ describe('usePendingVariables localStorage Behavior', () => {
     const sessionId = 'test-session-456';
     const key = `${STORAGE_KEY_PREFIX}${sessionId}`;
 
-    localStorage.setItem(key, JSON.stringify([{ id: '1', name: 'API_KEY', value: 'secret' }]));
+    localStorage.setItem(
+      key,
+      JSON.stringify([{ id: '1', name: 'API_KEY', value: 'secret' }])
+    );
     expect(localStorage.getItem(key)).not.toBeNull();
 
     localStorage.removeItem(key);
@@ -230,8 +233,12 @@ describe('usePendingVariables localStorage Behavior', () => {
       JSON.stringify([{ id: '2', name: 'VAR_B', value: 'b' }])
     );
 
-    const data1 = JSON.parse(localStorage.getItem(`${STORAGE_KEY_PREFIX}${session1}`)!);
-    const data2 = JSON.parse(localStorage.getItem(`${STORAGE_KEY_PREFIX}${session2}`)!);
+    const data1 = JSON.parse(
+      localStorage.getItem(`${STORAGE_KEY_PREFIX}${session1}`)!
+    );
+    const data2 = JSON.parse(
+      localStorage.getItem(`${STORAGE_KEY_PREFIX}${session2}`)!
+    );
 
     expect(data1[0].name).toBe('VAR_A');
     expect(data2[0].name).toBe('VAR_B');

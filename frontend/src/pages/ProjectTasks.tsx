@@ -1075,10 +1075,7 @@ export function ProjectTasks() {
           />
         )}
         {mode === 'processes' && (
-          <ProcessesPanel
-            attemptId={attempt.id}
-            onClose={() => setMode(null)}
-          />
+          <ProcessesPanel attemptId={attempt.id} />
         )}
       </div>
     ) : (

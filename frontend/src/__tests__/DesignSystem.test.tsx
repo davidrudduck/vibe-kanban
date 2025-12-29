@@ -79,7 +79,11 @@ describe('VKSIcon', () => {
 describe('VKS CSS Variables', () => {
   it('vks-theme class can be applied to elements', () => {
     // Test that vks-theme class can be used on elements
-    render(<div data-testid="vks-theme-test" className="vks-theme">VKS Themed</div>);
+    render(
+      <div data-testid="vks-theme-test" className="vks-theme">
+        VKS Themed
+      </div>
+    );
     const themed = screen.getByTestId('vks-theme-test');
     expect(themed).toHaveClass('vks-theme');
   });
@@ -113,13 +117,21 @@ describe('VKS Tailwind Colors', () => {
 
 describe('VKS Typography', () => {
   it('can use font-heading class', () => {
-    render(<h1 data-testid="heading" className="font-heading">Heading</h1>);
+    render(
+      <h1 data-testid="heading" className="font-heading">
+        Heading
+      </h1>
+    );
     const heading = screen.getByTestId('heading');
     expect(heading).toHaveClass('font-heading');
   });
 
   it('can use font-serif class', () => {
-    render(<p data-testid="serif" className="font-serif">Serif text</p>);
+    render(
+      <p data-testid="serif" className="font-serif">
+        Serif text
+      </p>
+    );
     const serif = screen.getByTestId('serif');
     expect(serif).toHaveClass('font-serif');
   });

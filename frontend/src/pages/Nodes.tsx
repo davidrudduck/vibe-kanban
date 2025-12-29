@@ -13,7 +13,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { AlertCircle, Loader2, RefreshCw, Server, ArrowLeft } from 'lucide-react';
+import {
+  AlertCircle,
+  Loader2,
+  RefreshCw,
+  Server,
+  ArrowLeft,
+} from 'lucide-react';
 import type { Node } from '@/types/nodes';
 
 function NodesPageContent() {

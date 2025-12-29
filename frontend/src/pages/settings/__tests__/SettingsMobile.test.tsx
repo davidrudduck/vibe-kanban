@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
+import {
+  render,
+  screen,
+  fireEvent,
+  within,
+  waitFor,
+} from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { I18nextProvider } from 'react-i18next';
@@ -8,22 +14,32 @@ import { MobileSettingsAccordion } from '../MobileSettingsAccordion';
 
 // Mock the settings components - they have complex dependencies
 vi.mock('../GeneralSettings', () => ({
-  GeneralSettings: () => <div data-testid="general-settings">General Settings Content</div>,
+  GeneralSettings: () => (
+    <div data-testid="general-settings">General Settings Content</div>
+  ),
 }));
 vi.mock('../ProjectSettings', () => ({
-  ProjectSettings: () => <div data-testid="project-settings">Project Settings Content</div>,
+  ProjectSettings: () => (
+    <div data-testid="project-settings">Project Settings Content</div>
+  ),
 }));
 vi.mock('../OrganizationSettings', () => ({
-  OrganizationSettings: () => <div data-testid="organization-settings">Organization Settings Content</div>,
+  OrganizationSettings: () => (
+    <div data-testid="organization-settings">Organization Settings Content</div>
+  ),
 }));
 vi.mock('../AgentSettings', () => ({
-  AgentSettings: () => <div data-testid="agent-settings">Agent Settings Content</div>,
+  AgentSettings: () => (
+    <div data-testid="agent-settings">Agent Settings Content</div>
+  ),
 }));
 vi.mock('../McpSettings', () => ({
   McpSettings: () => <div data-testid="mcp-settings">MCP Settings Content</div>,
 }));
 vi.mock('../BackupSettings', () => ({
-  BackupSettings: () => <div data-testid="backup-settings">Backup Settings Content</div>,
+  BackupSettings: () => (
+    <div data-testid="backup-settings">Backup Settings Content</div>
+  ),
 }));
 
 // Mock useIsMobile
@@ -93,13 +109,15 @@ describe('MobileSettingsAccordion', () => {
     });
 
     // Find all accordion buttons
-    const accordionButtons = screen.getAllByRole('button').filter(
-      (btn) => btn.getAttribute('aria-controls')?.startsWith('settings-section-')
-    );
+    const accordionButtons = screen
+      .getAllByRole('button')
+      .filter((btn) =>
+        btn.getAttribute('aria-controls')?.startsWith('settings-section-')
+      );
 
     // Find the Projects section button
-    const projectsButton = accordionButtons.find(
-      (btn) => btn.textContent?.toLowerCase().includes('project')
+    const projectsButton = accordionButtons.find((btn) =>
+      btn.textContent?.toLowerCase().includes('project')
     );
     expect(projectsButton).toBeDefined();
 
@@ -124,11 +142,13 @@ describe('MobileSettingsAccordion', () => {
     expect(screen.queryByTestId('agent-settings')).not.toBeInTheDocument();
 
     // Find the Agents section button
-    const accordionButtons = screen.getAllByRole('button').filter(
-      (btn) => btn.getAttribute('aria-controls')?.startsWith('settings-section-')
-    );
-    const agentsButton = accordionButtons.find(
-      (btn) => btn.textContent?.toLowerCase().includes('agent')
+    const accordionButtons = screen
+      .getAllByRole('button')
+      .filter((btn) =>
+        btn.getAttribute('aria-controls')?.startsWith('settings-section-')
+      );
+    const agentsButton = accordionButtons.find((btn) =>
+      btn.textContent?.toLowerCase().includes('agent')
     );
     expect(agentsButton).toBeDefined();
 
@@ -157,9 +177,11 @@ describe('MobileSettingsAccordion', () => {
     // Wait for filter to apply
     await waitFor(() => {
       // Should only show backup section
-      const accordionButtons = screen.getAllByRole('button').filter(
-        (btn) => btn.getAttribute('aria-controls')?.startsWith('settings-section-')
-      );
+      const accordionButtons = screen
+        .getAllByRole('button')
+        .filter((btn) =>
+          btn.getAttribute('aria-controls')?.startsWith('settings-section-')
+        );
       expect(accordionButtons.length).toBe(1);
     });
   });
@@ -173,9 +195,11 @@ describe('MobileSettingsAccordion', () => {
     });
 
     // Find the General section header
-    const accordionButtons = screen.getAllByRole('button').filter(
-      (btn) => btn.getAttribute('aria-controls')?.startsWith('settings-section-')
-    );
+    const accordionButtons = screen
+      .getAllByRole('button')
+      .filter((btn) =>
+        btn.getAttribute('aria-controls')?.startsWith('settings-section-')
+      );
     const generalButton = accordionButtons[0]; // First one is General
 
     // Should have a chevron icon indicating expanded state

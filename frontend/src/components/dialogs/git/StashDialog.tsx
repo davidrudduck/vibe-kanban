@@ -82,7 +82,9 @@ const StashDialogImpl = NiceModal.create<StashDialogProps>((props) => {
             <DialogTitle>{t('tasks:git.stashDialog.title')}</DialogTitle>
           </div>
           <DialogDescription className="text-left pt-2">
-            {t('tasks:git.stashDialog.description', { count: dirtyFiles.length })}
+            {t('tasks:git.stashDialog.description', {
+              count: dirtyFiles.length,
+            })}
           </DialogDescription>
         </DialogHeader>
 

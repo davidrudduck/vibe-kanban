@@ -39,9 +39,7 @@ export function MobileConversationLayout({
   const { todos } = usePinnedTodos(entries);
 
   // Check if there's any info to show in the sheet
-  const hasTaskInfo = Boolean(
-    task.description || relationships || variables
-  );
+  const hasTaskInfo = Boolean(task.description || relationships || variables);
 
   if (isMobile) {
     return (

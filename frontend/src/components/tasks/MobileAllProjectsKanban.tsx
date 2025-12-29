@@ -17,7 +17,10 @@ const COLUMN_ORDER: TaskStatus[] = [
   'cancelled',
 ];
 
-export type AllProjectsKanbanColumns = Record<TaskStatus, TaskWithProjectInfo[]>;
+export type AllProjectsKanbanColumns = Record<
+  TaskStatus,
+  TaskWithProjectInfo[]
+>;
 
 interface MobileAllProjectsKanbanProps {
   columns: AllProjectsKanbanColumns;

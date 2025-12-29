@@ -14,7 +14,10 @@ import { useDropzone } from 'react-dropzone';
 
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/useIsMobile';
-import { usePendingVariables, type PendingVariable } from '@/hooks/usePendingVariables';
+import {
+  usePendingVariables,
+  type PendingVariable,
+} from '@/hooks/usePendingVariables';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label as FormLabel } from '@/components/ui/label';
@@ -59,9 +62,26 @@ import type {
  * Props for TaskFormSheet component
  */
 export type TaskFormSheetProps =
-  | { mode: 'create'; projectId: string; open: boolean; onOpenChange: (open: boolean) => void }
-  | { mode: 'edit'; projectId: string; task: Task; open: boolean; onOpenChange: (open: boolean) => void }
-  | { mode: 'duplicate'; projectId: string; initialTask: Task; open: boolean; onOpenChange: (open: boolean) => void }
+  | {
+      mode: 'create';
+      projectId: string;
+      open: boolean;
+      onOpenChange: (open: boolean) => void;
+    }
+  | {
+      mode: 'edit';
+      projectId: string;
+      task: Task;
+      open: boolean;
+      onOpenChange: (open: boolean) => void;
+    }
+  | {
+      mode: 'duplicate';
+      projectId: string;
+      initialTask: Task;
+      open: boolean;
+      onOpenChange: (open: boolean) => void;
+    }
   | {
       mode: 'subtask';
       projectId: string;
@@ -104,7 +124,8 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
   const editMode = mode === 'edit';
   const isMobile = useIsMobile();
   const { t } = useTranslation(['tasks', 'common']);
-  const { createTask, createAndStart, updateTask } = useTaskMutations(projectId);
+  const { createTask, createAndStart, updateTask } =
+    useTaskMutations(projectId);
   const { system, profiles, loading: userSystemLoading } = useUserSystem();
   const { upload, deleteImage } = useImageUpload();
 
@@ -113,13 +134,16 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
 
   // Variable editor state
   const [showVariableEditor, setShowVariableEditor] = useState(false);
-  const [editingVariable, setEditingVariable] = useState<PendingVariable | null>(null);
+  const [editingVariable, setEditingVariable] =
+    useState<PendingVariable | null>(null);
   const [newVarName, setNewVarName] = useState('');
   const [newVarValue, setNewVarValue] = useState('');
 
   // Local UI state
   const [images, setImages] = useState<ImageResponse[]>([]);
-  const [newlyUploadedImageIds, setNewlyUploadedImageIds] = useState<string[]>([]);
+  const [newlyUploadedImageIds, setNewlyUploadedImageIds] = useState<string[]>(
+    []
+  );
   const [showDiscardWarning, setShowDiscardWarning] = useState(false);
   const imageUploadRef = useRef<ImageUploadSectionHandle>(null);
   const [pendingFiles, setPendingFiles] = useState<File[] | null>(null);
@@ -127,18 +151,27 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
   const insertPositionRef = useRef<number>(0);
   const sheetRef = useRef<HTMLDivElement>(null);
 
-  const { data: branches, isLoading: branchesLoading } = useProjectBranches(projectId);
-  const { data: taskImages } = useTaskImages(editMode ? (props as { task: Task }).task.id : undefined);
+  const { data: branches, isLoading: branchesLoading } =
+    useProjectBranches(projectId);
+  const { data: taskImages } = useTaskImages(
+    editMode ? (props as { task: Task }).task.id : undefined
+  );
 
   // Parent task attempts - for "use parent worktree" option in subtask mode
-  const parentTaskId = mode === 'subtask' ? (props as { parentTaskId: string }).parentTaskId : undefined;
+  const parentTaskId =
+    mode === 'subtask'
+      ? (props as { parentTaskId: string }).parentTaskId
+      : undefined;
   const { data: parentAttempts = [] } = useTaskAttempts(parentTaskId, {
     enabled: mode === 'subtask',
   });
 
   // Determine if parent worktree is available
   const parentWorktreeAvailable = useMemo(() => {
-    if ('parentWorktreeAvailable' in props && props.parentWorktreeAvailable !== undefined) {
+    if (
+      'parentWorktreeAvailable' in props &&
+      props.parentWorktreeAvailable !== undefined
+    ) {
       return props.parentWorktreeAvailable;
     }
     if (parentAttempts.length === 0) return false;
@@ -192,7 +225,8 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
       case 'duplicate':
         return {
           title: (props as { initialTask: Task }).initialTask.title,
-          description: (props as { initialTask: Task }).initialTask.description || '',
+          description:
+            (props as { initialTask: Task }).initialTask.description || '',
           status: 'todo',
           executorProfileId: baseProfile,
           branch: defaultBranch || '',
@@ -223,7 +257,13 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
           useParentWorktree: false,
         };
     }
-  }, [mode, props, system.config?.executor_profile, branches, parentWorktreeAvailable]);
+  }, [
+    mode,
+    props,
+    system.config?.executor_profile,
+    branches,
+    parentWorktreeAvailable,
+  ]);
 
   // Form submission handler
   const handleSubmit = async ({ value }: { value: TaskFormValues }) => {
@@ -243,13 +283,17 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
         { onSuccess: () => onOpenChange(false) }
       );
     } else {
-      const imageIds = newlyUploadedImageIds.length > 0 ? newlyUploadedImageIds : null;
+      const imageIds =
+        newlyUploadedImageIds.length > 0 ? newlyUploadedImageIds : null;
       const task = {
         project_id: projectId,
         title: value.title,
         description: value.description,
         status: null,
-        parent_task_id: mode === 'subtask' ? (props as { parentTaskId: string }).parentTaskId : null,
+        parent_task_id:
+          mode === 'subtask'
+            ? (props as { parentTaskId: string }).parentTaskId
+            : null,
         image_ids: imageIds,
         shared_task_id: null,
       };
@@ -532,10 +576,7 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
 
   // Render the form content
   const formContent = (
-    <div
-      {...getRootProps()}
-      className="flex flex-col h-full min-h-0 relative"
-    >
+    <div {...getRootProps()} className="flex flex-col h-full min-h-0 relative">
       <input {...getInputProps()} />
 
       {/* Drag overlay */}
@@ -581,7 +622,10 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
         <div className="px-4 py-4 space-y-4">
           {/* Title */}
           <div className="space-y-1">
-            <FormLabel htmlFor="task-title" className="text-xs font-medium uppercase text-muted-foreground">
+            <FormLabel
+              htmlFor="task-title"
+              className="text-xs font-medium uppercase text-muted-foreground"
+            >
               {t('taskFormSheet.title', 'Title')}
             </FormLabel>
             <form.Field name="title">
@@ -590,7 +634,10 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
                   id="task-title"
                   value={field.state.value}
                   onChange={(e) => field.handleChange(e.target.value)}
-                  placeholder={t('taskFormDialog.titlePlaceholder', 'Task title')}
+                  placeholder={t(
+                    'taskFormDialog.titlePlaceholder',
+                    'Task title'
+                  )}
                   className="text-base"
                   disabled={isSubmitting}
                   autoFocus
@@ -601,7 +648,10 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
 
           {/* Description */}
           <div className="space-y-1">
-            <FormLabel htmlFor="task-description" className="text-xs font-medium uppercase text-muted-foreground">
+            <FormLabel
+              htmlFor="task-description"
+              className="text-xs font-medium uppercase text-muted-foreground"
+            >
               {t('taskFormSheet.description', 'Description')}
             </FormLabel>
             <form.Field name="description">
@@ -611,7 +661,10 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
                   onChange={(desc) => field.handleChange(desc)}
                   rows={isMobile ? 6 : 10}
                   maxRows={isMobile ? 12 : 20}
-                  placeholder={t('taskFormDialog.descriptionPlaceholder', 'Add details...')}
+                  placeholder={t(
+                    'taskFormDialog.descriptionPlaceholder',
+                    'Add details...'
+                  )}
                   className="text-sm resize-none"
                   disabled={isSubmitting}
                   projectId={projectId}
@@ -694,7 +747,9 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6 text-destructive"
-                          onClick={() => pendingVariables.removeVariable(variable.id)}
+                          onClick={() =>
+                            pendingVariables.removeVariable(variable.id)
+                          }
                         >
                           <Trash2 className="h-3 w-3" />
                         </Button>
@@ -708,9 +763,14 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
               {showVariableEditor && (
                 <div className="space-y-2 p-3 rounded-md border bg-muted/30">
                   <Input
-                    placeholder={t('taskFormSheet.variableName', 'Variable name (e.g., API_KEY)')}
+                    placeholder={t(
+                      'taskFormSheet.variableName',
+                      'Variable name (e.g., API_KEY)'
+                    )}
                     value={newVarName}
-                    onChange={(e) => setNewVarName(e.target.value.toUpperCase())}
+                    onChange={(e) =>
+                      setNewVarName(e.target.value.toUpperCase())
+                    }
                     className="font-mono text-sm"
                   />
                   <Input
@@ -734,7 +794,11 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
                     </Button>
                     <Button
                       size="sm"
-                      onClick={editingVariable ? handleUpdateVariable : handleAddVariable}
+                      onClick={
+                        editingVariable
+                          ? handleUpdateVariable
+                          : handleAddVariable
+                      }
                       disabled={!newVarName.trim()}
                     >
                       {editingVariable
@@ -764,23 +828,47 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
             <form.Field name="status">
               {(field) => (
                 <div className="space-y-1">
-                  <FormLabel htmlFor="task-status" className="text-xs font-medium uppercase text-muted-foreground">
+                  <FormLabel
+                    htmlFor="task-status"
+                    className="text-xs font-medium uppercase text-muted-foreground"
+                  >
                     {t('taskFormDialog.statusLabel', 'Status')}
                   </FormLabel>
                   <Select
                     value={field.state.value}
-                    onValueChange={(value) => field.handleChange(value as TaskStatus)}
+                    onValueChange={(value) =>
+                      field.handleChange(value as TaskStatus)
+                    }
                     disabled={isSubmitting}
                   >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="todo">{t('taskFormDialog.statusOptions.todo', 'To Do')}</SelectItem>
-                      <SelectItem value="inprogress">{t('taskFormDialog.statusOptions.inprogress', 'In Progress')}</SelectItem>
-                      <SelectItem value="inreview">{t('taskFormDialog.statusOptions.inreview', 'In Review')}</SelectItem>
-                      <SelectItem value="done">{t('taskFormDialog.statusOptions.done', 'Done')}</SelectItem>
-                      <SelectItem value="cancelled">{t('taskFormDialog.statusOptions.cancelled', 'Cancelled')}</SelectItem>
+                      <SelectItem value="todo">
+                        {t('taskFormDialog.statusOptions.todo', 'To Do')}
+                      </SelectItem>
+                      <SelectItem value="inprogress">
+                        {t(
+                          'taskFormDialog.statusOptions.inprogress',
+                          'In Progress'
+                        )}
+                      </SelectItem>
+                      <SelectItem value="inreview">
+                        {t(
+                          'taskFormDialog.statusOptions.inreview',
+                          'In Review'
+                        )}
+                      </SelectItem>
+                      <SelectItem value="done">
+                        {t('taskFormDialog.statusOptions.done', 'Done')}
+                      </SelectItem>
+                      <SelectItem value="cancelled">
+                        {t(
+                          'taskFormDialog.statusOptions.cancelled',
+                          'Cancelled'
+                        )}
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -808,7 +896,9 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
                         <ExecutorProfileSelector
                           profiles={profiles}
                           selectedProfile={field.state.value}
-                          onProfileSelect={(profile) => field.handleChange(profile)}
+                          onProfileSelect={(profile) =>
+                            field.handleChange(profile)
+                          }
                           disabled={isSubmitting || !autoStartField.state.value}
                           showLabel={false}
                           className="flex items-center gap-2 flex-row flex-1 min-w-0"
@@ -822,17 +912,23 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
                           {(parentWorktreeField) => (
                             <div
                               data-testid="branch-selector"
-                              data-disabled={mode === 'subtask' && parentWorktreeField.state.value}
+                              data-disabled={
+                                mode === 'subtask' &&
+                                parentWorktreeField.state.value
+                              }
                             >
                               <BranchSelector
                                 branches={branches ?? []}
                                 selectedBranch={field.state.value}
-                                onBranchSelect={(branch) => field.handleChange(branch)}
+                                onBranchSelect={(branch) =>
+                                  field.handleChange(branch)
+                                }
                                 placeholder="Branch"
                                 className={cn(
                                   'h-9 flex-1 min-w-0 text-xs',
                                   (isSubmitting ||
-                                    (mode === 'subtask' && parentWorktreeField.state.value)) &&
+                                    (mode === 'subtask' &&
+                                      parentWorktreeField.state.value)) &&
                                     'opacity-50 cursor-not-allowed pointer-events-none'
                                 )}
                               />
@@ -851,18 +947,31 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
                           <Checkbox
                             id="use-parent-worktree"
                             checked={field.state.value}
-                            onCheckedChange={(checked) => field.handleChange(checked === true)}
-                            disabled={isSubmitting || !autoStartField.state.value || !parentWorktreeAvailable}
-                            aria-label={t('taskFormDialog.useParentWorktree', 'Use parent worktree')}
+                            onCheckedChange={(checked) =>
+                              field.handleChange(checked === true)
+                            }
+                            disabled={
+                              isSubmitting ||
+                              !autoStartField.state.value ||
+                              !parentWorktreeAvailable
+                            }
+                            aria-label={t(
+                              'taskFormDialog.useParentWorktree',
+                              'Use parent worktree'
+                            )}
                           />
                           <FormLabel
                             htmlFor="use-parent-worktree"
                             className={cn(
                               'text-sm cursor-pointer',
-                              !parentWorktreeAvailable && 'text-muted-foreground'
+                              !parentWorktreeAvailable &&
+                                'text-muted-foreground'
                             )}
                           >
-                            {t('taskFormDialog.useParentWorktree', 'Use parent worktree')}
+                            {t(
+                              'taskFormDialog.useParentWorktree',
+                              'Use parent worktree'
+                            )}
                           </FormLabel>
                         </div>
                       )}
@@ -929,7 +1038,10 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
                       className="data-[state=checked]:bg-gray-900 dark:data-[state=checked]:bg-gray-100"
                       aria-label={t('taskFormDialog.startLabel', 'Start')}
                     />
-                    <FormLabel htmlFor="autostart-switch" className="text-sm cursor-pointer hidden sm:inline">
+                    <FormLabel
+                      htmlFor="autostart-switch"
+                      className="text-sm cursor-pointer hidden sm:inline"
+                    >
                       {t('taskFormDialog.startLabel', 'Start')}
                     </FormLabel>
                   </div>
@@ -1033,8 +1145,14 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
                 )}
               </p>
               <div className="flex gap-2 justify-end">
-                <Button variant="outline" onClick={() => setShowDiscardWarning(false)}>
-                  {t('taskFormDialog.discardDialog.continueEditing', 'Continue Editing')}
+                <Button
+                  variant="outline"
+                  onClick={() => setShowDiscardWarning(false)}
+                >
+                  {t(
+                    'taskFormDialog.discardDialog.continueEditing',
+                    'Continue Editing'
+                  )}
                 </Button>
                 <Button variant="destructive" onClick={handleDiscardChanges}>
                   {t('taskFormDialog.discardDialog.discardChanges', 'Discard')}
@@ -1099,8 +1217,14 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
               )}
             </p>
             <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={() => setShowDiscardWarning(false)}>
-                {t('taskFormDialog.discardDialog.continueEditing', 'Continue Editing')}
+              <Button
+                variant="outline"
+                onClick={() => setShowDiscardWarning(false)}
+              >
+                {t(
+                  'taskFormDialog.discardDialog.continueEditing',
+                  'Continue Editing'
+                )}
               </Button>
               <Button variant="destructive" onClick={handleDiscardChanges}>
                 {t('taskFormDialog.discardDialog.discardChanges', 'Discard')}

@@ -26,7 +26,9 @@ const ProjectSettings = lazy(() =>
   import('./ProjectSettings').then((m) => ({ default: m.ProjectSettings }))
 );
 const OrganizationSettings = lazy(() =>
-  import('./OrganizationSettings').then((m) => ({ default: m.OrganizationSettings }))
+  import('./OrganizationSettings').then((m) => ({
+    default: m.OrganizationSettings,
+  }))
 );
 const AgentSettings = lazy(() =>
   import('./AgentSettings').then((m) => ({ default: m.AgentSettings }))
@@ -130,7 +132,10 @@ function AccordionItem({
         />
         <div className="flex-1 min-w-0">
           <div className="font-medium">{title}</div>
-          <div className="text-sm text-muted-foreground" data-testid="section-description">
+          <div
+            className="text-sm text-muted-foreground"
+            data-testid="section-description"
+          >
             {description}
           </div>
         </div>
@@ -167,7 +172,9 @@ function AccordionItem({
 
 export function MobileSettingsAccordion() {
   const { t } = useTranslation('settings');
-  const [expandedSection, setExpandedSection] = useState<string | null>('general');
+  const [expandedSection, setExpandedSection] = useState<string | null>(
+    'general'
+  );
   const [searchQuery, setSearchQuery] = useState('');
 
   const handleToggle = useCallback((sectionId: string) => {
@@ -196,7 +203,9 @@ export function MobileSettingsAccordion() {
     const query = searchQuery.toLowerCase();
     return settingsSections.filter((section) => {
       const title = t(`settings.layout.nav.${section.path}`).toLowerCase();
-      const description = t(`settings.layout.nav.${section.path}Desc`).toLowerCase();
+      const description = t(
+        `settings.layout.nav.${section.path}Desc`
+      ).toLowerCase();
       return title.includes(query) || description.includes(query);
     });
   }, [searchQuery, t]);
@@ -216,7 +225,10 @@ export function MobileSettingsAccordion() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             type="search"
-            placeholder={t('settings.layout.searchPlaceholder', 'Search settings...')}
+            placeholder={t(
+              'settings.layout.searchPlaceholder',
+              'Search settings...'
+            )}
             value={searchQuery}
             onChange={(e) => handleSearchChange(e.target.value)}
             className="pl-10 pr-10 h-10"

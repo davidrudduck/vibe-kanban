@@ -58,9 +58,9 @@ describe('Electric Config', () => {
     });
 
     it('throws error for invalid table name', () => {
-      expect(() => createShapeUrl('invalid_table' as ElectricShapeTable)).toThrow(
-        'Unknown Electric shape table: invalid_table'
-      );
+      expect(() =>
+        createShapeUrl('invalid_table' as ElectricShapeTable)
+      ).toThrow('Unknown Electric shape table: invalid_table');
     });
   });
 });

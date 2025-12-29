@@ -1,7 +1,11 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import type { TerminalMessage } from 'shared/types';
 
-export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'error';
+export type ConnectionState =
+  | 'connecting'
+  | 'connected'
+  | 'disconnected'
+  | 'error';
 
 export interface UseTerminalWebSocketOptions {
   sessionId: string | null;
@@ -27,7 +31,8 @@ export function useTerminalWebSocket({
   onConnectionChange,
 }: UseTerminalWebSocketOptions): UseTerminalWebSocketResult {
   const wsRef = useRef<WebSocket | null>(null);
-  const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
+  const [connectionState, setConnectionState] =
+    useState<ConnectionState>('disconnected');
   const [retryCount, setRetryCount] = useState<number>(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isIntentionallyClosed = useRef<boolean>(false);
@@ -50,7 +55,9 @@ export function useTerminalWebSocket({
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
-    const ws = new WebSocket(`${protocol}//${host}/api/terminal/ws/${sessionId}`);
+    const ws = new WebSocket(
+      `${protocol}//${host}/api/terminal/ws/${sessionId}`
+    );
 
     wsRef.current = ws;
     isIntentionallyClosed.current = false;

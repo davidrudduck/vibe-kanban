@@ -323,9 +323,7 @@ describe('SwipeableTaskCard - swipe-to-archive', () => {
     render(<SwipeableTaskCard {...defaultProps} />);
 
     // Should not have swipeable functionality on desktop
-    expect(
-      screen.queryByTestId('swipeable-task-card')
-    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId('swipeable-task-card')).not.toBeInTheDocument();
 
     // Content should still render
     expect(screen.getByTestId('task-content')).toBeInTheDocument();

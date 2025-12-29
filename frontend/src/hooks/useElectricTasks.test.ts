@@ -76,7 +76,12 @@ describe('useElectricTasks', () => {
     it('sets isLoading to false when data is loaded', () => {
       mockIsLoading = false;
       mockShapeData = [
-        { id: 'task-1', status: 'todo', project_id: 'project-1', deleted_at: null },
+        {
+          id: 'task-1',
+          status: 'todo',
+          project_id: 'project-1',
+          deleted_at: null,
+        },
       ];
 
       const { result } = renderHook(() => useElectricTasks('project-1'));
@@ -97,9 +102,24 @@ describe('useElectricTasks', () => {
   describe('tasks filtering', () => {
     it('filters tasks by project_id', () => {
       mockShapeData = [
-        { id: 'task-1', status: 'todo', project_id: 'project-1', deleted_at: null },
-        { id: 'task-2', status: 'inprogress', project_id: 'project-2', deleted_at: null },
-        { id: 'task-3', status: 'done', project_id: 'project-1', deleted_at: null },
+        {
+          id: 'task-1',
+          status: 'todo',
+          project_id: 'project-1',
+          deleted_at: null,
+        },
+        {
+          id: 'task-2',
+          status: 'inprogress',
+          project_id: 'project-2',
+          deleted_at: null,
+        },
+        {
+          id: 'task-3',
+          status: 'done',
+          project_id: 'project-1',
+          deleted_at: null,
+        },
       ];
 
       const { result } = renderHook(() => useElectricTasks('project-1'));
@@ -113,7 +133,12 @@ describe('useElectricTasks', () => {
 
     it('excludes deleted tasks by default', () => {
       mockShapeData = [
-        { id: 'task-1', status: 'todo', project_id: 'project-1', deleted_at: null },
+        {
+          id: 'task-1',
+          status: 'todo',
+          project_id: 'project-1',
+          deleted_at: null,
+        },
         {
           id: 'task-2',
           status: 'todo',
@@ -132,7 +157,12 @@ describe('useElectricTasks', () => {
 
     it('includes deleted tasks when includeArchived is true', () => {
       mockShapeData = [
-        { id: 'task-1', status: 'todo', project_id: 'project-1', deleted_at: null },
+        {
+          id: 'task-1',
+          status: 'todo',
+          project_id: 'project-1',
+          deleted_at: null,
+        },
         {
           id: 'task-2',
           status: 'todo',
@@ -155,8 +185,18 @@ describe('useElectricTasks', () => {
   describe('tasksById', () => {
     it('provides tasks indexed by id', () => {
       mockShapeData = [
-        { id: 'task-1', status: 'todo', project_id: 'project-1', deleted_at: null },
-        { id: 'task-2', status: 'done', project_id: 'project-1', deleted_at: null },
+        {
+          id: 'task-1',
+          status: 'todo',
+          project_id: 'project-1',
+          deleted_at: null,
+        },
+        {
+          id: 'task-2',
+          status: 'done',
+          project_id: 'project-1',
+          deleted_at: null,
+        },
       ];
 
       const { result } = renderHook(() => useElectricTasks('project-1'));
@@ -177,10 +217,30 @@ describe('useElectricTasks', () => {
   describe('tasksByStatus', () => {
     it('groups tasks by status', () => {
       mockShapeData = [
-        { id: 'task-1', status: 'todo', project_id: 'project-1', deleted_at: null },
-        { id: 'task-2', status: 'todo', project_id: 'project-1', deleted_at: null },
-        { id: 'task-3', status: 'inprogress', project_id: 'project-1', deleted_at: null },
-        { id: 'task-4', status: 'done', project_id: 'project-1', deleted_at: null },
+        {
+          id: 'task-1',
+          status: 'todo',
+          project_id: 'project-1',
+          deleted_at: null,
+        },
+        {
+          id: 'task-2',
+          status: 'todo',
+          project_id: 'project-1',
+          deleted_at: null,
+        },
+        {
+          id: 'task-3',
+          status: 'inprogress',
+          project_id: 'project-1',
+          deleted_at: null,
+        },
+        {
+          id: 'task-4',
+          status: 'done',
+          project_id: 'project-1',
+          deleted_at: null,
+        },
       ];
 
       const { result } = renderHook(() => useElectricTasks('project-1'));

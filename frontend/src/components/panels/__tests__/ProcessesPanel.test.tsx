@@ -99,11 +99,10 @@ describe('ProcessesPanel', () => {
     expect(wrapper).toHaveClass('h-full');
   });
 
-  it('should pass onClose callback to be used for closing the panel', () => {
-    const mockOnClose = vi.fn();
-    render(<ProcessesPanel attemptId="test-attempt" onClose={mockOnClose} />);
+  it('should render without optional props', () => {
+    render(<ProcessesPanel />);
 
-    // The close functionality should be available (tested via integration)
+    // Should render successfully with no props
     expect(screen.getByTestId('processes-tab')).toBeInTheDocument();
   });
 });

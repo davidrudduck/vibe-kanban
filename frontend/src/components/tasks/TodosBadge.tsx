@@ -22,7 +22,10 @@ function getStatusIcon(status?: string) {
       <CircleDot aria-hidden className="h-3 w-3 text-blue-500 flex-shrink-0" />
     );
   return (
-    <Circle aria-hidden className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+    <Circle
+      aria-hidden
+      className="h-3 w-3 text-muted-foreground flex-shrink-0"
+    />
   );
 }
 
@@ -43,10 +46,7 @@ export function TodosBadge({ todos, className }: TodosBadgeProps) {
         <Button
           variant="ghost"
           size="sm"
-          className={cn(
-            'h-8 px-2 text-xs font-medium tabular-nums',
-            className
-          )}
+          className={cn('h-8 px-2 text-xs font-medium tabular-nums', className)}
           aria-label={`${pendingCount} todos pending`}
         >
           <span className="flex items-center gap-1">
@@ -55,15 +55,9 @@ export function TodosBadge({ todos, className }: TodosBadgeProps) {
           </span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent
-        className="w-72 p-0"
-        align="end"
-        sideOffset={4}
-      >
+      <PopoverContent className="w-72 p-0" align="end" sideOffset={4}>
         <div className="px-3 py-2 border-b">
-          <h4 className="text-sm font-medium">
-            Todos ({todos.length})
-          </h4>
+          <h4 className="text-sm font-medium">Todos ({todos.length})</h4>
         </div>
         <ul className="max-h-64 overflow-y-auto p-2 space-y-1">
           {todos.map((todo, index) => (

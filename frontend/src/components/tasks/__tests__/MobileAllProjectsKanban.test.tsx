@@ -7,9 +7,10 @@ import type { TaskWithProjectInfo, TaskStatus } from 'shared/types';
 
 // Mock the useSwipe hook
 vi.mock('@/hooks/useSwipe', () => ({
-  useSwipe: (
-    handlers: { onSwipeLeft?: () => void; onSwipeRight?: () => void }
-  ) => ({
+  useSwipe: (handlers: {
+    onSwipeLeft?: () => void;
+    onSwipeRight?: () => void;
+  }) => ({
     onTouchStart: vi.fn(),
     onTouchEnd: vi.fn(),
     // Expose handlers for testing
@@ -80,7 +81,9 @@ describe('MobileAllProjectsKanban', () => {
     );
 
     // Check that the board is rendered
-    expect(screen.getByTestId('mobile-all-projects-kanban')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('mobile-all-projects-kanban')
+    ).toBeInTheDocument();
 
     // First column (todo) should be visible
     expect(screen.getByTestId('column-todo')).toBeInTheDocument();
