@@ -20,6 +20,8 @@ use axum::{
 use db::models::{
     draft::{Draft, DraftType},
     execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
+    execution_process_logs::ExecutionProcessLogs,
+    executor_session::ExecutorSession,
     log_entry::{CreateLogEntry, DbLogEntry},
     merge::{Merge, MergeStatus, PrMerge, PullRequestInfo},
     project::{Project, ProjectError},
@@ -127,6 +129,14 @@ pub struct TaskAttemptQuery {
 pub struct DiffStreamQuery {
     #[serde(default)]
     pub stats_only: bool,
+}
+
+/// Response for fix-sessions endpoint
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct FixSessionsResponse {
+    pub invalidated_count: usize,
+    pub invalidated_session_ids: Vec<String>,
 }
 
 pub async fn get_task_attempts(
@@ -2511,6 +2521,72 @@ pub async fn purge_build_artifacts(
     Ok(ResponseJson(ApiResponse::success(result)))
 }
 
+/// Fix corrupted sessions by invalidating sessions from failed/killed execution processes
+pub async fn fix_sessions(
+    Extension(task_attempt): Extension<TaskAttempt>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<FixSessionsResponse>>, ApiError> {
+    let pool = &deployment.db().pool;
+
+    let invalidated = ExecutorSession::invalidate_failed_sessions(pool, task_attempt.id).await?;
+
+    tracing::info!(
+        task_attempt_id = %task_attempt.id,
+        invalidated_count = invalidated.len(),
+        "Fixed corrupted sessions for task attempt"
+    );
+
+    Ok(ResponseJson(ApiResponse::success(FixSessionsResponse {
+        invalidated_count: invalidated.len(),
+        invalidated_session_ids: invalidated,
+    })))
+}
+
+/// Check if the latest failed execution has a session invalid error that can be fixed.
+/// Returns true only if:
+/// 1. The latest CodingAgent execution failed with a session error, AND
+/// 2. There are sessions from failed processes that can still be invalidated
+pub async fn has_session_error(
+    Extension(task_attempt): Extension<TaskAttempt>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<bool>>, ApiError> {
+    let pool = &deployment.db().pool;
+
+    // Get latest coding agent execution
+    let latest = ExecutionProcess::find_latest_by_task_attempt_and_run_reason(
+        pool,
+        task_attempt.id,
+        &ExecutionProcessRunReason::CodingAgent,
+    )
+    .await?;
+
+    let has_error = if let Some(exec) = latest {
+        if exec.status == ExecutionProcessStatus::Failed {
+            // Check if logs contain session error
+            let has_session_error_in_logs =
+                ExecutionProcessLogs::contains_session_invalid_error(pool, exec.id)
+                    .await
+                    .unwrap_or(false);
+
+            if has_session_error_in_logs {
+                // Also check if there are sessions that can be fixed
+                // (i.e., sessions from failed processes that still have session_id set)
+                let fixable_sessions =
+                    ExecutorSession::count_fixable_sessions(pool, task_attempt.id).await?;
+                fixable_sessions > 0
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    Ok(ResponseJson(ApiResponse::success(has_error)))
+}
+
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let task_attempt_id_router = Router::new()
         .route("/", get(get_task_attempt))
@@ -2551,6 +2627,9 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/cleanup", post(cleanup_worktree))
         // Purge build artifacts endpoint (removes target/, node_modules/, etc. without deleting worktree)
         .route("/purge", post(purge_build_artifacts))
+        // Session error handling endpoints
+        .route("/fix-sessions", post(fix_sessions))
+        .route("/has-session-error", get(has_session_error))
         // File browser endpoints (directory listing only - wildcard route is separate)
         .route("/files", get(list_worktree_files))
         .layer(from_fn_with_state(

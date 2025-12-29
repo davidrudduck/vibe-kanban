@@ -53,18 +53,35 @@ fn get_max_connections() -> u32 {
 ///
 /// Performance pragmas:
 /// - `temp_store = MEMORY` (2): Store temporary tables in memory
-/// - `mmap_size = 256MB`: Memory-mapped I/O for faster reads
+/// - `mmap_size`: Memory-mapped I/O for faster reads (64MB dev, 256MB prod)
 /// - `cache_size = -64000`: 64MB page cache (negative = KB)
+/// - `synchronous = NORMAL`: Must be set AFTER mmap_size to ensure proper fsync
 ///
 /// WAL tuning:
 /// - `wal_autocheckpoint = 2000`: Checkpoint every ~8MB instead of default 4MB
 ///   This reduces checkpoint frequency under heavy write load
+///
+/// CRITICAL: The `synchronous` pragma must be set AFTER `mmap_size` because
+/// enabling mmap can affect how SQLite handles fsync. Without explicit
+/// synchronous setting after mmap, disk I/O errors (code 522) can occur
+/// under heavy write load.
 async fn apply_performance_pragmas(conn: &mut SqliteConnection) -> Result<(), Error> {
     // temp_store = MEMORY (2)
     conn.execute("PRAGMA temp_store = 2").await?;
 
-    // mmap_size = 256MB
-    conn.execute("PRAGMA mmap_size = 268435456").await?;
+    // mmap_size: Use smaller value for dev to reduce I/O pressure
+    // Debug builds (dev): 64MB - sufficient for typical dev database (<100MB)
+    // Release builds (prod): 256MB - better performance for larger databases
+    #[cfg(debug_assertions)]
+    conn.execute("PRAGMA mmap_size = 67108864").await?; // 64MB
+
+    #[cfg(not(debug_assertions))]
+    conn.execute("PRAGMA mmap_size = 268435456").await?; // 256MB
+
+    // CRITICAL: Set synchronous AFTER mmap_size to ensure disk writes are
+    // properly synchronized. Without this, mmap'ed writes can bypass fsync
+    // guarantees and cause SQLITE_IOERR (code 522) under load.
+    conn.execute("PRAGMA synchronous = NORMAL").await?;
 
     // cache_size = -64000 (64MB, negative means KB)
     conn.execute("PRAGMA cache_size = -64000").await?;

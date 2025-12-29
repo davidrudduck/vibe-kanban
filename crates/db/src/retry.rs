@@ -80,15 +80,37 @@ impl RetryConfig {
     }
 }
 
-/// Check if an error is a SQLite BUSY or LOCKED error that should be retried.
+/// Check if an error is a transient SQLite error that should be retried.
 ///
-/// SQLite error codes:
+/// SQLite error codes considered retryable:
 /// - 5 = SQLITE_BUSY (database is locked by another connection)
 /// - 6 = SQLITE_LOCKED (table is locked within a transaction)
+/// - 10 = SQLITE_IOERR (disk I/O error - base code)
+/// - 522 = SQLITE_IOERR_SHORT_READ (I/O error variant)
+/// - Other 5xx codes = SQLITE_IOERR extended codes
+///
+/// SQLITE_IOERR errors (code 10 and variants like 522) are included because
+/// they can be transient under heavy write load, especially with WAL mode
+/// and mmap. These errors often resolve after a brief pause.
 pub fn is_retryable_error(e: &SqlxError) -> bool {
     if let SqlxError::Database(db_err) = e {
-        let code = db_err.code();
-        matches!(code.as_deref(), Some("5") | Some("6"))
+        if let Some(code) = db_err.code() {
+            let code_str = code.as_ref();
+            // SQLITE_BUSY (5), SQLITE_LOCKED (6), SQLITE_IOERR (10)
+            if matches!(code_str, "5" | "6" | "10") {
+                return true;
+            }
+            // SQLITE_IOERR extended codes: 522, 778, etc. (base 10 + extended*256)
+            // These are formatted as the numeric value, e.g., "522"
+            if let Ok(code_num) = code_str.parse::<u32>() {
+                // Extended I/O error codes have base 10 (SQLITE_IOERR)
+                // Check if it's an IOERR variant: (code & 0xFF) == 10
+                if code_num > 10 && (code_num & 0xFF) == 10 {
+                    return true;
+                }
+            }
+        }
+        false
     } else {
         false
     }
@@ -148,7 +170,8 @@ where
                     attempt = attempt + 1,
                     max_retries = config.max_retries,
                     delay_ms = delay.as_millis() as u64,
-                    "SQLITE_BUSY/LOCKED error, retrying with backoff"
+                    error = ?e,
+                    "Transient SQLite error (BUSY/LOCKED/IOERR), retrying with backoff"
                 );
 
                 tokio::time::sleep(delay).await;

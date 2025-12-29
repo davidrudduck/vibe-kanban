@@ -214,6 +214,57 @@ impl ExecutorSession {
         Ok(())
     }
 
+    /// Invalidate all sessions from failed/killed execution processes
+    /// Returns the list of session IDs that were invalidated
+    pub async fn invalidate_failed_sessions(
+        pool: &SqlitePool,
+        task_attempt_id: Uuid,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let sessions = sqlx::query!(
+            r#"SELECT es.session_id
+               FROM executor_sessions es
+               JOIN execution_processes ep ON es.execution_process_id = ep.id
+               WHERE ep.task_attempt_id = $1
+                 AND ep.status IN ('failed', 'killed')
+                 AND es.session_id IS NOT NULL"#,
+            task_attempt_id
+        )
+        .fetch_all(pool)
+        .await?;
+
+        let session_ids: Vec<String> = sessions
+            .iter()
+            .filter_map(|r| r.session_id.clone())
+            .collect();
+
+        for session_id in &session_ids {
+            Self::mark_session_invalid(pool, session_id).await?;
+        }
+
+        Ok(session_ids)
+    }
+
+    /// Count sessions from failed/killed execution processes that can still be fixed
+    /// (i.e., have session_id IS NOT NULL)
+    pub async fn count_fixable_sessions(
+        pool: &SqlitePool,
+        task_attempt_id: Uuid,
+    ) -> Result<i64, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"SELECT COUNT(*) as count
+               FROM executor_sessions es
+               JOIN execution_processes ep ON es.execution_process_id = ep.id
+               WHERE ep.task_attempt_id = $1
+                 AND ep.status IN ('failed', 'killed')
+                 AND es.session_id IS NOT NULL"#,
+            task_attempt_id
+        )
+        .fetch_one(pool)
+        .await?;
+
+        Ok(result.count)
+    }
+
     /// Update executor session prompt
     #[allow(dead_code)]
     pub async fn update_prompt(

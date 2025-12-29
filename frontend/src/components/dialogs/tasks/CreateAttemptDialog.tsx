@@ -132,7 +132,8 @@ const CreateAttemptDialogImpl = NiceModal.create<CreateAttemptDialogProps>(
       if (
         modal.visible &&
         task?.parent_task_id &&
-        parentLatestAttempt?.container_ref
+        parentLatestAttempt?.container_ref &&
+        !parentLatestAttempt.worktree_deleted
       ) {
         setUseParentWorktree(true);
       }
@@ -140,6 +141,7 @@ const CreateAttemptDialogImpl = NiceModal.create<CreateAttemptDialogProps>(
       modal.visible,
       task?.parent_task_id,
       parentLatestAttempt?.container_ref,
+      parentLatestAttempt?.worktree_deleted,
     ]);
 
     const defaultProfile: ExecutorProfileId | null = useMemo(() => {

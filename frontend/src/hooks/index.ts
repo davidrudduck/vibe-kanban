@@ -1,5 +1,6 @@
 export { useAllTasks } from './useAllTasks';
 export { useBranchStatus } from './useBranchStatus';
+export { useSessionError } from './useSessionError';
 export { useAttemptExecution } from './useAttemptExecution';
 export { useOpenInEditor } from './useOpenInEditor';
 export { useProjectBranches } from './useProjectBranches';
