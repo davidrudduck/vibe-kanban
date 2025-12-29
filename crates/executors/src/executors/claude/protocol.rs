@@ -19,8 +19,9 @@ use crate::executors::{
 };
 use workspace_utils::approvals::Question;
 
-/// Handles bidirectional control protocol communication
-#[derive(Clone)]
+/// Handles bidirectional control protocol communication.
+/// Allows sending messages to a running Claude Code process via stdin.
+#[derive(Clone, Debug)]
 pub struct ProtocolPeer {
     stdin: Arc<Mutex<ChildStdin>>,
 }
