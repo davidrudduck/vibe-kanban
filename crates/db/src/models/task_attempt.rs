@@ -543,10 +543,7 @@ impl TaskAttempt {
 
     /// Find task attempts that have not been synced to the Hive.
     /// Returns attempts ordered by created_at (oldest first) for incremental sync.
-    pub async fn find_unsynced(
-        pool: &SqlitePool,
-        limit: i64,
-    ) -> Result<Vec<Self>, sqlx::Error> {
+    pub async fn find_unsynced(pool: &SqlitePool, limit: i64) -> Result<Vec<Self>, sqlx::Error> {
         sqlx::query_as!(
             TaskAttempt,
             r#"SELECT  id                AS "id!: Uuid",
@@ -571,10 +568,7 @@ impl TaskAttempt {
     }
 
     /// Mark a task attempt as synced to the Hive.
-    pub async fn mark_hive_synced(
-        pool: &SqlitePool,
-        id: Uuid,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn mark_hive_synced(pool: &SqlitePool, id: Uuid) -> Result<(), sqlx::Error> {
         let now = Utc::now();
         sqlx::query!(
             "UPDATE task_attempts SET hive_synced_at = $1 WHERE id = $2",

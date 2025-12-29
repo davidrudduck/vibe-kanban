@@ -113,7 +113,10 @@ impl<'a> LabelRepository<'a> {
     }
 
     /// Find all labels for an organization (excludes deleted)
-    pub async fn find_by_organization(&self, organization_id: Uuid) -> Result<Vec<Label>, LabelError> {
+    pub async fn find_by_organization(
+        &self,
+        organization_id: Uuid,
+    ) -> Result<Vec<Label>, LabelError> {
         let labels = sqlx::query_as!(
             Label,
             r#"
@@ -409,10 +412,7 @@ impl<'a> LabelRepository<'a> {
 
     /// Find or create a label by name within a scope (used for conflict resolution)
     /// Returns the existing label if one with the same name exists, otherwise creates a new one
-    pub async fn find_or_create(
-        &self,
-        data: CreateLabelData,
-    ) -> Result<(Label, bool), LabelError> {
+    pub async fn find_or_create(&self, data: CreateLabelData) -> Result<(Label, bool), LabelError> {
         // Try to find existing label with same name in scope
         let existing = sqlx::query_as!(
             Label,
@@ -454,7 +454,10 @@ impl<'a> LabelRepository<'a> {
 
 impl LabelRepository<'_> {
     /// Get the organization_id for a label
-    pub async fn organization_id(pool: &PgPool, label_id: Uuid) -> Result<Option<Uuid>, sqlx::Error> {
+    pub async fn organization_id(
+        pool: &PgPool,
+        label_id: Uuid,
+    ) -> Result<Option<Uuid>, sqlx::Error> {
         sqlx::query_scalar!(
             r#"
             SELECT organization_id

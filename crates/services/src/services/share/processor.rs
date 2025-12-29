@@ -496,9 +496,7 @@ impl ActivityProcessor {
         let hive_label = label_payload.label;
 
         // Check if we already have this label locally (by shared_label_id)
-        if let Some(existing) =
-            Label::find_by_shared_label_id(tx.as_mut(), hive_label.id).await?
-        {
+        if let Some(existing) = Label::find_by_shared_label_id(tx.as_mut(), hive_label.id).await? {
             // Update existing label if the Hive version is newer
             if hive_label.version > existing.version {
                 Label::update_from_hive(
@@ -585,9 +583,7 @@ impl ActivityProcessor {
         let hive_label = label_payload.label;
 
         // Find local label by shared_label_id and unlink it
-        if let Some(existing) =
-            Label::find_by_shared_label_id(tx.as_mut(), hive_label.id).await?
-        {
+        if let Some(existing) = Label::find_by_shared_label_id(tx.as_mut(), hive_label.id).await? {
             // Clear the shared_label_id to unlink from Hive
             // We don't delete the local label - just unlink it
             Label::clear_shared_label_id(tx.as_mut(), existing.id).await?;

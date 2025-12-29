@@ -388,6 +388,9 @@ impl From<ShareError> for ApiError {
             ShareError::InvalidOrganizationId => {
                 ApiError::Conflict("Invalid organization ID format".to_string())
             }
+            ShareError::NoOrganizations => ApiError::Conflict(
+                "No organizations available for auto-linking project".to_string(),
+            ),
             ShareError::RemoteClientError(err) => ApiError::Conflict(err.to_string()),
         }
     }

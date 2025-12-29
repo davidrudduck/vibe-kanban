@@ -33,12 +33,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use db::DBService;
 use db::models::execution_process_logs::ExecutionProcessLogs;
 use db::retry::{RetryConfig, with_retry};
-use db::DBService;
 use sqlx::SqlitePool;
-use tokio::sync::{mpsc, oneshot};
 use tokio::sync::RwLock;
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::interval;
 use utils::log_msg::LogMsg;
 use uuid::Uuid;
@@ -101,11 +101,7 @@ impl LogBatcherHandle {
     /// Shutdown the batcher gracefully, waiting for all pending logs to be flushed.
     pub async fn shutdown(&self) {
         let (done_tx, done_rx) = oneshot::channel();
-        if let Err(e) = self
-            .tx
-            .send(LogBatcherCommand::Shutdown { done_tx })
-            .await
-        {
+        if let Err(e) = self.tx.send(LogBatcherCommand::Shutdown { done_tx }).await {
             tracing::error!("Failed to send shutdown signal to log batcher: {}", e);
             return;
         }

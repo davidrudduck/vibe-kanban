@@ -6,10 +6,11 @@ use remote::routes::tasks::{
     AssignSharedTaskRequest, CreateSharedTaskRequest, DeleteSharedTaskRequest, SharedTaskResponse,
     UpdateSharedTaskRequest,
 };
+use tracing::info;
 use uuid::Uuid;
 
 use super::{ShareError, convert_remote_task, status};
-use crate::services::remote_client::RemoteClient;
+use crate::services::remote_client::{CreateRemoteProjectPayload, RemoteClient};
 
 #[derive(Clone)]
 pub struct SharePublisher {
@@ -42,9 +43,12 @@ impl SharePublisher {
         let project = Project::find_by_id(&self.db.pool, task.project_id)
             .await?
             .ok_or(ShareError::ProjectNotFound(task.project_id))?;
-        let remote_project_id = project
-            .remote_project_id
-            .ok_or(ShareError::ProjectNotLinked(project.id))?;
+
+        // Auto-link the project if it's not already linked
+        let remote_project_id = match project.remote_project_id {
+            Some(id) => id,
+            None => self.ensure_project_linked(&project).await?,
+        };
 
         let payload = CreateSharedTaskRequest {
             project_id: remote_project_id,
@@ -150,6 +154,55 @@ impl SharePublisher {
 
         SharedTask::remove(&self.db.pool, shared_task.id).await?;
         Ok(())
+    }
+
+    /// Auto-creates a remote project in the Hive and links it to the local project.
+    /// Uses the first available organization (preferring personal org).
+    /// Public version for use in startup migration.
+    pub async fn ensure_project_linked_public(
+        &self,
+        project: &Project,
+    ) -> Result<Uuid, ShareError> {
+        self.ensure_project_linked(project).await
+    }
+
+    /// Auto-creates a remote project in the Hive and links it to the local project.
+    /// Uses the first available organization (preferring personal org).
+    async fn ensure_project_linked(&self, project: &Project) -> Result<Uuid, ShareError> {
+        // Get organizations - use the first one (personal org is typically first)
+        let orgs = self.client.list_organizations().await?;
+        let org = orgs
+            .organizations
+            .first()
+            .ok_or(ShareError::NoOrganizations)?;
+
+        info!(
+            project_id = %project.id,
+            project_name = %project.name,
+            organization_id = %org.id,
+            "Auto-creating remote project for Hive sync"
+        );
+
+        // Create the remote project
+        let remote_project = self
+            .client
+            .create_project(&CreateRemoteProjectPayload {
+                organization_id: org.id,
+                name: project.name.clone(),
+                metadata: None,
+            })
+            .await?;
+
+        // Link the local project to the remote project
+        Project::set_remote_project_id(&self.db.pool, project.id, Some(remote_project.id)).await?;
+
+        info!(
+            project_id = %project.id,
+            remote_project_id = %remote_project.id,
+            "Auto-linked local project to remote project"
+        );
+
+        Ok(remote_project.id)
     }
 
     async fn sync_shared_task(

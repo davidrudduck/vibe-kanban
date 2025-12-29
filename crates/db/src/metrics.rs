@@ -4,8 +4,8 @@
 //! database operations, enabling visibility into query performance,
 //! connection pool health, and retry behavior.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use serde::Serialize;
@@ -134,11 +134,12 @@ impl DbMetrics {
 
     /// Record a connection pool acquisition with wait time.
     pub fn record_pool_acquire(&self, wait_duration: Duration) {
-        self.inner.pool_acquires_total.fetch_add(1, Ordering::Relaxed);
-        self.inner.pool_acquire_wait_us.fetch_add(
-            wait_duration.as_micros() as u64,
-            Ordering::Relaxed,
-        );
+        self.inner
+            .pool_acquires_total
+            .fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .pool_acquire_wait_us
+            .fetch_add(wait_duration.as_micros() as u64, Ordering::Relaxed);
     }
 
     /// Record a pool acquisition timeout.
@@ -188,7 +189,10 @@ impl DbMetrics {
             pool_acquires_total: self.inner.pool_acquires_total.load(Ordering::Relaxed),
             pool_timeouts: self.inner.pool_timeouts.load(Ordering::Relaxed),
             wal_size_bytes: self.inner.wal_size_bytes.load(Ordering::Relaxed),
-            last_checkpoint_duration_ms: self.inner.last_checkpoint_duration_us.load(Ordering::Relaxed)
+            last_checkpoint_duration_ms: self
+                .inner
+                .last_checkpoint_duration_us
+                .load(Ordering::Relaxed)
                 / 1000,
             latency_p50_ms: self.estimate_percentile(50),
             latency_p95_ms: self.estimate_percentile(95),

@@ -43,11 +43,18 @@ pub struct WalMonitorConfig {
 
 impl Default for WalMonitorConfig {
     fn default() -> Self {
-        let warning_mb = get_env_or_default("VK_WAL_WARNING_THRESHOLD_MB", DEFAULT_WARNING_THRESHOLD_MB);
-        let checkpoint_mb = get_env_or_default("VK_WAL_CHECKPOINT_THRESHOLD_MB", DEFAULT_CHECKPOINT_THRESHOLD_MB);
+        let warning_mb =
+            get_env_or_default("VK_WAL_WARNING_THRESHOLD_MB", DEFAULT_WARNING_THRESHOLD_MB);
+        let checkpoint_mb = get_env_or_default(
+            "VK_WAL_CHECKPOINT_THRESHOLD_MB",
+            DEFAULT_CHECKPOINT_THRESHOLD_MB,
+        );
 
         Self {
-            check_interval_secs: get_env_or_default("VK_WAL_CHECK_INTERVAL_SECS", DEFAULT_CHECK_INTERVAL_SECS),
+            check_interval_secs: get_env_or_default(
+                "VK_WAL_CHECK_INTERVAL_SECS",
+                DEFAULT_CHECK_INTERVAL_SECS,
+            ),
             warning_threshold_bytes: warning_mb * 1024 * 1024,
             checkpoint_threshold_bytes: checkpoint_mb * 1024 * 1024,
             auto_checkpoint: std::env::var("VK_WAL_AUTO_CHECKPOINT")
@@ -135,7 +142,8 @@ impl WalMonitor {
     }
 
     async fn run(self, mut rx: mpsc::Receiver<WalMonitorCommand>) {
-        let mut interval = tokio::time::interval(Duration::from_secs(self.config.check_interval_secs));
+        let mut interval =
+            tokio::time::interval(Duration::from_secs(self.config.check_interval_secs));
 
         tracing::info!(
             check_interval_secs = self.config.check_interval_secs,
@@ -227,11 +235,10 @@ impl WalMonitor {
         let start = std::time::Instant::now();
 
         // Use PRAGMA wal_checkpoint(PASSIVE) which doesn't block
-        let result: Result<(i32, i32, i32), sqlx::Error> = sqlx::query_as(
-            "PRAGMA wal_checkpoint(PASSIVE)"
-        )
-        .fetch_one(&self.pool)
-        .await;
+        let result: Result<(i32, i32, i32), sqlx::Error> =
+            sqlx::query_as("PRAGMA wal_checkpoint(PASSIVE)")
+                .fetch_one(&self.pool)
+                .await;
 
         let duration = start.elapsed();
         self.metrics.update_checkpoint_duration(duration);
@@ -262,9 +269,7 @@ impl WalMonitor {
 /// Returns 0 if the WAL file doesn't exist.
 pub fn get_wal_size(db_path: impl AsRef<Path>) -> u64 {
     let wal_path = db_path.as_ref().with_extension("sqlite-wal");
-    std::fs::metadata(&wal_path)
-        .map(|m| m.len())
-        .unwrap_or(0)
+    std::fs::metadata(&wal_path).map(|m| m.len()).unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -275,8 +280,14 @@ mod tests {
     fn test_default_config() {
         let config = WalMonitorConfig::default();
         assert_eq!(config.check_interval_secs, DEFAULT_CHECK_INTERVAL_SECS);
-        assert_eq!(config.warning_threshold_bytes, DEFAULT_WARNING_THRESHOLD_MB * 1024 * 1024);
-        assert_eq!(config.checkpoint_threshold_bytes, DEFAULT_CHECKPOINT_THRESHOLD_MB * 1024 * 1024);
+        assert_eq!(
+            config.warning_threshold_bytes,
+            DEFAULT_WARNING_THRESHOLD_MB * 1024 * 1024
+        );
+        assert_eq!(
+            config.checkpoint_threshold_bytes,
+            DEFAULT_CHECKPOINT_THRESHOLD_MB * 1024 * 1024
+        );
         assert!(config.auto_checkpoint);
     }
 

@@ -5,10 +5,10 @@ use std::{
 };
 
 use git2::{Error as GitError, Repository};
-use uuid::Uuid;
 use thiserror::Error;
 use tracing::{debug, info, trace};
 use utils::shell::resolve_executable_path;
+use uuid::Uuid;
 
 use super::git::{GitService, GitServiceError};
 
@@ -598,7 +598,11 @@ impl WorktreeManager {
                         let size = Self::get_dir_size_sync(&path);
                         total_used += size;
                         worktrees.push(WorktreeSize {
-                            name: path.file_name().unwrap_or_default().to_string_lossy().to_string(),
+                            name: path
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string(),
                             bytes: size,
                             attempt_id: None,
                         });
@@ -613,9 +617,7 @@ impl WorktreeManager {
             Ok(DiskUsageStats {
                 worktree_dir: base_dir.to_string_lossy().to_string(),
                 used_bytes: total_used,
-                worktree_count: std::fs::read_dir(&base_dir)
-                    .map(|e| e.count())
-                    .unwrap_or(0) as u32,
+                worktree_count: std::fs::read_dir(&base_dir).map(|e| e.count()).unwrap_or(0) as u32,
                 largest_worktrees: largest,
             })
         })

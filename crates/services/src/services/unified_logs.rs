@@ -96,14 +96,8 @@ impl LogService for LocalLogService {
         direction: Direction,
     ) -> Result<PaginatedLogs, LogServiceError> {
         // Use log_entries table for efficient pagination with individual rows
-        let paginated = DbLogEntry::find_paginated(
-            &self.pool,
-            execution_id,
-            cursor,
-            limit,
-            direction,
-        )
-        .await?;
+        let paginated =
+            DbLogEntry::find_paginated(&self.pool, execution_id, cursor, limit, direction).await?;
         Ok(paginated.to_paginated_logs())
     }
 
