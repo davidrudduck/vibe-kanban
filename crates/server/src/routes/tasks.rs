@@ -304,6 +304,10 @@ pub struct CreateAndStartTaskRequest {
     pub task: CreateTask,
     pub executor_profile_id: ExecutorProfileId,
     pub base_branch: String,
+    /// When true, reuse the parent task's latest attempt worktree.
+    /// Only valid when the task has a parent_task_id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_parent_worktree: Option<bool>,
 }
 
 pub async fn create_task_and_start(
@@ -362,25 +366,68 @@ pub async fn create_task_and_start(
     }
 
     let attempt_id = Uuid::new_v4();
-    let git_branch_name = deployment
-        .container()
-        .git_branch_from_task_attempt(&attempt_id, &task.title)
-        .await;
+
+    // Determine branch name and parent worktree info based on use_parent_worktree flag
+    let (git_branch_name, parent_container_ref) = if payload.use_parent_worktree.unwrap_or(false) {
+        // Validate task has parent
+        let parent_task_id = payload.task.parent_task_id.ok_or_else(|| {
+            ApiError::BadRequest("Cannot use parent worktree: task has no parent_task_id".into())
+        })?;
+
+        // Get parent task's latest attempt
+        let parent_attempts = TaskAttempt::fetch_all(pool, Some(parent_task_id)).await?;
+        let parent_attempt = parent_attempts.first().ok_or_else(|| {
+            ApiError::BadRequest("Cannot use parent worktree: parent task has no attempts".into())
+        })?;
+
+        // Validate parent has a worktree
+        let container_ref = parent_attempt.container_ref.clone().ok_or_else(|| {
+            ApiError::BadRequest("Cannot use parent worktree: parent attempt has no worktree".into())
+        })?;
+
+        // Validate parent worktree not deleted
+        if parent_attempt.worktree_deleted {
+            return Err(ApiError::BadRequest(
+                "Cannot use parent worktree: parent worktree was deleted".into(),
+            ));
+        }
+
+        (parent_attempt.branch.clone(), Some(container_ref))
+    } else {
+        let branch = deployment
+            .container()
+            .git_branch_from_task_attempt(&attempt_id, &task.title)
+            .await;
+        (branch, None)
+    };
 
     let task_attempt = TaskAttempt::create(
         pool,
         &CreateTaskAttempt {
             executor: payload.executor_profile_id.executor,
-            base_branch: payload.base_branch,
+            base_branch: payload.base_branch.clone(),
             branch: git_branch_name,
         },
         attempt_id,
         task.id,
     )
     .await?;
+
+    // If using parent worktree, update container_ref directly and skip worktree creation
+    let skip_worktree_creation = if let Some(container_ref) = parent_container_ref {
+        TaskAttempt::update_container_ref(pool, task_attempt.id, &container_ref).await?;
+        true
+    } else {
+        false
+    };
+
     let is_attempt_running = deployment
         .container()
-        .start_attempt(&task_attempt, payload.executor_profile_id.clone(), false)
+        .start_attempt(
+            &task_attempt,
+            payload.executor_profile_id.clone(),
+            skip_worktree_creation,
+        )
         .await
         .inspect_err(|err| tracing::error!("Failed to start task attempt: {}", err))
         .is_ok();

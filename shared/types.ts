@@ -437,7 +437,12 @@ export type AssignSharedTaskRequest = { new_assignee_user_id: string | null, ver
 
 export type AssignSharedTaskResponse = { shared_task: SharedTask, };
 
-export type CreateAndStartTaskRequest = { task: CreateTask, executor_profile_id: ExecutorProfileId, base_branch: string, };
+export type CreateAndStartTaskRequest = { task: CreateTask, executor_profile_id: ExecutorProfileId, base_branch: string, 
+/**
+ * When true, reuse the parent task's latest attempt worktree.
+ * Only valid when the task has a parent_task_id.
+ */
+use_parent_worktree: boolean | null, };
 
 export type ArchiveTaskRequest = { 
 /**
