@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id              as \"id!: Uuid\",\n                      task_attempt_id as \"task_attempt_id!: Uuid\",\n                      run_reason      as \"run_reason!: ExecutionProcessRunReason\",\n                      executor_action as \"executor_action!: sqlx::types::Json<ExecutorActionField>\",\n                      before_head_commit,\n                      after_head_commit,\n                      status          as \"status!: ExecutionProcessStatus\",\n                      exit_code,\n                      dropped,\n                      pid,\n                      started_at      as \"started_at!: DateTime<Utc>\",\n                      completed_at    as \"completed_at?: DateTime<Utc>\",\n                      created_at      as \"created_at!: DateTime<Utc>\",\n                      updated_at      as \"updated_at!: DateTime<Utc>\"\n               FROM execution_processes\n               WHERE task_attempt_id = ?\n                 AND (? OR dropped = FALSE)\n               ORDER BY created_at ASC",
+  "query": "SELECT id as \"id!: Uuid\", task_attempt_id as \"task_attempt_id!: Uuid\", run_reason as \"run_reason!: ExecutionProcessRunReason\", executor_action as \"executor_action!: sqlx::types::Json<ExecutorActionField>\", before_head_commit,\n                      after_head_commit, status as \"status!: ExecutionProcessStatus\", exit_code, dropped, pid, started_at as \"started_at!: DateTime<Utc>\", completed_at as \"completed_at?: DateTime<Utc>\",\n                      created_at as \"created_at!: DateTime<Utc>\", updated_at as \"updated_at!: DateTime<Utc>\", hive_synced_at as \"hive_synced_at: DateTime<Utc>\"\n               FROM execution_processes WHERE id = ?",
   "describe": {
     "columns": [
       {
@@ -72,10 +72,15 @@
         "name": "updated_at!: DateTime<Utc>",
         "ordinal": 13,
         "type_info": "Text"
+      },
+      {
+        "name": "hive_synced_at: DateTime<Utc>",
+        "ordinal": 14,
+        "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 2
+      "Right": 1
     },
     "nullable": [
       true,
@@ -91,8 +96,9 @@
       false,
       true,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "192bad20952751515b987d8f6ceda8c077b62b7c1ca7d745b4c5c2cba9ab93c6"
+  "hash": "cfe3af4ec6eb51cc7cfe3225c48c4bbcd6aaf37240b50d72694d4539640d6af5"
 }

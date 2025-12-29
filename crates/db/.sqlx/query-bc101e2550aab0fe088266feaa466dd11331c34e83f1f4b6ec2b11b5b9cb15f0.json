@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id as \"id!: Uuid\", task_attempt_id as \"task_attempt_id!: Uuid\", run_reason as \"run_reason!: ExecutionProcessRunReason\", executor_action as \"executor_action!: sqlx::types::Json<ExecutorActionField>\", before_head_commit,\n                      after_head_commit, status as \"status!: ExecutionProcessStatus\", exit_code, dropped, pid, started_at as \"started_at!: DateTime<Utc>\", completed_at as \"completed_at?: DateTime<Utc>\",\n                      created_at as \"created_at!: DateTime<Utc>\", updated_at as \"updated_at!: DateTime<Utc>\"\n               FROM execution_processes WHERE rowid = ?",
+  "query": "SELECT id              as \"id!: Uuid\",\n                      task_attempt_id as \"task_attempt_id!: Uuid\",\n                      run_reason      as \"run_reason!: ExecutionProcessRunReason\",\n                      executor_action as \"executor_action!: sqlx::types::Json<ExecutorActionField>\",\n                      before_head_commit,\n                      after_head_commit,\n                      status          as \"status!: ExecutionProcessStatus\",\n                      exit_code,\n                      dropped,\n                      pid,\n                      started_at      as \"started_at!: DateTime<Utc>\",\n                      completed_at    as \"completed_at?: DateTime<Utc>\",\n                      created_at      as \"created_at!: DateTime<Utc>\",\n                      updated_at      as \"updated_at!: DateTime<Utc>\",\n                      hive_synced_at  as \"hive_synced_at: DateTime<Utc>\"\n               FROM execution_processes\n               WHERE task_attempt_id = ?\n                 AND (? OR dropped = FALSE)\n               ORDER BY created_at ASC",
   "describe": {
     "columns": [
       {
@@ -72,10 +72,15 @@
         "name": "updated_at!: DateTime<Utc>",
         "ordinal": 13,
         "type_info": "Text"
+      },
+      {
+        "name": "hive_synced_at: DateTime<Utc>",
+        "ordinal": 14,
+        "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 2
     },
     "nullable": [
       true,
@@ -91,8 +96,9 @@
       false,
       true,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "ca62181bb6e1eca51901a786948294155fdafb08ae8d8463ba19e63fab33cd2b"
+  "hash": "bc101e2550aab0fe088266feaa466dd11331c34e83f1f4b6ec2b11b5b9cb15f0"
 }

@@ -739,7 +739,11 @@ conflicted_files: Array<string>, };
 
 export type ConflictOp = "rebase" | "merge" | "cherry_pick" | "revert";
 
-export type TaskAttempt = { id: string, task_id: string, container_ref: string | null, branch: string, target_branch: string, executor: string, worktree_deleted: boolean, setup_completed_at: string | null, created_at: string, updated_at: string, };
+export type TaskAttempt = { id: string, task_id: string, container_ref: string | null, branch: string, target_branch: string, executor: string, worktree_deleted: boolean, setup_completed_at: string | null, created_at: string, updated_at: string, 
+/**
+ * When this attempt was last synced to the Hive. NULL means not yet synced.
+ */
+hive_synced_at?: string, };
 
 export type ExecutionProcess = { id: string, task_attempt_id: string, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, 
 /**
@@ -759,7 +763,11 @@ dropped: boolean,
 /**
  * System process ID (PID) for process tree discovery
  */
-pid: bigint | null, started_at: string, completed_at: string | null, created_at: string, updated_at: string, };
+pid: bigint | null, started_at: string, completed_at: string | null, created_at: string, updated_at: string, 
+/**
+ * When this execution process was last synced to the Hive. NULL means not yet synced.
+ */
+hive_synced_at?: string, };
 
 export enum ExecutionProcessStatus { running = "running", completed = "completed", failed = "failed", killed = "killed" }
 

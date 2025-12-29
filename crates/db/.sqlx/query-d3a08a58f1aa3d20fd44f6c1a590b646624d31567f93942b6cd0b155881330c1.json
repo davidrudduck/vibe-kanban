@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT\n                id as \"id!\",\n                execution_id as \"execution_id!: Uuid\",\n                output_type,\n                content,\n                timestamp as \"timestamp!: DateTime<Utc>\"\n               FROM log_entries\n               WHERE execution_id = $1\n               ORDER BY id ASC",
+  "query": "SELECT\n                id as \"id!\",\n                execution_id as \"execution_id!: Uuid\",\n                output_type,\n                content,\n                timestamp as \"timestamp!: DateTime<Utc>\",\n                hive_synced_at as \"hive_synced_at: DateTime<Utc>\"\n               FROM log_entries\n               WHERE hive_synced_at IS NULL\n               ORDER BY execution_id, id ASC\n               LIMIT $1",
   "describe": {
     "columns": [
       {
@@ -27,6 +27,11 @@
         "name": "timestamp!: DateTime<Utc>",
         "ordinal": 4,
         "type_info": "Text"
+      },
+      {
+        "name": "hive_synced_at: DateTime<Utc>",
+        "ordinal": 5,
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -37,8 +42,9 @@
       false,
       false,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "99462a62ed6e27e77107adc440393d883002a166f762254e8590980b6339d94d"
+  "hash": "d3a08a58f1aa3d20fd44f6c1a590b646624d31567f93942b6cd0b155881330c1"
 }

@@ -90,6 +90,12 @@ pub enum NodeMessage {
     LinkProject(LinkProjectMessage),
     #[serde(rename = "unlink_project")]
     UnlinkProject(UnlinkProjectMessage),
+    #[serde(rename = "attempt_sync")]
+    AttemptSync(AttemptSyncMessage),
+    #[serde(rename = "execution_sync")]
+    ExecutionSync(ExecutionSyncMessage),
+    #[serde(rename = "logs_batch")]
+    LogsBatch(LogsBatchMessage),
     #[serde(rename = "ack")]
     Ack { message_id: Uuid },
     #[serde(rename = "error")]
@@ -333,6 +339,91 @@ fn default_branch() -> String {
 pub struct UnlinkProjectMessage {
     /// The remote project ID to unlink
     pub project_id: Uuid,
+}
+
+/// Message to sync a task attempt to the Hive.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttemptSyncMessage {
+    /// The local task attempt ID
+    pub attempt_id: Uuid,
+    /// The assignment ID from the Hive (if this was a dispatched task)
+    pub assignment_id: Option<Uuid>,
+    /// The shared task ID on the Hive
+    pub shared_task_id: Uuid,
+    /// The executor name (e.g., "CLAUDE_CODE", "CODEX")
+    pub executor: String,
+    /// Optional executor variant
+    pub executor_variant: Option<String>,
+    /// Git branch for this attempt
+    pub branch: String,
+    /// Target branch for merging
+    pub target_branch: String,
+    /// Container reference (worktree path or container ID)
+    pub container_ref: Option<String>,
+    /// Whether the worktree has been deleted
+    pub worktree_deleted: bool,
+    /// When the setup script completed
+    pub setup_completed_at: Option<chrono::DateTime<Utc>>,
+    /// When the attempt was created locally
+    pub created_at: chrono::DateTime<Utc>,
+    /// When the attempt was last updated locally
+    pub updated_at: chrono::DateTime<Utc>,
+}
+
+/// Message to sync an execution process to the Hive.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionSyncMessage {
+    /// The local execution process ID
+    pub execution_id: Uuid,
+    /// The local task attempt ID
+    pub attempt_id: Uuid,
+    /// The reason for running this execution
+    pub run_reason: String,
+    /// The executor action (serialized JSON)
+    pub executor_action: Option<serde_json::Value>,
+    /// Git HEAD before the process started
+    pub before_head_commit: Option<String>,
+    /// Git HEAD after the process ended
+    pub after_head_commit: Option<String>,
+    /// Current status of the execution
+    pub status: String,
+    /// Exit code if completed
+    pub exit_code: Option<i32>,
+    /// Whether this process is dropped from the current history
+    pub dropped: bool,
+    /// System process ID
+    pub pid: Option<i64>,
+    /// When the process started
+    pub started_at: chrono::DateTime<Utc>,
+    /// When the process completed
+    pub completed_at: Option<chrono::DateTime<Utc>>,
+    /// When the process was created locally
+    pub created_at: chrono::DateTime<Utc>,
+}
+
+/// A log entry in a batch sync message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncLogEntry {
+    /// The type of output (stdout, stderr, system, etc.)
+    pub output_type: TaskOutputType,
+    /// The content of the log message
+    pub content: String,
+    /// When this log was created
+    pub timestamp: chrono::DateTime<Utc>,
+}
+
+/// Message to sync a batch of log entries to the Hive.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogsBatchMessage {
+    /// The assignment ID (for Hive-dispatched tasks)
+    pub assignment_id: Uuid,
+    /// The execution process ID these logs belong to
+    pub execution_process_id: Option<Uuid>,
+    /// The log entries to sync
+    pub entries: Vec<SyncLogEntry>,
+    /// Whether the entries are compressed (gzip)
+    #[serde(default)]
+    pub compressed: bool,
 }
 
 /// Protocol version

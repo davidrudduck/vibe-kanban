@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "INSERT INTO execution_processes (\n                    id, task_attempt_id, run_reason, executor_action, before_head_commit,\n                    after_head_commit, status, exit_code, pid, started_at, completed_at, created_at, updated_at\n                ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, ?, ?) RETURNING\n                    id as \"id!: Uuid\", task_attempt_id as \"task_attempt_id!: Uuid\", run_reason as \"run_reason!: ExecutionProcessRunReason\", executor_action as \"executor_action!: sqlx::types::Json<ExecutorActionField>\", before_head_commit,\n                    after_head_commit, status as \"status!: ExecutionProcessStatus\", exit_code, dropped, pid, started_at as \"started_at!: DateTime<Utc>\", completed_at as \"completed_at?: DateTime<Utc>\", created_at as \"created_at!: DateTime<Utc>\", updated_at as \"updated_at!: DateTime<Utc>\"",
+  "query": "INSERT INTO execution_processes (\n                    id, task_attempt_id, run_reason, executor_action, before_head_commit,\n                    after_head_commit, status, exit_code, pid, started_at, completed_at, created_at, updated_at\n                ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, ?, ?) RETURNING\n                    id as \"id!: Uuid\", task_attempt_id as \"task_attempt_id!: Uuid\", run_reason as \"run_reason!: ExecutionProcessRunReason\", executor_action as \"executor_action!: sqlx::types::Json<ExecutorActionField>\", before_head_commit,\n                    after_head_commit, status as \"status!: ExecutionProcessStatus\", exit_code, dropped, pid, started_at as \"started_at!: DateTime<Utc>\", completed_at as \"completed_at?: DateTime<Utc>\", created_at as \"created_at!: DateTime<Utc>\", updated_at as \"updated_at!: DateTime<Utc>\", hive_synced_at as \"hive_synced_at: DateTime<Utc>\"",
   "describe": {
     "columns": [
       {
@@ -72,6 +72,11 @@
         "name": "updated_at!: DateTime<Utc>",
         "ordinal": 13,
         "type_info": "Text"
+      },
+      {
+        "name": "hive_synced_at: DateTime<Utc>",
+        "ordinal": 14,
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -91,8 +96,9 @@
       false,
       true,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "2e0364b8bb6cd6505759055327b702db250e0eea47dd86686a97cc7ce4066af1"
+  "hash": "298de54289f640bcd7cfd28b0734eded5a5c1b53fa413e2e80ccf3d65bc88fb0"
 }

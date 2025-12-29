@@ -215,13 +215,14 @@ impl<'a> LabelRepository<'a> {
         .fetch_one(self.pool)
         .await
         .map_err(|e| {
-            if let sqlx::Error::Database(ref db_err) = e {
-                if db_err.constraint() == Some("labels_organization_id_project_id_name_deleted_at_key") {
-                    return LabelError::Conflict(format!(
-                        "Label with name '{}' already exists in this scope",
-                        data.name
-                    ));
-                }
+            if let sqlx::Error::Database(ref db_err) = e
+                && db_err.constraint()
+                    == Some("labels_organization_id_project_id_name_deleted_at_key")
+            {
+                return LabelError::Conflict(format!(
+                    "Label with name '{}' already exists in this scope",
+                    data.name
+                ));
             }
             LabelError::from(e)
         })?;

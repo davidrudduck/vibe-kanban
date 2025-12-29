@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT ep.id as \"id!: Uuid\", ep.task_attempt_id as \"task_attempt_id!: Uuid\", ep.run_reason as \"run_reason!: ExecutionProcessRunReason\", ep.executor_action as \"executor_action!: sqlx::types::Json<ExecutorActionField>\",\n                      ep.before_head_commit, ep.after_head_commit, ep.status as \"status!: ExecutionProcessStatus\", ep.exit_code,\n                      ep.dropped, ep.pid, ep.started_at as \"started_at!: DateTime<Utc>\", ep.completed_at as \"completed_at?: DateTime<Utc>\", ep.created_at as \"created_at!: DateTime<Utc>\", ep.updated_at as \"updated_at!: DateTime<Utc>\"\n               FROM execution_processes ep\n               JOIN task_attempts ta ON ep.task_attempt_id = ta.id\n               JOIN tasks t ON ta.task_id = t.id\n               WHERE ep.status = 'running' AND ep.run_reason = 'devserver' AND t.project_id = ?\n               ORDER BY ep.created_at ASC",
+  "query": "SELECT id as \"id!: Uuid\", task_attempt_id as \"task_attempt_id!: Uuid\", run_reason as \"run_reason!: ExecutionProcessRunReason\", executor_action as \"executor_action!: sqlx::types::Json<ExecutorActionField>\", before_head_commit,\n                      after_head_commit, status as \"status!: ExecutionProcessStatus\", exit_code, dropped, pid, started_at as \"started_at!: DateTime<Utc>\", completed_at as \"completed_at?: DateTime<Utc>\",\n                      created_at as \"created_at!: DateTime<Utc>\", updated_at as \"updated_at!: DateTime<Utc>\", hive_synced_at as \"hive_synced_at: DateTime<Utc>\"\n               FROM execution_processes WHERE status = 'running' AND pid IS NOT NULL ORDER BY created_at ASC",
   "describe": {
     "columns": [
       {
@@ -72,10 +72,15 @@
         "name": "updated_at!: DateTime<Utc>",
         "ordinal": 13,
         "type_info": "Text"
+      },
+      {
+        "name": "hive_synced_at: DateTime<Utc>",
+        "ordinal": 14,
+        "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 0
     },
     "nullable": [
       true,
@@ -91,8 +96,9 @@
       false,
       true,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "ad7c575750b7ad0ecf62d523c38f4c5a5ef5ca3564c48fde3750f3a14b9d0721"
+  "hash": "8dd987766cd808706d96679e10a45926e831f9f4def1ac2646dd60f03045d884"
 }

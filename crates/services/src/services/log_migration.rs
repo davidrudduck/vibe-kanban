@@ -375,26 +375,25 @@ pub async fn migrate_execution_logs_with_options(
 
     for patch in &patches {
         // Each patch is a Vec of operations; extract the value from add/replace ops
-        if let Ok(ops) = serde_json::to_value(patch) {
-            if let Some(ops_array) = ops.as_array() {
-                for op in ops_array {
-                    let op_type = op.get("op").and_then(|v| v.as_str());
-                    let path = op.get("path").and_then(|v| v.as_str());
-                    let value = op.get("value");
+        let Ok(ops) = serde_json::to_value(patch) else {
+            continue;
+        };
+        let Some(ops_array) = ops.as_array() else {
+            continue;
+        };
+        for op in ops_array {
+            let op_type = op.get("op").and_then(|v| v.as_str());
+            let path = op.get("path").and_then(|v| v.as_str());
+            let value = op.get("value");
 
-                    // Only process add/replace operations on /entries/{index}
-                    if matches!(op_type, Some("add") | Some("replace")) {
-                        if let Some(path_str) = path {
-                            if let Some(idx_str) = path_str.strip_prefix("/entries/") {
-                                if let Ok(idx) = idx_str.parse::<usize>() {
-                                    if let Some(val) = value {
-                                        entry_map.insert(idx, val.clone());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+            // Only process add/replace operations on /entries/{index}
+            if matches!(op_type, Some("add") | Some("replace"))
+                && let Some(path_str) = path
+                && let Some(idx_str) = path_str.strip_prefix("/entries/")
+                && let Ok(idx) = idx_str.parse::<usize>()
+                && let Some(val) = value
+            {
+                entry_map.insert(idx, val.clone());
             }
         }
     }

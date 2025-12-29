@@ -34,6 +34,7 @@ pub mod git;
 pub mod github;
 pub mod github_sync;
 pub mod hive_client;
+pub mod hive_sync;
 pub mod image;
 pub mod log_batcher;
 pub mod node_proxy_client;

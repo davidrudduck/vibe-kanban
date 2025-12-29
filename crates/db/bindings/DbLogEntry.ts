@@ -26,4 +26,8 @@ content: string,
 /**
  * When this log entry was created.
  */
-timestamp: string, };
+timestamp: string, 
+/**
+ * When this log entry was synced to the Hive. NULL means not yet synced.
+ */
+hive_synced_at?: string, };

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "INSERT INTO log_entries (execution_id, output_type, content, timestamp)\n               VALUES ($1, $2, $3, datetime('now', 'subsec'))\n               RETURNING\n                   id as \"id!\",\n                   execution_id as \"execution_id!: Uuid\",\n                   output_type,\n                   content,\n                   timestamp as \"timestamp!: DateTime<Utc>\"",
+  "query": "SELECT\n                id as \"id!\",\n                execution_id as \"execution_id!: Uuid\",\n                output_type,\n                content,\n                timestamp as \"timestamp!: DateTime<Utc>\",\n                hive_synced_at as \"hive_synced_at: DateTime<Utc>\"\n               FROM log_entries\n               WHERE execution_id = $1\n               ORDER BY id ASC",
   "describe": {
     "columns": [
       {
@@ -27,18 +27,24 @@
         "name": "timestamp!: DateTime<Utc>",
         "ordinal": 4,
         "type_info": "Text"
+      },
+      {
+        "name": "hive_synced_at: DateTime<Utc>",
+        "ordinal": 5,
+        "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 3
+      "Right": 1
     },
     "nullable": [
       true,
       false,
       false,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "8797b54feeed03672eee93ef4b6ad5dd60ba81ed1681f6034c4ebed943ec6eb8"
+  "hash": "2265a0660440fa996eab5625e00c8c545402afc062d111e7a0d4a71a6335a7c3"
 }

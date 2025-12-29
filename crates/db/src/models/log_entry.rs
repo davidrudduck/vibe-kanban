@@ -30,6 +30,9 @@ pub struct DbLogEntry {
     /// When this log entry was created.
     #[ts(type = "string")]
     pub timestamp: DateTime<Utc>,
+    /// When this log entry was synced to the Hive. NULL means not yet synced.
+    #[ts(optional, type = "string")]
+    pub hive_synced_at: Option<DateTime<Utc>>,
 }
 
 /// Request struct for creating a new log entry.
@@ -118,7 +121,8 @@ impl DbLogEntry {
                    execution_id as "execution_id!: Uuid",
                    output_type,
                    content,
-                   timestamp as "timestamp!: DateTime<Utc>""#,
+                   timestamp as "timestamp!: DateTime<Utc>",
+                   hive_synced_at as "hive_synced_at: DateTime<Utc>""#,
             data.execution_id,
             data.output_type,
             data.content
@@ -138,7 +142,8 @@ impl DbLogEntry {
                 execution_id as "execution_id!: Uuid",
                 output_type,
                 content,
-                timestamp as "timestamp!: DateTime<Utc>"
+                timestamp as "timestamp!: DateTime<Utc>",
+                hive_synced_at as "hive_synced_at: DateTime<Utc>"
                FROM log_entries
                WHERE id = $1"#,
             id
@@ -159,7 +164,8 @@ impl DbLogEntry {
                 execution_id as "execution_id!: Uuid",
                 output_type,
                 content,
-                timestamp as "timestamp!: DateTime<Utc>"
+                timestamp as "timestamp!: DateTime<Utc>",
+                hive_synced_at as "hive_synced_at: DateTime<Utc>"
                FROM log_entries
                WHERE execution_id = $1
                ORDER BY id ASC"#,
@@ -212,7 +218,8 @@ impl DbLogEntry {
                             execution_id as "execution_id!: Uuid",
                             output_type,
                             content,
-                            timestamp as "timestamp!: DateTime<Utc>"
+                            timestamp as "timestamp!: DateTime<Utc>",
+                            hive_synced_at as "hive_synced_at: DateTime<Utc>"
                            FROM log_entries
                            WHERE execution_id = $1 AND id > $2
                            ORDER BY id ASC
@@ -231,7 +238,8 @@ impl DbLogEntry {
                             execution_id as "execution_id!: Uuid",
                             output_type,
                             content,
-                            timestamp as "timestamp!: DateTime<Utc>"
+                            timestamp as "timestamp!: DateTime<Utc>",
+                            hive_synced_at as "hive_synced_at: DateTime<Utc>"
                            FROM log_entries
                            WHERE execution_id = $1
                            ORDER BY id ASC
@@ -252,7 +260,8 @@ impl DbLogEntry {
                             execution_id as "execution_id!: Uuid",
                             output_type,
                             content,
-                            timestamp as "timestamp!: DateTime<Utc>"
+                            timestamp as "timestamp!: DateTime<Utc>",
+                            hive_synced_at as "hive_synced_at: DateTime<Utc>"
                            FROM log_entries
                            WHERE execution_id = $1 AND id < $2
                            ORDER BY id DESC
@@ -271,7 +280,8 @@ impl DbLogEntry {
                             execution_id as "execution_id!: Uuid",
                             output_type,
                             content,
-                            timestamp as "timestamp!: DateTime<Utc>"
+                            timestamp as "timestamp!: DateTime<Utc>",
+                            hive_synced_at as "hive_synced_at: DateTime<Utc>"
                            FROM log_entries
                            WHERE execution_id = $1
                            ORDER BY id DESC
@@ -314,6 +324,73 @@ impl DbLogEntry {
         .execute(pool)
         .await?;
 
+        Ok(result.rows_affected())
+    }
+
+    /// Find log entries that have not been synced to the Hive.
+    /// Returns entries grouped by execution_id and ordered by id (oldest first).
+    /// This allows batching log entries for efficient sync.
+    pub async fn find_unsynced(
+        pool: &SqlitePool,
+        limit: i64,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            DbLogEntry,
+            r#"SELECT
+                id as "id!",
+                execution_id as "execution_id!: Uuid",
+                output_type,
+                content,
+                timestamp as "timestamp!: DateTime<Utc>",
+                hive_synced_at as "hive_synced_at: DateTime<Utc>"
+               FROM log_entries
+               WHERE hive_synced_at IS NULL
+               ORDER BY execution_id, id ASC
+               LIMIT $1"#,
+            limit
+        )
+        .fetch_all(pool)
+        .await
+    }
+
+    /// Mark a log entry as synced to the Hive.
+    pub async fn mark_hive_synced(
+        pool: &SqlitePool,
+        id: i64,
+    ) -> Result<(), sqlx::Error> {
+        let now = Utc::now();
+        sqlx::query!(
+            "UPDATE log_entries SET hive_synced_at = $1 WHERE id = $2",
+            now,
+            id
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Mark multiple log entries as synced to the Hive.
+    pub async fn mark_hive_synced_batch(
+        pool: &SqlitePool,
+        ids: &[i64],
+    ) -> Result<u64, sqlx::Error> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+
+        let now = Utc::now();
+        let placeholders: Vec<String> = (1..=ids.len()).map(|i| format!("${}", i + 1)).collect();
+        let query = format!(
+            "UPDATE log_entries SET hive_synced_at = $1 WHERE id IN ({})",
+            placeholders.join(", ")
+        );
+
+        let mut query_builder = sqlx::query(&query).bind(now);
+        for id in ids {
+            query_builder = query_builder.bind(id);
+        }
+
+        let result = query_builder.execute(pool).await?;
         Ok(result.rows_affected())
     }
 }
