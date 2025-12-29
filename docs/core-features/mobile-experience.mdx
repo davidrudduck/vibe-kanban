@@ -1,0 +1,142 @@
+---
+title: Mobile Experience
+description: Touch-optimized interface for managing tasks on mobile devices
+---
+
+Vibe Kanban provides a fully responsive mobile experience optimized for touch interactions. On devices with viewport widths below 640px, the interface automatically adapts to provide native-feeling gestures and mobile-first navigation.
+
+## Bottom Navigation
+
+On mobile devices, the standard navbar is replaced with a fixed bottom navigation bar for easier thumb access:
+
+| Tab | Description |
+|-----|-------------|
+| **Projects** | Navigate to the projects list |
+| **Tasks** | View tasks for the current project or all projects |
+| **Add** | Quick-create a new task |
+| **Activity** | View running processes and activity |
+| **Menu** | Access settings and configuration |
+
+The bottom navigation respects safe area insets on notched devices (iPhone X and later).
+
+## Kanban Board
+
+The mobile Kanban board displays one column at a time with swipe navigation between columns:
+
+### Column Navigation
+
+- **Swipe left**: Move to the next column (e.g., To Do → In Progress)
+- **Swipe right**: Move to the previous column (e.g., In Progress → To Do)
+- **Header arrows**: Tap the arrow buttons in the column header for precise navigation
+- **Progress dots**: Visual indicator shows your position across all 5 columns
+
+Column order: **To Do** → **In Progress** → **In Review** → **Done** → **Cancelled**
+
+### Swipe-to-Archive
+
+Individual task cards support swipe-to-archive:
+
+1. Swipe a task card to the left
+2. A red archive indicator appears behind the card
+3. Continue swiping past the threshold (100px) to archive
+4. Release to confirm or swipe back to cancel
+
+<Note>
+Swipe-to-archive is disabled for:
+- Already archived tasks
+- Remote/shared tasks from other team members
+- Tasks explicitly marked as non-archivable
+</Note>
+
+## Task Details
+
+When viewing task details on mobile, the interface adapts to maximize conversation visibility:
+
+### Conversation Focus Mode
+
+The mobile conversation view prioritizes the AI agent's conversation log:
+
+- **Conversation area**: Takes the majority of the screen
+- **Compact toolbar**: Shows todos badge and task info button
+- **Follow-up input**: Capped at 40% viewport height to preserve conversation context
+
+### Task Info Sheet
+
+Task metadata (description, relationships, variables) is accessible via a swipe-down overlay:
+
+1. Tap **Task Info** in the toolbar
+2. The sheet slides down from the top
+3. Swipe down or tap the backdrop to dismiss
+4. Press Escape to close (keyboard navigation)
+
+The sheet displays:
+- Task description (rendered as Markdown)
+- Parent/child task relationships
+- Task variables
+
+## Task Creation
+
+### TaskFormSheet
+
+Creating and editing tasks uses a full-screen sheet on mobile:
+
+- **Full-screen presentation**: Sheet takes the entire viewport
+- **Swipe-to-dismiss**: Swipe down from the top to cancel
+- **Sticky toolbar**: Image attachment, template insertion, and submit buttons remain accessible
+
+### Template Picker
+
+Quick-start templates are available via a bottom sheet:
+
+1. Tap the template button in the task form
+2. Search or browse available templates:
+   - Bug Report
+   - Feature Request
+   - Code Review Checklist
+   - Quick Task
+3. Tap a template to insert it into the description
+
+## Responsive Breakpoints
+
+Vibe Kanban uses the following breakpoints:
+
+| Breakpoint | Width | Behavior |
+|------------|-------|----------|
+| Mobile | < 640px | Bottom nav, single-column Kanban, full-screen sheets |
+| Tablet | 640px - 1023px | Desktop Kanban (all columns), modal dialogs |
+| Desktop | ≥ 1024px | Full desktop experience with sidebars |
+
+The `useIsMobile()` hook detects viewport size and can be used in custom components:
+
+```typescript
+import { useIsMobile } from '@/hooks/useIsMobile';
+
+function MyComponent() {
+  const isMobile = useIsMobile(); // true when < 640px
+
+  if (isMobile) {
+    return <MobileView />;
+  }
+  return <DesktopView />;
+}
+```
+
+## Touch Gestures Summary
+
+| Gesture | Location | Action |
+|---------|----------|--------|
+| Swipe left/right | Kanban board | Navigate between columns |
+| Swipe left | Task card | Archive task |
+| Swipe down | Task form | Dismiss/cancel |
+| Swipe down | Task info sheet | Close overlay |
+| Tap + hold | Task card | Open context menu |
+
+## Accessibility
+
+Mobile features maintain accessibility standards:
+
+- All interactive elements have appropriate `aria-label` attributes
+- Touch targets meet minimum 48x48px guidelines
+- Screen reader announcements for column navigation
+- Keyboard navigation support (Escape to close overlays)
+- High contrast maintained in both light and dark modes
