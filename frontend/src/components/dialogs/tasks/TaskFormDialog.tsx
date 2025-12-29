@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label as FormLabel } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -39,6 +40,7 @@ import {
   useTaskImages,
   useImageUpload,
   useTaskMutations,
+  useTaskAttempts,
 } from '@/hooks';
 import {
   useKeySubmitTask,
@@ -78,6 +80,7 @@ type TaskFormValues = {
   executorProfileId: ExecutorProfileId | null;
   branch: string;
   autoStart: boolean;
+  useParentWorktree: boolean;
 };
 
 const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
@@ -110,6 +113,21 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
   const { data: taskImages } = useTaskImages(
     editMode ? props.task.id : undefined
   );
+
+  // Parent task attempts - for "use parent worktree" option in subtask mode
+  const parentTaskId = mode === 'subtask' ? props.parentTaskId : undefined;
+  const { data: parentAttempts = [] } = useTaskAttempts(parentTaskId, {
+    enabled: mode === 'subtask',
+  });
+
+  // Determine if parent worktree is available
+  const parentWorktreeAvailable = useMemo(() => {
+    if (parentAttempts.length === 0) return false;
+    const latest = parentAttempts[0]; // Already sorted by created_at DESC
+    if (!latest.container_ref) return false;
+    if (latest.worktree_deleted) return false;
+    return true;
+  }, [parentAttempts]);
 
   // Labels management (for both create and edit modes)
   const taskId = editMode ? props.task.id : undefined;
@@ -150,6 +168,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
           executorProfileId: baseProfile,
           branch: defaultBranch || '',
           autoStart: false,
+          useParentWorktree: false,
         };
 
       case 'duplicate':
@@ -160,9 +179,20 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
           executorProfileId: baseProfile,
           branch: defaultBranch || '',
           autoStart: true,
+          useParentWorktree: false,
         };
 
       case 'subtask':
+        return {
+          title: '',
+          description: '',
+          status: 'todo',
+          executorProfileId: baseProfile,
+          branch: defaultBranch || '',
+          autoStart: true,
+          useParentWorktree: parentWorktreeAvailable,
+        };
+
       case 'create':
       default:
         return {
@@ -172,9 +202,10 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
           executorProfileId: baseProfile,
           branch: defaultBranch || '',
           autoStart: true,
+          useParentWorktree: false,
         };
     }
-  }, [mode, props, system.config?.executor_profile, branches]);
+  }, [mode, props, system.config?.executor_profile, branches, parentWorktreeAvailable]);
 
   // Form submission handler
   const handleSubmit = async ({ value }: { value: TaskFormValues }) => {
@@ -226,6 +257,8 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
             task,
             executor_profile_id: value.executorProfileId!,
             base_branch: value.branch,
+            use_parent_worktree:
+              mode === 'subtask' && value.useParentWorktree ? true : null,
           },
           {
             onSuccess: async (result) => {
@@ -610,41 +643,77 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
               {(autoStartField) => (
                 <div
                   className={cn(
-                    'flex items-center gap-2 h-9 py-2 my-2 transition-opacity duration-200',
+                    'flex flex-col gap-2 py-2 my-2 transition-opacity duration-200',
                     autoStartField.state.value
                       ? 'opacity-100'
                       : 'opacity-0 pointer-events-none'
                   )}
                 >
-                  <form.Field name="executorProfileId">
-                    {(field) => (
-                      <ExecutorProfileSelector
-                        profiles={profiles}
-                        selectedProfile={field.state.value}
-                        onProfileSelect={(profile) =>
-                          field.handleChange(profile)
-                        }
-                        disabled={isSubmitting || !autoStartField.state.value}
-                        showLabel={false}
-                        className="flex items-center gap-2 flex-row flex-[2] min-w-0"
-                        itemClassName="flex-1 min-w-0"
-                      />
-                    )}
-                  </form.Field>
-                  <form.Field name="branch">
-                    {(field) => (
-                      <BranchSelector
-                        branches={branches ?? []}
-                        selectedBranch={field.state.value}
-                        onBranchSelect={(branch) => field.handleChange(branch)}
-                        placeholder="Branch"
-                        className={cn(
-                          'h-9 flex-1 min-w-0 text-xs',
-                          isSubmitting && 'opacity-50 cursor-not-allowed'
-                        )}
-                      />
-                    )}
-                  </form.Field>
+                  <div className="flex items-center gap-2 h-9">
+                    <form.Field name="executorProfileId">
+                      {(field) => (
+                        <ExecutorProfileSelector
+                          profiles={profiles}
+                          selectedProfile={field.state.value}
+                          onProfileSelect={(profile) =>
+                            field.handleChange(profile)
+                          }
+                          disabled={isSubmitting || !autoStartField.state.value}
+                          showLabel={false}
+                          className="flex items-center gap-2 flex-row flex-[2] min-w-0"
+                          itemClassName="flex-1 min-w-0"
+                        />
+                      )}
+                    </form.Field>
+                    <form.Field name="branch">
+                      {(field) => (
+                        <BranchSelector
+                          branches={branches ?? []}
+                          selectedBranch={field.state.value}
+                          onBranchSelect={(branch) => field.handleChange(branch)}
+                          placeholder="Branch"
+                          className={cn(
+                            'h-9 flex-1 min-w-0 text-xs',
+                            isSubmitting && 'opacity-50 cursor-not-allowed'
+                          )}
+                        />
+                      )}
+                    </form.Field>
+                  </div>
+
+                  {/* Use parent worktree checkbox - shown only in subtask mode */}
+                  {mode === 'subtask' && (
+                    <form.Field name="useParentWorktree">
+                      {(field) => (
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            id="use-parent-worktree"
+                            checked={field.state.value}
+                            onCheckedChange={(checked) =>
+                              field.handleChange(checked === true)
+                            }
+                            disabled={
+                              isSubmitting ||
+                              !autoStartField.state.value ||
+                              !parentWorktreeAvailable
+                            }
+                          />
+                          <FormLabel
+                            htmlFor="use-parent-worktree"
+                            className={cn(
+                              'text-sm cursor-pointer',
+                              !parentWorktreeAvailable && 'text-muted-foreground'
+                            )}
+                          >
+                            {t(
+                              'taskFormDialog.useParentWorktree',
+                              'Use parent worktree'
+                            )}
+                          </FormLabel>
+                        </div>
+                      )}
+                    </form.Field>
+                  )}
                 </div>
               )}
             </form.Field>
