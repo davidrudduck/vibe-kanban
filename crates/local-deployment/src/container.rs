@@ -29,7 +29,7 @@ use deployment::{DeploymentError, RemoteClientNotConfigured};
 use executors::{
     actions::{Executable, ExecutorAction},
     approvals::{ExecutorApprovalService, NoopExecutorApprovalService},
-    executors::{BaseCodingAgent, ExecutorExitResult, ExecutorExitSignal},
+    executors::{BaseCodingAgent, ExecutorExitResult, ExecutorExitSignal, claude::protocol::ProtocolPeer},
     logs::{
         NormalizedEntryType,
         utils::{
@@ -67,6 +67,9 @@ pub struct LocalContainerService {
     db: DBService,
     child_store: Arc<RwLock<HashMap<Uuid, Arc<RwLock<AsyncGroupChild>>>>>,
     msg_stores: Arc<RwLock<HashMap<Uuid, Arc<MsgStore>>>>,
+    /// Protocol peers for message injection (keyed by execution_process_id).
+    /// Only Claude Code executors have protocol peers.
+    protocol_peers: Arc<RwLock<HashMap<Uuid, Arc<ProtocolPeer>>>>,
     config: Arc<RwLock<Config>>,
     git: GitService,
     image_service: ImageService,
@@ -86,6 +89,7 @@ impl LocalContainerService {
         publisher: Result<SharePublisher, RemoteClientNotConfigured>,
     ) -> Self {
         let child_store = Arc::new(RwLock::new(HashMap::new()));
+        let protocol_peers = Arc::new(RwLock::new(HashMap::new()));
 
         // Initialize log batcher for batched database writes
         let log_batcher = LogBatcher::spawn(&db);
@@ -94,6 +98,7 @@ impl LocalContainerService {
             db,
             child_store,
             msg_stores,
+            protocol_peers,
             config,
             git,
             image_service,
@@ -120,6 +125,24 @@ impl LocalContainerService {
     pub async fn remove_child_from_store(&self, id: &Uuid) {
         let mut map = self.child_store.write().await;
         map.remove(id);
+    }
+
+    /// Get a protocol peer for message injection (Claude Code only).
+    pub async fn get_protocol_peer(&self, exec_id: &Uuid) -> Option<Arc<ProtocolPeer>> {
+        let map = self.protocol_peers.read().await;
+        map.get(exec_id).cloned()
+    }
+
+    /// Store a protocol peer for message injection.
+    pub async fn store_protocol_peer(&self, exec_id: Uuid, peer: Arc<ProtocolPeer>) {
+        let mut map = self.protocol_peers.write().await;
+        map.insert(exec_id, peer);
+    }
+
+    /// Remove a protocol peer when the process exits.
+    pub async fn remove_protocol_peer(&self, exec_id: &Uuid) {
+        let mut map = self.protocol_peers.write().await;
+        map.remove(exec_id);
     }
 
     /// Defensively check for externally deleted worktrees and mark them as deleted in the database
@@ -526,8 +549,9 @@ impl LocalContainerService {
                 }
             }
 
-            // Cleanup child handle
+            // Cleanup child handle and protocol peer
             child_store.write().await.remove(&exec_id);
+            container.remove_protocol_peer(&exec_id).await;
         })
     }
 
@@ -1111,6 +1135,15 @@ impl ContainerService for LocalContainerService {
         self.add_child_to_store(execution_process.id, spawned.child)
             .await;
 
+        // Store protocol peer for message injection (Claude Code only)
+        if let Some(peer) = spawned.protocol_peer {
+            tracing::debug!(
+                execution_process_id = %execution_process.id,
+                "Storing protocol peer for message injection"
+            );
+            self.store_protocol_peer(execution_process.id, peer).await;
+        }
+
         // Spawn unified exit monitor: watches OS exit and optional executor signal
         let _hn = self.spawn_exit_monitor(&execution_process.id, spawned.exit_signal);
 
@@ -1150,6 +1183,7 @@ impl ContainerService for LocalContainerService {
             }
         }
         self.remove_child_from_store(&execution_process.id).await;
+        self.remove_protocol_peer(&execution_process.id).await;
 
         // Mark the process finished in the MsgStore
         if let Some(msg) = self.msg_stores.write().await.remove(&execution_process.id) {
@@ -1366,6 +1400,31 @@ impl ContainerService for LocalContainerService {
             }
         }
         Ok(())
+    }
+
+    async fn inject_message(
+        &self,
+        execution_process_id: Uuid,
+        message: String,
+    ) -> Result<bool, ContainerError> {
+        // Get the protocol peer for this execution
+        if let Some(peer) = self.get_protocol_peer(&execution_process_id).await {
+            tracing::debug!(
+                execution_process_id = %execution_process_id,
+                message_len = message.len(),
+                "Injecting message into running Claude Code process"
+            );
+            peer.send_user_message(message)
+                .await
+                .map_err(|e| ContainerError::Other(anyhow!("Failed to inject message: {}", e)))?;
+            Ok(true)
+        } else {
+            tracing::debug!(
+                execution_process_id = %execution_process_id,
+                "No protocol peer found for message injection"
+            );
+            Ok(false)
+        }
     }
 
     async fn kill_all_running_processes(&self) -> Result<(), ContainerError> {

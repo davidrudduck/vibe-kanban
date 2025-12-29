@@ -87,6 +87,7 @@ impl AcpAgentHarness {
         Ok(SpawnedChild {
             child,
             exit_signal: Some(exit_rx),
+            protocol_peer: None,
         })
     }
 
@@ -129,6 +130,7 @@ impl AcpAgentHarness {
         Ok(SpawnedChild {
             child,
             exit_signal: Some(exit_rx),
+            protocol_peer: None,
         })
     }
 
