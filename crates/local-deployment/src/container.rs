@@ -76,6 +76,7 @@ pub struct LocalContainerService {
     approvals: Approvals,
     publisher: Result<SharePublisher, RemoteClientNotConfigured>,
     log_batcher: LogBatcherHandle,
+    message_queue: crate::message_queue::MessageQueueStore,
 }
 
 impl LocalContainerService {
@@ -94,6 +95,9 @@ impl LocalContainerService {
         // Initialize log batcher for batched database writes
         let log_batcher = LogBatcher::spawn(&db);
 
+        // Initialize in-memory message queue store
+        let message_queue = crate::message_queue::MessageQueueStore::new();
+
         let container = LocalContainerService {
             db,
             child_store,
@@ -105,6 +109,7 @@ impl LocalContainerService {
             approvals,
             publisher,
             log_batcher,
+            message_queue,
         };
 
         container.spawn_worktree_cleanup().await;
@@ -143,6 +148,11 @@ impl LocalContainerService {
     pub async fn remove_protocol_peer(&self, exec_id: &Uuid) {
         let mut map = self.protocol_peers.write().await;
         map.remove(exec_id);
+    }
+
+    /// Get the in-memory message queue store.
+    pub fn message_queue(&self) -> &crate::message_queue::MessageQueueStore {
+        &self.message_queue
     }
 
     /// Defensively check for externally deleted worktrees and mark them as deleted in the database
@@ -515,6 +525,15 @@ impl LocalContainerService {
                     if let Err(e) = container.try_consume_queued_followup(&ctx).await {
                         tracing::error!(
                             "Failed to start queued follow-up for attempt {}: {}",
+                            ctx.task_attempt.id,
+                            e
+                        );
+                    }
+
+                    // Then check if there are queued messages in the in-memory queue
+                    if let Err(e) = container.try_consume_queued_message(&ctx).await {
+                        tracing::error!(
+                            "Failed to start queued message for attempt {}: {}",
                             ctx.task_attempt.id,
                             e
                         );
@@ -896,6 +915,129 @@ impl LocalContainerService {
         // Clear the draft to reflect that it has been consumed
         let _ =
             Draft::clear_after_send(&self.db.pool, ctx.task_attempt.id, DraftType::FollowUp).await;
+
+        Ok(())
+    }
+
+    /// If a queued message exists in the in-memory queue for this attempt and nothing is running,
+    /// pop and start it as a follow-up request.
+    async fn try_consume_queued_message(
+        &self,
+        ctx: &ExecutionContext,
+    ) -> Result<(), ContainerError> {
+        // Only consider CodingAgent chains; skip DevServer completions
+        if matches!(
+            ctx.execution_process.run_reason,
+            ExecutionProcessRunReason::DevServer
+        ) {
+            return Ok(());
+        }
+
+        // If anything is running for this attempt, bail
+        let procs =
+            ExecutionProcess::find_by_task_attempt_id(&self.db.pool, ctx.task_attempt.id, false)
+                .await?;
+        if procs
+            .iter()
+            .any(|p| matches!(p.status, ExecutionProcessStatus::Running))
+        {
+            return Ok(());
+        }
+
+        // Pop the next message from the queue
+        let Some(queued_msg) = self.message_queue.pop_next(ctx.task_attempt.id).await else {
+            return Ok(());
+        };
+
+        tracing::info!(
+            task_attempt_id = %ctx.task_attempt.id,
+            message_id = %queued_msg.id,
+            "Consuming queued message to start follow-up"
+        );
+
+        // Ensure worktree exists
+        let container_ref = self.ensure_container_exists(&ctx.task_attempt).await?;
+
+        // Get session id - use find_previous_session_ids to skip invalidated sessions
+        let session_ids = ExecutionProcess::find_previous_session_ids(
+            &self.db.pool,
+            ctx.task_attempt.id,
+            5,
+        )
+        .await?;
+
+        let Some(session_id) = session_ids.into_iter().next() else {
+            tracing::warn!(
+                "No valid session id found for attempt {}. Cannot start queued message.",
+                ctx.task_attempt.id
+            );
+            return Ok(());
+        };
+
+        // Get last coding agent process to inherit executor profile
+        let Some(latest) = ExecutionProcess::find_latest_by_task_attempt_and_run_reason(
+            &self.db.pool,
+            ctx.task_attempt.id,
+            &ExecutionProcessRunReason::CodingAgent,
+        )
+        .await?
+        else {
+            tracing::warn!(
+                "No prior CodingAgent process for attempt {}. Cannot start queued message.",
+                ctx.task_attempt.id
+            );
+            return Ok(());
+        };
+
+        use executors::actions::ExecutorActionType;
+        let initial_executor_profile_id = match &latest.executor_action()?.typ {
+            ExecutorActionType::CodingAgentInitialRequest(req) => req.executor_profile_id.clone(),
+            ExecutorActionType::CodingAgentFollowUpRequest(req) => req.executor_profile_id.clone(),
+            _ => {
+                tracing::warn!(
+                    "Latest process for attempt {} is not a coding agent; skipping queued message",
+                    ctx.task_attempt.id
+                );
+                return Ok(());
+            }
+        };
+
+        let executor_profile_id = executors::profile::ExecutorProfileId {
+            executor: initial_executor_profile_id.executor,
+            variant: queued_msg.variant.clone(),
+        };
+
+        // Prepare cleanup action
+        let cleanup_action = ctx
+            .task
+            .parent_project(&self.db.pool)
+            .await?
+            .and_then(|project| self.cleanup_action(project.cleanup_script));
+
+        // Handle images: copy to worktree and canonicalize prompt
+        let worktree_path = std::path::PathBuf::from(&container_ref);
+        let prompt = ImageService::canonicalise_image_paths(&queued_msg.content, &worktree_path);
+
+        let follow_up_request =
+            executors::actions::coding_agent_follow_up::CodingAgentFollowUpRequest {
+                prompt,
+                session_id,
+                executor_profile_id,
+            };
+
+        let follow_up_action = executors::actions::ExecutorAction::new(
+            executors::actions::ExecutorActionType::CodingAgentFollowUpRequest(follow_up_request),
+            cleanup_action,
+        );
+
+        // Start the execution
+        let _ = self
+            .start_execution(
+                &ctx.task_attempt,
+                &follow_up_action,
+                &ExecutionProcessRunReason::CodingAgent,
+            )
+            .await?;
 
         Ok(())
     }
