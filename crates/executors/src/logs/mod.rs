@@ -167,6 +167,11 @@ pub enum ToolStatus {
         requested_at: DateTime<Utc>,
         timeout_at: DateTime<Utc>,
     },
+    /// Question was answered by user - includes their selections
+    Answered {
+        /// Map of question text -> selected answer(s)
+        answers: std::collections::HashMap<String, String>,
+    },
 }
 
 impl ToolStatus {
@@ -178,6 +183,31 @@ impl ToolStatus {
             }),
             ApprovalStatus::TimedOut => Some(ToolStatus::TimedOut),
             ApprovalStatus::Pending => None, // this should not happen
+        }
+    }
+
+    /// Create status from approval response, including answers if present
+    pub fn from_approval_response(
+        status: &ApprovalStatus,
+        answers: Option<&std::collections::HashMap<String, String>>,
+    ) -> Option<Self> {
+        match status {
+            ApprovalStatus::Approved => {
+                // If answers were provided, use Answered status to preserve them
+                if let Some(ans) = answers {
+                    if !ans.is_empty() {
+                        return Some(ToolStatus::Answered {
+                            answers: ans.clone(),
+                        });
+                    }
+                }
+                Some(ToolStatus::Created)
+            }
+            ApprovalStatus::Denied { reason } => Some(ToolStatus::Denied {
+                reason: reason.clone(),
+            }),
+            ApprovalStatus::TimedOut => Some(ToolStatus::TimedOut),
+            ApprovalStatus::Pending => None,
         }
     }
 }

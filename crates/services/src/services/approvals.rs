@@ -300,9 +300,11 @@ impl Approvals {
             }
 
             if let Some(store) = self.msg_store_by_id(&p.execution_process_id).await {
-                let status = ToolStatus::from_approval_status(&req.status).ok_or(
-                    ApprovalError::Custom(anyhow::anyhow!("Invalid approval status")),
-                )?;
+                // Use from_approval_response to include answers in the status if present
+                let status = ToolStatus::from_approval_response(&req.status, req.answers.as_ref())
+                    .ok_or(ApprovalError::Custom(anyhow::anyhow!(
+                        "Invalid approval status"
+                    )))?;
                 let updated_entry = p
                     .entry
                     .with_tool_status(status)
