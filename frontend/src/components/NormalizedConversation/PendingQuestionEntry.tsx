@@ -118,8 +118,9 @@ function QuestionForm({
 
       // Auto-submit if this is the last question and not "Other"
       if (canAutoSubmit && !isOther) {
-        // Use setTimeout to allow state to update first
-        setTimeout(() => onSubmit(), 0);
+        // Call onSubmit directly - the parent component uses refs for synchronous access
+        // so the answer is immediately available when buildFinalAnswers() reads it
+        onSubmit();
       }
     }
   };
@@ -252,8 +253,11 @@ const PendingQuestionEntry = ({
 
   // Track answers for each question by header
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
+  // Ref to track answers synchronously (avoids race condition with auto-submit)
+  const answersRef = useRef<Record<string, string | string[]>>({});
   // Track "Other" text inputs separately
   const [otherTexts, setOtherTexts] = useState<Record<string, string>>({});
+  const otherTextsRef = useRef<Record<string, string>>({});
 
   const { enableScope, disableScope, activeScopes } = useHotkeysContext();
   const tabNav = useContext(TabNavContext);
@@ -310,39 +314,46 @@ const PendingQuestionEntry = ({
 
   const handleAnswerChange = useCallback(
     (header: string, value: string | string[]) => {
-      setAnswers((prev) => ({ ...prev, [header]: value }));
+      // Update both ref (synchronous) and state (triggers re-render)
+      answersRef.current = { ...answersRef.current, [header]: value };
+      setAnswers(answersRef.current);
     },
     []
   );
 
   const handleOtherTextChange = useCallback((header: string, value: string) => {
-    setOtherTexts((prev) => ({ ...prev, [header]: value }));
+    // Update both ref (synchronous) and state (triggers re-render)
+    otherTextsRef.current = { ...otherTextsRef.current, [header]: value };
+    setOtherTexts(otherTextsRef.current);
   }, []);
 
   const buildFinalAnswers = useCallback((): Record<string, string> => {
     // Claude SDK expects answer keys to be the full question text, not the header
     // See: https://platform.claude.com/docs/en/agent-sdk/permissions
+    // Read from refs for synchronous access (avoids race condition with auto-submit)
+    const currentAnswers = answersRef.current;
+    const currentOtherTexts = otherTextsRef.current;
     const result: Record<string, string> = {};
     for (const question of pendingStatus.questions) {
-      const answer = answers[question.header]; // Internal state uses header
+      const answer = currentAnswers[question.header]; // Read from ref
       if (question.multiSelect) {
         const selectedOptions = (answer as string[]) || [];
         // Replace "Other" with the actual text if provided
         const finalOptions = selectedOptions.map((opt) =>
-          opt === 'Other' ? otherTexts[question.header] || 'Other' : opt
+          opt === 'Other' ? currentOtherTexts[question.header] || 'Other' : opt
         );
         result[question.question] = finalOptions.join(', '); // Key = question text
       } else {
         const selectedOption = answer as string;
         if (selectedOption === 'Other') {
-          result[question.question] = otherTexts[question.header] || 'Other'; // Key = question text
+          result[question.question] = currentOtherTexts[question.header] || 'Other'; // Key = question text
         } else {
           result[question.question] = selectedOption || ''; // Key = question text
         }
       }
     }
     return result;
-  }, [answers, otherTexts, pendingStatus.questions]);
+  }, [pendingStatus.questions]);
 
   const handleSubmit = useCallback(async () => {
     if (disabled) return;
