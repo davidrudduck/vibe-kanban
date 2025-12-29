@@ -59,7 +59,7 @@ import { TerminalsPanel } from '@/components/terminal';
 import TaskAttemptPanel from '@/components/panels/TaskAttemptPanel';
 import TaskPanel from '@/components/panels/TaskPanel';
 import SharedTaskPanel from '@/components/panels/SharedTaskPanel';
-import TodoPanel from '@/components/tasks/TodoPanel';
+import { MobileConversationLayout } from '@/components/tasks/MobileConversationLayout';
 import { useAuth } from '@/hooks';
 import { NewCard, NewCardHeader } from '@/components/ui/new-card';
 import {
@@ -1027,37 +1027,14 @@ export function ProjectTasks() {
           {({ logs, followUp, relationships, variables }) => (
             <>
               <GitErrorBanner />
-              <div className="flex-1 min-h-0 flex flex-col">
-                {/* Task Relationships - shown when parent/child tasks exist */}
-                {relationships && (
-                  <div className="shrink-0 border-b">
-                    <div className="mx-auto w-full max-w-[50rem]">
-                      {relationships}
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex-1 min-h-0 flex flex-col">{logs}</div>
-
-                <div className="shrink-0 border-t">
-                  <div className="mx-auto w-full max-w-[50rem]">
-                    <TodoPanel />
-                  </div>
-                </div>
-
-                {/* Variables Panel - shown when task has variables */}
-                <div className="shrink-0 border-t">
-                  <div className="mx-auto w-full max-w-[50rem]">
-                    {variables}
-                  </div>
-                </div>
-
-                <div className="min-h-0 max-h-[50%] border-t overflow-hidden">
-                  <div className="mx-auto w-full max-w-[50rem] h-full min-h-0">
-                    {followUp}
-                  </div>
-                </div>
-              </div>
+              <MobileConversationLayout
+                task={selectedTask}
+                logs={logs}
+                followUp={followUp}
+                relationships={relationships}
+                variables={variables}
+                isMobile={isMobile}
+              />
             </>
           )}
         </TaskAttemptPanel>
