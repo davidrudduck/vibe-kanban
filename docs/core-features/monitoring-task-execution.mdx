@@ -76,6 +76,36 @@ Vibe Kanban generates commit messages based on the last message sent by the agen
 When merging to your base branch, use GitHub's "squash & merge" option to rewrite commits with a summary of what actually changed. Alternatively, ask your coding agent to clean up commits manually.
 </Tip>
 
+## Message Queue
+
+While an agent is executing, you can queue follow-up messages that will be sent automatically when the current task completes.
+
+### Queuing Messages
+
+1. Type your message in the follow-up input
+2. Click **Add to Queue** (appears while agent is running)
+3. The message is added to the queue panel
+
+### Managing the Queue
+
+The queue panel appears below the input field when messages are queued:
+
+- **Reorder**: Use the up/down arrows to change message order
+- **Edit**: Click a message to edit its content inline
+- **Remove**: Hover and click the X to remove a message
+- **Clear All**: Click "Clear" to remove all queued messages
+
+### How It Works
+
+When the agent finishes its current task:
+1. The first message in the queue is automatically sent
+2. The agent processes that message
+3. This repeats until the queue is empty
+
+<Tip>
+Use the message queue to plan multi-step workflows without waiting for each step to complete.
+</Tip>
+
 ## Interacting During Execution
 
 ### Keyboard Shortcuts

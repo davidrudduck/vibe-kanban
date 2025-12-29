@@ -34,6 +34,9 @@ pub async fn list_queued_messages(
     Ok(ResponseJson(ApiResponse::success(messages)))
 }
 
+/// Maximum number of messages allowed in a queue.
+const MAX_QUEUE_SIZE: usize = 50;
+
 /// Add a new message to the queue.
 pub async fn add_queued_message(
     Extension(task_attempt): Extension<TaskAttempt>,
@@ -42,6 +45,19 @@ pub async fn add_queued_message(
 ) -> Result<ResponseJson<ApiResponse<QueuedMessage>>, ApiError> {
     if payload.content.trim().is_empty() {
         return Err(ApiError::BadRequest("Message content cannot be empty".into()));
+    }
+
+    // Check queue limit
+    let current_queue = deployment
+        .local_container()
+        .message_queue()
+        .list(task_attempt.id)
+        .await;
+    if current_queue.len() >= MAX_QUEUE_SIZE {
+        return Err(ApiError::BadRequest(format!(
+            "Queue limit reached (max {} messages)",
+            MAX_QUEUE_SIZE
+        )));
     }
 
     let message = deployment

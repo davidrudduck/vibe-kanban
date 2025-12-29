@@ -190,6 +190,17 @@
     "stop": "Stop",
     "unqueuing": "Unqueuing…"
   },
+  "messageQueue": {
+    "title": "메시지 대기열",
+    "loadingQueue": "대기열 로딩 중...",
+    "emptyState": "대기열에 메시지가 없습니다. 여기에 추가된 메시지는 현재 프로세스가 완료되면 자동으로 전송됩니다.",
+    "clear": "지우기",
+    "save": "저장",
+    "cancel": "취소",
+    "variant": "변형:",
+    "addToQueue": "대기열에 추가",
+    "addToQueueTooltip": "메시지를 대기열에 추가"
+  },
   "git": {
     "branch": {
       "current": "현재"

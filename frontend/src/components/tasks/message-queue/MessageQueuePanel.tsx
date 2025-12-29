@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, Trash2, GripVertical, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -27,6 +28,7 @@ function MessageQueueItem({
   onMoveDown,
   isUpdating,
   isRemoving,
+  t,
 }: {
   message: QueuedMessage;
   index: number;
@@ -37,6 +39,7 @@ function MessageQueueItem({
   onMoveDown: () => void;
   isUpdating?: boolean;
   isRemoving?: boolean;
+  t: (key: string) => string;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
@@ -88,10 +91,10 @@ function MessageQueueItem({
             />
             <div className="flex gap-2">
               <Button size="sm" onClick={handleSave} disabled={isUpdating}>
-                Save
+                {t('messageQueue.save')}
               </Button>
               <Button size="sm" variant="ghost" onClick={handleCancel}>
-                Cancel
+                {t('messageQueue.cancel')}
               </Button>
             </div>
           </div>
@@ -105,7 +108,7 @@ function MessageQueueItem({
         )}
         {message.variant && (
           <span className="text-xs text-muted-foreground mt-1 block">
-            Variant: {message.variant}
+            {t('messageQueue.variant')} {message.variant}
           </span>
         )}
       </div>
@@ -134,6 +137,7 @@ function MessageQueuePanel({
   isRemoving,
   isClearing,
 }: Props) {
+  const { t } = useTranslation('tasks');
   const [isExpanded, setIsExpanded] = useState(true);
 
   const handleMoveUp = (index: number) => {
@@ -153,7 +157,7 @@ function MessageQueuePanel({
   if (isLoading) {
     return (
       <div className="p-3 text-sm text-muted-foreground">
-        Loading queue...
+        {t('messageQueue.loadingQueue')}
       </div>
     );
   }
@@ -173,7 +177,7 @@ function MessageQueuePanel({
           ) : (
             <ChevronRight className="h-4 w-4" />
           )}
-          <span>Message Queue</span>
+          <span>{t('messageQueue.title')}</span>
           {queue.length > 0 && (
             <span className="px-1.5 py-0.5 text-xs rounded-full bg-primary/10 text-primary">
               {queue.length}
@@ -192,7 +196,7 @@ function MessageQueuePanel({
             disabled={isClearing}
           >
             <Trash2 className="h-3 w-3 mr-1" />
-            Clear
+            {t('messageQueue.clear')}
           </Button>
         )}
       </button>
@@ -201,7 +205,7 @@ function MessageQueuePanel({
         <div className="p-2 space-y-2">
           {queue.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
-              No messages queued. Messages added here will be sent automatically when the current process completes.
+              {t('messageQueue.emptyState')}
             </p>
           ) : (
             queue.map((message, index) => (
@@ -218,6 +222,7 @@ function MessageQueuePanel({
                 onMoveDown={() => handleMoveDown(index)}
                 isUpdating={isUpdating}
                 isRemoving={isRemoving}
+                t={t}
               />
             ))
           )}
