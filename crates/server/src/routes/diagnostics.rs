@@ -4,7 +4,11 @@
 //! and WAL file monitoring data.
 
 use axum::{Router, extract::State, response::Json as ResponseJson, routing::get};
-use db::{get_wal_size, metrics::{DbMetricsSnapshot, PoolStats}, models::task_attempt::TaskAttempt};
+use db::{
+    get_wal_size,
+    metrics::{DbMetricsSnapshot, PoolStats},
+    models::task_attempt::TaskAttempt,
+};
 use deployment::Deployment;
 use serde::Serialize;
 use services::services::worktree_manager::{DiskUsageStats, WorktreeManager};
@@ -117,9 +121,7 @@ async fn get_diagnostics(
 ///
 /// # Endpoint
 /// `GET /api/diagnostics/prometheus`
-async fn get_prometheus_metrics(
-    State(deployment): State<DeploymentImpl>,
-) -> String {
+async fn get_prometheus_metrics(State(deployment): State<DeploymentImpl>) -> String {
     let db = deployment.db();
     let metrics = db.metrics.snapshot();
     let pool_stats = db.metrics.get_pool_stats(&db.pool);
@@ -139,33 +141,54 @@ async fn get_prometheus_metrics(
 
     output.push_str("# HELP vk_db_query_duration_avg_ms Average query duration in milliseconds\n");
     output.push_str("# TYPE vk_db_query_duration_avg_ms gauge\n");
-    output.push_str(&format!("vk_db_query_duration_avg_ms {:.2}\n", metrics.query_avg_duration_ms));
+    output.push_str(&format!(
+        "vk_db_query_duration_avg_ms {:.2}\n",
+        metrics.query_avg_duration_ms
+    ));
 
     // Latency percentiles
     output.push_str("# HELP vk_db_latency_p50_ms 50th percentile query latency\n");
     output.push_str("# TYPE vk_db_latency_p50_ms gauge\n");
-    output.push_str(&format!("vk_db_latency_p50_ms {}\n", metrics.latency_p50_ms));
+    output.push_str(&format!(
+        "vk_db_latency_p50_ms {}\n",
+        metrics.latency_p50_ms
+    ));
 
     output.push_str("# HELP vk_db_latency_p95_ms 95th percentile query latency\n");
     output.push_str("# TYPE vk_db_latency_p95_ms gauge\n");
-    output.push_str(&format!("vk_db_latency_p95_ms {}\n", metrics.latency_p95_ms));
+    output.push_str(&format!(
+        "vk_db_latency_p95_ms {}\n",
+        metrics.latency_p95_ms
+    ));
 
     output.push_str("# HELP vk_db_latency_p99_ms 99th percentile query latency\n");
     output.push_str("# TYPE vk_db_latency_p99_ms gauge\n");
-    output.push_str(&format!("vk_db_latency_p99_ms {}\n", metrics.latency_p99_ms));
+    output.push_str(&format!(
+        "vk_db_latency_p99_ms {}\n",
+        metrics.latency_p99_ms
+    ));
 
     // Retry metrics
     output.push_str("# HELP vk_db_retry_attempts Total retry attempts due to SQLITE_BUSY\n");
     output.push_str("# TYPE vk_db_retry_attempts counter\n");
-    output.push_str(&format!("vk_db_retry_attempts {}\n", metrics.retry_attempts));
+    output.push_str(&format!(
+        "vk_db_retry_attempts {}\n",
+        metrics.retry_attempts
+    ));
 
     output.push_str("# HELP vk_db_retry_successes Successful retries\n");
     output.push_str("# TYPE vk_db_retry_successes counter\n");
-    output.push_str(&format!("vk_db_retry_successes {}\n", metrics.retry_successes));
+    output.push_str(&format!(
+        "vk_db_retry_successes {}\n",
+        metrics.retry_successes
+    ));
 
     output.push_str("# HELP vk_db_retry_failures Failed retries\n");
     output.push_str("# TYPE vk_db_retry_failures counter\n");
-    output.push_str(&format!("vk_db_retry_failures {}\n", metrics.retry_failures));
+    output.push_str(&format!(
+        "vk_db_retry_failures {}\n",
+        metrics.retry_failures
+    ));
 
     // Error metrics
     output.push_str("# HELP vk_db_busy_errors SQLITE_BUSY errors encountered\n");
@@ -191,7 +214,10 @@ async fn get_prometheus_metrics(
 
     output.push_str("# HELP vk_db_pool_acquires_total Total connection acquisitions\n");
     output.push_str("# TYPE vk_db_pool_acquires_total counter\n");
-    output.push_str(&format!("vk_db_pool_acquires_total {}\n", metrics.pool_acquires_total));
+    output.push_str(&format!(
+        "vk_db_pool_acquires_total {}\n",
+        metrics.pool_acquires_total
+    ));
 
     output.push_str("# HELP vk_db_pool_timeouts Pool acquisition timeouts\n");
     output.push_str("# TYPE vk_db_pool_timeouts counter\n");
@@ -204,7 +230,10 @@ async fn get_prometheus_metrics(
 
     output.push_str("# HELP vk_db_checkpoint_duration_ms Last checkpoint duration\n");
     output.push_str("# TYPE vk_db_checkpoint_duration_ms gauge\n");
-    output.push_str(&format!("vk_db_checkpoint_duration_ms {}\n", metrics.last_checkpoint_duration_ms));
+    output.push_str(&format!(
+        "vk_db_checkpoint_duration_ms {}\n",
+        metrics.last_checkpoint_duration_ms
+    ));
 
     output
 }

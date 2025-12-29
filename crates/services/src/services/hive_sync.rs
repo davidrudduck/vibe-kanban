@@ -121,7 +121,10 @@ impl HiveSyncService {
         // Sync executions next
         let executions_synced = self.sync_executions().await?;
         if executions_synced > 0 {
-            debug!(count = executions_synced, "Synced execution processes to Hive");
+            debug!(
+                count = executions_synced,
+                "Synced execution processes to Hive"
+            );
         }
 
         // Sync logs last (in batches)

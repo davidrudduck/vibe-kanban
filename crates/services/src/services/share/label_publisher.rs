@@ -126,7 +126,11 @@ impl LabelPublisher {
             version: Some(label.version),
         };
 
-        match self.client.delete_label(shared_label_id, Some(&request)).await {
+        match self
+            .client
+            .delete_label(shared_label_id, Some(&request))
+            .await
+        {
             Ok(_) => {
                 info!(
                     label_id = %label_id,

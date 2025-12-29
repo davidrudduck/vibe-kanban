@@ -319,9 +319,9 @@ impl NodeServiceImpl {
         let now = Utc::now();
 
         // Check if the existing node is currently online (active within threshold)
-        let is_node_online = existing_node.last_heartbeat_at.is_some_and(|last_hb| {
-            now - last_hb < Duration::seconds(NODE_OFFLINE_THRESHOLD_SECS)
-        });
+        let is_node_online = existing_node
+            .last_heartbeat_at
+            .is_some_and(|last_hb| now - last_hb < Duration::seconds(NODE_OFFLINE_THRESHOLD_SECS));
 
         if !is_node_online {
             // Node is offline - allow legitimate takeover (e.g., laptop moved)

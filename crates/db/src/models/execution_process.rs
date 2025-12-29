@@ -695,10 +695,7 @@ impl ExecutionProcess {
 
     /// Find execution processes that have not been synced to the Hive.
     /// Returns processes ordered by created_at (oldest first) for incremental sync.
-    pub async fn find_unsynced(
-        pool: &SqlitePool,
-        limit: i64,
-    ) -> Result<Vec<Self>, sqlx::Error> {
+    pub async fn find_unsynced(pool: &SqlitePool, limit: i64) -> Result<Vec<Self>, sqlx::Error> {
         sqlx::query_as!(
             ExecutionProcess,
             r#"SELECT id as "id!: Uuid", task_attempt_id as "task_attempt_id!: Uuid", run_reason as "run_reason!: ExecutionProcessRunReason", executor_action as "executor_action!: sqlx::types::Json<ExecutorActionField>", before_head_commit,
@@ -715,10 +712,7 @@ impl ExecutionProcess {
     }
 
     /// Mark an execution process as synced to the Hive.
-    pub async fn mark_hive_synced(
-        pool: &SqlitePool,
-        id: Uuid,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn mark_hive_synced(pool: &SqlitePool, id: Uuid) -> Result<(), sqlx::Error> {
         let now = Utc::now();
         sqlx::query!(
             "UPDATE execution_processes SET hive_synced_at = $1 WHERE id = $2",
@@ -863,8 +857,14 @@ mod tests {
             .expect("Query should succeed")
             .expect("Should find an execution process");
 
-        assert_eq!(latest.id, exec2_id, "Should return the most recent execution process");
-        assert_ne!(latest.id, exec1_id, "Should not return the older execution process");
+        assert_eq!(
+            latest.id, exec2_id,
+            "Should return the most recent execution process"
+        );
+        assert_ne!(
+            latest.id, exec1_id,
+            "Should not return the older execution process"
+        );
     }
 
     #[tokio::test]
@@ -878,7 +878,10 @@ mod tests {
             .await
             .expect("Query should succeed");
 
-        assert!(result.is_none(), "Should return None when no execution processes exist");
+        assert!(
+            result.is_none(),
+            "Should return None when no execution processes exist"
+        );
     }
 
     #[tokio::test]
@@ -905,6 +908,9 @@ mod tests {
             .expect("Query should succeed")
             .expect("Should find an execution process");
 
-        assert_eq!(latest.id, exec1_id, "Should return the non-dropped execution process");
+        assert_eq!(
+            latest.id, exec1_id,
+            "Should return the non-dropped execution process"
+        );
     }
 }

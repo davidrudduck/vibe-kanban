@@ -51,10 +51,7 @@ pub fn protected_router() -> Router<AppState> {
         .route("/nodes/{node_id}", get(get_node))
         .route("/nodes/{node_id}", delete(delete_node))
         .route("/nodes/{node_id}/projects", get(list_node_projects))
-        .route(
-            "/nodes/{source_id}/merge-to/{target_id}",
-            post(merge_nodes),
-        )
+        .route("/nodes/{source_id}/merge-to/{target_id}", post(merge_nodes))
         .route(
             "/nodes/assignments/{assignment_id}/logs",
             get(get_assignment_logs),
@@ -1029,10 +1026,9 @@ fn node_error_response(error: NodeError, context: &str) -> Response {
             StatusCode::CONFLICT,
             "API key already bound to a different node".to_string(),
         ),
-        NodeError::TakeoverDetected(msg) => (
-            StatusCode::CONFLICT,
-            format!("takeover detected: {}", msg),
-        ),
+        NodeError::TakeoverDetected(msg) => {
+            (StatusCode::CONFLICT, format!("takeover detected: {}", msg))
+        }
         NodeError::ProjectAlreadyLinked => (
             StatusCode::CONFLICT,
             "project already linked to a node".to_string(),

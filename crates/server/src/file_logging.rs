@@ -82,17 +82,14 @@ pub fn init_logging(log_level: &str) -> Option<WorkerGuard> {
     let env_filter = EnvFilter::try_new(&filter_string).expect("Failed to create tracing filter");
 
     // Create the console layer (always enabled)
-    let console_layer = tracing_subscriber::fmt::layer()
-        .with_filter(env_filter.clone());
+    let console_layer = tracing_subscriber::fmt::layer().with_filter(env_filter.clone());
 
     if config.enabled {
         // Create log directory if it doesn't exist
         if let Err(e) = std::fs::create_dir_all(&config.log_dir) {
             eprintln!("Failed to create log directory {:?}: {}", config.log_dir, e);
             // Fall back to console-only logging
-            tracing_subscriber::registry()
-                .with(console_layer)
-                .init();
+            tracing_subscriber::registry().with(console_layer).init();
             return None;
         }
 
@@ -128,9 +125,7 @@ pub fn init_logging(log_level: &str) -> Option<WorkerGuard> {
         Some(guard)
     } else {
         // Console-only logging
-        tracing_subscriber::registry()
-            .with(console_layer)
-            .init();
+        tracing_subscriber::registry().with(console_layer).init();
         None
     }
 }

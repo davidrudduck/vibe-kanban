@@ -29,7 +29,6 @@ use db::models::{
     task_attempt::{CreateTaskAttempt, TaskAttempt, TaskAttemptError},
     task_variable::TaskVariable,
 };
-use utils::unified_log::OutputType;
 use deployment::Deployment;
 use executors::{
     actions::{
@@ -53,6 +52,7 @@ use services::services::{
 use sqlx::Error as SqlxError;
 use ts_rs::TS;
 use utils::response::ApiResponse;
+use utils::unified_log::OutputType;
 use uuid::Uuid;
 
 use crate::{

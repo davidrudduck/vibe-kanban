@@ -75,7 +75,9 @@ async fn main() -> anyhow::Result<()> {
         println!("Use --execute to actually migrate logs.");
         println!();
     } else if full_migration {
-        println!("Running in FULL MIGRATION mode. Existing entries will be deleted and re-migrated.");
+        println!(
+            "Running in FULL MIGRATION mode. Existing entries will be deleted and re-migrated."
+        );
         println!();
     } else {
         println!("Running in INCREMENTAL mode. Already-migrated executions will be skipped.");

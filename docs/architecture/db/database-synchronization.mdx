@@ -118,6 +118,9 @@ WebSocket provides real-time bidirectional messaging for events that require imm
 | `TaskProgress` | Execution milestone | Event type, message, metadata |
 | `LinkProject` | Register project | Local project ID, git path |
 | `UnlinkProject` | Deregister project | Project ID |
+| `AttemptSync` | Sync task attempt | Attempt ID, executor, branch, timestamps |
+| `ExecutionSync` | Sync execution process | Process ID, status, commits, exit code |
+| `LogsBatch` | Batch log entries | Array of log entries with execution_process_id |
 
 ### Message Types: Hive → Node
 
@@ -185,21 +188,26 @@ WebSocket provides real-time bidirectional messaging for events that require imm
 
 | Entity | SQLite Table | PostgreSQL Table | Sync Method |
 |--------|-------------|-----------------|-------------|
-| Execution Logs | `log_entries` | `node_task_output_logs` | WebSocket streaming |
+| Execution Logs | `log_entries` | `node_task_output_logs` | WebSocket (`LogsBatch`) |
 | Progress Events | (inline in process) | `node_task_progress_events` | WebSocket |
 | Node Heartbeat | - | `nodes.last_heartbeat_at` | WebSocket |
+| Task Attempts | `task_attempts` | `node_task_attempts` | WebSocket (`AttemptSync`) |
+| Execution Processes | `execution_processes` | `node_execution_processes` | WebSocket (`ExecutionSync`) |
+
+### Synchronized Bidirectionally (via LabelPublisher)
+
+| Entity | SQLite Table | PostgreSQL Table | Sync Method |
+|--------|-------------|-----------------|-------------|
+| Labels | `labels` | `labels` | REST API (LabelPublisher service) |
+| Task Labels | `task_labels` | `shared_task_labels` | REST API (on task update) |
 
 ### Not Synchronized (Local Only)
 
 | Entity | SQLite Table | Reason |
 |--------|-------------|--------|
-| Task Attempts | `task_attempts` | Execution detail, not relevant to other nodes |
-| Execution Processes | `execution_processes` | Local execution state |
-| Log Entries | `log_entries` | Streamed to hive but not synced back |
 | Executor Sessions | `executor_sessions` | Claude/agent session IDs |
 | Merges | `merges` | PR/merge tracking (local git state) |
 | Templates | `templates` | Local UI configuration |
-| Labels | `labels` | Project-specific categorization |
 | Task Variables | `task_variables` | Task-specific configuration |
 | Activity Dismissals | `activity_dismissals` | UI state |
 | Images | `images` | Task attachments |
@@ -287,10 +295,74 @@ If direct connection fails or `public_url` is not set:
 | ElectricSync | services | `electric_sync.rs` | Shape API client |
 | ElectricTaskSync | services | `electric_task_sync.rs` | Task-specific sync |
 | HiveClient | services | `hive_client.rs` | WebSocket connection |
+| HiveSyncService | services | `hive_sync.rs` | Background entity sync |
 | NodeRunner | services | `node_runner.rs` | Task assignment handling |
 | NodeProxyClient | services | `node_proxy_client.rs` | Node-to-node HTTP |
 | RemoteClient | services | `remote_client.rs` | REST API client |
+| LabelPublisher | services | `share/label_publisher.rs` | Label sync to/from Hive |
 | NodeCache | services | `node_cache.rs` | Legacy node polling |
+
+---
+
+## Background Sync Service (HiveSyncService)
+
+The `HiveSyncService` runs in the background to sync task attempts, execution processes, and log entries to the Hive. It is spawned automatically when a node connects to the Hive.
+
+### How It Works
+
+1. **Sync Loop**: Runs every 5 seconds (configurable)
+2. **Tracking**: Each entity has a `hive_synced_at` column
+3. **Offline-First**: Queues sync until Hive connection is available
+4. **Batch Processing**: Log entries are batched for efficiency
+
+### Sync Flow
+
+```text
+1. HiveSyncService spawned when NodeRunner starts
+
+2. Every 5 seconds:
+   a. Find unsynced task_attempts (hive_synced_at IS NULL)
+   b. Send AttemptSync message for each
+   c. Mark as synced (set hive_synced_at)
+
+   d. Find unsynced execution_processes
+   e. Send ExecutionSync message for each
+   f. Mark as synced
+
+   g. Find unsynced log_entries (batched)
+   h. Send LogsBatch message
+   i. Mark batch as synced
+
+3. If Hive disconnects:
+   - Sync pauses
+   - Entities remain unsynced (hive_synced_at = NULL)
+   - Resume when connection restored
+```
+
+### Database Columns
+
+```sql
+-- SQLite: Sync tracking columns (added via migration)
+ALTER TABLE task_attempts ADD COLUMN hive_synced_at TEXT;
+ALTER TABLE execution_processes ADD COLUMN hive_synced_at TEXT;
+ALTER TABLE log_entries ADD COLUMN hive_synced_at TEXT;
+
+-- Partial indexes for efficient unsynced queries
+CREATE INDEX idx_task_attempts_unsynced
+ON task_attempts(id) WHERE hive_synced_at IS NULL;
+```
+
+### Configuration
+
+The sync interval can be configured when creating the service:
+
+```rust
+let sync_service = HiveSyncService::new(
+    db.clone(),
+    hive_client.clone(),
+    Duration::from_secs(5), // Sync interval
+);
+```
 
 ---
 

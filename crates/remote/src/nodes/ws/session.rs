@@ -21,9 +21,8 @@ use super::{
     message::{
         AttemptSyncMessage, AuthResultMessage, DeregisterMessage, ExecutionSyncMessage,
         HeartbeatMessage, HiveMessage, LinkProjectMessage, LinkedProjectInfo, LogsBatchMessage,
-        NodeMessage, NodeRemovedMessage, PROTOCOL_VERSION, ProjectSyncMessage,
-        TaskExecutionStatus, TaskOutputMessage, TaskProgressMessage, TaskStatusMessage,
-        UnlinkProjectMessage,
+        NodeMessage, NodeRemovedMessage, PROTOCOL_VERSION, ProjectSyncMessage, TaskExecutionStatus,
+        TaskOutputMessage, TaskProgressMessage, TaskStatusMessage, UnlinkProjectMessage,
     },
 };
 use crate::nodes::{
@@ -416,15 +415,11 @@ async fn handle_node_message(
         NodeMessage::Deregister(deregister) => {
             handle_deregister(node_id, organization_id, deregister, pool, connections).await
         }
-        NodeMessage::AttemptSync(attempt) => {
-            handle_attempt_sync(node_id, attempt, pool).await
-        }
+        NodeMessage::AttemptSync(attempt) => handle_attempt_sync(node_id, attempt, pool).await,
         NodeMessage::ExecutionSync(execution) => {
             handle_execution_sync(node_id, execution, pool).await
         }
-        NodeMessage::LogsBatch(logs) => {
-            handle_logs_batch(node_id, logs, pool).await
-        }
+        NodeMessage::LogsBatch(logs) => handle_logs_batch(node_id, logs, pool).await,
         NodeMessage::Ack { message_id } => {
             tracing::trace!(node_id = %node_id, message_id = %message_id, "received ack");
             Ok(())
@@ -927,7 +922,9 @@ async fn handle_execution_sync(
     execution: &ExecutionSyncMessage,
     pool: &PgPool,
 ) -> Result<(), HandleError> {
-    use crate::db::node_execution_processes::{NodeExecutionProcessRepository, UpsertNodeExecutionProcess};
+    use crate::db::node_execution_processes::{
+        NodeExecutionProcessRepository, UpsertNodeExecutionProcess,
+    };
 
     let repo = NodeExecutionProcessRepository::new(pool);
     repo.upsert(&UpsertNodeExecutionProcess {
@@ -980,12 +977,15 @@ async fn handle_logs_batch(
         };
 
         // Create log with optional execution_process_id
-        repo.create_with_execution_process(CreateTaskOutputLog {
-            assignment_id: logs.assignment_id,
-            output_type: output_type.to_string(),
-            content: entry.content.clone(),
-            timestamp: entry.timestamp,
-        }, logs.execution_process_id)
+        repo.create_with_execution_process(
+            CreateTaskOutputLog {
+                assignment_id: logs.assignment_id,
+                output_type: output_type.to_string(),
+                content: entry.content.clone(),
+                timestamp: entry.timestamp,
+            },
+            logs.execution_process_id,
+        )
         .await
         .map_err(|e| HandleError::Database(e.to_string()))?;
     }

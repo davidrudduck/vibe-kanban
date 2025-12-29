@@ -330,10 +330,7 @@ impl DbLogEntry {
     /// Find log entries that have not been synced to the Hive.
     /// Returns entries grouped by execution_id and ordered by id (oldest first).
     /// This allows batching log entries for efficient sync.
-    pub async fn find_unsynced(
-        pool: &SqlitePool,
-        limit: i64,
-    ) -> Result<Vec<Self>, sqlx::Error> {
+    pub async fn find_unsynced(pool: &SqlitePool, limit: i64) -> Result<Vec<Self>, sqlx::Error> {
         sqlx::query_as!(
             DbLogEntry,
             r#"SELECT
@@ -354,10 +351,7 @@ impl DbLogEntry {
     }
 
     /// Mark a log entry as synced to the Hive.
-    pub async fn mark_hive_synced(
-        pool: &SqlitePool,
-        id: i64,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn mark_hive_synced(pool: &SqlitePool, id: i64) -> Result<(), sqlx::Error> {
         let now = Utc::now();
         sqlx::query!(
             "UPDATE log_entries SET hive_synced_at = $1 WHERE id = $2",

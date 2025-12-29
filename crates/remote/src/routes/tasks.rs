@@ -39,10 +39,7 @@ pub fn router() -> Router<AppState> {
         .route("/tasks/{task_id}", patch(update_shared_task))
         .route("/tasks/{task_id}", delete(delete_shared_task))
         .route("/tasks/{task_id}/assign", post(assign_task))
-        .route(
-            "/tasks/{task_id}/executing-node",
-            patch(set_executing_node),
-        )
+        .route("/tasks/{task_id}/executing-node", patch(set_executing_node))
         .route(
             "/tasks/{task_id}/stream-connection-info",
             get(get_stream_connection_info),

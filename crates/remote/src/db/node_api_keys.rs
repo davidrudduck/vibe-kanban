@@ -424,10 +424,7 @@ impl<'a> NodeApiKeyRepository<'a> {
     }
 
     /// Find all API keys bound to a specific node
-    pub async fn find_by_node_id(
-        &self,
-        node_id: Uuid,
-    ) -> Result<Vec<NodeApiKey>, NodeApiKeyError> {
+    pub async fn find_by_node_id(&self, node_id: Uuid) -> Result<Vec<NodeApiKey>, NodeApiKeyError> {
         let keys = sqlx::query_as::<_, NodeApiKey>(
             r#"
             SELECT

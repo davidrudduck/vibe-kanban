@@ -27,8 +27,8 @@ use chrono::{DateTime, Utc};
 use db::models::execution_process::ExecutionProcess;
 use db::models::log_entry::{CreateLogEntry, DbLogEntry};
 use executors::actions::ExecutorActionType;
-use executors::profile::ExecutorConfigs;
 use executors::executors::StandardCodingAgentExecutor;
+use executors::profile::ExecutorConfigs;
 use json_patch::Patch;
 use serde_json::Value;
 use sqlx::{Row, SqlitePool};
@@ -36,9 +36,9 @@ use thiserror::Error;
 use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 use utils::log_msg::LogMsg;
+use utils::msg_store::MsgStore;
 use utils::unified_log::OutputType;
 use uuid::Uuid;
-use utils::msg_store::MsgStore;
 
 /// Error types for log migration operations.
 #[derive(Debug, Error)]
@@ -287,8 +287,7 @@ pub async fn migrate_execution_logs_with_options(
     msg_store.push_finished();
 
     // Get the executor and run normalization
-    let executor =
-        ExecutorConfigs::get_cached().get_coding_agent_or_default(executor_profile_id);
+    let executor = ExecutorConfigs::get_cached().get_coding_agent_or_default(executor_profile_id);
 
     debug!(
         execution_id = %execution_id,
