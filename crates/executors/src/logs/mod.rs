@@ -194,12 +194,12 @@ impl ToolStatus {
         match status {
             ApprovalStatus::Approved => {
                 // If answers were provided, use Answered status to preserve them
-                if let Some(ans) = answers {
-                    if !ans.is_empty() {
-                        return Some(ToolStatus::Answered {
-                            answers: ans.clone(),
-                        });
-                    }
+                if let Some(ans) = answers
+                    && !ans.is_empty()
+                {
+                    return Some(ToolStatus::Answered {
+                        answers: ans.clone(),
+                    });
                 }
                 Some(ToolStatus::Created)
             }

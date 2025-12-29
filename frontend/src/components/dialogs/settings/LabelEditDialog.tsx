@@ -66,6 +66,7 @@ const LabelEditDialogImpl = NiceModal.create<LabelEditDialogProps>(
       name: formData.name || 'Label Name',
       icon: formData.icon,
       color: formData.color,
+      version: label?.version ?? 0n,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
