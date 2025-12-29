@@ -167,6 +167,17 @@
     "queuing": "Queuing…",
     "queueForNextTurn": "Queue for next turn"
   },
+  "messageQueue": {
+    "title": "Message Queue",
+    "loadingQueue": "Loading queue...",
+    "emptyState": "No messages queued. Messages added here will be sent automatically when the current process completes.",
+    "clear": "Clear",
+    "save": "Save",
+    "cancel": "Cancel",
+    "variant": "Variant:",
+    "addToQueue": "Add to Queue",
+    "addToQueueTooltip": "Add message to queue"
+  },
   "todos": {
     "title_one": "Todos ({{count}})",
     "title_other": "Todos ({{count}})"

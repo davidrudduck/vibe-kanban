@@ -52,6 +52,7 @@ export type {
   PendingVariable,
   UsePendingVariablesReturn,
 } from './usePendingVariables';
+export { useMessageQueue } from './message-queue';
 export type {
   UseElectricTasksResult,
   UseElectricTasksOptions,

@@ -41,6 +41,13 @@ pub struct LogStreamQuery {
     pub token: Option<String>,
 }
 
+/// Request body for injecting a message into a running execution process.
+#[derive(Debug, Deserialize)]
+pub struct InjectMessageRequest {
+    /// The message content to inject into the running process.
+    pub content: String,
+}
+
 pub async fn get_execution_process_by_id(
     Extension(execution_process): Extension<ExecutionProcess>,
     State(_deployment): State<DeploymentImpl>,
@@ -194,6 +201,40 @@ pub async fn stop_execution_process(
     Ok(ResponseJson(ApiResponse::success(())))
 }
 
+/// Inject a message into a running execution process.
+///
+/// This endpoint allows injecting a user message into a running Claude Code agent,
+/// enabling real-time steering of the agent mid-execution.
+///
+/// Returns:
+/// - 200 OK with `{ injected: true }` if the message was successfully sent
+/// - 200 OK with `{ injected: false }` if the executor doesn't support injection
+/// - 400 Bad Request if the process is not running
+/// - 500 Internal Server Error on other failures
+pub async fn inject_message(
+    Extension(execution_process): Extension<ExecutionProcess>,
+    State(deployment): State<DeploymentImpl>,
+    ResponseJson(payload): ResponseJson<InjectMessageRequest>,
+) -> Result<ResponseJson<ApiResponse<serde_json::Value>>, ApiError> {
+    // Check if the process is still running
+    if execution_process.status != ExecutionProcessStatus::Running {
+        return Err(ApiError::BadRequest(format!(
+            "Cannot inject message: process is not running (status: {:?})",
+            execution_process.status
+        )));
+    }
+
+    // Try to inject the message
+    let injected = deployment
+        .container()
+        .inject_message(execution_process.id, payload.content)
+        .await?;
+
+    Ok(ResponseJson(ApiResponse::success(serde_json::json!({
+        "injected": injected
+    }))))
+}
+
 pub async fn stream_execution_processes_ws(
     ws: WebSocketUpgrade,
     State(deployment): State<DeploymentImpl>,
@@ -234,6 +275,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let task_attempt_id_router = Router::new()
         .route("/", get(get_execution_process_by_id))
         .route("/stop", post(stop_execution_process))
+        .route("/inject-message", post(inject_message))
         .route("/raw-logs/ws", get(stream_raw_logs_ws))
         .route("/normalized-logs/ws", get(stream_normalized_logs_ws))
         .layer(from_fn_with_state(

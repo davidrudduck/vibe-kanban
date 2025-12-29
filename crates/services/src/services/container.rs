@@ -385,6 +385,18 @@ pub trait ContainerService {
         status: ExecutionProcessStatus,
     ) -> Result<(), ContainerError>;
 
+    /// Inject a message into a running execution process.
+    /// This is only supported for Claude Code executors on local deployments.
+    /// Returns Ok(true) if message was sent, Ok(false) if not supported, Err on failure.
+    async fn inject_message(
+        &self,
+        _execution_process_id: Uuid,
+        _message: String,
+    ) -> Result<bool, ContainerError> {
+        // Default implementation: not supported
+        Ok(false)
+    }
+
     async fn try_commit_changes(&self, ctx: &ExecutionContext) -> Result<bool, ContainerError>;
 
     async fn copy_project_files(
