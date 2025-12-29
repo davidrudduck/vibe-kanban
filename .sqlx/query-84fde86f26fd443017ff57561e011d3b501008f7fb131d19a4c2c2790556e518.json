@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                l.id              AS \"id!\",\n                l.organization_id AS \"organization_id!\",\n                l.project_id      AS \"project_id?\",\n                l.origin_node_id  AS \"origin_node_id?\",\n                l.name            AS \"name!\",\n                l.icon            AS \"icon!\",\n                l.color           AS \"color!\",\n                l.version         AS \"version!\",\n                l.deleted_at      AS \"deleted_at?\",\n                l.created_at      AS \"created_at!\",\n                l.updated_at      AS \"updated_at!\"\n            FROM labels l\n            INNER JOIN shared_task_labels stl ON l.id = stl.label_id\n            WHERE stl.shared_task_id = $1\n              AND l.deleted_at IS NULL\n            ORDER BY l.name ASC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "organization_id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "project_id?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "origin_node_id?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "icon!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "color!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "version!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "deleted_at?",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "updated_at!",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "84fde86f26fd443017ff57561e011d3b501008f7fb131d19a4c2c2790556e518"
+}
