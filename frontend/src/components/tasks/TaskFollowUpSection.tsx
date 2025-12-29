@@ -15,7 +15,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { imagesApi } from '@/lib/api.ts';
 import type { TaskWithAttemptStatus } from 'shared/types';
-import { useBranchStatus } from '@/hooks';
+import { useBranchStatus, useSessionError } from '@/hooks';
 import { useAttemptExecution } from '@/hooks/useAttemptExecution';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { cn } from '@/lib/utils';
@@ -31,6 +31,7 @@ import { FollowUpStatusRow } from '@/components/tasks/FollowUpStatusRow';
 import { useAttemptBranch } from '@/hooks/useAttemptBranch';
 import { FollowUpConflictSection } from '@/components/tasks/follow-up/FollowUpConflictSection';
 import { ClickedElementsBanner } from '@/components/tasks/ClickedElementsBanner';
+import { SessionErrorBanner } from '@/components/tasks/SessionErrorBanner';
 import { FollowUpEditorCard } from '@/components/tasks/follow-up/FollowUpEditorCard';
 import { useDraftStream } from '@/hooks/follow-up/useDraftStream';
 import { useRetryUi } from '@/contexts/RetryUiContext';
@@ -62,6 +63,10 @@ export function TaskFollowUpSection({
     useBranchStatus(selectedAttemptId);
   const { branch: attemptBranch, refetch: refetchAttemptBranch } =
     useAttemptBranch(selectedAttemptId);
+  const {
+    hasSessionError,
+    invalidate: invalidateSessionError,
+  } = useSessionError(selectedAttemptId);
   const { profiles } = useUserSystem();
   const { comments, generateReviewMarkdown, clearComments } = useReview();
   const {
@@ -507,6 +512,14 @@ export function TaskFollowUpSection({
 
               {/* Clicked elements notice and actions */}
               <ClickedElementsBanner />
+
+              {/* Session error banner (corrupted Claude Code sessions) */}
+              {hasSessionError && selectedAttemptId && (
+                <SessionErrorBanner
+                  attemptId={selectedAttemptId}
+                  onFixed={invalidateSessionError}
+                />
+              )}
 
               <div className="flex flex-col gap-2">
                 <FollowUpEditorCard
