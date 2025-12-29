@@ -156,24 +156,47 @@ async fn delete_existing_entries(pool: &SqlitePool, execution_id: Uuid) -> Resul
 /// runs the executor's normalization logic to produce JsonPatch entries,
 /// and inserts them into `log_entries`.
 ///
-/// The migration is idempotent - if entries already exist, they will be re-migrated
-/// (deleted and recreated) to ensure correct normalization.
+/// By default (incremental mode), already-migrated executions are skipped.
+/// When `full_migration` is true, existing entries are deleted and re-migrated.
 pub async fn migrate_execution_logs(
     pool: &SqlitePool,
     execution_id: Uuid,
+) -> Result<ExecutionMigrationResult, LogMigrationError> {
+    migrate_execution_logs_with_options(pool, execution_id, false).await
+}
+
+/// Migrate logs for a single execution with explicit full migration option.
+///
+/// When `full_migration` is true, existing entries are deleted and re-migrated.
+/// When false (default), already-migrated executions are skipped.
+pub async fn migrate_execution_logs_with_options(
+    pool: &SqlitePool,
+    execution_id: Uuid,
+    full_migration: bool,
 ) -> Result<ExecutionMigrationResult, LogMigrationError> {
     let mut result = ExecutionMigrationResult::default();
 
     // Check if already migrated
     let existing_count = count_existing_entries(pool, execution_id).await?;
     if existing_count > 0 {
-        // Delete existing entries to re-migrate with proper normalization
-        debug!(
-            execution_id = %execution_id,
-            existing_count = existing_count,
-            "Deleting existing entries for re-migration"
-        );
-        delete_existing_entries(pool, execution_id).await?;
+        if full_migration {
+            // Full migration: delete existing entries and re-migrate
+            debug!(
+                execution_id = %execution_id,
+                existing_count = existing_count,
+                "Full migration: deleting existing entries for re-migration"
+            );
+            delete_existing_entries(pool, execution_id).await?;
+        } else {
+            // Incremental (default): skip already-migrated executions
+            debug!(
+                execution_id = %execution_id,
+                existing_count = existing_count,
+                "Execution already migrated, skipping"
+            );
+            result.skipped = existing_count as usize;
+            return Ok(result);
+        }
     }
 
     // Fetch legacy log records
@@ -500,10 +523,109 @@ pub async fn get_executions_with_legacy_logs(pool: &SqlitePool) -> Result<Vec<Uu
         .collect())
 }
 
-/// Migrate all logs across all executions.
+/// Find executions that may have incomplete log data due to server shutdown.
+///
+/// Returns executions where:
+/// - execution_process_logs has records (JSONL backup exists)
+/// - log_entries is empty (migration never completed)
+/// - execution status is terminal (completed, failed, killed)
+///
+/// These are candidates for auto-recovery on startup.
+pub async fn find_incomplete_executions(pool: &SqlitePool) -> Result<Vec<Uuid>, sqlx::Error> {
+    let rows = sqlx::query(
+        r#"SELECT DISTINCT epl.execution_id
+           FROM execution_process_logs epl
+           INNER JOIN execution_processes ep ON epl.execution_id = ep.id
+           WHERE ep.dropped = FALSE
+             AND ep.status IN ('completed', 'failed', 'killed')
+             AND NOT EXISTS (
+                 SELECT 1 FROM log_entries le
+                 WHERE le.execution_id = epl.execution_id
+             )
+           ORDER BY ep.completed_at DESC"#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .iter()
+        .map(|r| r.get::<Uuid, _>("execution_id"))
+        .collect())
+}
+
+/// Recover incomplete executions by migrating their logs from JSONL to log_entries.
+///
+/// This should be called on server startup to recover any data that wasn't
+/// properly migrated due to abrupt shutdown.
+pub async fn recover_incomplete_executions(
+    pool: &SqlitePool,
+) -> Result<AllMigrationResult, LogMigrationError> {
+    let mut result = AllMigrationResult::default();
+
+    let incomplete_ids = find_incomplete_executions(pool).await?;
+
+    if incomplete_ids.is_empty() {
+        debug!("No incomplete executions found, nothing to recover");
+        return Ok(result);
+    }
+
+    info!(
+        count = incomplete_ids.len(),
+        "Found incomplete executions, recovering..."
+    );
+
+    for execution_id in incomplete_ids {
+        result.executions_processed += 1;
+
+        match migrate_execution_logs(pool, execution_id).await {
+            Ok(exec_result) => {
+                result.total_migrated += exec_result.migrated;
+                result.total_skipped += exec_result.skipped;
+                result.total_errors += exec_result.errors;
+
+                debug!(
+                    execution_id = %execution_id,
+                    migrated = exec_result.migrated,
+                    "Recovered execution logs"
+                );
+            }
+            Err(e) => {
+                warn!(
+                    execution_id = %execution_id,
+                    error = %e,
+                    "Failed to recover execution logs"
+                );
+                result.total_errors += 1;
+            }
+        }
+    }
+
+    info!(
+        recovered = result.executions_processed,
+        migrated = result.total_migrated,
+        errors = result.total_errors,
+        "Log recovery complete"
+    );
+
+    Ok(result)
+}
+
+/// Migrate all logs across all executions (incremental by default).
 ///
 /// This function finds all executions with legacy logs and migrates them.
+/// Already-migrated executions are skipped in incremental mode.
 pub async fn migrate_all_logs(pool: &SqlitePool) -> Result<AllMigrationResult, LogMigrationError> {
+    migrate_all_logs_with_options(pool, false).await
+}
+
+/// Migrate all logs with explicit full migration option.
+///
+/// When `full_migration` is true, existing entries are deleted and re-migrated.
+/// When false (default), already-migrated executions are skipped.
+pub async fn migrate_all_logs_with_options(
+    pool: &SqlitePool,
+    full_migration: bool,
+) -> Result<AllMigrationResult, LogMigrationError> {
     let mut result = AllMigrationResult::default();
 
     // Get all execution IDs with legacy logs
@@ -511,13 +633,14 @@ pub async fn migrate_all_logs(pool: &SqlitePool) -> Result<AllMigrationResult, L
 
     info!(
         count = execution_ids.len(),
+        full_migration = full_migration,
         "Found executions with legacy logs"
     );
 
     for execution_id in execution_ids {
         result.executions_processed += 1;
 
-        match migrate_execution_logs(pool, execution_id).await {
+        match migrate_execution_logs_with_options(pool, execution_id, full_migration).await {
             Ok(exec_result) => {
                 result.total_migrated += exec_result.migrated;
                 result.total_skipped += exec_result.skipped;
