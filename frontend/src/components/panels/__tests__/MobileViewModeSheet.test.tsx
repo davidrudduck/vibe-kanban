@@ -20,6 +20,7 @@ vi.mock('react-i18next', async () => {
           'attemptHeaderActions.diffs': 'Diffs',
           'attemptHeaderActions.files': 'Files',
           'attemptHeaderActions.terminal': 'Terminal',
+          'attemptHeaderActions.processes': 'Processes',
           'mobileViewModeSheet.logs': 'Logs',
         };
         return translations[key] || key;
@@ -66,6 +67,7 @@ describe('MobileViewModeSheet', () => {
     expect(screen.getByText('Diffs')).toBeInTheDocument();
     expect(screen.getByText('Files')).toBeInTheDocument();
     expect(screen.getByText('Terminal')).toBeInTheDocument();
+    expect(screen.getByText('Processes')).toBeInTheDocument();
   });
 
   it('should call onModeChange with null when Logs is selected', () => {
@@ -111,6 +113,15 @@ describe('MobileViewModeSheet', () => {
     fireEvent.click(terminalBtn);
 
     expect(mockOnModeChange).toHaveBeenCalledWith('terminal');
+  });
+
+  it('should call onModeChange with "processes" when Processes is selected', () => {
+    render(<MobileViewModeSheet {...defaultProps} />);
+
+    const processesBtn = screen.getByRole('button', { name: /processes/i });
+    fireEvent.click(processesBtn);
+
+    expect(mockOnModeChange).toHaveBeenCalledWith('processes');
   });
 
   it('should highlight current mode with accent styling', () => {

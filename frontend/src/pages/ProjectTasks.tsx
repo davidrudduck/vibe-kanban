@@ -56,6 +56,7 @@ import { PreviewPanel } from '@/components/panels/PreviewPanel';
 import { DiffsPanel } from '@/components/panels/DiffsPanel';
 import { FilesPanel } from '@/components/files';
 import { TerminalsPanel } from '@/components/terminal';
+import { ProcessesPanel } from '@/components/panels/ProcessesPanel';
 import TaskAttemptPanel from '@/components/panels/TaskAttemptPanel';
 import TaskPanel from '@/components/panels/TaskPanel';
 import SharedTaskPanel from '@/components/panels/SharedTaskPanel';
@@ -295,7 +296,8 @@ export function ProjectTasks() {
     rawMode === 'preview' ||
     rawMode === 'diffs' ||
     rawMode === 'files' ||
-    rawMode === 'terminal'
+    rawMode === 'terminal' ||
+    rawMode === 'processes'
       ? rawMode
       : null;
 
@@ -1068,6 +1070,12 @@ export function ProjectTasks() {
         )}
         {mode === 'terminal' && (
           <TerminalsPanel
+            attemptId={attempt.id}
+            onClose={() => setMode(null)}
+          />
+        )}
+        {mode === 'processes' && (
+          <ProcessesPanel
             attemptId={attempt.id}
             onClose={() => setMode(null)}
           />
