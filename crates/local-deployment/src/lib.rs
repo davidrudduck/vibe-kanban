@@ -34,6 +34,7 @@ use uuid::Uuid;
 use crate::container::LocalContainerService;
 mod command;
 pub mod container;
+pub mod message_queue;
 
 #[derive(Clone)]
 pub struct LocalDeployment {
@@ -440,6 +441,15 @@ impl LocalDeployment {
     /// Get the node proxy client for proxying requests to remote nodes.
     pub fn node_proxy_client(&self) -> &NodeProxyClient {
         &self.node_proxy_client
+    }
+
+    /// Get direct access to the local container service.
+    ///
+    /// This is needed because the `Deployment::container()` method returns
+    /// `&impl ContainerService`, which doesn't expose LocalContainerService-specific
+    /// methods like `message_queue()`.
+    pub fn local_container(&self) -> &LocalContainerService {
+        &self.container
     }
 
     /// Start the background node cache sync if the user is logged in.

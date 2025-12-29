@@ -68,6 +68,8 @@ pub enum ApiError {
     Unauthorized,
     #[error("Bad request: {0}")]
     BadRequest(String),
+    #[error("Not found: {0}")]
+    NotFound(String),
     #[error("Conflict: {0}")]
     Conflict(String),
     #[error("Forbidden: {0}")]
@@ -189,6 +191,7 @@ impl IntoResponse for ApiError {
             },
             ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized"),
             ApiError::BadRequest(_) => (StatusCode::BAD_REQUEST, "BadRequest"),
+            ApiError::NotFound(_) => (StatusCode::NOT_FOUND, "NotFound"),
             ApiError::Conflict(_) => (StatusCode::CONFLICT, "ConflictError"),
             ApiError::Forbidden(_) => (StatusCode::FORBIDDEN, "ForbiddenError"),
             ApiError::BadGateway(_) => (StatusCode::BAD_GATEWAY, "BadGateway"),
@@ -296,6 +299,7 @@ impl IntoResponse for ApiError {
             },
             ApiError::Unauthorized => "Unauthorized. Please sign in again.".to_string(),
             ApiError::BadRequest(msg) => msg.clone(),
+            ApiError::NotFound(msg) => msg.clone(),
             ApiError::Conflict(msg) => msg.clone(),
             ApiError::Forbidden(msg) => msg.clone(),
             ApiError::BadGateway(msg) => msg.clone(),

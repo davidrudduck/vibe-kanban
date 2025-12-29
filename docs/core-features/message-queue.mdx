@@ -1,0 +1,96 @@
+---
+title: "Message Queue"
+description: "Queue multiple follow-up messages to be sent automatically after task completion"
+sidebarTitle: "Message Queue"
+---
+
+Queue follow-up messages while an agent is working. Messages are sent automatically when the current task completes.
+
+## Overview
+
+The message queue allows you to:
+- Plan multi-step workflows in advance
+- Queue corrections or clarifications
+- Continue working while the agent processes tasks
+
+## Adding Messages to Queue
+
+While an agent is executing:
+
+1. Type your follow-up message in the input field
+2. Click **Add to Queue** instead of Send
+3. The message appears in the queue panel below
+
+<Frame>
+<img src="/images/vk-message-queue.png" alt="Message queue panel showing queued messages with reorder controls" />
+</Frame>
+
+## Queue Panel
+
+The queue panel shows all pending messages with controls:
+
+| Action | Description |
+|--------|-------------|
+| Reorder (↑↓) | Change execution order |
+| Edit | Click message text to edit inline |
+| Remove (×) | Delete a single message |
+| Clear | Remove all queued messages |
+
+## Automatic Execution
+
+When the agent completes its current task:
+1. First queued message is sent automatically
+2. Agent processes the message
+3. Next message sent on completion
+4. Continues until the queue is empty
+
+<Tip>
+This enables "fire and forget" workflows where you can plan several steps ahead and let the agent work through them autonomously.
+</Tip>
+
+## Variants
+
+If you have multiple agent profiles configured, the queue preserves which variant (profile) each message should use. This means you can queue messages that alternate between different modes like PLAN and DEFAULT.
+
+## Limits
+
+- Maximum 50 messages per queue
+- Queue is in-memory (cleared on server restart)
+- One queue per task attempt
+
+<Warning>
+The message queue is stored in memory. If the Vibe Kanban server restarts, queued messages will be lost. For critical workflows, consider starting with a single message and queuing follow-ups after confirmation.
+</Warning>
+
+## Best Practices
+
+### Planning Multi-Step Tasks
+
+Queue related steps when you know the workflow:
+
+1. "Set up the database schema for user authentication"
+2. "Create the API endpoints for login and registration"
+3. "Add the frontend login form"
+4. "Write tests for the auth flow"
+
+### Queue Corrections While Reviewing
+
+As you review agent output, queue corrections:
+
+1. Agent completes initial implementation
+2. You spot an issue while reviewing
+3. Queue "Fix the error handling in the login endpoint" instead of waiting
+4. Continue reviewing while correction is queued
+
+### Combine with Agent Profiles
+
+Use variants strategically:
+
+1. Queue planning message with PLAN variant
+2. Queue implementation with DEFAULT variant
+3. Queue review request with PLAN variant
+
+## Related Documentation
+
+- [Monitoring Task Execution](/core-features/monitoring-task-execution) - Real-time agent monitoring
+- [Agent Configurations](/configuration-customisation/agent-configurations) - Set up agent profiles and variants

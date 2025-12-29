@@ -22,6 +22,7 @@ pub mod health;
 pub mod images;
 pub mod labels;
 pub mod logs;
+pub mod message_queue;
 pub mod nodes;
 pub mod oauth;
 pub mod organizations;
@@ -64,6 +65,7 @@ pub async fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(backups::router())
         .merge(diagnostics::router(&deployment))
         .merge(logs::router(&deployment))
+        .merge(message_queue::router(&deployment))
         .merge(terminal_router)
         .nest("/images", images::routes())
         .with_state(deployment);

@@ -47,6 +47,7 @@ export { useTaskUsesSharedWorktree } from './useTaskUsesSharedWorktree';
 export { useIsMobile } from './useIsMobile';
 export { useMediaQuery } from './useMediaQuery';
 export { useElectricTasks } from './useElectricTasks';
+export { useMessageQueue } from './message-queue';
 export type {
   UseElectricTasksResult,
   UseElectricTasksOptions,

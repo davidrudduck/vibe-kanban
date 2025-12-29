@@ -4,6 +4,7 @@ import {
   Send,
   StopCircle,
   AlertCircle,
+  ListPlus,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -15,7 +16,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { imagesApi } from '@/lib/api.ts';
 import type { TaskWithAttemptStatus } from 'shared/types';
-import { useBranchStatus, useSessionError } from '@/hooks';
+import { useBranchStatus, useSessionError, useMessageQueue } from '@/hooks';
 import { useAttemptExecution } from '@/hooks/useAttemptExecution';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { cn } from '@/lib/utils';
@@ -43,6 +44,7 @@ import { useDefaultVariant } from '@/hooks/follow-up/useDefaultVariant';
 import { buildResolveConflictsInstructions } from '@/lib/conflicts';
 import { insertImageMarkdownAtPosition } from '@/utils/markdownImages';
 import { useTranslation } from 'react-i18next';
+import { MessageQueuePanel } from '@/components/tasks/message-queue';
 
 interface TaskFollowUpSectionProps {
   task: TaskWithAttemptStatus;
@@ -68,6 +70,21 @@ export function TaskFollowUpSection({
     invalidate: invalidateSessionError,
   } = useSessionError(selectedAttemptId);
   const { profiles } = useUserSystem();
+
+  // Message queue for queuing multiple messages
+  const {
+    queue: messageQueue,
+    isLoading: isMessageQueueLoading,
+    addMessage: addToMessageQueue,
+    updateMessage: updateQueuedMessage,
+    removeMessage: removeFromQueue,
+    reorderMessages: reorderQueue,
+    clearQueue,
+    isAdding: isAddingToQueue,
+    isUpdating: isUpdatingQueue,
+    isRemoving: isRemovingFromQueue,
+    isClearing: isClearingQueue,
+  } = useMessageQueue(selectedAttemptId);
   const { comments, generateReviewMarkdown, clearComments } = useReview();
   const {
     generateMarkdown: generateClickedMarkdown,
@@ -521,6 +538,23 @@ export function TaskFollowUpSection({
                 />
               )}
 
+              {/* Message Queue Panel */}
+              <MessageQueuePanel
+                queue={messageQueue}
+                isLoading={isMessageQueueLoading}
+                onUpdate={async (messageId, content) => {
+                  await updateQueuedMessage(messageId, content);
+                }}
+                onRemove={removeFromQueue}
+                onReorder={async (ids) => {
+                  await reorderQueue(ids);
+                }}
+                onClear={clearQueue}
+                isUpdating={isUpdatingQueue}
+                isRemoving={isRemovingFromQueue}
+                isClearing={isClearingQueue}
+              />
+
               <div className="flex flex-col gap-2">
                 <FollowUpEditorCard
                   placeholder={
@@ -663,6 +697,33 @@ export function TaskFollowUpSection({
             )}
             {isAttemptRunning && (
               <div className="flex items-center gap-2">
+                {/* Add to Message Queue button */}
+                <Button
+                  onClick={async () => {
+                    if (followUpMessage.trim()) {
+                      await addToMessageQueue(followUpMessage.trim(), selectedVariant);
+                      setFollowUpMessage('');
+                    }
+                  }}
+                  disabled={
+                    !followUpMessage.trim() ||
+                    isAddingToQueue ||
+                    !isDraftLoaded ||
+                    isRetryActive
+                  }
+                  size="sm"
+                  variant="secondary"
+                  title={t('messageQueue.addToQueueTooltip')}
+                >
+                  {isAddingToQueue ? (
+                    <Loader2 className="animate-spin h-4 w-4" />
+                  ) : (
+                    <>
+                      <ListPlus className="h-4 w-4 mr-1" />
+                      <span className="hidden sm:inline">{t('messageQueue.addToQueue')}</span>
+                    </>
+                  )}
+                </Button>
                 <Button
                   onClick={async () => {
                     if (displayQueued) {

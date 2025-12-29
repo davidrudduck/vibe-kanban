@@ -190,6 +190,17 @@
     "stop": "Stop",
     "unqueuing": "Unqueuing…"
   },
+  "messageQueue": {
+    "title": "メッセージキュー",
+    "loadingQueue": "キューを読み込み中...",
+    "emptyState": "キューにメッセージがありません。ここに追加されたメッセージは、現在のプロセスが完了すると自動的に送信されます。",
+    "clear": "クリア",
+    "save": "保存",
+    "cancel": "キャンセル",
+    "variant": "バリアント:",
+    "addToQueue": "キューに追加",
+    "addToQueueTooltip": "メッセージをキューに追加"
+  },
   "git": {
     "branch": {
       "current": "現在"
