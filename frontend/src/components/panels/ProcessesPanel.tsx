@@ -3,7 +3,6 @@ import { ProcessSelectionProvider } from '@/contexts/ProcessSelectionContext';
 
 interface ProcessesPanelProps {
   attemptId?: string;
-  onClose?: () => void;
 }
 
 /**
@@ -12,7 +11,7 @@ interface ProcessesPanelProps {
  *
  * Used in the aux panel when mode='processes' is selected.
  */
-export function ProcessesPanel({ attemptId, onClose: _onClose }: ProcessesPanelProps) {
+export function ProcessesPanel({ attemptId }: ProcessesPanelProps) {
   return (
     <div className="h-full flex flex-col bg-background">
       <ProcessSelectionProvider>

@@ -40,7 +40,10 @@ const CleanupWorktreeConfirmationDialogImpl =
           const errorMessage =
             err instanceof Error
               ? err.message
-              : t('cleanupWorktreeDialog.genericError', 'Failed to delete worktree');
+              : t(
+                  'cleanupWorktreeDialog.genericError',
+                  'Failed to delete worktree'
+                );
           setError(errorMessage);
         } finally {
           setIsDeleting(false);
@@ -53,7 +56,10 @@ const CleanupWorktreeConfirmationDialogImpl =
       };
 
       return (
-        <Dialog open={modal.visible} onOpenChange={(open) => !open && handleCancel()}>
+        <Dialog
+          open={modal.visible}
+          onOpenChange={(open) => !open && handleCancel()}
+        >
           <DialogContent>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">

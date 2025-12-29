@@ -61,7 +61,9 @@ const generateSessionId = (): string => {
  */
 export function usePendingVariables(initialSessionId?: string) {
   // Generate or use provided session ID
-  const [sessionId] = useState<string>(() => initialSessionId || generateSessionId());
+  const [sessionId] = useState<string>(
+    () => initialSessionId || generateSessionId()
+  );
   const storageKey = `${STORAGE_KEY_PREFIX}${sessionId}`;
 
   // Initialize state from localStorage
@@ -90,17 +92,14 @@ export function usePendingVariables(initialSessionId?: string) {
   }, [variables, storageKey]);
 
   // Add a new variable
-  const addVariable = useCallback(
-    (variable: Omit<PendingVariable, 'id'>) => {
-      const newVariable: PendingVariable = {
-        ...variable,
-        id: `pending-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-      };
-      setVariables((prev) => [...prev, newVariable]);
-      return newVariable.id;
-    },
-    []
-  );
+  const addVariable = useCallback((variable: Omit<PendingVariable, 'id'>) => {
+    const newVariable: PendingVariable = {
+      ...variable,
+      id: `pending-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+    };
+    setVariables((prev) => [...prev, newVariable]);
+    return newVariable.id;
+  }, []);
 
   // Update an existing variable
   const updateVariable = useCallback(

@@ -154,16 +154,26 @@ describe('TaskInfoSheet', () => {
   it('should not render when closed', () => {
     const task = createMockTask();
     const { container } = render(
-      <TaskInfoSheet task={task} isOpen={false} onOpenChange={mockOnOpenChange} />
+      <TaskInfoSheet
+        task={task}
+        isOpen={false}
+        onOpenChange={mockOnOpenChange}
+      />
     );
     // AnimatePresence should not render children when not open
-    expect(container.querySelector('[aria-hidden="true"]')).not.toBeInTheDocument();
+    expect(
+      container.querySelector('[aria-hidden="true"]')
+    ).not.toBeInTheDocument();
   });
 
   it('should render when open', () => {
     const task = createMockTask();
     render(
-      <TaskInfoSheet task={task} isOpen={true} onOpenChange={mockOnOpenChange} />
+      <TaskInfoSheet
+        task={task}
+        isOpen={true}
+        onOpenChange={mockOnOpenChange}
+      />
     );
     expect(screen.getByText('Task Info')).toBeInTheDocument();
   });
@@ -171,7 +181,11 @@ describe('TaskInfoSheet', () => {
   it('should display task description', () => {
     const task = createMockTask({ description: 'This is a test description' });
     render(
-      <TaskInfoSheet task={task} isOpen={true} onOpenChange={mockOnOpenChange} />
+      <TaskInfoSheet
+        task={task}
+        isOpen={true}
+        onOpenChange={mockOnOpenChange}
+      />
     );
     expect(screen.getByText('Description')).toBeInTheDocument();
   });
@@ -207,7 +221,11 @@ describe('TaskInfoSheet', () => {
   it('should call onOpenChange when close button clicked', () => {
     const task = createMockTask();
     render(
-      <TaskInfoSheet task={task} isOpen={true} onOpenChange={mockOnOpenChange} />
+      <TaskInfoSheet
+        task={task}
+        isOpen={true}
+        onOpenChange={mockOnOpenChange}
+      />
     );
     const closeButton = screen.getByRole('button', { name: /close/i });
     fireEvent.click(closeButton);
@@ -217,7 +235,11 @@ describe('TaskInfoSheet', () => {
   it('should call onOpenChange when backdrop clicked', () => {
     const task = createMockTask();
     render(
-      <TaskInfoSheet task={task} isOpen={true} onOpenChange={mockOnOpenChange} />
+      <TaskInfoSheet
+        task={task}
+        isOpen={true}
+        onOpenChange={mockOnOpenChange}
+      />
     );
     const backdrop = document.querySelector('[aria-hidden="true"]');
     expect(backdrop).toBeInTheDocument();

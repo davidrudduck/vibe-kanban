@@ -49,8 +49,8 @@ describe('Electric Collections', () => {
     it('uses id as the key extractor', () => {
       createSharedTasksCollection();
 
-      const config = (electricCollectionOptions as ReturnType<typeof vi.fn>).mock
-        .calls[0][0] as ElectricCollectionConfig<{ id: string }>;
+      const config = (electricCollectionOptions as ReturnType<typeof vi.fn>)
+        .mock.calls[0][0] as ElectricCollectionConfig<{ id: string }>;
       expect(config.getKey({ id: 'test-uuid' })).toBe('test-uuid');
     });
   });
@@ -73,8 +73,8 @@ describe('Electric Collections', () => {
     it('uses id as the key extractor', () => {
       createNodesCollection();
 
-      const config = (electricCollectionOptions as ReturnType<typeof vi.fn>).mock
-        .calls[0][0] as ElectricCollectionConfig<{ id: string }>;
+      const config = (electricCollectionOptions as ReturnType<typeof vi.fn>)
+        .mock.calls[0][0] as ElectricCollectionConfig<{ id: string }>;
       expect(config.getKey({ id: 'node-uuid' })).toBe('node-uuid');
     });
   });
@@ -97,8 +97,8 @@ describe('Electric Collections', () => {
     it('uses id as the key extractor', () => {
       createProjectsCollection();
 
-      const config = (electricCollectionOptions as ReturnType<typeof vi.fn>).mock
-        .calls[0][0] as ElectricCollectionConfig<{ id: string }>;
+      const config = (electricCollectionOptions as ReturnType<typeof vi.fn>)
+        .mock.calls[0][0] as ElectricCollectionConfig<{ id: string }>;
       expect(config.getKey({ id: 'project-uuid' })).toBe('project-uuid');
     });
   });
@@ -121,9 +121,11 @@ describe('Electric Collections', () => {
     it('uses id as the key extractor', () => {
       createNodeProjectsCollection();
 
-      const config = (electricCollectionOptions as ReturnType<typeof vi.fn>).mock
-        .calls[0][0] as ElectricCollectionConfig<{ id: string }>;
-      expect(config.getKey({ id: 'node-project-uuid' })).toBe('node-project-uuid');
+      const config = (electricCollectionOptions as ReturnType<typeof vi.fn>)
+        .mock.calls[0][0] as ElectricCollectionConfig<{ id: string }>;
+      expect(config.getKey({ id: 'node-project-uuid' })).toBe(
+        'node-project-uuid'
+      );
     });
   });
 });

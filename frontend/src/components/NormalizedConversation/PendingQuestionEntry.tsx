@@ -346,7 +346,8 @@ const PendingQuestionEntry = ({
       } else {
         const selectedOption = answer as string;
         if (selectedOption === 'Other') {
-          result[question.question] = currentOtherTexts[question.header] || 'Other'; // Key = question text
+          result[question.question] =
+            currentOtherTexts[question.header] || 'Other'; // Key = question text
         } else {
           result[question.question] = selectedOption || ''; // Key = question text
         }

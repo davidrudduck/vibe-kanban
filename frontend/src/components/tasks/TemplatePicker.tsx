@@ -2,7 +2,15 @@ import * as React from 'react';
 import { useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, FileText, X, Bug, Lightbulb, CheckSquare, Zap } from 'lucide-react';
+import {
+  Search,
+  FileText,
+  X,
+  Bug,
+  Lightbulb,
+  CheckSquare,
+  Zap,
+} from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -187,11 +195,14 @@ export function TemplatePicker({
     );
   }, [allTemplates, searchQuery]);
 
-  const handleSelect = useCallback((template: Template) => {
-    onSelect(template);
-    onOpenChange(false);
-    setSearchQuery('');
-  }, [onSelect, onOpenChange]);
+  const handleSelect = useCallback(
+    (template: Template) => {
+      onSelect(template);
+      onOpenChange(false);
+      setSearchQuery('');
+    },
+    [onSelect, onOpenChange]
+  );
 
   const handleClose = useCallback(() => {
     onOpenChange(false);
@@ -248,7 +259,10 @@ export function TemplatePicker({
           <Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={t('templatePicker.searchPlaceholder', 'Search templates...')}
+            placeholder={t(
+              'templatePicker.searchPlaceholder',
+              'Search templates...'
+            )}
             className="pl-9"
             autoFocus={!isMobile}
           />

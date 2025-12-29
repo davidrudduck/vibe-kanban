@@ -137,30 +137,31 @@ export function AllProjectsTasks() {
   }
 
   // Empty state content
-  const emptyContent = tasks.length === 0 ? (
-    <div className="max-w-7xl mx-auto mt-8">
-      <Card>
-        <CardContent className="text-center py-8">
-          <p className="text-muted-foreground">{t('empty.noTasks')}</p>
-          <p className="text-sm text-muted-foreground mt-2">
-            {t('tasks:allProjects.selectProject', {
-              defaultValue: 'Select a project to create tasks',
-            })}
-          </p>
-        </CardContent>
-      </Card>
-    </div>
-  ) : !hasVisibleTasks ? (
-    <div className="max-w-7xl mx-auto mt-8">
-      <Card>
-        <CardContent className="text-center py-8">
-          <p className="text-muted-foreground">
-            {t('empty.noSearchResults')}
-          </p>
-        </CardContent>
-      </Card>
-    </div>
-  ) : null;
+  const emptyContent =
+    tasks.length === 0 ? (
+      <div className="max-w-7xl mx-auto mt-8">
+        <Card>
+          <CardContent className="text-center py-8">
+            <p className="text-muted-foreground">{t('empty.noTasks')}</p>
+            <p className="text-sm text-muted-foreground mt-2">
+              {t('tasks:allProjects.selectProject', {
+                defaultValue: 'Select a project to create tasks',
+              })}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    ) : !hasVisibleTasks ? (
+      <div className="max-w-7xl mx-auto mt-8">
+        <Card>
+          <CardContent className="text-center py-8">
+            <p className="text-muted-foreground">
+              {t('empty.noSearchResults')}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    ) : null;
 
   // Desktop Kanban view (horizontal columns)
   const desktopKanbanContent = (
@@ -202,7 +203,8 @@ export function AllProjectsTasks() {
   );
 
   // Choose the appropriate content based on state and viewport
-  const kanbanContent = emptyContent ?? (isMobile ? mobileKanbanContent : desktopKanbanContent);
+  const kanbanContent =
+    emptyContent ?? (isMobile ? mobileKanbanContent : desktopKanbanContent);
 
   return (
     <div className="min-h-full h-full flex flex-col">

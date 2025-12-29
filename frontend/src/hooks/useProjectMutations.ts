@@ -106,10 +106,7 @@ export function useProjectMutations(options?: UseProjectMutationsOptions) {
       localProjectId: string;
       data: { remote_project_id: string };
     }) => {
-      console.warn(
-        'Link to existing API not implemented',
-        data.localProjectId
-      );
+      console.warn('Link to existing API not implemented', data.localProjectId);
       throw new Error('Link to existing API not implemented');
     },
     onError: (err) => {

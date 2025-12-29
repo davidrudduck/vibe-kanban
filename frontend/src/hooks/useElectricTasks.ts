@@ -23,7 +23,10 @@
 
 import { useMemo } from 'react';
 import { useShape } from '@electric-sql/react';
-import { createShapeStreamOptions, type ElectricSharedTask } from '@/lib/electric';
+import {
+  createShapeStreamOptions,
+  type ElectricSharedTask,
+} from '@/lib/electric';
 import type { TaskStatus } from 'shared/types';
 
 /**
@@ -158,17 +161,29 @@ export function useElectricTasks(
     };
 
     // Sort all tasks by activity (most recent first)
-    const sorted = [...filtered].sort((a, b) => getActivityTime(b) - getActivityTime(a));
+    const sorted = [...filtered].sort(
+      (a, b) => getActivityTime(b) - getActivityTime(a)
+    );
 
     // Apply status-aware sorting within each status group:
     // - Todo: oldest first (FIFO queue)
     // - All others: most recent first
-    const statuses: TaskStatus[] = ['todo', 'inprogress', 'inreview', 'done', 'cancelled'];
+    const statuses: TaskStatus[] = [
+      'todo',
+      'inprogress',
+      'inreview',
+      'done',
+      'cancelled',
+    ];
     for (const status of statuses) {
       if (status === 'todo') {
-        byStatus[status].sort((a, b) => getActivityTime(a) - getActivityTime(b));
+        byStatus[status].sort(
+          (a, b) => getActivityTime(a) - getActivityTime(b)
+        );
       } else {
-        byStatus[status].sort((a, b) => getActivityTime(b) - getActivityTime(a));
+        byStatus[status].sort(
+          (a, b) => getActivityTime(b) - getActivityTime(a)
+        );
       }
     }
 
@@ -181,7 +196,11 @@ export function useElectricTasks(
 
   // Convert error to Error | null for consistent typing
   const normalizedError: Error | null =
-    error == null ? null : error instanceof Error ? error : new Error(String(error));
+    error == null
+      ? null
+      : error instanceof Error
+        ? error
+        : new Error(String(error));
 
   return {
     tasks,

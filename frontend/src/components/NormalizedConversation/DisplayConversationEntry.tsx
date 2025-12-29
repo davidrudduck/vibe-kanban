@@ -704,15 +704,24 @@ const ExecutionMarker: React.FC<{
   const formattedEndTime = endedAt ? formatTimestamp(endedAt, timezone) : '';
 
   const statusLabel = status ? ` (${status})` : '';
-  const durationLabel = durationSeconds !== undefined ? ` - ${formatDuration(durationSeconds)}` : '';
+  const durationLabel =
+    durationSeconds !== undefined
+      ? ` - ${formatDuration(durationSeconds)}`
+      : '';
 
   return (
     <div className="px-4 py-1.5 text-xs font-mono text-muted-foreground flex items-center gap-2">
       <Clock className="h-3 w-3" />
       {type === 'start' ? (
-        <span>{processName} started at {formattedStartTime}</span>
+        <span>
+          {processName} started at {formattedStartTime}
+        </span>
       ) : (
-        <span>{processName} finished at {formattedEndTime}{durationLabel}{statusLabel}</span>
+        <span>
+          {processName} finished at {formattedEndTime}
+          {durationLabel}
+          {statusLabel}
+        </span>
       )}
     </div>
   );

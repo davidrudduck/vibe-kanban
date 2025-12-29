@@ -120,7 +120,9 @@ export const AttemptHeaderActions = ({
                 </ToggleGroupItem>
               </TooltipTrigger>
               <TooltipContent side="bottom">
-                {t('attemptHeaderActions.terminal', { defaultValue: 'Terminal' })}
+                {t('attemptHeaderActions.terminal', {
+                  defaultValue: 'Terminal',
+                })}
               </TooltipContent>
             </Tooltip>
 
@@ -135,7 +137,9 @@ export const AttemptHeaderActions = ({
                 </ToggleGroupItem>
               </TooltipTrigger>
               <TooltipContent side="bottom">
-                {t('attemptHeaderActions.processes', { defaultValue: 'Processes' })}
+                {t('attemptHeaderActions.processes', {
+                  defaultValue: 'Processes',
+                })}
               </TooltipContent>
             </Tooltip>
           </ToggleGroup>

@@ -1792,9 +1792,7 @@ export interface CreateTerminalSessionRequest {
 }
 
 export const terminalApi = {
-  createSession: async (
-    workingDir: string
-  ): Promise<CreateSessionResponse> => {
+  createSession: async (workingDir: string): Promise<CreateSessionResponse> => {
     const response = await makeRequest('/api/terminal/sessions', {
       method: 'POST',
       body: JSON.stringify({ working_dir: workingDir }),

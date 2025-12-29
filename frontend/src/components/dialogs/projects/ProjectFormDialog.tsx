@@ -152,9 +152,7 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(() => {
       <DialogContent className="overflow-x-hidden">
         <DialogHeader>
           <DialogTitle>{t('createDialog.title')}</DialogTitle>
-          <DialogDescription>
-            {t('createDialog.description')}
-          </DialogDescription>
+          <DialogDescription>{t('createDialog.description')}</DialogDescription>
         </DialogHeader>
 
         <div className="mx-auto w-full max-w-2xl overflow-x-hidden px-1">

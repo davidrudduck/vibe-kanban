@@ -44,8 +44,7 @@ export function BottomNav() {
       !location.pathname.includes('/tasks'));
 
   const isTasksActive =
-    location.pathname.includes('/tasks') ||
-    location.pathname === '/tasks/all';
+    location.pathname.includes('/tasks') || location.pathname === '/tasks/all';
 
   const handleProjectsClick = () => {
     navigate('/projects');

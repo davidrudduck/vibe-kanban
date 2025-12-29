@@ -1,5 +1,12 @@
 import { useTranslation } from 'react-i18next';
-import { Eye, FileDiff, FolderTree, Terminal, FileText, Cog } from 'lucide-react';
+import {
+  Eye,
+  FileDiff,
+  FolderTree,
+  Terminal,
+  FileText,
+  Cog,
+} from 'lucide-react';
 import { BottomSheet } from '@/components/ui/bottom-sheet';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';

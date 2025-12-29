@@ -99,8 +99,16 @@ vi.mock('@/lib/openTaskForm', () => ({
 
 // Helper to set viewport size for tests
 function setViewportSize(width: number, height: number) {
-  Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
-  Object.defineProperty(window, 'innerHeight', { writable: true, configurable: true, value: height });
+  Object.defineProperty(window, 'innerWidth', {
+    writable: true,
+    configurable: true,
+    value: width,
+  });
+  Object.defineProperty(window, 'innerHeight', {
+    writable: true,
+    configurable: true,
+    value: height,
+  });
   window.dispatchEvent(new Event('resize'));
 }
 
@@ -181,7 +189,9 @@ describe('Mobile Integration Tests', () => {
       // Click on Tasks
       const tasksBtn = screen.getByRole('button', { name: /tasks/i });
       fireEvent.click(tasksBtn);
-      expect(mockNavigate).toHaveBeenCalledWith('/projects/test-project-id/tasks');
+      expect(mockNavigate).toHaveBeenCalledWith(
+        '/projects/test-project-id/tasks'
+      );
 
       // Click on Settings (Menu)
       const menuBtn = screen.getByRole('button', { name: /menu/i });
@@ -237,7 +247,11 @@ describe('Mobile Integration Tests', () => {
       // Create a simple test component to verify swipe detection
       const TestSwipeComponent = () => {
         const handlers = useSwipe({ onSwipeLeft, onSwipeRight });
-        return <div data-testid="swipe-target" {...handlers}>Swipe me</div>;
+        return (
+          <div data-testid="swipe-target" {...handlers}>
+            Swipe me
+          </div>
+        );
       };
 
       render(<TestSwipeComponent />);
@@ -265,7 +279,11 @@ describe('Mobile Integration Tests', () => {
 
       const TestSwipeComponent = () => {
         const handlers = useSwipe({ onSwipeLeft, onSwipeRight });
-        return <div data-testid="swipe-target" {...handlers}>Swipe me</div>;
+        return (
+          <div data-testid="swipe-target" {...handlers}>
+            Swipe me
+          </div>
+        );
       };
 
       render(<TestSwipeComponent />);
@@ -293,7 +311,11 @@ describe('Mobile Integration Tests', () => {
 
       const TestSwipeComponent = () => {
         const handlers = useSwipe({ onSwipeLeft, onSwipeRight });
-        return <div data-testid="swipe-target" {...handlers}>Swipe me</div>;
+        return (
+          <div data-testid="swipe-target" {...handlers}>
+            Swipe me
+          </div>
+        );
       };
 
       render(<TestSwipeComponent />);
@@ -321,7 +343,11 @@ describe('Mobile Integration Tests', () => {
 
       const TestSwipeComponent = () => {
         const handlers = useSwipe({ onSwipeLeft, onSwipeRight });
-        return <div data-testid="swipe-target" {...handlers}>Swipe me</div>;
+        return (
+          <div data-testid="swipe-target" {...handlers}>
+            Swipe me
+          </div>
+        );
       };
 
       render(<TestSwipeComponent />);
@@ -350,7 +376,9 @@ describe('Mobile Integration Tests', () => {
     // without re-testing all the internals
 
     it('should render MobileColumnHeader with correct navigation structure', async () => {
-      const MobileColumnHeader = (await import('../components/tasks/MobileColumnHeader')).default;
+      const MobileColumnHeader = (
+        await import('../components/tasks/MobileColumnHeader')
+      ).default;
 
       const onPrev = vi.fn();
       const onNext = vi.fn();
@@ -385,7 +413,9 @@ describe('Mobile Integration Tests', () => {
     });
 
     it('should disable prev button on first column', async () => {
-      const MobileColumnHeader = (await import('../components/tasks/MobileColumnHeader')).default;
+      const MobileColumnHeader = (
+        await import('../components/tasks/MobileColumnHeader')
+      ).default;
 
       render(
         <MobileColumnHeader
@@ -406,7 +436,9 @@ describe('Mobile Integration Tests', () => {
     });
 
     it('should disable next button on last column', async () => {
-      const MobileColumnHeader = (await import('../components/tasks/MobileColumnHeader')).default;
+      const MobileColumnHeader = (
+        await import('../components/tasks/MobileColumnHeader')
+      ).default;
 
       render(
         <MobileColumnHeader
@@ -427,7 +459,9 @@ describe('Mobile Integration Tests', () => {
     });
 
     it('should show column indicator dots', async () => {
-      const MobileColumnHeader = (await import('../components/tasks/MobileColumnHeader')).default;
+      const MobileColumnHeader = (
+        await import('../components/tasks/MobileColumnHeader')
+      ).default;
 
       render(
         <MobileColumnHeader
@@ -502,7 +536,9 @@ describe('Mobile Integration Tests', () => {
     // This integration test verifies MobileColumnHeader properly reports current index
 
     it('should correctly display current column indicator', async () => {
-      const MobileColumnHeader = (await import('../components/tasks/MobileColumnHeader')).default;
+      const MobileColumnHeader = (
+        await import('../components/tasks/MobileColumnHeader')
+      ).default;
 
       const { rerender } = render(
         <MobileColumnHeader
@@ -551,7 +587,8 @@ describe('Mobile Visual Polish', () => {
     // This integration test verifies BottomNav has proper visual styling
 
     it('should have background and border styling for visual polish', async () => {
-      const BottomNav = (await import('../components/layout/BottomNav')).BottomNav;
+      const BottomNav = (await import('../components/layout/BottomNav'))
+        .BottomNav;
       render(<BottomNav />);
 
       const nav = screen.getByRole('navigation');

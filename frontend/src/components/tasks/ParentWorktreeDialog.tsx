@@ -137,10 +137,15 @@ export function ParentWorktreeDialog({
                   onClick={onRecreateWorktree}
                   disabled={isLoading}
                 >
-                  <RefreshCw className={cn('h-5 w-5 mr-3', isLoading && 'animate-spin')} />
+                  <RefreshCw
+                    className={cn('h-5 w-5 mr-3', isLoading && 'animate-spin')}
+                  />
                   <div className="text-left">
                     <div className="font-medium">
-                      {t('parentWorktreeDialog.recreateOption', 'Re-create parent worktree')}
+                      {t(
+                        'parentWorktreeDialog.recreateOption',
+                        'Re-create parent worktree'
+                      )}
                     </div>
                     <div className="text-xs text-muted-foreground mt-0.5">
                       {t(
@@ -162,7 +167,10 @@ export function ParentWorktreeDialog({
                   <FolderPlus className="h-5 w-5 mr-3" />
                   <div className="text-left">
                     <div className="font-medium">
-                      {t('parentWorktreeDialog.newWorktreeOption', 'Work in new worktree')}
+                      {t(
+                        'parentWorktreeDialog.newWorktreeOption',
+                        'Work in new worktree'
+                      )}
                     </div>
                     <div className="text-xs text-muted-foreground mt-0.5">
                       {t(

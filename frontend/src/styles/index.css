@@ -95,21 +95,21 @@
     --font-heading: 'Source Serif 4', Georgia, serif;
 
     /* VKS Backgrounds (Midnight Terminal palette) */
-    --vks-void: 240 33% 5%;           /* #0a0a0f - deepest background */
-    --vks-surface: 240 18% 9%;        /* #12121a - card/panel background */
+    --vks-void: 240 33% 5%; /* #0a0a0f - deepest background */
+    --vks-surface: 240 18% 9%; /* #12121a - card/panel background */
     --vks-surface-bright: 240 14% 12%; /* #1a1a24 - elevated surface */
 
     /* VKS Accent Colors */
-    --vks-cyan: 193 100% 50%;         /* #00d4ff - primary accent */
-    --vks-amber: 43 100% 50%;         /* #ffb800 - warning/highlight */
-    --vks-emerald: 152 100% 50%;      /* #00ff88 - success */
-    --vks-coral: 0 100% 71%;          /* #ff6b6b - error/destructive */
-    --vks-violet: 270 91% 65%;        /* #a855f7 - secondary accent */
+    --vks-cyan: 193 100% 50%; /* #00d4ff - primary accent */
+    --vks-amber: 43 100% 50%; /* #ffb800 - warning/highlight */
+    --vks-emerald: 152 100% 50%; /* #00ff88 - success */
+    --vks-coral: 0 100% 71%; /* #ff6b6b - error/destructive */
+    --vks-violet: 270 91% 65%; /* #a855f7 - secondary accent */
 
     /* VKS Text Colors */
-    --vks-text: 240 6% 90%;           /* #e4e4e7 - primary text */
-    --vks-text-muted: 240 4% 46%;     /* #71717a - secondary text */
-    --vks-text-dim: 240 3% 26%;       /* #3f3f46 - disabled/subtle text */
+    --vks-text: 240 6% 90%; /* #e4e4e7 - primary text */
+    --vks-text-muted: 240 4% 46%; /* #71717a - secondary text */
+    --vks-text-dim: 240 3% 26%; /* #3f3f46 - disabled/subtle text */
 
     /* Map VKS colors to theme tokens for easy adoption */
     --_background: var(--vks-void);
