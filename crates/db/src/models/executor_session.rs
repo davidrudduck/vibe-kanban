@@ -214,7 +214,7 @@ impl ExecutorSession {
         Ok(())
     }
 
-    /// Invalidate all sessions from failed/killed execution processes
+    /// Invalidate all sessions for a task attempt so they won't be tried again. This clears sessions from ALL execution processes (not just failed ones), because session files can also become corrupted after successful completions.
     /// Returns the list of session IDs that were invalidated
     pub async fn invalidate_failed_sessions(
         pool: &SqlitePool,
@@ -225,7 +225,6 @@ impl ExecutorSession {
                FROM executor_sessions es
                JOIN execution_processes ep ON es.execution_process_id = ep.id
                WHERE ep.task_attempt_id = $1
-                 AND ep.status IN ('failed', 'killed')
                  AND es.session_id IS NOT NULL"#,
             task_attempt_id
         )
