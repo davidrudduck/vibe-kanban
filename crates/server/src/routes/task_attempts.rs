@@ -2542,14 +2542,17 @@ pub async fn fix_sessions(
     })))
 }
 
-/// Check if the latest failed execution has a session invalid error
+/// Check if the latest failed execution has a session invalid error that can be fixed.
+/// Returns true only if:
+/// 1. The latest CodingAgent execution failed with a session error, AND
+/// 2. There are sessions from failed processes that can still be invalidated
 pub async fn has_session_error(
     Extension(task_attempt): Extension<TaskAttempt>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<bool>>, ApiError> {
     let pool = &deployment.db().pool;
 
-    // Get latest failed coding agent execution
+    // Get latest coding agent execution
     let latest = ExecutionProcess::find_latest_by_task_attempt_and_run_reason(
         pool,
         task_attempt.id,
@@ -2559,9 +2562,21 @@ pub async fn has_session_error(
 
     let has_error = if let Some(exec) = latest {
         if exec.status == ExecutionProcessStatus::Failed {
-            ExecutionProcessLogs::contains_session_invalid_error(pool, exec.id)
-                .await
-                .unwrap_or(false)
+            // Check if logs contain session error
+            let has_session_error_in_logs =
+                ExecutionProcessLogs::contains_session_invalid_error(pool, exec.id)
+                    .await
+                    .unwrap_or(false);
+
+            if has_session_error_in_logs {
+                // Also check if there are sessions that can be fixed
+                // (i.e., sessions from failed processes that still have session_id set)
+                let fixable_sessions =
+                    ExecutorSession::count_fixable_sessions(pool, task_attempt.id).await?;
+                fixable_sessions > 0
+            } else {
+                false
+            }
         } else {
             false
         }
