@@ -116,7 +116,7 @@ pub async fn serve_image(
         .get_image(image_id)
         .await?
         .ok_or_else(|| ApiError::Image(ImageError::NotFound))?;
-    serve_image_response(&image_service, &image).await
+    serve_image_response(image_service, &image).await
 }
 
 /// Serve an image file by filename (the file_path stored in DB)
@@ -128,7 +128,7 @@ pub async fn serve_image_by_filename(
     let image = Image::find_by_file_path(&deployment.db().pool, &filename)
         .await?
         .ok_or_else(|| ApiError::Image(ImageError::NotFound))?;
-    serve_image_response(&image_service, &image).await
+    serve_image_response(image_service, &image).await
 }
 
 /// Helper to serve an image response

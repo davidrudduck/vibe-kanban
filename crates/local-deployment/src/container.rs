@@ -377,10 +377,10 @@ impl LocalContainerService {
 
             // Check for session invalid error and mark session as invalid to avoid retry
             // This handles "No conversation found with session ID" errors from Claude Code
-            if status == ExecutionProcessStatus::Failed {
-                if let Ok(true) =
+            if status == ExecutionProcessStatus::Failed
+                && let Ok(true) =
                     ExecutionProcessLogs::contains_session_invalid_error(&db.pool, exec_id).await
-                {
+            {
                     // Find and mark the session as invalid so it won't be tried again
                     if let Ok(Some(session_id)) =
                         ExecutionProcess::find_latest_session_id_by_task_attempt(
@@ -418,7 +418,6 @@ impl LocalContainerService {
                             );
                         }
                     }
-                }
             }
 
             if let Ok(ctx) = ExecutionProcess::load_context(&db.pool, exec_id).await {
