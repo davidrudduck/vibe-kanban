@@ -3,6 +3,7 @@ use db::models::task::Task;
 use deployment::{Deployment, DeploymentError};
 use server::{DeploymentImpl, file_logging, routes};
 use services::services::container::ContainerService;
+use services::services::log_migration::recover_incomplete_executions;
 use sqlx::Error as SqlxError;
 use std::process::{Child, Command, Stdio};
 use strip_ansi_escapes::strip;
@@ -58,6 +59,22 @@ async fn main() -> Result<(), VibeKanbanError> {
         Ok(_) => {}
         Err(e) => {
             tracing::warn!("Failed to clear orphaned shared_task_ids: {}", e);
+        }
+    }
+
+    // Recover incomplete execution logs from previous server shutdown
+    // This migrates logs from JSONL backup (execution_process_logs) to log_entries
+    match recover_incomplete_executions(&deployment.db().pool).await {
+        Ok(result) if result.executions_processed > 0 => {
+            tracing::info!(
+                "Recovered {} execution(s) with {} log entries",
+                result.executions_processed,
+                result.total_migrated
+            );
+        }
+        Ok(_) => {}
+        Err(e) => {
+            tracing::warn!("Failed to recover incomplete execution logs: {}", e);
         }
     }
 
@@ -174,6 +191,14 @@ pub async fn shutdown_signal() {
 }
 
 pub async fn perform_cleanup_actions(deployment: &DeploymentImpl) {
+    // Flush all pending log buffers FIRST to prevent data loss
+    if let Some(log_batcher) = deployment.container().log_batcher() {
+        tracing::info!("Flushing pending log buffers...");
+        log_batcher.shutdown().await;
+        tracing::info!("Log buffers flushed");
+    }
+
+    // Then kill running processes
     deployment
         .container()
         .kill_all_running_processes()

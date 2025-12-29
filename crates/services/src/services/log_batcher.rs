@@ -37,7 +37,7 @@ use db::models::execution_process_logs::ExecutionProcessLogs;
 use db::retry::{RetryConfig, with_retry};
 use db::DBService;
 use sqlx::SqlitePool;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio::sync::RwLock;
 use tokio::time::interval;
 use utils::log_msg::LogMsg;
@@ -63,8 +63,8 @@ enum LogBatcherCommand {
     AddLog { execution_id: Uuid, msg: LogMsg },
     /// Signal that an execution has finished (flush remaining logs).
     Finish { execution_id: Uuid },
-    /// Shutdown the batcher.
-    Shutdown,
+    /// Shutdown the batcher gracefully and signal completion.
+    Shutdown { done_tx: oneshot::Sender<()> },
 }
 
 impl LogBatcherHandle {
@@ -98,9 +98,21 @@ impl LogBatcherHandle {
         }
     }
 
-    /// Shutdown the batcher gracefully.
+    /// Shutdown the batcher gracefully, waiting for all pending logs to be flushed.
     pub async fn shutdown(&self) {
-        let _ = self.tx.send(LogBatcherCommand::Shutdown).await;
+        let (done_tx, done_rx) = oneshot::channel();
+        if let Err(e) = self
+            .tx
+            .send(LogBatcherCommand::Shutdown { done_tx })
+            .await
+        {
+            tracing::error!("Failed to send shutdown signal to log batcher: {}", e);
+            return;
+        }
+        // Wait for the batcher to confirm it has flushed all pending logs
+        if let Err(e) = done_rx.await {
+            tracing::error!("Log batcher shutdown signal channel closed: {}", e);
+        }
     }
 }
 
@@ -139,9 +151,11 @@ impl LogBatcher {
                         LogBatcherCommand::Finish { execution_id } => {
                             self.flush_execution(execution_id).await;
                         }
-                        LogBatcherCommand::Shutdown => {
+                        LogBatcherCommand::Shutdown { done_tx } => {
                             // Flush all remaining buffers before shutdown
                             self.flush_all().await;
+                            // Signal completion to the caller
+                            let _ = done_tx.send(());
                             break;
                         }
                     }

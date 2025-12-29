@@ -31,11 +31,13 @@ fn print_usage() {
     println!("Usage:");
     println!("  cargo run --bin migrate_logs                            Dry-run mode (default)");
     println!("  cargo run --bin migrate_logs -- --execute               Actually migrate logs");
+    println!("  cargo run --bin migrate_logs -- --full                  Delete and re-migrate all");
     println!("  cargo run --bin migrate_logs -- --verbose               Show detailed progress");
     println!("  cargo run --bin migrate_logs -- --execution-id <UUID>   Migrate single execution");
     println!("  cargo run --bin migrate_logs -- --help                  Show this help");
     println!();
-    println!("The migration is idempotent - already migrated logs will be skipped.");
+    println!("By default, already-migrated executions are skipped (incremental mode).");
+    println!("Use --full to delete existing entries and re-migrate everything.");
 }
 
 #[tokio::main]
@@ -50,6 +52,7 @@ async fn main() -> anyhow::Result<()> {
     // Parse arguments
     let args: Vec<String> = env::args().collect();
     let execute = args.iter().any(|a| a == "--execute");
+    let full_migration = args.iter().any(|a| a == "--full");
     let verbose = args.iter().any(|a| a == "--verbose");
 
     // Check for execution ID argument
@@ -71,6 +74,13 @@ async fn main() -> anyhow::Result<()> {
         println!("Running in DRY-RUN mode. No changes will be made.");
         println!("Use --execute to actually migrate logs.");
         println!();
+    } else if full_migration {
+        println!("Running in FULL MIGRATION mode. Existing entries will be deleted and re-migrated.");
+        println!();
+    } else {
+        println!("Running in INCREMENTAL mode. Already-migrated executions will be skipped.");
+        println!("Use --full to delete existing entries and re-migrate everything.");
+        println!();
     }
 
     // Connect to database
@@ -84,7 +94,9 @@ async fn main() -> anyhow::Result<()> {
         println!();
 
         if execute {
-            let result = log_migration::migrate_execution_logs(pool, exec_id).await?;
+            let result =
+                log_migration::migrate_execution_logs_with_options(pool, exec_id, full_migration)
+                    .await?;
 
             println!("Migration complete:");
             println!("  Migrated: {}", result.migrated);
@@ -177,7 +189,7 @@ async fn main() -> anyhow::Result<()> {
     println!();
     println!("Migrating logs...");
 
-    let result = log_migration::migrate_all_logs(pool).await?;
+    let result = log_migration::migrate_all_logs_with_options(pool, full_migration).await?;
 
     println!();
     println!("=== Migration Complete ===");
