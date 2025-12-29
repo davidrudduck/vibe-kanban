@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        UPDATE shared_tasks AS t\n        SET title       = COALESCE($2, t.title),\n            description = COALESCE($3, t.description),\n            status      = COALESCE($4, t.status),\n            archived_at = CASE WHEN $7 THEN $8 ELSE t.archived_at END,\n            version     = t.version + 1,\n            updated_at  = NOW()\n        WHERE t.id = $1\n          AND t.version = COALESCE($5, t.version)\n          AND t.assignee_user_id = $6\n          AND t.deleted_at IS NULL\n        RETURNING\n            t.id                AS \"id!\",\n            t.organization_id   AS \"organization_id!: Uuid\",\n            t.project_id        AS \"project_id!\",\n            t.creator_user_id   AS \"creator_user_id?: Uuid\",\n            t.assignee_user_id  AS \"assignee_user_id?: Uuid\",\n            t.deleted_by_user_id AS \"deleted_by_user_id?: Uuid\",\n            t.title             AS \"title!\",\n            t.description       AS \"description?\",\n            t.status            AS \"status!: TaskStatus\",\n            t.version           AS \"version!\",\n            t.deleted_at        AS \"deleted_at?\",\n            t.shared_at         AS \"shared_at?\",\n            t.archived_at       AS \"archived_at?\",\n            t.created_at        AS \"created_at!\",\n            t.updated_at        AS \"updated_at!\"\n        ",
+  "query": "\n        UPDATE shared_tasks AS t\n        SET title       = COALESCE($2, t.title),\n            description = COALESCE($3, t.description),\n            status      = COALESCE($4, t.status),\n            archived_at = CASE WHEN $7 THEN $8 ELSE t.archived_at END,\n            version     = t.version + 1,\n            updated_at  = NOW()\n        WHERE t.id = $1\n          AND t.version = COALESCE($5, t.version)\n          AND t.assignee_user_id = $6\n          AND t.deleted_at IS NULL\n        RETURNING\n            t.id                AS \"id!\",\n            t.organization_id   AS \"organization_id!: Uuid\",\n            t.project_id        AS \"project_id!\",\n            t.creator_user_id   AS \"creator_user_id?: Uuid\",\n            t.assignee_user_id  AS \"assignee_user_id?: Uuid\",\n            t.deleted_by_user_id AS \"deleted_by_user_id?: Uuid\",\n            t.executing_node_id AS \"executing_node_id?: Uuid\",\n            t.title             AS \"title!\",\n            t.description       AS \"description?\",\n            t.status            AS \"status!: TaskStatus\",\n            t.version           AS \"version!\",\n            t.deleted_at        AS \"deleted_at?\",\n            t.shared_at         AS \"shared_at?\",\n            t.archived_at       AS \"archived_at?\",\n            t.created_at        AS \"created_at!\",\n            t.updated_at        AS \"updated_at!\"\n        ",
   "describe": {
     "columns": [
       {
@@ -35,16 +35,21 @@
       },
       {
         "ordinal": 6,
+        "name": "executing_node_id?: Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
         "name": "title!",
         "type_info": "Text"
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "description?",
         "type_info": "Text"
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "status!: TaskStatus",
         "type_info": {
           "Custom": {
@@ -62,32 +67,32 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "version!",
         "type_info": "Int8"
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "deleted_at?",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "shared_at?",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "archived_at?",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "created_at!",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "updated_at!",
         "type_info": "Timestamptz"
       }
@@ -124,6 +129,7 @@
       true,
       true,
       true,
+      true,
       false,
       true,
       false,
@@ -135,5 +141,5 @@
       false
     ]
   },
-  "hash": "5732bf0d1097bac7a4d72aa105b0d9ded90ae5951c71a03f51de793770a09913"
+  "hash": "747a19ec9064d9e60c3dd45b220256bb4501fdec50e693c1137430a7753ade2a"
 }

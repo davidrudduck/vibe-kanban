@@ -632,6 +632,26 @@ impl RemoteClient {
             .await
     }
 
+    /// Sets the executing node for a shared task.
+    ///
+    /// This is called when a task attempt is dispatched to a specific node,
+    /// allowing the Hive to track which node is executing the task.
+    pub async fn set_executing_node(
+        &self,
+        task_id: Uuid,
+        node_id: Option<Uuid>,
+    ) -> Result<(), RemoteClientError> {
+        #[derive(Serialize)]
+        struct SetExecutingNodeRequest {
+            node_id: Option<Uuid>,
+        }
+
+        let request = SetExecutingNodeRequest { node_id };
+        self.patch_authed::<Value, _>(&format!("/v1/tasks/{task_id}/executing-node"), &request)
+            .await?;
+        Ok(())
+    }
+
     // =====================
     // Node Management APIs
     // =====================

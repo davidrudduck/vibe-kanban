@@ -40,6 +40,10 @@ pub fn router() -> Router<AppState> {
         .route("/tasks/{task_id}", delete(delete_shared_task))
         .route("/tasks/{task_id}/assign", post(assign_task))
         .route(
+            "/tasks/{task_id}/executing-node",
+            patch(set_executing_node),
+        )
+        .route(
             "/tasks/{task_id}/stream-connection-info",
             get(get_stream_connection_info),
         )
@@ -408,6 +412,41 @@ pub async fn delete_shared_task(
     match repo.delete_task(task_id, data).await {
         Ok(task) => (StatusCode::OK, Json(SharedTaskResponse::from(task))).into_response(),
         Err(error) => task_error_response(error, "failed to delete shared task"),
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetExecutingNodeRequest {
+    pub node_id: Option<Uuid>,
+}
+
+/// Set the executing node for a task.
+///
+/// This endpoint is called by nodes when they start executing a task attempt.
+/// It allows tracking which node is currently running a task.
+#[instrument(
+    name = "tasks.set_executing_node",
+    skip(state, ctx, payload),
+    fields(user_id = %ctx.user.id, task_id = %task_id)
+)]
+pub async fn set_executing_node(
+    State(state): State<AppState>,
+    Extension(ctx): Extension<RequestContext>,
+    Path(task_id): Path<Uuid>,
+    Json(payload): Json<SetExecutingNodeRequest>,
+) -> Response {
+    let pool = state.pool();
+
+    // Verify user has access to the task
+    if let Err(error) = ensure_task_access(pool, ctx.user.id, task_id).await {
+        return error.into_response();
+    }
+
+    let repo = SharedTaskRepository::new(pool);
+
+    match repo.set_executing_node(task_id, payload.node_id).await {
+        Ok(()) => (StatusCode::OK, Json(json!({ "success": true }))).into_response(),
+        Err(error) => task_error_response(error, "failed to set executing node"),
     }
 }
 

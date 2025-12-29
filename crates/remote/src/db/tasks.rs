@@ -51,6 +51,7 @@ pub struct SharedTask {
     pub creator_user_id: Option<Uuid>,
     pub assignee_user_id: Option<Uuid>,
     pub deleted_by_user_id: Option<Uuid>,
+    pub executing_node_id: Option<Uuid>,
     pub title: String,
     pub description: Option<String>,
     pub status: TaskStatus,
@@ -141,6 +142,7 @@ impl<'a> SharedTaskRepository<'a> {
                 creator_user_id     AS "creator_user_id?: Uuid",
                 assignee_user_id    AS "assignee_user_id?: Uuid",
                 deleted_by_user_id  AS "deleted_by_user_id?: Uuid",
+                executing_node_id   AS "executing_node_id?: Uuid",
                 title               AS "title!",
                 description         AS "description?",
                 status              AS "status!: TaskStatus",
@@ -208,6 +210,7 @@ impl<'a> SharedTaskRepository<'a> {
                       creator_user_id    AS "creator_user_id?: Uuid",
                       assignee_user_id   AS "assignee_user_id?: Uuid",
                       deleted_by_user_id AS "deleted_by_user_id?: Uuid",
+                      executing_node_id  AS "executing_node_id?: Uuid",
                       title              AS "title!",
                       description        AS "description?",
                       status             AS "status!: TaskStatus",
@@ -254,6 +257,7 @@ impl<'a> SharedTaskRepository<'a> {
                 st.creator_user_id        AS "creator_user_id?: Uuid",
                 st.assignee_user_id       AS "assignee_user_id?: Uuid",
                 st.deleted_by_user_id     AS "deleted_by_user_id?: Uuid",
+                st.executing_node_id      AS "executing_node_id?: Uuid",
                 st.title                  AS "title!",
                 st.description            AS "description?",
                 st.status                 AS "status!: TaskStatus",
@@ -288,6 +292,7 @@ impl<'a> SharedTaskRepository<'a> {
                     creator_user_id: row.creator_user_id,
                     assignee_user_id: row.assignee_user_id,
                     deleted_by_user_id: row.deleted_by_user_id,
+                    executing_node_id: row.executing_node_id,
                     title: row.title,
                     description: row.description,
                     status: row.status,
@@ -381,6 +386,7 @@ impl<'a> SharedTaskRepository<'a> {
             t.creator_user_id   AS "creator_user_id?: Uuid",
             t.assignee_user_id  AS "assignee_user_id?: Uuid",
             t.deleted_by_user_id AS "deleted_by_user_id?: Uuid",
+            t.executing_node_id AS "executing_node_id?: Uuid",
             t.title             AS "title!",
             t.description       AS "description?",
             t.status            AS "status!: TaskStatus",
@@ -440,6 +446,7 @@ impl<'a> SharedTaskRepository<'a> {
             t.creator_user_id   AS "creator_user_id?: Uuid",
             t.assignee_user_id  AS "assignee_user_id?: Uuid",
             t.deleted_by_user_id AS "deleted_by_user_id?: Uuid",
+            t.executing_node_id AS "executing_node_id?: Uuid",
             t.title             AS "title!",
             t.description       AS "description?",
             t.status            AS "status!: TaskStatus",
@@ -496,6 +503,7 @@ impl<'a> SharedTaskRepository<'a> {
                 t.creator_user_id   AS "creator_user_id?: Uuid",
                 t.assignee_user_id  AS "assignee_user_id?: Uuid",
                 t.deleted_by_user_id AS "deleted_by_user_id?: Uuid",
+                t.executing_node_id AS "executing_node_id?: Uuid",
                 t.title             AS "title!",
                 t.description       AS "description?",
                 t.status            AS "status!: TaskStatus",
@@ -514,6 +522,30 @@ impl<'a> SharedTaskRepository<'a> {
         .ok_or(SharedTaskError::NotFound)?;
 
         Ok(task)
+    }
+
+    /// Set the executing node for a task.
+    ///
+    /// This is called when a task attempt is dispatched to a specific node.
+    pub async fn set_executing_node(
+        &self,
+        task_id: Uuid,
+        node_id: Option<Uuid>,
+    ) -> Result<(), SharedTaskError> {
+        sqlx::query!(
+            r#"
+            UPDATE shared_tasks
+            SET executing_node_id = $2,
+                updated_at = NOW()
+            WHERE id = $1
+              AND deleted_at IS NULL
+            "#,
+            task_id,
+            node_id
+        )
+        .execute(self.pool)
+        .await?;
+        Ok(())
     }
 
     pub async fn delete_task(
@@ -541,6 +573,7 @@ impl<'a> SharedTaskRepository<'a> {
             t.creator_user_id   AS "creator_user_id?: Uuid",
             t.assignee_user_id  AS "assignee_user_id?: Uuid",
             t.deleted_by_user_id AS "deleted_by_user_id?: Uuid",
+            t.executing_node_id AS "executing_node_id?: Uuid",
             t.title             AS "title!",
             t.description       AS "description?",
             t.status            AS "status!: TaskStatus",

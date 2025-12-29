@@ -274,6 +274,21 @@ pub async fn create_task_attempt(
             .proxy_post(&node_url, &path, &proxy_body, target_node_id)
             .await?;
 
+        // Set the executing node in the Hive so it can be displayed in the UI
+        if response.is_success()
+            && let Ok(client) = deployment.remote_client()
+            && let Err(e) = client
+                .set_executing_node(shared_task_id, Some(target_node_id))
+                .await
+        {
+            tracing::warn!(
+                error = ?e,
+                shared_task_id = %shared_task_id,
+                target_node_id = %target_node_id,
+                "Failed to set executing node in Hive (non-blocking)"
+            );
+        }
+
         return Ok(ResponseJson(response));
     }
 
@@ -292,17 +307,16 @@ pub async fn create_task_attempt(
         );
 
         // Sync unarchive to Hive if task is shared
-        if task.shared_task_id.is_some() {
-            if let Ok(publisher) = deployment.share_publisher() {
-                if let Some(updated_task) = Task::find_by_id(pool, task.id).await? {
-                    let publisher = publisher.clone();
-                    tokio::spawn(async move {
-                        if let Err(e) = publisher.update_shared_task(&updated_task).await {
-                            tracing::warn!(?e, "failed to sync task unarchive to Hive");
-                        }
-                    });
+        if task.shared_task_id.is_some()
+            && let Ok(publisher) = deployment.share_publisher()
+            && let Some(updated_task) = Task::find_by_id(pool, task.id).await?
+        {
+            let publisher = publisher.clone();
+            tokio::spawn(async move {
+                if let Err(e) = publisher.update_shared_task(&updated_task).await {
+                    tracing::warn!(?e, "failed to sync task unarchive to Hive");
                 }
-            }
+            });
         }
     }
 
@@ -594,17 +608,16 @@ pub async fn follow_up(
         );
 
         // Sync unarchive to Hive if task is shared
-        if task.shared_task_id.is_some() {
-            if let Ok(publisher) = deployment.share_publisher() {
-                if let Some(updated_task) = Task::find_by_id(pool, task.id).await? {
-                    let publisher = publisher.clone();
-                    tokio::spawn(async move {
-                        if let Err(e) = publisher.update_shared_task(&updated_task).await {
-                            tracing::warn!(?e, "failed to sync task unarchive to Hive");
-                        }
-                    });
+        if task.shared_task_id.is_some()
+            && let Ok(publisher) = deployment.share_publisher()
+            && let Some(updated_task) = Task::find_by_id(pool, task.id).await?
+        {
+            let publisher = publisher.clone();
+            tokio::spawn(async move {
+                if let Err(e) = publisher.update_shared_task(&updated_task).await {
+                    tracing::warn!(?e, "failed to sync task unarchive to Hive");
                 }
-            }
+            });
         }
     }
 

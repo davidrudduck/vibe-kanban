@@ -165,17 +165,16 @@ pub async fn create_task(
             );
 
             // Sync unarchive to Hive if parent is shared
-            if parent_task.shared_task_id.is_some() {
-                if let Ok(publisher) = deployment.share_publisher() {
-                    if let Some(updated_parent) = Task::find_by_id(pool, parent_task_id).await? {
-                        let publisher = publisher.clone();
-                        tokio::spawn(async move {
-                            if let Err(e) = publisher.update_shared_task(&updated_parent).await {
-                                tracing::warn!(?e, "failed to sync parent task unarchive to Hive");
-                            }
-                        });
+            if parent_task.shared_task_id.is_some()
+                && let Ok(publisher) = deployment.share_publisher()
+                && let Some(updated_parent) = Task::find_by_id(pool, parent_task_id).await?
+            {
+                let publisher = publisher.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = publisher.update_shared_task(&updated_parent).await {
+                        tracing::warn!(?e, "failed to sync parent task unarchive to Hive");
                     }
-                }
+                });
             }
         }
     }
