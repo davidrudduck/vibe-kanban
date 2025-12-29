@@ -109,6 +109,7 @@ import {
   StashChangesResponse,
   PurgeResult,
   DiskUsageStats,
+  FixSessionsResponse,
 } from 'shared/types';
 
 // Re-export types for convenience
@@ -967,6 +968,25 @@ export const attemptsApi = {
       }
     );
     return handleApiResponse<PurgeResult>(response);
+  },
+
+  /** Check if the latest failed execution has a session invalid error. */
+  hasSessionError: async (attemptId: string): Promise<boolean> => {
+    const response = await makeRequest(
+      `/api/task-attempts/${attemptId}/has-session-error`
+    );
+    return handleApiResponse<boolean>(response);
+  },
+
+  /** Fix corrupted sessions by invalidating sessions from failed/killed execution processes. */
+  fixSessions: async (attemptId: string): Promise<FixSessionsResponse> => {
+    const response = await makeRequest(
+      `/api/task-attempts/${attemptId}/fix-sessions`,
+      {
+        method: 'POST',
+      }
+    );
+    return handleApiResponse<FixSessionsResponse>(response);
   },
 };
 

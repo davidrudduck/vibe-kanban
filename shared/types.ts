@@ -1029,6 +1029,8 @@ export type StashChangesRequest = { message: string | null, };
 
 export type StashChangesResponse = { stash_ref: string, };
 
+export type FixSessionsResponse = { invalidated_count: number, invalidated_session_ids: Array<string>, };
+
 export type PurgeResult = { 
 /**
  * Number of bytes freed
