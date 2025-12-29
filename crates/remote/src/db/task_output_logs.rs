@@ -62,6 +62,30 @@ impl<'a> TaskOutputLogRepository<'a> {
         Ok(log)
     }
 
+    /// Create a new output log entry with an optional execution_process_id.
+    pub async fn create_with_execution_process(
+        &self,
+        data: CreateTaskOutputLog,
+        execution_process_id: Option<Uuid>,
+    ) -> Result<TaskOutputLog, TaskOutputLogError> {
+        let log = sqlx::query_as::<_, TaskOutputLog>(
+            r#"
+            INSERT INTO node_task_output_logs (assignment_id, output_type, content, timestamp, execution_process_id)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING id, assignment_id, output_type, content, timestamp, created_at
+            "#,
+        )
+        .bind(data.assignment_id)
+        .bind(&data.output_type)
+        .bind(&data.content)
+        .bind(data.timestamp)
+        .bind(execution_process_id)
+        .fetch_one(self.pool)
+        .await?;
+
+        Ok(log)
+    }
+
     /// Create multiple output log entries in a batch.
     pub async fn create_batch(
         &self,
