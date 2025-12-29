@@ -12,6 +12,8 @@ use thiserror::Error;
 use ts_rs::TS;
 use workspace_utils::msg_store::MsgStore;
 
+use crate::executors::claude::protocol::ProtocolPeer;
+
 use crate::{
     actions::ExecutorAction,
     approvals::ExecutorApprovalService,
@@ -256,6 +258,9 @@ pub type ExecutorExitSignal = tokio::sync::oneshot::Receiver<ExecutorExitResult>
 pub struct SpawnedChild {
     pub child: AsyncGroupChild,
     pub exit_signal: Option<ExecutorExitSignal>,
+    /// Protocol peer for message injection (Claude Code only).
+    /// When present, allows sending messages to the running agent.
+    pub protocol_peer: Option<Arc<ProtocolPeer>>,
 }
 
 impl From<AsyncGroupChild> for SpawnedChild {
@@ -263,6 +268,7 @@ impl From<AsyncGroupChild> for SpawnedChild {
         Self {
             child,
             exit_signal: None,
+            protocol_peer: None,
         }
     }
 }

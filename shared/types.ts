@@ -1101,3 +1101,11 @@ bytes: bigint,
  * Associated task attempt ID (if found via container_ref matching)
  */
 attempt_id?: string, };
+
+export type QueuedMessage = { id: string, task_attempt_id: string, content: string, variant: string | null, position: number, created_at: string, };
+
+export type AddQueuedMessageRequest = { content: string, variant: string | null, };
+
+export type UpdateQueuedMessageRequest = { content: string | null, variant: string | null, };
+
+export type ReorderQueuedMessagesRequest = { message_ids: Array<string>, };

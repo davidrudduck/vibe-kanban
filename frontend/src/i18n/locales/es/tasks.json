@@ -190,6 +190,17 @@
     "stop": "Stop",
     "unqueuing": "Unqueuing…"
   },
+  "messageQueue": {
+    "title": "Cola de Mensajes",
+    "loadingQueue": "Cargando cola...",
+    "emptyState": "No hay mensajes en cola. Los mensajes agregados aquí se enviarán automáticamente cuando el proceso actual se complete.",
+    "clear": "Limpiar",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "variant": "Variante:",
+    "addToQueue": "Agregar a la cola",
+    "addToQueueTooltip": "Agregar mensaje a la cola"
+  },
   "git": {
     "branch": {
       "current": "actual"

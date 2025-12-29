@@ -110,6 +110,10 @@ import {
   PurgeResult,
   DiskUsageStats,
   FixSessionsResponse,
+  QueuedMessage,
+  AddQueuedMessageRequest,
+  UpdateQueuedMessageRequest,
+  ReorderQueuedMessagesRequest,
 } from 'shared/types';
 
 // Re-export types for convenience
@@ -1821,5 +1825,83 @@ export const terminalApi = {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     return `${protocol}//${host}/api/terminal/ws/${sessionId}`;
+  },
+};
+
+// Message Queue API (in-memory queue for follow-up messages)
+export const messageQueueApi = {
+  list: async (attemptId: string): Promise<QueuedMessage[]> => {
+    const response = await makeRequest(
+      `/api/task-attempts/${attemptId}/message-queue`
+    );
+    return handleApiResponse<QueuedMessage[]>(response);
+  },
+
+  add: async (
+    attemptId: string,
+    content: string,
+    variant: string | null = null
+  ): Promise<QueuedMessage> => {
+    const payload: AddQueuedMessageRequest = { content, variant };
+    const response = await makeRequest(
+      `/api/task-attempts/${attemptId}/message-queue`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    );
+    return handleApiResponse<QueuedMessage>(response);
+  },
+
+  update: async (
+    attemptId: string,
+    messageId: string,
+    content: string | null,
+    variant: string | null = null
+  ): Promise<QueuedMessage> => {
+    const payload: UpdateQueuedMessageRequest = { content, variant };
+    const response = await makeRequest(
+      `/api/task-attempts/${attemptId}/message-queue/${messageId}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      }
+    );
+    return handleApiResponse<QueuedMessage>(response);
+  },
+
+  remove: async (attemptId: string, messageId: string): Promise<void> => {
+    const response = await makeRequest(
+      `/api/task-attempts/${attemptId}/message-queue/${messageId}`,
+      {
+        method: 'DELETE',
+      }
+    );
+    return handleApiResponse<void>(response);
+  },
+
+  reorder: async (
+    attemptId: string,
+    messageIds: string[]
+  ): Promise<QueuedMessage[]> => {
+    const payload: ReorderQueuedMessagesRequest = { message_ids: messageIds };
+    const response = await makeRequest(
+      `/api/task-attempts/${attemptId}/message-queue/reorder`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    );
+    return handleApiResponse<QueuedMessage[]>(response);
+  },
+
+  clear: async (attemptId: string): Promise<void> => {
+    const response = await makeRequest(
+      `/api/task-attempts/${attemptId}/message-queue`,
+      {
+        method: 'DELETE',
+      }
+    );
+    return handleApiResponse<void>(response);
   },
 };
