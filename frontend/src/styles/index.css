@@ -1,5 +1,5 @@
-/* Default fonts: Inter (UI/Prose), JetBrains Mono (Code), Chivo Mono (legacy), Noto Emoji */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Chivo+Mono:ital,wght@0,100..900;1,100..900&family=Noto+Emoji:wght@300..700&display=swap');
+/* Default fonts: Inter (UI/Prose), JetBrains Mono (Code), Chivo Mono (legacy), Noto Emoji, Source Serif 4 (heading) */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Chivo+Mono:ital,wght@0,100..900;1,100..900&family=Noto+Emoji:wght@300..700&family=Source+Serif+4:ital,opsz,wght@0,8..60,200..900;1,8..60,200..900&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -85,6 +85,62 @@
     --_console-foreground: 210 40% 98%;
     --_console-success: 138.5 76.5% 47.7%;
     --_console-error: 0 84.2% 60.2%;
+  }
+
+  /* VK-Swarm "Midnight Terminal" Theme */
+  .vks-theme {
+    color-scheme: dark;
+
+    /* Font heading (can be overridden) */
+    --font-heading: 'Source Serif 4', Georgia, serif;
+
+    /* VKS Backgrounds (Midnight Terminal palette) */
+    --vks-void: 240 33% 5%;           /* #0a0a0f - deepest background */
+    --vks-surface: 240 18% 9%;        /* #12121a - card/panel background */
+    --vks-surface-bright: 240 14% 12%; /* #1a1a24 - elevated surface */
+
+    /* VKS Accent Colors */
+    --vks-cyan: 193 100% 50%;         /* #00d4ff - primary accent */
+    --vks-amber: 43 100% 50%;         /* #ffb800 - warning/highlight */
+    --vks-emerald: 152 100% 50%;      /* #00ff88 - success */
+    --vks-coral: 0 100% 71%;          /* #ff6b6b - error/destructive */
+    --vks-violet: 270 91% 65%;        /* #a855f7 - secondary accent */
+
+    /* VKS Text Colors */
+    --vks-text: 240 6% 90%;           /* #e4e4e7 - primary text */
+    --vks-text-muted: 240 4% 46%;     /* #71717a - secondary text */
+    --vks-text-dim: 240 3% 26%;       /* #3f3f46 - disabled/subtle text */
+
+    /* Map VKS colors to theme tokens for easy adoption */
+    --_background: var(--vks-void);
+    --_foreground: var(--vks-text);
+    --_muted: var(--vks-surface);
+    --_muted-foreground: var(--vks-text-muted);
+    --_primary: var(--vks-cyan);
+    --_primary-foreground: var(--vks-void);
+    --_secondary: var(--vks-surface-bright);
+    --_secondary-foreground: var(--vks-text);
+    --_accent: var(--vks-violet);
+    --_accent-foreground: var(--vks-text);
+    --_destructive: var(--vks-coral);
+    --_destructive-foreground: var(--vks-void);
+    --_border: var(--vks-surface-bright);
+    --_input: var(--vks-surface);
+    --_ring: var(--vks-cyan);
+
+    /* VKS Status colors */
+    --_success: var(--vks-emerald);
+    --_success-foreground: var(--vks-void);
+    --_warning: var(--vks-amber);
+    --_warning-foreground: var(--vks-void);
+    --_info: var(--vks-cyan);
+    --_info-foreground: var(--vks-void);
+
+    /* VKS Console */
+    --_console-background: var(--vks-void);
+    --_console-foreground: var(--vks-text);
+    --_console-success: var(--vks-emerald);
+    --_console-error: var(--vks-coral);
   }
 }
 
