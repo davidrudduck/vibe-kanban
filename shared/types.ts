@@ -818,7 +818,11 @@ value: JsonValue, };
 
 export type ToolResultValueType = { "type": "markdown" } | { "type": "json" };
 
-export type ToolStatus = { "status": "created" } | { "status": "success" } | { "status": "failed" } | { "status": "denied", reason: string | null, } | { "status": "pending_approval", approval_id: string, requested_at: string, timeout_at: string, } | { "status": "timed_out" } | { "status": "pending_question", question_id: string, questions: Array<Question>, requested_at: string, timeout_at: string, };
+export type ToolStatus = { "status": "created" } | { "status": "success" } | { "status": "failed" } | { "status": "denied", reason: string | null, } | { "status": "pending_approval", approval_id: string, requested_at: string, timeout_at: string, } | { "status": "timed_out" } | { "status": "pending_question", question_id: string, questions: Array<Question>, requested_at: string, timeout_at: string, } | { "status": "answered", 
+/**
+ * Map of question text -> selected answer(s)
+ */
+answers: { [key in string]?: string }, };
 
 export type PatchType = { "type": "NORMALIZED_ENTRY", "content": NormalizedEntry } | { "type": "STDOUT", "content": string } | { "type": "STDERR", "content": string } | { "type": "DIFF", "content": Diff };
 

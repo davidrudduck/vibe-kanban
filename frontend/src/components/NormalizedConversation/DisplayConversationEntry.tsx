@@ -910,6 +910,29 @@ function DisplayConversationEntry({
       );
     }
 
+    // Show "User selected:" for answered questions
+    if (status.status === 'answered' && status.answers) {
+      const answerEntries = Object.entries(status.answers).filter(
+        ([, value]) => value !== undefined && value !== ''
+      );
+
+      if (answerEntries.length > 0) {
+        return (
+          <>
+            {content}
+            <div className="px-4 py-2 text-muted-foreground text-sm">
+              <div className="font-medium mb-1">User selected:</div>
+              {answerEntries.map(([question, answer]) => (
+                <div key={question} className="ml-2">
+                  • {answer}
+                </div>
+              ))}
+            </div>
+          </>
+        );
+      }
+    }
+
     return content;
   };
 
