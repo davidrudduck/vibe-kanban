@@ -165,6 +165,44 @@ pub struct UpdateAssignmentData {
     pub execution_status: Option<String>,
 }
 
+/// Task attempt synced from a node
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct NodeTaskAttempt {
+    pub id: Uuid,
+    pub assignment_id: Option<Uuid>,
+    pub shared_task_id: Uuid,
+    pub node_id: Uuid,
+    pub executor: String,
+    pub executor_variant: Option<String>,
+    pub branch: String,
+    pub target_branch: String,
+    pub container_ref: Option<String>,
+    pub worktree_deleted: bool,
+    pub setup_completed_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Execution process synced from a node
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct NodeExecutionProcess {
+    pub id: Uuid,
+    pub attempt_id: Uuid,
+    pub node_id: Uuid,
+    pub run_reason: String,
+    #[sqlx(json)]
+    pub executor_action: Option<serde_json::Value>,
+    pub before_head_commit: Option<String>,
+    pub after_head_commit: Option<String>,
+    pub status: String,
+    pub exit_code: Option<i32>,
+    pub dropped: bool,
+    pub pid: Option<i64>,
+    pub started_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
