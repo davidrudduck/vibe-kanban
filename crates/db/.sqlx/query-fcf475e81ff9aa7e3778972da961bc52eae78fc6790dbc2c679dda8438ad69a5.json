@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT COUNT(*) as count\n               FROM executor_sessions es\n               JOIN execution_processes ep ON es.execution_process_id = ep.id\n               WHERE ep.task_attempt_id = $1\n                 AND ep.status IN ('failed', 'killed')\n                 AND es.session_id IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "count",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "fcf475e81ff9aa7e3778972da961bc52eae78fc6790dbc2c679dda8438ad69a5"
+}
