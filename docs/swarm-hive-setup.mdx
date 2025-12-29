@@ -287,6 +287,20 @@ Projects on the node must be linked to the hive for task routing.
 
 When a project is linked, the node automatically registers the link with the hive.
 
+### Automatic Sync After Linking
+
+Once a project is linked, the following data syncs automatically:
+
+| Data | Direction | Method |
+|------|-----------|--------|
+| Tasks | Bidirectional | ElectricSQL + WebSocket |
+| Labels | Bidirectional | LabelPublisher service |
+| Task Attempts | Node → Hive | HiveSyncService (background) |
+| Execution Processes | Node → Hive | HiveSyncService (background) |
+| Log Entries | Node → Hive | HiveSyncService (batched) |
+
+The **HiveSyncService** runs automatically in the background (every 5 seconds) to sync execution data. This is offline-first: data is queued locally if the Hive is unreachable and synced when connection is restored.
+
 ---
 
 ## Task Flow
@@ -323,6 +337,26 @@ curl -X POST http://localhost:3000/api/task-attempts \
     "base_branch": "main"
   }'
 ```
+
+### 3a. Dispatching to Specific Nodes
+
+When creating a task attempt, you can optionally specify a target node:
+
+```bash
+curl -X POST http://localhost:3000/api/task-attempts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_id": "local-task-uuid",
+    "executor": "CLAUDE_CODE",
+    "base_branch": "main",
+    "target_node_id": "node-uuid-to-execute-on"
+  }'
+```
+
+When a task is dispatched to a node, the Hive tracks which node is executing via `executing_node_id`. This enables:
+- Viewing which node is running each task
+- Routing log streaming requests to the correct node
+- Proper task cancellation
 
 ### 4. View Logs
 

@@ -15,9 +15,10 @@ use tokio::sync::{RwLock, mpsc};
 use uuid::Uuid;
 
 use super::hive_client::{
-    HiveClient, HiveClientConfig, HiveClientError, HiveEvent, LinkProjectMessage,
-    LinkedProjectInfo, NodeMessage, TaskExecutionStatus, TaskStatusMessage, UnlinkProjectMessage,
-    detect_capabilities, get_machine_id,
+    AttemptSyncMessage, ExecutionSyncMessage, HiveClient, HiveClientConfig, HiveClientError,
+    HiveEvent, LinkProjectMessage, LinkedProjectInfo, LogsBatchMessage, NodeMessage,
+    TaskExecutionStatus, TaskStatusMessage, UnlinkProjectMessage, detect_capabilities,
+    get_machine_id,
 };
 use super::node_cache;
 use super::remote_client::{RemoteClient, RemoteClientError};
@@ -448,6 +449,36 @@ impl NodeRunnerHandle {
             .map_err(|_| HiveClientError::Send("channel closed".to_string()))
     }
 
+    /// Sync a task attempt to the Hive.
+    pub async fn send_attempt_sync(
+        &self,
+        attempt: AttemptSyncMessage,
+    ) -> Result<(), HiveClientError> {
+        self.command_tx
+            .send(NodeMessage::AttemptSync(attempt))
+            .await
+            .map_err(|_| HiveClientError::Send("channel closed".to_string()))
+    }
+
+    /// Sync an execution process to the Hive.
+    pub async fn send_execution_sync(
+        &self,
+        execution: ExecutionSyncMessage,
+    ) -> Result<(), HiveClientError> {
+        self.command_tx
+            .send(NodeMessage::ExecutionSync(execution))
+            .await
+            .map_err(|_| HiveClientError::Send("channel closed".to_string()))
+    }
+
+    /// Sync a batch of log entries to the Hive.
+    pub async fn send_logs_batch(&self, logs: LogsBatchMessage) -> Result<(), HiveClientError> {
+        self.command_tx
+            .send(NodeMessage::LogsBatch(logs))
+            .await
+            .map_err(|_| HiveClientError::Send("channel closed".to_string()))
+    }
+
     /// Check if connected to the hive.
     pub async fn is_connected(&self) -> bool {
         self.state.read().await.connected
@@ -501,6 +532,7 @@ fn spawn_hive_connection(config: NodeRunnerConfig) -> NodeRunnerHandle {
 
 use super::assignment_handler::AssignmentHandler;
 use super::container::ContainerService;
+use super::hive_sync::spawn_hive_sync_service;
 
 /// Spawn the node runner event loop.
 ///
@@ -530,6 +562,9 @@ pub fn spawn_node_runner<C: ContainerService + Sync + Send + 'static>(
         state: state.clone(),
         command_tx: command_tx.clone(),
     };
+
+    // Spawn the Hive sync service for syncing attempts, executions, and logs
+    let _sync_handle = spawn_hive_sync_service(db.pool.clone(), command_tx.clone(), None);
 
     tokio::spawn(async move {
         // Create assignment handler if container is available

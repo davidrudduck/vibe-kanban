@@ -5,7 +5,8 @@ pub mod ws;
 
 pub use domain::{
     CreateNodeApiKey, HeartbeatPayload, LinkProjectData, Node, NodeApiKey, NodeCapabilities,
-    NodeProject, NodeRegistration, NodeStatus, NodeTaskAssignment, UpdateAssignmentData,
+    NodeExecutionProcess, NodeProject, NodeRegistration, NodeStatus, NodeTaskAssignment,
+    NodeTaskAttempt, UpdateAssignmentData,
 };
 pub use heartbeat::HeartbeatMonitor;
 pub use service::{MergeNodesResult, NodeError, NodeService, NodeServiceImpl, RegisterNode};

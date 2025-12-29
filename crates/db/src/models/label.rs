@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool};
+use sqlx::{Executor, FromRow, Sqlite, SqlitePool};
 use ts_rs::TS;
 use uuid::Uuid;
 
@@ -15,6 +15,14 @@ pub struct Label {
     pub icon: String,
     /// Hex color code (e.g., "#3b82f6")
     pub color: String,
+    /// UUID of the label in the Hive (NULL if not yet synced)
+    #[ts(optional)]
+    pub shared_label_id: Option<Uuid>,
+    /// Optimistic locking version for conflict resolution
+    pub version: i64,
+    /// Timestamp of last successful sync to Hive
+    #[ts(optional)]
+    pub synced_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -76,6 +84,9 @@ impl Label {
                 name,
                 icon,
                 color,
+                shared_label_id as "shared_label_id: Uuid",
+                version as "version!: i64",
+                synced_at as "synced_at: DateTime<Utc>",
                 created_at as "created_at!: DateTime<Utc>",
                 updated_at as "updated_at!: DateTime<Utc>"
             FROM labels
@@ -97,6 +108,9 @@ impl Label {
                 name,
                 icon,
                 color,
+                shared_label_id as "shared_label_id: Uuid",
+                version as "version!: i64",
+                synced_at as "synced_at: DateTime<Utc>",
                 created_at as "created_at!: DateTime<Utc>",
                 updated_at as "updated_at!: DateTime<Utc>"
             FROM labels
@@ -117,6 +131,9 @@ impl Label {
                 name,
                 icon,
                 color,
+                shared_label_id as "shared_label_id: Uuid",
+                version as "version!: i64",
+                synced_at as "synced_at: DateTime<Utc>",
                 created_at as "created_at!: DateTime<Utc>",
                 updated_at as "updated_at!: DateTime<Utc>"
             FROM labels
@@ -140,6 +157,9 @@ impl Label {
                 name,
                 icon,
                 color,
+                shared_label_id as "shared_label_id: Uuid",
+                version as "version!: i64",
+                synced_at as "synced_at: DateTime<Utc>",
                 created_at as "created_at!: DateTime<Utc>",
                 updated_at as "updated_at!: DateTime<Utc>""#,
             id,
@@ -177,6 +197,9 @@ impl Label {
                 name,
                 icon,
                 color,
+                shared_label_id as "shared_label_id: Uuid",
+                version as "version!: i64",
+                synced_at as "synced_at: DateTime<Utc>",
                 created_at as "created_at!: DateTime<Utc>",
                 updated_at as "updated_at!: DateTime<Utc>""#,
             id,
@@ -209,6 +232,9 @@ impl Label {
                 l.name,
                 l.icon,
                 l.color,
+                l.shared_label_id as "shared_label_id: Uuid",
+                l.version as "version!: i64",
+                l.synced_at as "synced_at: DateTime<Utc>",
                 l.created_at as "created_at!: DateTime<Utc>",
                 l.updated_at as "updated_at!: DateTime<Utc>"
             FROM labels l
@@ -281,5 +307,225 @@ impl Label {
         .execute(pool)
         .await?;
         Ok(result.rows_affected())
+    }
+
+    // ============================================================
+    // Sync-related methods for Hive integration
+    // ============================================================
+
+    /// Find all labels that haven't been synced to the Hive yet
+    pub async fn find_unsynced(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            Label,
+            r#"SELECT
+                id as "id!: Uuid",
+                project_id as "project_id: Uuid",
+                name,
+                icon,
+                color,
+                shared_label_id as "shared_label_id: Uuid",
+                version as "version!: i64",
+                synced_at as "synced_at: DateTime<Utc>",
+                created_at as "created_at!: DateTime<Utc>",
+                updated_at as "updated_at!: DateTime<Utc>"
+            FROM labels
+            WHERE shared_label_id IS NULL
+            ORDER BY created_at ASC"#
+        )
+        .fetch_all(pool)
+        .await
+    }
+
+    /// Find a label by its Hive shared_label_id
+    pub async fn find_by_shared_label_id<'e, E>(
+        executor: E,
+        shared_label_id: Uuid,
+    ) -> Result<Option<Self>, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        sqlx::query_as!(
+            Label,
+            r#"SELECT
+                id as "id!: Uuid",
+                project_id as "project_id: Uuid",
+                name,
+                icon,
+                color,
+                shared_label_id as "shared_label_id: Uuid",
+                version as "version!: i64",
+                synced_at as "synced_at: DateTime<Utc>",
+                created_at as "created_at!: DateTime<Utc>",
+                updated_at as "updated_at!: DateTime<Utc>"
+            FROM labels
+            WHERE shared_label_id = $1"#,
+            shared_label_id
+        )
+        .fetch_optional(executor)
+        .await
+    }
+
+    /// Set the shared_label_id after syncing to Hive
+    pub async fn set_shared_label_id(
+        pool: &SqlitePool,
+        id: Uuid,
+        shared_label_id: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"UPDATE labels
+            SET shared_label_id = $2, synced_at = datetime('now', 'subsec'), updated_at = datetime('now', 'subsec')
+            WHERE id = $1"#,
+            id,
+            shared_label_id
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Mark a label as synced (update synced_at timestamp)
+    pub async fn mark_synced(pool: &SqlitePool, id: Uuid) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"UPDATE labels
+            SET synced_at = datetime('now', 'subsec'), updated_at = datetime('now', 'subsec')
+            WHERE id = $1"#,
+            id
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Clear the shared_label_id (unlink from Hive)
+    pub async fn clear_shared_label_id<'e, E>(executor: E, id: Uuid) -> Result<(), sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        sqlx::query!(
+            r#"UPDATE labels
+            SET shared_label_id = NULL, synced_at = NULL, updated_at = datetime('now', 'subsec')
+            WHERE id = $1"#,
+            id
+        )
+        .execute(executor)
+        .await?;
+        Ok(())
+    }
+
+    /// Find labels that have been modified since last sync
+    pub async fn find_modified_since_sync(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            Label,
+            r#"SELECT
+                id as "id!: Uuid",
+                project_id as "project_id: Uuid",
+                name,
+                icon,
+                color,
+                shared_label_id as "shared_label_id: Uuid",
+                version as "version!: i64",
+                synced_at as "synced_at: DateTime<Utc>",
+                created_at as "created_at!: DateTime<Utc>",
+                updated_at as "updated_at!: DateTime<Utc>"
+            FROM labels
+            WHERE shared_label_id IS NOT NULL
+              AND updated_at > synced_at
+            ORDER BY updated_at ASC"#
+        )
+        .fetch_all(pool)
+        .await
+    }
+
+    /// Increment the version for optimistic locking
+    pub async fn increment_version(pool: &SqlitePool, id: Uuid) -> Result<i64, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"UPDATE labels
+            SET version = version + 1, updated_at = datetime('now', 'subsec')
+            WHERE id = $1
+            RETURNING version as "version!: i64""#,
+            id
+        )
+        .fetch_one(pool)
+        .await?;
+        Ok(result.version)
+    }
+
+    /// Create a label from a Hive sync (with shared_label_id already set)
+    pub async fn create_from_hive<'e, E>(
+        executor: E,
+        shared_label_id: Uuid,
+        project_id: Option<Uuid>,
+        name: &str,
+        icon: &str,
+        color: &str,
+        version: i64,
+    ) -> Result<Self, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        let id = Uuid::new_v4();
+        sqlx::query_as!(
+            Label,
+            r#"INSERT INTO labels (id, project_id, name, icon, color, shared_label_id, version, synced_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, datetime('now', 'subsec'))
+            RETURNING
+                id as "id!: Uuid",
+                project_id as "project_id: Uuid",
+                name,
+                icon,
+                color,
+                shared_label_id as "shared_label_id: Uuid",
+                version as "version!: i64",
+                synced_at as "synced_at: DateTime<Utc>",
+                created_at as "created_at!: DateTime<Utc>",
+                updated_at as "updated_at!: DateTime<Utc>""#,
+            id,
+            project_id,
+            name,
+            icon,
+            color,
+            shared_label_id,
+            version
+        )
+        .fetch_one(executor)
+        .await
+    }
+
+    /// Update a label from Hive sync data
+    pub async fn update_from_hive<'e, E>(
+        executor: E,
+        id: Uuid,
+        name: &str,
+        icon: &str,
+        color: &str,
+        version: i64,
+    ) -> Result<Self, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        sqlx::query_as!(
+            Label,
+            r#"UPDATE labels
+            SET name = $2, icon = $3, color = $4, version = $5, synced_at = datetime('now', 'subsec'), updated_at = datetime('now', 'subsec')
+            WHERE id = $1
+            RETURNING
+                id as "id!: Uuid",
+                project_id as "project_id: Uuid",
+                name,
+                icon,
+                color,
+                shared_label_id as "shared_label_id: Uuid",
+                version as "version!: i64",
+                synced_at as "synced_at: DateTime<Utc>",
+                created_at as "created_at!: DateTime<Utc>",
+                updated_at as "updated_at!: DateTime<Utc>""#,
+            id,
+            name,
+            icon,
+            color,
+            version
+        )
+        .fetch_one(executor)
+        .await
     }
 }

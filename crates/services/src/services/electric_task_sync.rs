@@ -347,6 +347,7 @@ mod tests {
             assignee_last_name: None,
             assignee_username: None,
             updated_at: None,
+            archived_at: None,
         };
 
         assert_eq!(task.parse_status().unwrap(), TaskStatus::InProgress);
@@ -366,6 +367,7 @@ mod tests {
             assignee_last_name: Some("Doe".to_string()),
             assignee_username: None,
             updated_at: None,
+            archived_at: None,
         };
 
         assert_eq!(task.assignee_display_name(), Some("John Doe".to_string()));

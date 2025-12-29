@@ -19,10 +19,10 @@ use uuid::Uuid;
 use super::{
     connection::ConnectionManager,
     message::{
-        AuthResultMessage, DeregisterMessage, HeartbeatMessage, HiveMessage, LinkProjectMessage,
-        LinkedProjectInfo, NodeMessage, NodeRemovedMessage, PROTOCOL_VERSION, ProjectSyncMessage,
-        TaskExecutionStatus, TaskOutputMessage, TaskProgressMessage, TaskStatusMessage,
-        UnlinkProjectMessage,
+        AttemptSyncMessage, AuthResultMessage, DeregisterMessage, ExecutionSyncMessage,
+        HeartbeatMessage, HiveMessage, LinkProjectMessage, LinkedProjectInfo, LogsBatchMessage,
+        NodeMessage, NodeRemovedMessage, PROTOCOL_VERSION, ProjectSyncMessage, TaskExecutionStatus,
+        TaskOutputMessage, TaskProgressMessage, TaskStatusMessage, UnlinkProjectMessage,
     },
 };
 use crate::nodes::{
@@ -415,6 +415,11 @@ async fn handle_node_message(
         NodeMessage::Deregister(deregister) => {
             handle_deregister(node_id, organization_id, deregister, pool, connections).await
         }
+        NodeMessage::AttemptSync(attempt) => handle_attempt_sync(node_id, attempt, pool).await,
+        NodeMessage::ExecutionSync(execution) => {
+            handle_execution_sync(node_id, execution, pool).await
+        }
+        NodeMessage::LogsBatch(logs) => handle_logs_batch(node_id, logs, pool).await,
         NodeMessage::Ack { message_id } => {
             tracing::trace!(node_id = %node_id, message_id = %message_id, "received ack");
             Ok(())
@@ -868,6 +873,132 @@ async fn send_message(
             Err(())
         }
     }
+}
+
+/// Handle an attempt sync message from a node.
+///
+/// Upserts the task attempt into node_task_attempts.
+async fn handle_attempt_sync(
+    node_id: Uuid,
+    attempt: &AttemptSyncMessage,
+    pool: &PgPool,
+) -> Result<(), HandleError> {
+    use crate::db::node_task_attempts::{NodeTaskAttemptRepository, UpsertNodeTaskAttempt};
+
+    let repo = NodeTaskAttemptRepository::new(pool);
+    repo.upsert(&UpsertNodeTaskAttempt {
+        id: attempt.attempt_id,
+        assignment_id: attempt.assignment_id,
+        shared_task_id: attempt.shared_task_id,
+        node_id,
+        executor: attempt.executor.clone(),
+        executor_variant: attempt.executor_variant.clone(),
+        branch: attempt.branch.clone(),
+        target_branch: attempt.target_branch.clone(),
+        container_ref: attempt.container_ref.clone(),
+        worktree_deleted: attempt.worktree_deleted,
+        setup_completed_at: attempt.setup_completed_at,
+        created_at: attempt.created_at,
+        updated_at: attempt.updated_at,
+    })
+    .await
+    .map_err(|e| HandleError::Database(e.to_string()))?;
+
+    tracing::debug!(
+        node_id = %node_id,
+        attempt_id = %attempt.attempt_id,
+        shared_task_id = %attempt.shared_task_id,
+        "synced task attempt from node"
+    );
+
+    Ok(())
+}
+
+/// Handle an execution sync message from a node.
+///
+/// Upserts the execution process into node_execution_processes.
+async fn handle_execution_sync(
+    node_id: Uuid,
+    execution: &ExecutionSyncMessage,
+    pool: &PgPool,
+) -> Result<(), HandleError> {
+    use crate::db::node_execution_processes::{
+        NodeExecutionProcessRepository, UpsertNodeExecutionProcess,
+    };
+
+    let repo = NodeExecutionProcessRepository::new(pool);
+    repo.upsert(&UpsertNodeExecutionProcess {
+        id: execution.execution_id,
+        attempt_id: execution.attempt_id,
+        node_id,
+        run_reason: execution.run_reason.clone(),
+        executor_action: execution.executor_action.clone(),
+        before_head_commit: execution.before_head_commit.clone(),
+        after_head_commit: execution.after_head_commit.clone(),
+        status: execution.status.clone(),
+        exit_code: execution.exit_code,
+        dropped: execution.dropped,
+        pid: execution.pid,
+        started_at: execution.started_at,
+        completed_at: execution.completed_at,
+        created_at: execution.created_at,
+    })
+    .await
+    .map_err(|e| HandleError::Database(e.to_string()))?;
+
+    tracing::debug!(
+        node_id = %node_id,
+        execution_id = %execution.execution_id,
+        attempt_id = %execution.attempt_id,
+        status = %execution.status,
+        "synced execution process from node"
+    );
+
+    Ok(())
+}
+
+/// Handle a logs batch message from a node.
+///
+/// Stores the log entries in node_task_output_logs with execution_process_id.
+async fn handle_logs_batch(
+    node_id: Uuid,
+    logs: &LogsBatchMessage,
+    pool: &PgPool,
+) -> Result<(), HandleError> {
+    use crate::db::task_output_logs::{CreateTaskOutputLog, TaskOutputLogRepository};
+
+    let repo = TaskOutputLogRepository::new(pool);
+
+    for entry in &logs.entries {
+        let output_type = match entry.output_type {
+            super::message::TaskOutputType::Stdout => "stdout",
+            super::message::TaskOutputType::Stderr => "stderr",
+            super::message::TaskOutputType::System => "system",
+        };
+
+        // Create log with optional execution_process_id
+        repo.create_with_execution_process(
+            CreateTaskOutputLog {
+                assignment_id: logs.assignment_id,
+                output_type: output_type.to_string(),
+                content: entry.content.clone(),
+                timestamp: entry.timestamp,
+            },
+            logs.execution_process_id,
+        )
+        .await
+        .map_err(|e| HandleError::Database(e.to_string()))?;
+    }
+
+    tracing::trace!(
+        node_id = %node_id,
+        assignment_id = %logs.assignment_id,
+        execution_process_id = ?logs.execution_process_id,
+        entry_count = logs.entries.len(),
+        "stored logs batch from node"
+    );
+
+    Ok(())
 }
 
 /// Broadcast a node's owned projects to all other nodes in the organization.

@@ -344,6 +344,9 @@ impl From<ShareError> for ApiError {
             ShareError::ProjectNotFound(_) => {
                 ApiError::Conflict("Project not found for sharing".to_string())
             }
+            ShareError::LabelNotFound(_) => {
+                ApiError::Conflict("Label not found for sync".to_string())
+            }
             ShareError::ProjectNotLinked(project_id) => {
                 tracing::warn!(
                     %project_id,
@@ -385,6 +388,9 @@ impl From<ShareError> for ApiError {
             ShareError::InvalidOrganizationId => {
                 ApiError::Conflict("Invalid organization ID format".to_string())
             }
+            ShareError::NoOrganizations => ApiError::Conflict(
+                "No organizations available for auto-linking project".to_string(),
+            ),
             ShareError::RemoteClientError(err) => ApiError::Conflict(err.to_string()),
         }
     }

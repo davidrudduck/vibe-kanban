@@ -56,6 +56,12 @@ pub struct SetTaskLabelsData {
     pub label_ids: Vec<Uuid>,
 }
 
+/// Payload for label activity events
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LabelActivityPayload {
+    pub label: Label,
+}
+
 #[derive(Debug, Error)]
 pub enum LabelError {
     #[error("label not found")]
@@ -107,7 +113,10 @@ impl<'a> LabelRepository<'a> {
     }
 
     /// Find all labels for an organization (excludes deleted)
-    pub async fn find_by_organization(&self, organization_id: Uuid) -> Result<Vec<Label>, LabelError> {
+    pub async fn find_by_organization(
+        &self,
+        organization_id: Uuid,
+    ) -> Result<Vec<Label>, LabelError> {
         let labels = sqlx::query_as!(
             Label,
             r#"
@@ -209,13 +218,14 @@ impl<'a> LabelRepository<'a> {
         .fetch_one(self.pool)
         .await
         .map_err(|e| {
-            if let sqlx::Error::Database(ref db_err) = e {
-                if db_err.constraint() == Some("labels_organization_id_project_id_name_deleted_at_key") {
-                    return LabelError::Conflict(format!(
-                        "Label with name '{}' already exists in this scope",
-                        data.name
-                    ));
-                }
+            if let sqlx::Error::Database(ref db_err) = e
+                && db_err.constraint()
+                    == Some("labels_organization_id_project_id_name_deleted_at_key")
+            {
+                return LabelError::Conflict(format!(
+                    "Label with name '{}' already exists in this scope",
+                    data.name
+                ));
             }
             LabelError::from(e)
         })?;
@@ -402,10 +412,7 @@ impl<'a> LabelRepository<'a> {
 
     /// Find or create a label by name within a scope (used for conflict resolution)
     /// Returns the existing label if one with the same name exists, otherwise creates a new one
-    pub async fn find_or_create(
-        &self,
-        data: CreateLabelData,
-    ) -> Result<(Label, bool), LabelError> {
+    pub async fn find_or_create(&self, data: CreateLabelData) -> Result<(Label, bool), LabelError> {
         // Try to find existing label with same name in scope
         let existing = sqlx::query_as!(
             Label,
@@ -447,7 +454,10 @@ impl<'a> LabelRepository<'a> {
 
 impl LabelRepository<'_> {
     /// Get the organization_id for a label
-    pub async fn organization_id(pool: &PgPool, label_id: Uuid) -> Result<Option<Uuid>, sqlx::Error> {
+    pub async fn organization_id(
+        pool: &PgPool,
+        label_id: Uuid,
+    ) -> Result<Option<Uuid>, sqlx::Error> {
         sqlx::query_scalar!(
             r#"
             SELECT organization_id

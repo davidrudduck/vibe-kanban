@@ -10,7 +10,9 @@ use serde_json::json;
 use tracing::instrument;
 use uuid::Uuid;
 
-use super::organization_members::{ensure_member_access, ensure_project_access, ensure_task_access};
+use super::organization_members::{
+    ensure_member_access, ensure_project_access, ensure_task_access,
+};
 use crate::{
     AppState,
     auth::RequestContext,
@@ -59,7 +61,10 @@ pub async fn list_labels(
 
     let repo = LabelRepository::new(pool);
     let result = match query.project_id {
-        Some(project_id) => repo.find_for_project(query.organization_id, project_id).await,
+        Some(project_id) => {
+            repo.find_for_project(query.organization_id, project_id)
+                .await
+        }
         None => repo.find_by_organization(query.organization_id).await,
     };
 
@@ -111,7 +116,9 @@ pub async fn create_label(
         if let Err(error) = ensure_project_access(pool, ctx.user.id, project_id).await {
             return error.into_response();
         }
-    } else if let Err(error) = ensure_member_access(pool, payload.organization_id, ctx.user.id).await {
+    } else if let Err(error) =
+        ensure_member_access(pool, payload.organization_id, ctx.user.id).await
+    {
         return error.into_response();
     }
 
@@ -355,10 +362,7 @@ fn label_error_response(error: LabelError, context: &str) -> Response {
             StatusCode::NOT_FOUND,
             Json(json!({ "error": "label not found" })),
         ),
-        LabelError::Conflict(message) => (
-            StatusCode::CONFLICT,
-            Json(json!({ "error": message })),
-        ),
+        LabelError::Conflict(message) => (StatusCode::CONFLICT, Json(json!({ "error": message }))),
         LabelError::VersionMismatch => (
             StatusCode::CONFLICT,
             Json(json!({ "error": "label version mismatch" })),

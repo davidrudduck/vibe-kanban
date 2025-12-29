@@ -72,10 +72,8 @@ impl ProtocolPeer {
                             // Check if result string is empty - empty results may be
                             // intermediate signals (context summarization, state transitions)
                             // rather than true session completion
-                            let result_str = value
-                                .get("result")
-                                .and_then(|r| r.as_str())
-                                .unwrap_or("");
+                            let result_str =
+                                value.get("result").and_then(|r| r.as_str()).unwrap_or("");
                             let has_result = !result_str.is_empty();
 
                             tracing::info!(
@@ -139,26 +137,29 @@ impl ProtocolPeer {
                             match client.on_ask_user_question(questions, tool_use_id).await {
                                 Ok(result) => {
                                     // Wrap response in PermissionResult format for CanUseTool
-                                    let permission_response = if let Some(answers) = result.get("answers") {
-                                        // Build updatedInput with original questions + user answers
-                                        let mut updated_input = input.clone();
-                                        updated_input["answers"] = answers.clone();
-                                        serde_json::json!({
-                                            "behavior": "allow",
-                                            "updatedInput": updated_input
-                                        })
-                                    } else {
-                                        // Error case - deny with message
-                                        let error_msg = result.get("error")
-                                            .and_then(|e| e.as_str())
-                                            .unwrap_or("Unknown error");
-                                        serde_json::json!({
-                                            "behavior": "deny",
-                                            "message": error_msg
-                                        })
-                                    };
-                                    if let Err(e) =
-                                        self.send_hook_response(request_id, permission_response).await
+                                    let permission_response =
+                                        if let Some(answers) = result.get("answers") {
+                                            // Build updatedInput with original questions + user answers
+                                            let mut updated_input = input.clone();
+                                            updated_input["answers"] = answers.clone();
+                                            serde_json::json!({
+                                                "behavior": "allow",
+                                                "updatedInput": updated_input
+                                            })
+                                        } else {
+                                            // Error case - deny with message
+                                            let error_msg = result
+                                                .get("error")
+                                                .and_then(|e| e.as_str())
+                                                .unwrap_or("Unknown error");
+                                            serde_json::json!({
+                                                "behavior": "deny",
+                                                "message": error_msg
+                                            })
+                                        };
+                                    if let Err(e) = self
+                                        .send_hook_response(request_id, permission_response)
+                                        .await
                                     {
                                         tracing::error!("Failed to send question answer: {e}");
                                     }

@@ -41,6 +41,18 @@ pub enum NodeMessage {
     #[serde(rename = "unlink_project")]
     UnlinkProject(UnlinkProjectMessage),
 
+    /// Sync a task attempt from node to hive
+    #[serde(rename = "attempt_sync")]
+    AttemptSync(AttemptSyncMessage),
+
+    /// Sync an execution process from node to hive
+    #[serde(rename = "execution_sync")]
+    ExecutionSync(ExecutionSyncMessage),
+
+    /// Batch of log entries from node to hive
+    #[serde(rename = "logs_batch")]
+    LogsBatch(LogsBatchMessage),
+
     /// Acknowledgement of a hive message
     #[serde(rename = "ack")]
     Ack { message_id: Uuid },
@@ -395,6 +407,100 @@ pub struct ProjectSyncMessage {
     pub source_node_public_url: Option<String>,
     /// Whether this is a new link (true) or removal (false)
     pub is_new: bool,
+}
+
+/// Sync a task attempt from node to hive.
+///
+/// Sent by nodes when a task attempt is created or updated.
+/// The hive stores this in node_task_attempts for tracking execution history.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttemptSyncMessage {
+    /// Local attempt ID (same as node's task_attempt.id)
+    pub attempt_id: Uuid,
+    /// Assignment ID if this attempt was dispatched via hive
+    pub assignment_id: Option<Uuid>,
+    /// Shared task ID in the hive
+    pub shared_task_id: Uuid,
+    /// Executor name (e.g., "CLAUDE_CODE", "GEMINI")
+    pub executor: String,
+    /// Executor variant (e.g., "opus", "sonnet")
+    pub executor_variant: Option<String>,
+    /// Git branch for this attempt
+    pub branch: String,
+    /// Target branch for PR/merge
+    pub target_branch: String,
+    /// Container reference (worktree path or container ID)
+    pub container_ref: Option<String>,
+    /// Whether the worktree has been deleted
+    pub worktree_deleted: bool,
+    /// When setup completed (if applicable)
+    pub setup_completed_at: Option<DateTime<Utc>>,
+    /// When the attempt was created on the node
+    pub created_at: DateTime<Utc>,
+    /// When the attempt was last updated on the node
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Sync an execution process from node to hive.
+///
+/// Sent by nodes when an execution process is created or updated.
+/// The hive stores this in node_execution_processes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionSyncMessage {
+    /// Local execution process ID (same as node's execution_process.id)
+    pub execution_id: Uuid,
+    /// Attempt ID this process belongs to
+    pub attempt_id: Uuid,
+    /// Run reason (setupscript, cleanupscript, codingagent, devserver)
+    pub run_reason: String,
+    /// Executor action details (JSON)
+    pub executor_action: Option<serde_json::Value>,
+    /// Git HEAD before process ran
+    pub before_head_commit: Option<String>,
+    /// Git HEAD after process completed
+    pub after_head_commit: Option<String>,
+    /// Process status (running, completed, failed, killed)
+    pub status: String,
+    /// Exit code if completed
+    pub exit_code: Option<i32>,
+    /// Whether this process is dropped from timeline view
+    pub dropped: bool,
+    /// System process ID
+    pub pid: Option<i64>,
+    /// When the process started
+    pub started_at: DateTime<Utc>,
+    /// When the process completed
+    pub completed_at: Option<DateTime<Utc>>,
+    /// When the process record was created
+    pub created_at: DateTime<Utc>,
+}
+
+/// A single log entry in a batch.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogEntry {
+    /// Output type (stdout, stderr, system)
+    pub output_type: TaskOutputType,
+    /// Log content
+    pub content: String,
+    /// Timestamp of the log entry
+    pub timestamp: DateTime<Utc>,
+}
+
+/// Batch of log entries from node to hive.
+///
+/// Nodes batch log entries for efficiency (typically 100 entries or 5 seconds).
+/// The execution_process_id links logs to a specific process run.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogsBatchMessage {
+    /// Assignment ID for routing
+    pub assignment_id: Uuid,
+    /// Execution process ID these logs belong to (optional for backwards compatibility)
+    pub execution_process_id: Option<Uuid>,
+    /// Batch of log entries
+    pub entries: Vec<LogEntry>,
+    /// Whether this batch is compressed (gzip)
+    #[serde(default)]
+    pub compressed: bool,
 }
 
 /// Current protocol version.

@@ -33,6 +33,7 @@
 //! - `frontend/src/hooks/useElectricTasks.ts` - React hook for Electric tasks
 
 mod config;
+mod label_publisher;
 mod processor;
 mod publisher;
 pub mod status;
@@ -54,6 +55,7 @@ use db::{
         task::{SyncTask, Task},
     },
 };
+pub use label_publisher::LabelPublisher;
 use processor::ActivityProcessor;
 pub use publisher::SharePublisher;
 use remote::{
@@ -102,6 +104,8 @@ pub enum ShareError {
     ProjectNotFound(Uuid),
     #[error("project {0} is not linked to a remote project")]
     ProjectNotLinked(Uuid),
+    #[error("label {0} not found")]
+    LabelNotFound(Uuid),
     #[error("invalid response from remote share service")]
     InvalidResponse,
     #[error("task {0} is already shared")]
@@ -118,6 +122,8 @@ pub enum ShareError {
     InvalidUserId,
     #[error("invalid organization ID format")]
     InvalidOrganizationId,
+    #[error("no organizations available for auto-linking")]
+    NoOrganizations,
     #[error(transparent)]
     RemoteClientError(#[from] RemoteClientError),
 }
@@ -293,9 +299,25 @@ impl RemoteSync {
 
         let publisher = SharePublisher::new(self.db.clone(), remote_client);
 
+        // First, migrate any unlinked projects to the Hive
+        match migrate_unlinked_projects(&self.db.pool, &publisher).await {
+            Ok(linked_count) => {
+                if linked_count > 0 {
+                    tracing::info!(
+                        linked_count,
+                        "Startup sync: auto-linked unlinked projects to Hive"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = ?e, "Failed to migrate unlinked projects on startup");
+            }
+        }
+
         // Get user_id if available, but don't require it
         let user_id = self.auth_ctx.cached_profile().await.map(|p| p.user_id);
 
+        // Then sync any unshared tasks for linked projects
         match sync_all_hive_linked_projects(&self.db.pool, &publisher, user_id).await {
             Ok((projects, tasks)) => {
                 if tasks > 0 {
@@ -836,6 +858,57 @@ pub async fn sync_all_hive_linked_projects(
     );
 
     Ok((total_projects_synced, total_tasks_shared))
+}
+
+/// Auto-link all unlinked local projects to the Hive.
+/// This creates remote projects on the Hive for any local projects that don't have a remote_project_id.
+pub async fn migrate_unlinked_projects(
+    pool: &SqlitePool,
+    publisher: &SharePublisher,
+) -> Result<usize, ShareError> {
+    use db::models::project::Project;
+
+    let unlinked_projects = Project::find_unlinked(pool).await?;
+
+    if unlinked_projects.is_empty() {
+        tracing::debug!("No unlinked projects to migrate");
+        return Ok(0);
+    }
+
+    tracing::info!(
+        project_count = unlinked_projects.len(),
+        "Migrating unlinked projects to Hive"
+    );
+
+    let mut linked_count = 0;
+    for project in unlinked_projects {
+        match publisher.ensure_project_linked_public(&project).await {
+            Ok(remote_project_id) => {
+                tracing::info!(
+                    project_id = %project.id,
+                    project_name = %project.name,
+                    remote_project_id = %remote_project_id,
+                    "Migrated unlinked project to Hive"
+                );
+                linked_count += 1;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    project_id = %project.id,
+                    project_name = %project.name,
+                    error = ?e,
+                    "Failed to migrate unlinked project to Hive"
+                );
+            }
+        }
+    }
+
+    tracing::info!(
+        linked_count,
+        "Completed migration of unlinked projects to Hive"
+    );
+
+    Ok(linked_count)
 }
 
 /// Share all existing local tasks for a project to the Hive.

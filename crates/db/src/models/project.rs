@@ -242,10 +242,13 @@ impl Project {
         .await
     }
 
-    pub async fn find_by_remote_project_id(
-        pool: &SqlitePool,
+    pub async fn find_by_remote_project_id<'e, E>(
+        executor: E,
         remote_project_id: Uuid,
-    ) -> Result<Option<Self>, sqlx::Error> {
+    ) -> Result<Option<Self>, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
         sqlx::query_as!(
             Project,
             r#"SELECT id as "id!: Uuid",
@@ -276,7 +279,7 @@ impl Project {
                LIMIT 1"#,
             remote_project_id
         )
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
     }
 
@@ -506,6 +509,42 @@ impl Project {
         .await?;
 
         Ok(())
+    }
+
+    /// Find all local projects that are not linked to a remote project.
+    /// These are projects with is_remote=false and remote_project_id IS NULL.
+    pub async fn find_unlinked(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            Project,
+            r#"SELECT id as "id!: Uuid",
+                      name,
+                      git_repo_path,
+                      setup_script,
+                      dev_script,
+                      cleanup_script,
+                      copy_files,
+                      parallel_setup_script as "parallel_setup_script!: bool",
+                      remote_project_id as "remote_project_id: Uuid",
+                      created_at as "created_at!: DateTime<Utc>",
+                      updated_at as "updated_at!: DateTime<Utc>",
+                      is_remote as "is_remote!: bool",
+                      source_node_id as "source_node_id: Uuid",
+                      source_node_name,
+                      source_node_public_url,
+                      source_node_status,
+                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
+                      github_enabled as "github_enabled!: bool",
+                      github_owner,
+                      github_repo,
+                      github_open_issues as "github_open_issues!: i32",
+                      github_open_prs as "github_open_prs!: i32",
+                      github_last_synced_at as "github_last_synced_at: DateTime<Utc>"
+               FROM projects
+               WHERE is_remote = 0 AND remote_project_id IS NULL
+               ORDER BY created_at DESC"#
+        )
+        .fetch_all(pool)
+        .await
     }
 
     pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<u64, sqlx::Error> {

@@ -632,6 +632,26 @@ impl RemoteClient {
             .await
     }
 
+    /// Sets the executing node for a shared task.
+    ///
+    /// This is called when a task attempt is dispatched to a specific node,
+    /// allowing the Hive to track which node is executing the task.
+    pub async fn set_executing_node(
+        &self,
+        task_id: Uuid,
+        node_id: Option<Uuid>,
+    ) -> Result<(), RemoteClientError> {
+        #[derive(Serialize)]
+        struct SetExecutingNodeRequest {
+            node_id: Option<Uuid>,
+        }
+
+        let request = SetExecutingNodeRequest { node_id };
+        self.patch_authed::<Value, _>(&format!("/v1/tasks/{task_id}/executing-node"), &request)
+            .await?;
+        Ok(())
+    }
+
     // =====================
     // Node Management APIs
     // =====================
@@ -700,6 +720,65 @@ impl RemoteClient {
         self.get_authed(&format!("/v1/tasks/{task_id}/stream-connection-info"))
             .await
     }
+
+    // =====================
+    // Label APIs
+    // =====================
+
+    /// Creates a label in the Hive.
+    pub async fn create_label(
+        &self,
+        request: &CreateLabelRequest,
+    ) -> Result<LabelResponse, RemoteClientError> {
+        self.post_authed("/v1/labels", Some(request)).await
+    }
+
+    /// Updates a label in the Hive.
+    pub async fn update_label(
+        &self,
+        label_id: Uuid,
+        request: &UpdateLabelRequest,
+    ) -> Result<LabelResponse, RemoteClientError> {
+        self.patch_authed(&format!("/v1/labels/{label_id}"), request)
+            .await
+    }
+
+    /// Deletes a label in the Hive.
+    pub async fn delete_label(
+        &self,
+        label_id: Uuid,
+        request: Option<&DeleteLabelRequest>,
+    ) -> Result<LabelResponse, RemoteClientError> {
+        let res = self
+            .send(
+                reqwest::Method::DELETE,
+                &format!("/v1/labels/{label_id}"),
+                true,
+                request,
+            )
+            .await?;
+        res.json::<LabelResponse>()
+            .await
+            .map_err(|e| RemoteClientError::Serde(e.to_string()))
+    }
+
+    /// Lists labels for an organization.
+    pub async fn list_labels(
+        &self,
+        organization_id: Uuid,
+        project_id: Option<Uuid>,
+    ) -> Result<ListLabelsResponse, RemoteClientError> {
+        let mut path = format!("/v1/labels?organization_id={organization_id}");
+        if let Some(pid) = project_id {
+            path.push_str(&format!("&project_id={pid}"));
+        }
+        self.get_authed(&path).await
+    }
+
+    /// Gets a specific label.
+    pub async fn get_label(&self, label_id: Uuid) -> Result<LabelResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/labels/{label_id}")).await
+    }
 }
 
 /// Request payload for creating a node API key
@@ -723,6 +802,71 @@ pub struct CreateRemoteProjectPayload {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Value>,
+}
+
+// =====================
+// Label Types
+// =====================
+
+/// Request payload for creating a label in the Hive
+#[derive(Debug, Serialize)]
+pub struct CreateLabelRequest {
+    pub organization_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin_node_id: Option<Uuid>,
+    pub name: String,
+    pub icon: String,
+    pub color: String,
+}
+
+/// Request payload for updating a label in the Hive
+#[derive(Debug, Serialize)]
+pub struct UpdateLabelRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<i64>,
+}
+
+/// Request payload for deleting a label in the Hive
+#[derive(Debug, Serialize)]
+pub struct DeleteLabelRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<i64>,
+}
+
+/// Hive Label representation
+#[derive(Debug, Clone, Deserialize)]
+pub struct HiveLabel {
+    pub id: Uuid,
+    pub organization_id: Uuid,
+    pub project_id: Option<Uuid>,
+    pub origin_node_id: Option<Uuid>,
+    pub name: String,
+    pub icon: String,
+    pub color: String,
+    pub version: i64,
+    pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Response from label operations
+#[derive(Debug, Deserialize)]
+pub struct LabelResponse {
+    pub label: HiveLabel,
+}
+
+/// Response from listing labels
+#[derive(Debug, Deserialize)]
+pub struct ListLabelsResponse {
+    pub labels: Vec<HiveLabel>,
 }
 
 fn map_reqwest_error(e: reqwest::Error) -> RemoteClientError {

@@ -396,6 +396,7 @@ async fn test_apply_insert_creates_task() {
         None,
         1,
         None,
+        None,
     )
     .await
     .unwrap();
@@ -440,6 +441,7 @@ async fn test_apply_update_modifies_task() {
         None,
         1,
         None,
+        None,
     )
     .await
     .unwrap();
@@ -457,6 +459,7 @@ async fn test_apply_update_modifies_task() {
         None,
         None,
         2,
+        None,
         None,
     )
     .await
@@ -501,6 +504,7 @@ async fn test_apply_delete_removes_task() {
         None,
         None,
         1,
+        None,
         None,
     )
     .await
@@ -638,6 +642,7 @@ async fn test_full_sync_cycle() {
                     None,
                     version,
                     None,
+                    None,
                 )
                 .await
                 .unwrap();
@@ -714,6 +719,7 @@ async fn test_full_sync_cycle() {
                     None,
                     None,
                     version,
+                    None,
                     None,
                 )
                 .await

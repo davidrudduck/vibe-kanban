@@ -3,16 +3,19 @@ use std::collections::HashSet;
 use db::{
     DBService,
     models::{
+        label::Label,
         project::Project,
         shared_task::{SharedActivityCursor, SharedTask, SharedTaskInput},
         task::Task,
     },
 };
 use remote::{
-    activity::ActivityEvent, db::tasks::SharedTaskActivityPayload,
+    activity::ActivityEvent,
+    db::{labels::LabelActivityPayload, tasks::SharedTaskActivityPayload},
     routes::tasks::BulkSharedTasksResponse,
 };
 use sqlx::{Sqlite, Transaction};
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 use super::{
@@ -69,6 +72,10 @@ impl ActivityProcessor {
         let mut tx = self.db.pool.begin().await?;
         match event.event_type.as_str() {
             "task.deleted" => self.process_deleted_task_event(&mut tx, &event).await?,
+            "label.created" | "label.updated" => {
+                self.process_label_upsert_event(&mut tx, &event).await?
+            }
+            "label.deleted" => self.process_label_deleted_event(&mut tx, &event).await?,
             _ => self.process_upsert_event(&mut tx, &event).await?,
         }
 
@@ -453,5 +460,141 @@ impl ActivityProcessor {
             .remote_client
             .fetch_bulk_snapshot(remote_project_id)
             .await?)
+    }
+
+    // =========================================================================
+    // Label event processing
+    // =========================================================================
+
+    /// Process a label.created or label.updated event from the Hive.
+    /// This syncs the label from the Hive to the local database.
+    async fn process_label_upsert_event(
+        &self,
+        tx: &mut Transaction<'_, Sqlite>,
+        event: &ActivityEvent,
+    ) -> Result<(), ShareError> {
+        let Some(payload) = &event.payload else {
+            warn!(
+                event_id = %event.event_id,
+                "received label upsert event with empty payload"
+            );
+            return Ok(());
+        };
+
+        let label_payload = match serde_json::from_value::<LabelActivityPayload>(payload.clone()) {
+            Ok(p) => p,
+            Err(error) => {
+                warn!(
+                    ?error,
+                    event_id = %event.event_id,
+                    "failed to parse label activity payload; skipping"
+                );
+                return Ok(());
+            }
+        };
+
+        let hive_label = label_payload.label;
+
+        // Check if we already have this label locally (by shared_label_id)
+        if let Some(existing) = Label::find_by_shared_label_id(tx.as_mut(), hive_label.id).await? {
+            // Update existing label if the Hive version is newer
+            if hive_label.version > existing.version {
+                Label::update_from_hive(
+                    tx.as_mut(),
+                    existing.id,
+                    &hive_label.name,
+                    &hive_label.icon,
+                    &hive_label.color,
+                    hive_label.version,
+                )
+                .await?;
+                debug!(
+                    local_label_id = %existing.id,
+                    shared_label_id = %hive_label.id,
+                    "Updated local label from Hive"
+                );
+            } else {
+                debug!(
+                    local_label_id = %existing.id,
+                    shared_label_id = %hive_label.id,
+                    local_version = existing.version,
+                    hive_version = hive_label.version,
+                    "Skipping label update - local version is newer or equal"
+                );
+            }
+        } else {
+            // Create new local label from Hive
+            // Map project_id from remote to local if this is a project-scoped label
+            let local_project_id = if let Some(remote_project_id) = hive_label.project_id {
+                Project::find_by_remote_project_id(tx.as_mut(), remote_project_id)
+                    .await?
+                    .map(|p| p.id)
+            } else {
+                None
+            };
+
+            Label::create_from_hive(
+                tx.as_mut(),
+                hive_label.id,
+                local_project_id,
+                &hive_label.name,
+                &hive_label.icon,
+                &hive_label.color,
+                hive_label.version,
+            )
+            .await?;
+            debug!(
+                shared_label_id = %hive_label.id,
+                label_name = %hive_label.name,
+                "Created local label from Hive"
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Process a label.deleted event from the Hive.
+    /// This removes the shared_label_id from the local label (soft unlink).
+    async fn process_label_deleted_event(
+        &self,
+        tx: &mut Transaction<'_, Sqlite>,
+        event: &ActivityEvent,
+    ) -> Result<(), ShareError> {
+        let Some(payload) = &event.payload else {
+            warn!(
+                event_id = %event.event_id,
+                "received label delete event with empty payload"
+            );
+            return Ok(());
+        };
+
+        let label_payload = match serde_json::from_value::<LabelActivityPayload>(payload.clone()) {
+            Ok(p) => p,
+            Err(error) => {
+                warn!(
+                    ?error,
+                    event_id = %event.event_id,
+                    "failed to parse label delete payload; skipping"
+                );
+                return Ok(());
+            }
+        };
+
+        let hive_label = label_payload.label;
+
+        // Find local label by shared_label_id and unlink it
+        if let Some(existing) = Label::find_by_shared_label_id(tx.as_mut(), hive_label.id).await? {
+            // Clear the shared_label_id to unlink from Hive
+            // We don't delete the local label - just unlink it
+            Label::clear_shared_label_id(tx.as_mut(), existing.id).await?;
+
+            debug!(
+                local_label_id = %existing.id,
+                shared_label_id = %hive_label.id,
+                "Unlinked local label from deleted Hive label"
+            );
+        }
+
+        Ok(())
     }
 }

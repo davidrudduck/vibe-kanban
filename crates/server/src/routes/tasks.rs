@@ -165,17 +165,16 @@ pub async fn create_task(
             );
 
             // Sync unarchive to Hive if parent is shared
-            if parent_task.shared_task_id.is_some() {
-                if let Ok(publisher) = deployment.share_publisher() {
-                    if let Some(updated_parent) = Task::find_by_id(pool, parent_task_id).await? {
-                        let publisher = publisher.clone();
-                        tokio::spawn(async move {
-                            if let Err(e) = publisher.update_shared_task(&updated_parent).await {
-                                tracing::warn!(?e, "failed to sync parent task unarchive to Hive");
-                            }
-                        });
+            if parent_task.shared_task_id.is_some()
+                && let Ok(publisher) = deployment.share_publisher()
+                && let Some(updated_parent) = Task::find_by_id(pool, parent_task_id).await?
+            {
+                let publisher = publisher.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = publisher.update_shared_task(&updated_parent).await {
+                        tracing::warn!(?e, "failed to sync parent task unarchive to Hive");
                     }
-                }
+                });
             }
         }
     }
@@ -194,11 +193,9 @@ pub async fn create_task(
         TaskImage::associate_many_dedup(pool, task.id, image_ids).await?;
     }
 
-    // Auto-share task if project is linked to the Hive
+    // Auto-share task to Hive (will auto-link project if not already linked)
     let mut task = task;
-    if project.remote_project_id.is_some()
-        && let Ok(publisher) = deployment.share_publisher()
-    {
+    if let Ok(publisher) = deployment.share_publisher() {
         // Get user_id for sharing - use cached profile if available (optional)
         let user_id = deployment
             .auth_context()
@@ -909,18 +906,15 @@ pub async fn archive_task(
     let cleanup_data: Vec<(uuid::Uuid, WorktreeCleanup)> = attempts
         .iter()
         .filter_map(|attempt| {
-            attempt
-                .container_ref
-                .as_ref()
-                .map(|worktree_path| {
-                    (
-                        attempt.id,
-                        WorktreeCleanup {
-                            worktree_path: PathBuf::from(worktree_path),
-                            git_repo_path: Some(project.git_repo_path.clone()),
-                        },
-                    )
-                })
+            attempt.container_ref.as_ref().map(|worktree_path| {
+                (
+                    attempt.id,
+                    WorktreeCleanup {
+                        worktree_path: PathBuf::from(worktree_path),
+                        git_repo_path: Some(project.git_repo_path.clone()),
+                    },
+                )
+            })
         })
         .collect();
 
