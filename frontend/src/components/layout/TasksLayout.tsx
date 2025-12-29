@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { useSwipe } from '@/hooks/useSwipe';
 
-export type LayoutMode = 'preview' | 'diffs' | 'files' | 'terminal' | null;
+export type LayoutMode = 'preview' | 'diffs' | 'files' | 'terminal' | 'processes' | null;
 
 interface TasksLayoutProps {
   kanban: ReactNode;
@@ -157,7 +157,7 @@ function RightWorkArea({
               collapsible={false}
               className="min-w-0 min-h-0 overflow-hidden"
               role="region"
-              aria-label={mode === 'preview' ? 'Preview' : 'Diffs'}
+              aria-label={mode === 'preview' ? 'Preview' : mode === 'processes' ? 'Processes' : 'Diffs'}
             >
               <AuxRouter mode={mode} aux={aux} />
             </Panel>
@@ -339,7 +339,7 @@ export function TasksLayout({
         <div
           className="min-w-0 min-h-0 overflow-hidden border-l"
           aria-hidden={!isAuxVisible}
-          aria-label={mode === 'preview' ? 'Preview' : 'Diffs'}
+          aria-label={mode === 'preview' ? 'Preview' : mode === 'processes' ? 'Processes' : 'Diffs'}
           role="region"
           style={{ pointerEvents: isAuxVisible ? 'auto' : 'none' }}
         >

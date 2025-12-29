@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Eye, FileDiff, FolderTree, Terminal, FileText } from 'lucide-react';
+import { Eye, FileDiff, FolderTree, Terminal, FileText, Cog } from 'lucide-react';
 import { BottomSheet } from '@/components/ui/bottom-sheet';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -19,7 +19,7 @@ interface ModeOption {
 }
 
 /**
- * Mobile bottom sheet for selecting view modes (logs, preview, diffs, files, terminal).
+ * Mobile bottom sheet for selecting view modes (logs, preview, diffs, files, terminal, processes).
  * Provides touch-friendly 48px buttons for easy selection.
  */
 export function MobileViewModeSheet({
@@ -55,6 +55,11 @@ export function MobileViewModeSheet({
       value: 'terminal',
       label: t('attemptHeaderActions.terminal', { defaultValue: 'Terminal' }),
       icon: <Terminal className="h-5 w-5" />,
+    },
+    {
+      value: 'processes',
+      label: t('attemptHeaderActions.processes', { defaultValue: 'Processes' }),
+      icon: <Cog className="h-5 w-5" />,
     },
   ];
 
