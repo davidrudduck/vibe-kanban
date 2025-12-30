@@ -9,6 +9,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 use ts_rs::TS;
+use utils::assets::backup_dir;
 
 /// Information about a database backup file.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -41,17 +42,12 @@ impl BackupService {
             return Ok(None);
         }
 
-        let backup_dir = db_path
-            .parent()
-            .ok_or_else(|| {
-                std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid database path")
-            })?
-            .join("backups");
-        std::fs::create_dir_all(&backup_dir)?;
+        let backup_directory = backup_dir();
+        std::fs::create_dir_all(&backup_directory)?;
 
         let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
         let backup_name = format!("db_backup_{}.sqlite", timestamp);
-        let backup_path = backup_dir.join(&backup_name);
+        let backup_path = backup_directory.join(&backup_name);
 
         // Copy main database file
         std::fs::copy(db_path, &backup_path)?;
@@ -59,14 +55,14 @@ impl BackupService {
         // Also backup WAL if exists (for complete database state)
         let wal_path = db_path.with_extension("sqlite-wal");
         if wal_path.exists() {
-            let wal_backup = backup_dir.join(format!("db_backup_{}.sqlite-wal", timestamp));
+            let wal_backup = backup_directory.join(format!("db_backup_{}.sqlite-wal", timestamp));
             std::fs::copy(&wal_path, &wal_backup)?;
         }
 
         // Also backup SHM if exists
         let shm_path = db_path.with_extension("sqlite-shm");
         if shm_path.exists() {
-            let shm_backup = backup_dir.join(format!("db_backup_{}.sqlite-shm", timestamp));
+            let shm_backup = backup_directory.join(format!("db_backup_{}.sqlite-shm", timestamp));
             std::fs::copy(&shm_path, &shm_backup)?;
         }
 
@@ -83,20 +79,17 @@ impl BackupService {
 
     /// Clean up old backups with custom retention count.
     pub fn cleanup_old_backups_with_retention(
-        db_path: &Path,
+        _db_path: &Path,
         keep_count: usize,
     ) -> Result<(), std::io::Error> {
-        let backup_dir = match db_path.parent() {
-            Some(parent) => parent.join("backups"),
-            None => return Ok(()),
-        };
+        let backup_directory = backup_dir();
 
-        if !backup_dir.exists() {
+        if !backup_directory.exists() {
             return Ok(());
         }
 
         // Collect all backup files (main .sqlite files only, not WAL/SHM)
-        let mut backups: Vec<_> = std::fs::read_dir(&backup_dir)?
+        let mut backups: Vec<_> = std::fs::read_dir(&backup_directory)?
             .filter_map(|e| e.ok())
             .filter(|e| {
                 let path = e.path();
@@ -154,17 +147,12 @@ impl BackupService {
             ));
         }
 
-        let backup_dir = db_path
-            .parent()
-            .ok_or_else(|| {
-                std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid database path")
-            })?
-            .join("backups");
-        std::fs::create_dir_all(&backup_dir)?;
+        let backup_directory = backup_dir();
+        std::fs::create_dir_all(&backup_directory)?;
 
         let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
         let filename = format!("db_backup_{}.sqlite", timestamp);
-        let backup_path = backup_dir.join(&filename);
+        let backup_path = backup_directory.join(&filename);
 
         // Copy main database file
         std::fs::copy(db_path, &backup_path)?;
@@ -172,14 +160,14 @@ impl BackupService {
         // Also backup WAL if exists
         let wal_path = db_path.with_extension("sqlite-wal");
         if wal_path.exists() {
-            let wal_backup = backup_dir.join(format!("db_backup_{}.sqlite-wal", timestamp));
+            let wal_backup = backup_directory.join(format!("db_backup_{}.sqlite-wal", timestamp));
             std::fs::copy(&wal_path, &wal_backup)?;
         }
 
         // Also backup SHM if exists
         let shm_path = db_path.with_extension("sqlite-shm");
         if shm_path.exists() {
-            let shm_backup = backup_dir.join(format!("db_backup_{}.sqlite-shm", timestamp));
+            let shm_backup = backup_directory.join(format!("db_backup_{}.sqlite-shm", timestamp));
             std::fs::copy(&shm_path, &shm_backup)?;
         }
 
@@ -196,19 +184,14 @@ impl BackupService {
     /// List all available backup files, sorted by modification time (newest first).
     ///
     /// Returns information about each backup including filename, creation time, and size.
-    pub fn list_backups(db_path: &Path) -> Result<Vec<BackupInfo>, std::io::Error> {
-        let backup_dir = db_path
-            .parent()
-            .ok_or_else(|| {
-                std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid database path")
-            })?
-            .join("backups");
+    pub fn list_backups(_db_path: &Path) -> Result<Vec<BackupInfo>, std::io::Error> {
+        let backup_directory = backup_dir();
 
-        if !backup_dir.exists() {
+        if !backup_directory.exists() {
             return Ok(vec![]);
         }
 
-        let mut backups: Vec<BackupInfo> = std::fs::read_dir(&backup_dir)?
+        let mut backups: Vec<BackupInfo> = std::fs::read_dir(&backup_directory)?
             .filter_map(|e| e.ok())
             .filter(|e| {
                 let path = e.path();
@@ -237,7 +220,7 @@ impl BackupService {
     ///
     /// Security: Validates the filename to prevent path traversal attacks.
     /// Only files matching the backup naming pattern can be deleted.
-    pub fn delete_backup(db_path: &Path, filename: &str) -> Result<(), std::io::Error> {
+    pub fn delete_backup(_db_path: &Path, filename: &str) -> Result<(), std::io::Error> {
         // Security: validate filename pattern to prevent path traversal
         if !filename.starts_with("db_backup_")
             || !filename.ends_with(".sqlite")
@@ -251,14 +234,9 @@ impl BackupService {
             ));
         }
 
-        let backup_dir = db_path
-            .parent()
-            .ok_or_else(|| {
-                std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid database path")
-            })?
-            .join("backups");
+        let backup_directory = backup_dir();
 
-        let backup_path = backup_dir.join(filename);
+        let backup_path = backup_directory.join(filename);
 
         if !backup_path.exists() {
             return Err(std::io::Error::new(
@@ -272,8 +250,8 @@ impl BackupService {
 
         // Also remove associated WAL/SHM files if they exist
         let base = filename.trim_end_matches(".sqlite");
-        let _ = std::fs::remove_file(backup_dir.join(format!("{}.sqlite-wal", base)));
-        let _ = std::fs::remove_file(backup_dir.join(format!("{}.sqlite-shm", base)));
+        let _ = std::fs::remove_file(backup_directory.join(format!("{}.sqlite-wal", base)));
+        let _ = std::fs::remove_file(backup_directory.join(format!("{}.sqlite-shm", base)));
 
         info!(filename = %filename, "Database backup deleted");
         Ok(())
@@ -284,7 +262,7 @@ impl BackupService {
     /// Security: Validates the filename to prevent path traversal attacks.
     /// Returns an error if the file doesn't exist or the filename is invalid.
     pub fn get_backup_path(
-        db_path: &Path,
+        _db_path: &Path,
         filename: &str,
     ) -> Result<std::path::PathBuf, std::io::Error> {
         // Security: validate filename pattern to prevent path traversal
@@ -300,14 +278,9 @@ impl BackupService {
             ));
         }
 
-        let backup_dir = db_path
-            .parent()
-            .ok_or_else(|| {
-                std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid database path")
-            })?
-            .join("backups");
+        let backup_directory = backup_dir();
 
-        let backup_path = backup_dir.join(filename);
+        let backup_path = backup_directory.join(filename);
 
         if !backup_path.exists() {
             return Err(std::io::Error::new(
@@ -353,26 +326,50 @@ impl BackupService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
+    use std::env;
     use tempfile::TempDir;
 
+    /// Helper to set VK_BACKUP_DIR for tests.
+    /// SAFETY: Tests must run serially via #[serial] attribute.
+    fn set_backup_dir_env(path: &Path) {
+        unsafe { env::set_var("VK_BACKUP_DIR", path) };
+    }
+
+    /// Helper to clear VK_BACKUP_DIR after tests.
+    /// SAFETY: Tests must run serially via #[serial] attribute.
+    fn clear_backup_dir_env() {
+        unsafe { env::remove_var("VK_BACKUP_DIR") };
+    }
+
     #[test]
+    #[serial]
     fn test_backup_nonexistent_database() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("nonexistent.sqlite");
+        let backup_directory = temp_dir.path().join("backups");
+        set_backup_dir_env(&backup_directory);
 
         let result = BackupService::backup_before_migration(&db_path).unwrap();
+        clear_backup_dir_env();
+
         assert!(result.is_none());
     }
 
     #[test]
+    #[serial]
     fn test_backup_existing_database() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.sqlite");
+        let backup_directory = temp_dir.path().join("backups");
+        set_backup_dir_env(&backup_directory);
 
         // Create a fake database file
         std::fs::write(&db_path, b"test database content").unwrap();
 
         let result = BackupService::backup_before_migration(&db_path).unwrap();
+        clear_backup_dir_env();
+
         assert!(result.is_some());
 
         let backup_path = result.unwrap();
@@ -381,25 +378,28 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_cleanup_old_backups() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.sqlite");
-        let backup_dir = temp_dir.path().join("backups");
-        std::fs::create_dir_all(&backup_dir).unwrap();
+        let backup_directory = temp_dir.path().join("backups");
+        std::fs::create_dir_all(&backup_directory).unwrap();
+        set_backup_dir_env(&backup_directory);
 
         // Create 7 fake backup files
         for i in 0..7 {
             let backup_name = format!("db_backup_2025010{}_120000.sqlite", i);
-            std::fs::write(backup_dir.join(&backup_name), format!("backup {}", i)).unwrap();
+            std::fs::write(backup_directory.join(&backup_name), format!("backup {}", i)).unwrap();
             // Small delay to ensure different modification times
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
         // Cleanup keeping only 3
         BackupService::cleanup_old_backups_with_retention(&db_path, 3).unwrap();
+        clear_backup_dir_env();
 
         // Count remaining backups
-        let remaining: Vec<_> = std::fs::read_dir(&backup_dir)
+        let remaining: Vec<_> = std::fs::read_dir(&backup_directory)
             .unwrap()
             .filter_map(|e| e.ok())
             .collect();
@@ -408,36 +408,45 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_list_backups_empty() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.sqlite");
+        let backup_directory = temp_dir.path().join("backups");
+        // Don't create the directory - test empty case
+        set_backup_dir_env(&backup_directory);
 
         // No backup directory exists yet
         let result = BackupService::list_backups(&db_path).unwrap();
+        clear_backup_dir_env();
+
         assert!(result.is_empty());
     }
 
     #[test]
+    #[serial]
     fn test_list_backups_sorted_newest_first() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.sqlite");
-        let backup_dir = temp_dir.path().join("backups");
-        std::fs::create_dir_all(&backup_dir).unwrap();
+        let backup_directory = temp_dir.path().join("backups");
+        std::fs::create_dir_all(&backup_directory).unwrap();
+        set_backup_dir_env(&backup_directory);
 
         // Create backup files with different timestamps
         std::fs::write(
-            backup_dir.join("db_backup_20250101_100000.sqlite"),
+            backup_directory.join("db_backup_20250101_100000.sqlite"),
             "old backup",
         )
         .unwrap();
         std::thread::sleep(std::time::Duration::from_millis(10));
         std::fs::write(
-            backup_dir.join("db_backup_20250102_100000.sqlite"),
+            backup_directory.join("db_backup_20250102_100000.sqlite"),
             "new backup",
         )
         .unwrap();
 
         let result = BackupService::list_backups(&db_path).unwrap();
+        clear_backup_dir_env();
 
         assert_eq!(result.len(), 2);
         // Newest first (sorted by modification time)
@@ -446,89 +455,107 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_create_backup() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.sqlite");
+        let backup_directory = temp_dir.path().join("backups");
+        set_backup_dir_env(&backup_directory);
 
         // Create a fake database file
         std::fs::write(&db_path, b"test database content").unwrap();
 
         let info = BackupService::create_backup(&db_path).unwrap();
+        clear_backup_dir_env();
 
         assert!(info.filename.starts_with("db_backup_"));
         assert!(info.filename.ends_with(".sqlite"));
         assert!(info.size_bytes > 0);
 
         // Verify the backup file exists
-        let backup_dir = temp_dir.path().join("backups");
-        assert!(backup_dir.join(&info.filename).exists());
+        assert!(backup_directory.join(&info.filename).exists());
     }
 
     #[test]
+    #[serial]
     fn test_create_backup_nonexistent_database() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("nonexistent.sqlite");
+        let backup_directory = temp_dir.path().join("backups");
+        set_backup_dir_env(&backup_directory);
 
         let result = BackupService::create_backup(&db_path);
+        clear_backup_dir_env();
+
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::NotFound);
     }
 
     #[test]
+    #[serial]
     fn test_list_backups_ignores_non_backup_files() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.sqlite");
-        let backup_dir = temp_dir.path().join("backups");
-        std::fs::create_dir_all(&backup_dir).unwrap();
+        let backup_directory = temp_dir.path().join("backups");
+        std::fs::create_dir_all(&backup_directory).unwrap();
+        set_backup_dir_env(&backup_directory);
 
         // Create a valid backup file
         std::fs::write(
-            backup_dir.join("db_backup_20250101_100000.sqlite"),
+            backup_directory.join("db_backup_20250101_100000.sqlite"),
             "valid backup",
         )
         .unwrap();
 
         // Create files that should be ignored
-        std::fs::write(backup_dir.join("random_file.sqlite"), "random").unwrap();
+        std::fs::write(backup_directory.join("random_file.sqlite"), "random").unwrap();
         std::fs::write(
-            backup_dir.join("db_backup_20250101_100000.txt"),
+            backup_directory.join("db_backup_20250101_100000.txt"),
             "wrong ext",
         )
         .unwrap();
-        std::fs::write(backup_dir.join("other.db"), "other").unwrap();
+        std::fs::write(backup_directory.join("other.db"), "other").unwrap();
 
         let result = BackupService::list_backups(&db_path).unwrap();
+        clear_backup_dir_env();
 
         assert_eq!(result.len(), 1);
         assert!(result[0].filename.contains("db_backup_"));
     }
 
     #[test]
+    #[serial]
     fn test_delete_backup() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.sqlite");
-        let backup_dir = temp_dir.path().join("backups");
-        std::fs::create_dir_all(&backup_dir).unwrap();
+        let backup_directory = temp_dir.path().join("backups");
+        std::fs::create_dir_all(&backup_directory).unwrap();
+        set_backup_dir_env(&backup_directory);
 
         // Create a backup file
         let filename = "db_backup_20250101_100000.sqlite";
-        std::fs::write(backup_dir.join(filename), "backup content").unwrap();
+        std::fs::write(backup_directory.join(filename), "backup content").unwrap();
 
         // Delete it
         BackupService::delete_backup(&db_path, filename).unwrap();
+        clear_backup_dir_env();
 
         // Verify it's gone
-        assert!(!backup_dir.join(filename).exists());
+        assert!(!backup_directory.join(filename).exists());
     }
 
     #[test]
+    #[serial]
     fn test_delete_backup_not_found() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.sqlite");
-        let backup_dir = temp_dir.path().join("backups");
-        std::fs::create_dir_all(&backup_dir).unwrap();
+        let backup_directory = temp_dir.path().join("backups");
+        std::fs::create_dir_all(&backup_directory).unwrap();
+        set_backup_dir_env(&backup_directory);
 
         let result = BackupService::delete_backup(&db_path, "db_backup_20250101_100000.sqlite");
+        clear_backup_dir_env();
+
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::NotFound);
     }
@@ -578,31 +605,38 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_get_backup_path() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.sqlite");
-        let backup_dir = temp_dir.path().join("backups");
-        std::fs::create_dir_all(&backup_dir).unwrap();
+        let backup_directory = temp_dir.path().join("backups");
+        std::fs::create_dir_all(&backup_directory).unwrap();
+        set_backup_dir_env(&backup_directory);
 
         // Create a backup file
         let filename = "db_backup_20250101_100000.sqlite";
-        std::fs::write(backup_dir.join(filename), "backup content").unwrap();
+        std::fs::write(backup_directory.join(filename), "backup content").unwrap();
 
         // Get the path
         let result = BackupService::get_backup_path(&db_path, filename).unwrap();
+        clear_backup_dir_env();
 
-        assert_eq!(result, backup_dir.join(filename));
+        assert_eq!(result, backup_directory.join(filename));
         assert!(result.exists());
     }
 
     #[test]
+    #[serial]
     fn test_get_backup_path_not_found() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.sqlite");
-        let backup_dir = temp_dir.path().join("backups");
-        std::fs::create_dir_all(&backup_dir).unwrap();
+        let backup_directory = temp_dir.path().join("backups");
+        std::fs::create_dir_all(&backup_directory).unwrap();
+        set_backup_dir_env(&backup_directory);
 
         let result = BackupService::get_backup_path(&db_path, "db_backup_20250101_100000.sqlite");
+        clear_backup_dir_env();
+
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::NotFound);
     }
@@ -652,9 +686,12 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_restore_from_data_valid_sqlite() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.sqlite");
+        let backup_directory = temp_dir.path().join("backups");
+        set_backup_dir_env(&backup_directory);
 
         // Create a fake SQLite file with valid header
         let mut data = b"SQLite format 3\0".to_vec();
@@ -662,6 +699,7 @@ mod tests {
 
         // Restore it
         BackupService::restore_from_data(&db_path, &data).unwrap();
+        clear_backup_dir_env();
 
         // Verify the file was created
         assert!(db_path.exists());
@@ -670,32 +708,44 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_restore_from_data_rejects_invalid() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.sqlite");
+        let backup_directory = temp_dir.path().join("backups");
+        set_backup_dir_env(&backup_directory);
 
         // Try to restore invalid data
         let result = BackupService::restore_from_data(&db_path, b"not sqlite data");
+        clear_backup_dir_env();
+
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
     }
 
     #[test]
+    #[serial]
     fn test_restore_from_data_rejects_empty() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.sqlite");
+        let backup_directory = temp_dir.path().join("backups");
+        set_backup_dir_env(&backup_directory);
 
         // Try to restore empty data
         let result = BackupService::restore_from_data(&db_path, &[]);
+        clear_backup_dir_env();
+
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
     }
 
     #[test]
+    #[serial]
     fn test_restore_from_data_creates_backup_first() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.sqlite");
-        let backup_dir = temp_dir.path().join("backups");
+        let backup_directory = temp_dir.path().join("backups");
+        set_backup_dir_env(&backup_directory);
 
         // Create an existing database
         let mut existing_data = b"SQLite format 3\0".to_vec();
@@ -708,10 +758,11 @@ mod tests {
 
         // Restore it
         BackupService::restore_from_data(&db_path, &new_data).unwrap();
+        clear_backup_dir_env();
 
         // Verify backup was created
-        assert!(backup_dir.exists());
-        let backup_count = std::fs::read_dir(&backup_dir)
+        assert!(backup_directory.exists());
+        let backup_count = std::fs::read_dir(&backup_directory)
             .unwrap()
             .filter(|e| e.is_ok())
             .count();
@@ -723,11 +774,14 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_restore_from_data_removes_wal_shm() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.sqlite");
         let wal_path = db_path.with_extension("sqlite-wal");
         let shm_path = db_path.with_extension("sqlite-shm");
+        let backup_directory = temp_dir.path().join("backups");
+        set_backup_dir_env(&backup_directory);
 
         // Create existing database with WAL/SHM files
         let mut existing_data = b"SQLite format 3\0".to_vec();
@@ -742,6 +796,7 @@ mod tests {
 
         // Restore it
         BackupService::restore_from_data(&db_path, &new_data).unwrap();
+        clear_backup_dir_env();
 
         // Verify WAL/SHM were removed
         assert!(!wal_path.exists(), "WAL file should be removed");
