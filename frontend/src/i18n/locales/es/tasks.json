@@ -139,6 +139,9 @@
     "terminal": "Terminal",
     "relatedTasks": "Related tasks"
   },
+  "mobileDetailHeader": {
+    "viewMode": "Modo de vista"
+  },
   "branches": {
     "changeTarget": {
       "dialog": {
