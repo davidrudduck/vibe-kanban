@@ -147,11 +147,17 @@ export function AllProjectsTaskCard({
             {truncatedDesc}
           </p>
         )}
-        {/* Compact footer: Project name and days badge */}
+        {/* Compact footer: Project name, node name, and days badge */}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1 text-xs text-muted-foreground min-w-0">
             <FolderOpen className="h-3 w-3 shrink-0" />
             <span className="truncate">{task.project_name}</span>
+            {shortNodeName && (
+              <>
+                <span className="shrink-0">·</span>
+                <span className="shrink-0">{shortNodeName}</span>
+              </>
+            )}
           </div>
           <DaysInColumnBadge activityAt={task.activity_at} />
         </div>

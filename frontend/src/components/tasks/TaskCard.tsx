@@ -285,9 +285,16 @@ export function TaskCard({
             {truncatedDesc}
           </p>
         )}
-        {/* Compact footer: Labels, Days badge, Archive */}
+        {/* Compact footer: Node name, Labels, Days badge, Archive */}
         <div className="flex items-center justify-between gap-2">
-          <CompactLabelList labels={labels} maxVisible={2} size="sm" />
+          <div className="flex items-center gap-2 min-w-0 overflow-hidden">
+            {shortNodeName && (
+              <span className="text-xs text-muted-foreground shrink-0">
+                {shortNodeName}
+              </span>
+            )}
+            <CompactLabelList labels={labels} maxVisible={2} size="sm" />
+          </div>
           <div className="flex items-center gap-1.5 shrink-0">
             <DaysInColumnBadge activityAt={task.activity_at} />
             <ArchiveToggleIcon
