@@ -26,7 +26,7 @@ use services::services::{
 use tokio::sync::{Mutex, RwLock};
 use utils::{
     api::oauth::LoginStatus,
-    assets::{config_path, credentials_path},
+    assets::{backup_dir, config_path, credentials_path, database_path},
     msg_store::MsgStore,
 };
 use uuid::Uuid;
@@ -97,6 +97,14 @@ impl Deployment for LocalDeployment {
 
         // Always save config (may have been migrated or version updated)
         save_config_to_file(&raw_config, &config_path()).await?;
+
+        // Log storage locations at startup for debugging
+        tracing::info!(
+            database = %database_path().display(),
+            backups = %backup_dir().display(),
+            worktrees = %services::services::worktree_manager::WorktreeManager::get_worktree_base_dir().display(),
+            "Storage locations"
+        );
 
         let config = Arc::new(RwLock::new(raw_config));
         // Generate a unique user ID for this deployment
@@ -476,9 +484,8 @@ impl LocalDeployment {
         }
 
         // Log which database we're using
-        let db_path = utils::assets::asset_dir().join("db.sqlite");
         tracing::info!(
-            db_path = %db_path.display(),
+            db_path = %database_path().display(),
             "starting background node cache sync"
         );
         *started = true;
