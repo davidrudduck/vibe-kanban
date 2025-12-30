@@ -79,7 +79,6 @@ export function TaskFollowUpSection({
     reorderMessages: reorderQueue,
     clearQueue,
     isAdding: isAddingToQueue,
-    isUpdating: isUpdatingQueue,
     isRemoving: isRemovingFromQueue,
     isClearing: isClearingQueue,
   } = useMessageQueue(selectedAttemptId);
@@ -548,7 +547,6 @@ export function TaskFollowUpSection({
                   await reorderQueue(ids);
                 }}
                 onClear={clearQueue}
-                isUpdating={isUpdatingQueue}
                 isRemoving={isRemovingFromQueue}
                 isClearing={isClearingQueue}
               />
