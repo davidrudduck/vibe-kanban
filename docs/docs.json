@@ -71,6 +71,7 @@
         "group": "Configuration & Customisation",
         "pages": [
           "configuration-customisation/global-settings",
+          "configuration-customisation/storage-configuration",
           "configuration-customisation/agent-configurations",
           "configuration-customisation/creating-task-tags",
           "configuration-customisation/keyboard-shortcuts",
@@ -89,7 +90,8 @@
       {
         "group": "Architecture",
         "pages": [
-          "architecture/ui-responsive-design"
+          "architecture/ui-responsive-design",
+          "architecture/storage-paths"
         ]
       },
       {
