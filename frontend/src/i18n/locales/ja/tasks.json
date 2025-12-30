@@ -139,6 +139,9 @@
     "terminal": "ターミナル",
     "relatedTasks": "Related tasks"
   },
+  "mobileDetailHeader": {
+    "viewMode": "表示モード"
+  },
   "branches": {
     "changeTarget": {
       "dialog": {

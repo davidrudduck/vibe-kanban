@@ -139,6 +139,9 @@
     "terminal": "터미널",
     "relatedTasks": "Related tasks"
   },
+  "mobileDetailHeader": {
+    "viewMode": "보기 모드"
+  },
   "branches": {
     "changeTarget": {
       "dialog": {

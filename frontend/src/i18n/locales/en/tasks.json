@@ -318,6 +318,9 @@
     "processes": "Processes",
     "relatedTasks": "Related tasks"
   },
+  "mobileDetailHeader": {
+    "viewMode": "View mode"
+  },
   "mobileViewModeSheet": {
     "title": "View Mode",
     "logs": "Logs"
