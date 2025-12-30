@@ -714,7 +714,8 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                     title = excluded.title,
                     description = excluded.description,
                     status = excluded.status,
-                    is_remote = excluded.is_remote,
+                    -- Only set is_remote=1 if the task is already remote (don't overwrite local tasks)
+                    is_remote = CASE WHEN tasks.is_remote = 0 THEN 0 ELSE excluded.is_remote END,
                     remote_assignee_user_id = excluded.remote_assignee_user_id,
                     remote_assignee_name = excluded.remote_assignee_name,
                     remote_assignee_username = excluded.remote_assignee_username,
@@ -927,5 +928,53 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
         .await?;
 
         Ok(result.rows_affected())
+    }
+
+    /// Find tasks that need to be synced to the Hive.
+    ///
+    /// A task needs syncing if:
+    /// 1. It has no `shared_task_id` (not yet synced to Hive)
+    /// 2. It has task attempts with no `hive_synced_at` (unsynced attempts)
+    /// 3. Its project has a `remote_project_id` (project is linked to Hive)
+    /// 4. It is not a remote task (`is_remote = 0`)
+    ///
+    /// This query ensures we sync tasks before their attempts, so the attempts
+    /// can reference a valid `shared_task_id`.
+    pub async fn find_needing_sync(pool: &SqlitePool, limit: i64) -> Result<Vec<Self>, sqlx::Error> {
+        // Use runtime query to avoid sqlx cache issues
+        sqlx::query_as::<_, Self>(
+            r#"SELECT DISTINCT
+                t.id,
+                t.project_id,
+                t.title,
+                t.description,
+                t.status,
+                t.parent_task_id,
+                t.shared_task_id,
+                t.created_at,
+                t.updated_at,
+                t.is_remote,
+                t.remote_assignee_user_id,
+                t.remote_assignee_name,
+                t.remote_assignee_username,
+                t.remote_version,
+                t.remote_last_synced_at,
+                t.remote_stream_node_id,
+                t.remote_stream_url,
+                t.archived_at,
+                t.activity_at
+            FROM tasks t
+            INNER JOIN task_attempts ta ON ta.task_id = t.id
+            INNER JOIN projects p ON p.id = t.project_id
+            WHERE t.shared_task_id IS NULL
+              AND t.is_remote = 0
+              AND p.remote_project_id IS NOT NULL
+              AND ta.hive_synced_at IS NULL
+            ORDER BY t.created_at ASC
+            LIMIT ?"#,
+        )
+        .bind(limit)
+        .fetch_all(pool)
+        .await
     }
 }

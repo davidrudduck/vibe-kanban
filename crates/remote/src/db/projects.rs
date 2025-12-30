@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use super::Tx;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Project {
     pub id: Uuid,
     pub organization_id: Uuid,

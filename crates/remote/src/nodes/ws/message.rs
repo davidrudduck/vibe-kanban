@@ -53,6 +53,14 @@ pub enum NodeMessage {
     #[serde(rename = "logs_batch")]
     LogsBatch(LogsBatchMessage),
 
+    /// Sync a label from node to hive
+    #[serde(rename = "label_sync")]
+    LabelSync(LabelSyncMessage),
+
+    /// Sync a task from node to hive (create shared task for locally-started tasks)
+    #[serde(rename = "task_sync")]
+    TaskSync(TaskSyncMessage),
+
     /// Acknowledgement of a hive message
     #[serde(rename = "ack")]
     Ack { message_id: Uuid },
@@ -111,6 +119,14 @@ pub enum HiveMessage {
     /// Notification that a node has been removed from the organization
     #[serde(rename = "node_removed")]
     NodeRemoved(NodeRemovedMessage),
+
+    /// Sync a label to node (broadcast from hive)
+    #[serde(rename = "label_sync")]
+    LabelSync(LabelSyncBroadcastMessage),
+
+    /// Response to a task sync request from node
+    #[serde(rename = "task_sync_response")]
+    TaskSyncResponse(TaskSyncResponseMessage),
 }
 
 /// Authentication message from node to hive.
@@ -501,6 +517,101 @@ pub struct LogsBatchMessage {
     /// Whether this batch is compressed (gzip)
     #[serde(default)]
     pub compressed: bool,
+}
+
+/// Sync a label from node to hive.
+///
+/// Sent by nodes when a label is created or updated.
+/// The hive stores this in the labels table and broadcasts to other nodes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LabelSyncMessage {
+    /// The local label ID on the node
+    pub label_id: Uuid,
+    /// The shared label ID on the Hive (None for new labels)
+    pub shared_label_id: Option<Uuid>,
+    /// The project ID if this is a project-specific label, None for global labels
+    pub project_id: Option<Uuid>,
+    /// Remote project ID if the label is project-specific (for linking on hive side)
+    pub remote_project_id: Option<Uuid>,
+    /// Label name
+    pub name: String,
+    /// Lucide icon name
+    pub icon: String,
+    /// Hex color code (e.g., "#3b82f6")
+    pub color: String,
+    /// Version for conflict resolution
+    pub version: i64,
+    /// Whether this is an update to an existing label (vs new label)
+    pub is_update: bool,
+}
+
+/// Label sync broadcast from hive to nodes.
+///
+/// Sent by the hive when a label is created or updated on another node.
+/// Nodes use this to keep their local label cache in sync.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LabelSyncBroadcastMessage {
+    /// Unique message ID for acknowledgement
+    pub message_id: Uuid,
+    /// The shared label ID on the Hive
+    pub shared_label_id: Uuid,
+    /// The project ID if this is a project-specific label, None for global labels
+    pub project_id: Option<Uuid>,
+    /// ID of the node that owns/created this label
+    pub origin_node_id: Uuid,
+    /// Label name
+    pub name: String,
+    /// Lucide icon name
+    pub icon: String,
+    /// Hex color code (e.g., "#3b82f6")
+    pub color: String,
+    /// Version for conflict resolution
+    pub version: i64,
+    /// Whether this label was deleted
+    pub is_deleted: bool,
+}
+
+/// Sync a task from node to hive.
+///
+/// Sent by nodes to create or update a shared task on the hive.
+/// This allows locally-started tasks to be visible across the swarm.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskSyncMessage {
+    /// The local task ID on the node
+    pub local_task_id: Uuid,
+    /// The shared task ID on the Hive (None for new tasks)
+    pub shared_task_id: Option<Uuid>,
+    /// The remote project ID (required for task creation)
+    pub remote_project_id: Uuid,
+    /// Task title
+    pub title: String,
+    /// Task description
+    pub description: Option<String>,
+    /// Task status (todo, in_progress, in_review, done, cancelled)
+    pub status: String,
+    /// Version for conflict resolution
+    pub version: i64,
+    /// Whether this is an update to an existing task (vs new task)
+    pub is_update: bool,
+    /// When the task was created locally
+    pub created_at: DateTime<Utc>,
+    /// When the task was last updated locally
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Response to a task sync request.
+///
+/// Sent by the hive to confirm the shared_task_id for a synced task.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskSyncResponseMessage {
+    /// The local task ID on the node (echoed back for correlation)
+    pub local_task_id: Uuid,
+    /// The shared task ID on the Hive
+    pub shared_task_id: Uuid,
+    /// Whether the operation was successful
+    pub success: bool,
+    /// Error message if not successful
+    pub error: Option<String>,
 }
 
 /// Current protocol version.

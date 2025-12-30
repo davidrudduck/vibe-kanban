@@ -781,6 +781,45 @@ impl Project {
         Ok(rows.into_iter().flatten().collect())
     }
 
+    /// Find all local projects that have a remote_project_id (linked to cloud).
+    ///
+    /// This returns all projects where is_remote=false (local projects) AND
+    /// remote_project_id IS NOT NULL (linked to the hive).
+    /// Used for auto-linking projects when a node connects to the hive.
+    pub async fn find_all_with_remote_id(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            Project,
+            r#"SELECT id as "id!: Uuid",
+                      name,
+                      git_repo_path,
+                      setup_script,
+                      dev_script,
+                      cleanup_script,
+                      copy_files,
+                      parallel_setup_script as "parallel_setup_script!: bool",
+                      remote_project_id as "remote_project_id: Uuid",
+                      created_at as "created_at!: DateTime<Utc>",
+                      updated_at as "updated_at!: DateTime<Utc>",
+                      is_remote as "is_remote!: bool",
+                      source_node_id as "source_node_id: Uuid",
+                      source_node_name,
+                      source_node_public_url,
+                      source_node_status,
+                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
+                      github_enabled as "github_enabled!: bool",
+                      github_owner,
+                      github_repo,
+                      github_open_issues as "github_open_issues!: i32",
+                      github_open_prs as "github_open_prs!: i32",
+                      github_last_synced_at as "github_last_synced_at: DateTime<Utc>"
+               FROM projects
+               WHERE is_remote = 0 AND remote_project_id IS NOT NULL
+               ORDER BY name"#
+        )
+        .fetch_all(pool)
+        .await
+    }
+
     /// Find all local projects with their last attempt timestamp for sorting.
     /// Returns tuples of (Project, Option<last_attempt_at>).
     pub async fn find_local_projects_with_last_attempt(
