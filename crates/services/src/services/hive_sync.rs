@@ -30,7 +30,7 @@ use uuid::Uuid;
 
 use super::hive_client::{
     AttemptSyncMessage, ExecutionSyncMessage, LabelSyncMessage, LogsBatchMessage, NodeMessage,
-    SyncLogEntry, TaskOutputType,
+    SyncLogEntry, TaskOutputType, TaskSyncMessage,
 };
 
 /// Configuration for the Hive sync service.
@@ -38,6 +38,8 @@ use super::hive_client::{
 pub struct HiveSyncConfig {
     /// How often to check for unsynced entities
     pub sync_interval: Duration,
+    /// Maximum number of tasks to sync in one batch
+    pub max_tasks_per_batch: i64,
     /// Maximum number of attempts to sync in one batch
     pub max_attempts_per_batch: i64,
     /// Maximum number of executions to sync in one batch
@@ -52,6 +54,7 @@ impl Default for HiveSyncConfig {
     fn default() -> Self {
         Self {
             sync_interval: Duration::from_secs(5),
+            max_tasks_per_batch: 50,
             max_attempts_per_batch: 50,
             max_executions_per_batch: 100,
             max_logs_per_batch: 500,
@@ -115,9 +118,16 @@ impl HiveSyncService {
 
     /// Perform one sync cycle.
     ///
-    /// This syncs attempts, then executions, then logs, then labels in order.
+    /// This syncs tasks first (to get shared_task_id), then attempts, executions,
+    /// logs, and labels in order.
     pub async fn sync_once(&self) -> Result<(), HiveSyncError> {
-        // Sync attempts first (parent entities)
+        // Sync tasks first (to ensure shared_task_id exists for attempts)
+        let tasks_synced = self.sync_tasks().await?;
+        if tasks_synced > 0 {
+            debug!(count = tasks_synced, "Synced tasks to Hive");
+        }
+
+        // Sync attempts next (parent entities for executions)
         let attempts_synced = self.sync_attempts().await?;
         if attempts_synced > 0 {
             debug!(count = attempts_synced, "Synced task attempts to Hive");
@@ -145,6 +155,89 @@ impl HiveSyncService {
         }
 
         Ok(())
+    }
+
+    /// Sync tasks that need a shared_task_id to the Hive.
+    ///
+    /// This finds tasks that:
+    /// 1. Have unsynced attempts (attempts without hive_synced_at)
+    /// 2. Don't have a shared_task_id
+    /// 3. Belong to projects with a remote_project_id
+    ///
+    /// For each such task, we send a TaskSync message to the Hive.
+    /// The Hive will respond with a TaskSyncResponse containing the shared_task_id.
+    async fn sync_tasks(&self) -> Result<usize, HiveSyncError> {
+        // Find tasks that need syncing: have unsynced attempts but no shared_task_id
+        let tasks = Task::find_needing_sync(&self.pool, self.config.max_tasks_per_batch).await?;
+
+        if tasks.is_empty() {
+            return Ok(0);
+        }
+
+        let mut synced_count = 0;
+
+        for task in &tasks {
+            // Look up the project to get remote_project_id
+            let project = match Project::find_by_id(&self.pool, task.project_id).await? {
+                Some(p) => p,
+                None => {
+                    debug!(
+                        task_id = %task.id,
+                        project_id = %task.project_id,
+                        "Skipping task sync - project not found"
+                    );
+                    continue;
+                }
+            };
+
+            // Skip if project isn't linked to hive
+            let remote_project_id = match project.remote_project_id {
+                Some(id) => id,
+                None => {
+                    debug!(
+                        task_id = %task.id,
+                        project_id = %task.project_id,
+                        "Skipping task sync - project not linked to Hive"
+                    );
+                    continue;
+                }
+            };
+
+            // Serialize status to string
+            let status = serde_json::to_value(&task.status)
+                .ok()
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| "todo".to_string());
+
+            let message = TaskSyncMessage {
+                local_task_id: task.id,
+                shared_task_id: task.shared_task_id,
+                remote_project_id,
+                title: task.title.clone(),
+                description: task.description.clone(),
+                status,
+                version: 1, // Initial version for new sync
+                is_update: task.shared_task_id.is_some(),
+                created_at: task.created_at,
+                updated_at: task.updated_at,
+            };
+
+            if let Err(e) = self.command_tx.send(NodeMessage::TaskSync(message)).await {
+                error!(error = ?e, task_id = %task.id, "Failed to send task sync");
+                return Err(HiveSyncError::Send(e.to_string()));
+            }
+
+            synced_count += 1;
+
+            info!(
+                task_id = %task.id,
+                title = %task.title,
+                remote_project_id = %remote_project_id,
+                "Sent task sync to Hive"
+            );
+        }
+
+        Ok(synced_count)
     }
 
     /// Sync unsynced task attempts to the Hive.

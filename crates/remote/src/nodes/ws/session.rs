@@ -23,7 +23,8 @@ use super::{
         HeartbeatMessage, HiveMessage, LabelSyncBroadcastMessage, LabelSyncMessage,
         LinkProjectMessage, LinkedProjectInfo, LogsBatchMessage, NodeMessage, NodeRemovedMessage,
         PROTOCOL_VERSION, ProjectSyncMessage, TaskExecutionStatus, TaskOutputMessage,
-        TaskProgressMessage, TaskStatusMessage, UnlinkProjectMessage,
+        TaskProgressMessage, TaskStatusMessage, TaskSyncMessage, TaskSyncResponseMessage,
+        UnlinkProjectMessage,
     },
 };
 use crate::nodes::{
@@ -423,6 +424,9 @@ async fn handle_node_message(
         NodeMessage::LogsBatch(logs) => handle_logs_batch(node_id, logs, pool).await,
         NodeMessage::LabelSync(label) => {
             handle_label_sync(node_id, organization_id, label, pool, connections).await
+        }
+        NodeMessage::TaskSync(task) => {
+            handle_task_sync(node_id, organization_id, task, pool, ws_sender).await
         }
         NodeMessage::Ack { message_id } => {
             tracing::trace!(node_id = %node_id, message_id = %message_id, "received ack");
@@ -1139,6 +1143,85 @@ async fn handle_label_sync(
         );
     }
 
+    Ok(())
+}
+
+/// Handle a task sync message from a node.
+async fn handle_task_sync(
+    node_id: Uuid,
+    organization_id: Uuid,
+    task_sync: &TaskSyncMessage,
+    pool: &PgPool,
+    ws_sender: &mut futures::stream::SplitSink<WebSocket, Message>,
+) -> Result<(), HandleError> {
+    use crate::db::projects::Project;
+    use crate::db::tasks::{SharedTaskRepository, TaskStatus, UpsertTaskFromNodeData};
+
+    let status = match task_sync.status.as_str() {
+        "todo" => TaskStatus::Todo,
+        "in_progress" | "in-progress" => TaskStatus::InProgress,
+        "in_review" | "in-review" => TaskStatus::InReview,
+        "done" => TaskStatus::Done,
+        "cancelled" => TaskStatus::Cancelled,
+        _ => TaskStatus::Todo,
+    };
+
+    // Use runtime query to avoid sqlx cache issues
+    let project_opt: Result<Option<Project>, sqlx::Error> = sqlx::query_as(
+        "SELECT id, organization_id, name, metadata, created_at FROM projects WHERE id = $1"
+    )
+    .bind(task_sync.remote_project_id)
+    .fetch_optional(pool)
+    .await;
+
+    let project = match project_opt {
+        Ok(Some(p)) if p.organization_id == organization_id => p,
+        _ => {
+            let r = TaskSyncResponseMessage {
+                local_task_id: task_sync.local_task_id,
+                shared_task_id: Uuid::nil(),
+                success: false,
+                error: Some("Project not found".to_string()),
+            };
+            let _ = send_message(ws_sender, &HiveMessage::TaskSyncResponse(r)).await;
+            return Ok(());
+        }
+    };
+
+    let repo = SharedTaskRepository::new(pool);
+    match repo
+        .upsert_from_node(UpsertTaskFromNodeData {
+            project_id: task_sync.remote_project_id,
+            organization_id: project.organization_id,
+            origin_node_id: node_id,
+            title: task_sync.title.clone(),
+            description: task_sync.description.clone(),
+            status,
+            version: task_sync.version,
+        })
+        .await
+    {
+        Ok((task, _)) => {
+            tracing::info!(node_id = %node_id, shared_task_id = %task.id, "synced task");
+            let r = TaskSyncResponseMessage {
+                local_task_id: task_sync.local_task_id,
+                shared_task_id: task.id,
+                success: true,
+                error: None,
+            };
+            let _ = send_message(ws_sender, &HiveMessage::TaskSyncResponse(r)).await;
+        }
+        Err(e) => {
+            tracing::error!(node_id = %node_id, error = ?e, "failed to sync task");
+            let r = TaskSyncResponseMessage {
+                local_task_id: task_sync.local_task_id,
+                shared_task_id: Uuid::nil(),
+                success: false,
+                error: Some(e.to_string()),
+            };
+            let _ = send_message(ws_sender, &HiveMessage::TaskSyncResponse(r)).await;
+        }
+    }
     Ok(())
 }
 

@@ -102,6 +102,28 @@ pub struct DeleteTaskData {
     pub version: Option<i64>,
 }
 
+/// Data for creating or updating a shared task from a node.
+///
+/// This is used when nodes sync locally-created tasks to the hive.
+/// Unlike `CreateSharedTaskData`, this doesn't require a user ID.
+#[derive(Debug, Clone)]
+pub struct UpsertTaskFromNodeData {
+    /// Remote project ID
+    pub project_id: Uuid,
+    /// Organization ID (from the project)
+    pub organization_id: Uuid,
+    /// Node that owns this task
+    pub origin_node_id: Uuid,
+    /// Title of the task
+    pub title: String,
+    /// Description of the task
+    pub description: Option<String>,
+    /// Task status
+    pub status: TaskStatus,
+    /// Version for conflict resolution
+    pub version: i64,
+}
+
 #[derive(Debug, Error)]
 pub enum SharedTaskError {
     #[error("shared task not found")]
@@ -240,6 +262,68 @@ impl<'a> SharedTaskRepository<'a> {
         insert_activity(&mut tx, &task, user.as_ref(), "task.created").await?;
         tx.commit().await.map_err(SharedTaskError::from)?;
         Ok(SharedTaskWithUser::new(task, user))
+    }
+
+    /// Create a shared task from a node.
+    ///
+    /// Unlike `create()`, this method doesn't require a user ID.
+    /// Returns the created task.
+    pub async fn upsert_from_node(
+        &self,
+        data: UpsertTaskFromNodeData,
+    ) -> Result<(SharedTask, bool), SharedTaskError> {
+        ensure_text_size(&data.title, data.description.as_deref())?;
+
+        // Use runtime query to avoid sqlx cache issues
+        let task: SharedTask = sqlx::query_as(
+            r#"
+            INSERT INTO shared_tasks (
+                organization_id,
+                project_id,
+                executing_node_id,
+                title,
+                description,
+                status,
+                version,
+                shared_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6::task_status, $7, NOW())
+            RETURNING id,
+                      organization_id,
+                      project_id,
+                      creator_user_id,
+                      assignee_user_id,
+                      deleted_by_user_id,
+                      executing_node_id,
+                      title,
+                      description,
+                      status,
+                      version,
+                      deleted_at,
+                      shared_at,
+                      archived_at,
+                      created_at,
+                      updated_at
+            "#,
+        )
+        .bind(data.organization_id)
+        .bind(data.project_id)
+        .bind(data.origin_node_id)
+        .bind(data.title)
+        .bind(data.description)
+        .bind(data.status)
+        .bind(data.version)
+        .fetch_one(self.pool)
+        .await?;
+
+        tracing::debug!(
+            task_id = %task.id,
+            project_id = %task.project_id,
+            version = %task.version,
+            "created shared task from node"
+        );
+
+        Ok((task, true))
     }
 
     pub async fn bulk_fetch(&self, project_id: Uuid) -> Result<BulkFetchResult, SharedTaskError> {

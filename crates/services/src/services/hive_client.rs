@@ -98,6 +98,8 @@ pub enum NodeMessage {
     LogsBatch(LogsBatchMessage),
     #[serde(rename = "label_sync")]
     LabelSync(LabelSyncMessage),
+    #[serde(rename = "task_sync")]
+    TaskSync(TaskSyncMessage),
     #[serde(rename = "ack")]
     Ack { message_id: Uuid },
     #[serde(rename = "error")]
@@ -132,6 +134,8 @@ pub enum HiveMessage {
     },
     #[serde(rename = "close")]
     Close { reason: String },
+    #[serde(rename = "task_sync_response")]
+    TaskSyncResponse(TaskSyncResponseMessage),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -429,6 +433,50 @@ pub struct LabelSyncMessage {
     pub is_update: bool,
 }
 
+/// Message to sync a task from node to the Hive.
+///
+/// This creates or updates a shared task on the Hive, allowing locally-created
+/// tasks to be visible across the swarm and have their attempts synced.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskSyncMessage {
+    /// The local task ID on the node
+    pub local_task_id: Uuid,
+    /// The shared task ID on the Hive (None for new tasks)
+    pub shared_task_id: Option<Uuid>,
+    /// The remote project ID (required for task creation)
+    pub remote_project_id: Uuid,
+    /// Task title
+    pub title: String,
+    /// Task description
+    pub description: Option<String>,
+    /// Task status (todo, in_progress, in_review, done, cancelled)
+    pub status: String,
+    /// Version for conflict resolution
+    pub version: i64,
+    /// Whether this is an update to an existing task (vs new task)
+    pub is_update: bool,
+    /// When the task was created locally
+    pub created_at: chrono::DateTime<Utc>,
+    /// When the task was last updated locally
+    pub updated_at: chrono::DateTime<Utc>,
+}
+
+/// Response from Hive after processing a TaskSync message.
+///
+/// The Hive sends this back to confirm the shared_task_id, which the node
+/// uses to update its local task record.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskSyncResponseMessage {
+    /// The local task ID on the node (echoed back for correlation)
+    pub local_task_id: Uuid,
+    /// The shared task ID on the Hive
+    pub shared_task_id: Uuid,
+    /// Whether the operation was successful
+    pub success: bool,
+    /// Error message if not successful
+    pub error: Option<String>,
+}
+
 /// A log entry in a batch sync message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncLogEntry {
@@ -476,6 +524,8 @@ pub enum HiveEvent {
     ProjectSync(ProjectSyncMessage),
     /// Node removed from organization
     NodeRemoved(NodeRemovedMessage),
+    /// Task sync response received (shared_task_id assigned)
+    TaskSyncResponse(TaskSyncResponseMessage),
     /// Error from hive
     Error { message: String },
 }
@@ -793,6 +843,22 @@ impl HiveClient {
                     "node removed from organization"
                 );
                 let _ = self.event_tx.send(HiveEvent::NodeRemoved(removed)).await;
+            }
+            HiveMessage::TaskSyncResponse(response) => {
+                if response.success {
+                    tracing::info!(
+                        local_task_id = %response.local_task_id,
+                        shared_task_id = %response.shared_task_id,
+                        "received task sync response"
+                    );
+                } else {
+                    tracing::warn!(
+                        local_task_id = %response.local_task_id,
+                        error = ?response.error,
+                        "task sync failed"
+                    );
+                }
+                let _ = self.event_tx.send(HiveEvent::TaskSyncResponse(response)).await;
             }
             HiveMessage::HeartbeatAck { server_time } => {
                 tracing::trace!(server_time = %server_time, "heartbeat acknowledged");

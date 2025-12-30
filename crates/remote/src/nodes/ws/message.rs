@@ -57,6 +57,10 @@ pub enum NodeMessage {
     #[serde(rename = "label_sync")]
     LabelSync(LabelSyncMessage),
 
+    /// Sync a task from node to hive (create shared task for locally-started tasks)
+    #[serde(rename = "task_sync")]
+    TaskSync(TaskSyncMessage),
+
     /// Acknowledgement of a hive message
     #[serde(rename = "ack")]
     Ack { message_id: Uuid },
@@ -119,6 +123,10 @@ pub enum HiveMessage {
     /// Sync a label to node (broadcast from hive)
     #[serde(rename = "label_sync")]
     LabelSync(LabelSyncBroadcastMessage),
+
+    /// Response to a task sync request from node
+    #[serde(rename = "task_sync_response")]
+    TaskSyncResponse(TaskSyncResponseMessage),
 }
 
 /// Authentication message from node to hive.
@@ -561,6 +569,49 @@ pub struct LabelSyncBroadcastMessage {
     pub version: i64,
     /// Whether this label was deleted
     pub is_deleted: bool,
+}
+
+/// Sync a task from node to hive.
+///
+/// Sent by nodes to create or update a shared task on the hive.
+/// This allows locally-started tasks to be visible across the swarm.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskSyncMessage {
+    /// The local task ID on the node
+    pub local_task_id: Uuid,
+    /// The shared task ID on the Hive (None for new tasks)
+    pub shared_task_id: Option<Uuid>,
+    /// The remote project ID (required for task creation)
+    pub remote_project_id: Uuid,
+    /// Task title
+    pub title: String,
+    /// Task description
+    pub description: Option<String>,
+    /// Task status (todo, in_progress, in_review, done, cancelled)
+    pub status: String,
+    /// Version for conflict resolution
+    pub version: i64,
+    /// Whether this is an update to an existing task (vs new task)
+    pub is_update: bool,
+    /// When the task was created locally
+    pub created_at: DateTime<Utc>,
+    /// When the task was last updated locally
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Response to a task sync request.
+///
+/// Sent by the hive to confirm the shared_task_id for a synced task.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskSyncResponseMessage {
+    /// The local task ID on the node (echoed back for correlation)
+    pub local_task_id: Uuid,
+    /// The shared task ID on the Hive
+    pub shared_task_id: Uuid,
+    /// Whether the operation was successful
+    pub success: bool,
+    /// Error message if not successful
+    pub error: Option<String>,
 }
 
 /// Current protocol version.

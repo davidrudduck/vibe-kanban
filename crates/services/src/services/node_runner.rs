@@ -390,6 +390,22 @@ impl NodeRunnerHandle {
             HiveEvent::Error { message } => {
                 tracing::error!(message = %message, "error from hive");
             }
+            HiveEvent::TaskSyncResponse(response) => {
+                if response.success {
+                    tracing::info!(
+                        local_task_id = %response.local_task_id,
+                        shared_task_id = %response.shared_task_id,
+                        "task sync response received - task will be updated"
+                    );
+                } else {
+                    tracing::warn!(
+                        local_task_id = %response.local_task_id,
+                        error = ?response.error,
+                        "task sync failed"
+                    );
+                }
+                // Note: DB update happens in run_node_runner where we have access to the pool
+            }
         }
 
         Some(event)
@@ -628,6 +644,31 @@ pub fn spawn_node_runner<C: ContainerService + Sync + Send + 'static>(
                         }
                     } else {
                         tracing::warn!("task cancellation received but no container available");
+                    }
+                }
+                Some(HiveEvent::TaskSyncResponse(response)) => {
+                    if response.success {
+                        // Update the local task with the shared_task_id
+                        if let Err(e) = Task::set_shared_task_id(
+                            &db.pool,
+                            response.local_task_id,
+                            Some(response.shared_task_id),
+                        )
+                        .await
+                        {
+                            tracing::error!(
+                                error = ?e,
+                                local_task_id = %response.local_task_id,
+                                shared_task_id = %response.shared_task_id,
+                                "failed to update task with shared_task_id"
+                            );
+                        } else {
+                            tracing::info!(
+                                local_task_id = %response.local_task_id,
+                                shared_task_id = %response.shared_task_id,
+                                "updated local task with shared_task_id"
+                            );
+                        }
                     }
                 }
                 Some(_) => {
