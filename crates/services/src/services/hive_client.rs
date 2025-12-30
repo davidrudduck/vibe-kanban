@@ -96,6 +96,8 @@ pub enum NodeMessage {
     ExecutionSync(ExecutionSyncMessage),
     #[serde(rename = "logs_batch")]
     LogsBatch(LogsBatchMessage),
+    #[serde(rename = "label_sync")]
+    LabelSync(LabelSyncMessage),
     #[serde(rename = "ack")]
     Ack { message_id: Uuid },
     #[serde(rename = "error")]
@@ -399,6 +401,32 @@ pub struct ExecutionSyncMessage {
     pub completed_at: Option<chrono::DateTime<Utc>>,
     /// When the process was created locally
     pub created_at: chrono::DateTime<Utc>,
+}
+
+/// Message to sync a label to the Hive.
+///
+/// Labels are synced organization-wide, so all nodes in an organization
+/// can see and use the same labels.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LabelSyncMessage {
+    /// The local label ID
+    pub label_id: Uuid,
+    /// The shared label ID on the Hive (None for new labels)
+    pub shared_label_id: Option<Uuid>,
+    /// The project ID if this is a project-specific label, None for global labels
+    pub project_id: Option<Uuid>,
+    /// Remote project ID if the label is project-specific (for linking on hive side)
+    pub remote_project_id: Option<Uuid>,
+    /// Label name
+    pub name: String,
+    /// Lucide icon name
+    pub icon: String,
+    /// Hex color code (e.g., "#3b82f6")
+    pub color: String,
+    /// Version for conflict resolution
+    pub version: i64,
+    /// Whether this is an update to an existing label (vs new label)
+    pub is_update: bool,
 }
 
 /// A log entry in a batch sync message.
