@@ -121,6 +121,8 @@ WebSocket provides real-time bidirectional messaging for events that require imm
 | `AttemptSync` | Sync task attempt | Attempt ID, executor, branch, timestamps |
 | `ExecutionSync` | Sync execution process | Process ID, status, commits, exit code |
 | `LogsBatch` | Batch log entries | Array of log entries with execution_process_id |
+| `LabelSync` | Sync label to hive | Label ID, name, icon, color, version |
+| `TaskSync` | Sync local task to hive | Task details for tasks created locally |
 
 ### Message Types: Hive → Node
 
@@ -133,6 +135,8 @@ WebSocket provides real-time bidirectional messaging for events that require imm
 | `NodeRemoved` | Node was removed | - |
 | `StatusRequest` | Request status | - |
 | `HeartbeatAck` | Acknowledge heartbeat | - |
+| `LabelSync` | Broadcast label from another node | Shared label ID, name, icon, color, version |
+| `TaskSyncResponse` | Confirm task sync | Task ID, shared_task_id |
 
 ### Task Assignment Flow
 
@@ -194,12 +198,13 @@ WebSocket provides real-time bidirectional messaging for events that require imm
 | Task Attempts | `task_attempts` | `node_task_attempts` | WebSocket (`AttemptSync`) |
 | Execution Processes | `execution_processes` | `node_execution_processes` | WebSocket (`ExecutionSync`) |
 
-### Synchronized Bidirectionally (via LabelPublisher)
+### Synchronized Bidirectionally (via WebSocket)
 
 | Entity | SQLite Table | PostgreSQL Table | Sync Method |
 |--------|-------------|-----------------|-------------|
-| Labels | `labels` | `labels` | REST API (LabelPublisher service) |
+| Labels | `labels` | `labels` | WebSocket (`LabelSync`) |
 | Task Labels | `task_labels` | `shared_task_labels` | REST API (on task update) |
+| Local Tasks | `tasks` | `shared_tasks` | WebSocket (`TaskSync` + `TaskSyncResponse`) |
 
 ### Not Synchronized (Local Only)
 
@@ -363,6 +368,87 @@ let sync_service = HiveSyncService::new(
     Duration::from_secs(5), // Sync interval
 );
 ```
+
+---
+
+## Label Synchronization
+
+Labels sync bidirectionally between nodes via the hive using WebSocket messages.
+
+### How Label Sync Works
+
+1. **Node creates/updates label**: A label is created or modified locally
+2. **Sync service detects change**: `HiveSyncService` finds labels with `shared_label_id IS NULL` (new) or `updated_at > synced_at` (modified)
+3. **Send to hive**: `LabelSync` message sent with label details and version
+4. **Hive stores label**: Hive upserts label with version-based conflict resolution
+5. **Broadcast to other nodes**: Hive sends `LabelSync` to all other nodes in the organization
+6. **Other nodes receive**: Each node creates/updates their local label copy
+
+### Version-Based Conflict Resolution
+
+Labels use a `version` field for conflict detection:
+
+```sql
+-- Updates only apply if incoming version > existing version
+UPDATE labels
+SET name = $1, color = $2, version = $3
+WHERE id = $4 AND version < $3;
+```
+
+This ensures that older updates don't overwrite newer data in multi-node environments.
+
+### Label Fields Synced
+
+| Field | Description |
+|-------|-------------|
+| `shared_label_id` | UUID linking local to hive label |
+| `name` | Label display name |
+| `icon` | Lucide icon name |
+| `color` | Hex color code |
+| `version` | Incrementing version for conflict resolution |
+| `project_id` | Project scope (null for org-wide labels) |
+
+---
+
+## Local Task Synchronization
+
+Tasks created locally on a node are synced to the hive so their execution attempts can be properly tracked.
+
+### How Task Sync Works
+
+1. **Task created locally**: User creates a task on a node
+2. **Task executed**: User starts a task attempt
+3. **Sync service detects**: `HiveSyncService` finds tasks needing sync:
+   - `shared_task_id IS NULL` (not yet synced)
+   - `is_remote = 0` (locally created)
+   - Project has `remote_project_id` (linked to hive)
+   - Has unsynced attempts
+4. **Send to hive**: `TaskSync` message sent with task details
+5. **Hive creates shared task**: Hive creates entry in `shared_tasks` table
+6. **Response received**: Node receives `TaskSyncResponse` with `shared_task_id`
+7. **Local update**: Node updates local task with `shared_task_id`
+8. **Attempts sync**: Now `AttemptSync` can proceed (requires valid `shared_task_id`)
+
+### The `is_remote` Flag
+
+Tasks have an `is_remote` flag that determines editability:
+
+| `is_remote` | Source | Editable | Description |
+|-------------|--------|----------|-------------|
+| `0` | Local | Yes | Task created on this node |
+| `1` | Remote | No | Task from hive or another node |
+
+**Important**: When tasks are synced from the hive, the system preserves `is_remote = 0` for tasks that belong to locally-owned projects. This ensures users can still edit their own tasks after sync.
+
+### Sync Order
+
+The `HiveSyncService` syncs entities in this order:
+
+1. **Tasks** (`sync_tasks()`) - Ensure local tasks have `shared_task_id`
+2. **Labels** (`sync_labels()`) - Sync label definitions
+3. **Attempts** (`sync_attempts()`) - Sync task attempts (requires `shared_task_id`)
+4. **Executions** (`sync_executions()`) - Sync execution processes
+5. **Logs** (`sync_logs()`) - Batch sync log entries
 
 ---
 
