@@ -1,5 +1,7 @@
 {
   "search": "Search",
+  "back": "Back",
+  "close": "Close",
   "buttons": {
     "save": "Save",
     "cancel": "Cancel",
