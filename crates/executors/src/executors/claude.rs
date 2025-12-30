@@ -17,7 +17,11 @@ use workspace_utils::{
     path::make_path_relative,
 };
 
-use self::{client::ClaudeAgentClient, protocol::ProtocolPeer, types::PermissionMode};
+use self::{
+    client::ClaudeAgentClient,
+    protocol::{ExitSignalSender, ProtocolPeer},
+    types::PermissionMode,
+};
 use crate::{
     approvals::ExecutorApprovalService,
     command::{CmdOverrides, CommandBuilder, CommandParts, apply_overrides},
@@ -271,6 +275,12 @@ impl ClaudeCode {
         let permission_mode = self.permission_mode();
         let hooks = self.get_hooks();
 
+        // Create exit signal channel for signaling when the session completes
+        // This allows the exit monitor to kill the process group when the protocol
+        // reader detects a Result message with content
+        let (exit_signal_tx, exit_signal_rx) = tokio::sync::oneshot::channel();
+        let exit_signal_sender = ExitSignalSender::new(exit_signal_tx);
+
         // Create the protocol peer and client before spawning the async task
         // This allows us to return the peer for message injection
         let log_writer = LogWriter::new(new_stdout);
@@ -279,7 +289,12 @@ impl ClaudeCode {
             self.approvals_service.clone(),
             self.interactive_questions,
         );
-        let protocol_peer = Arc::new(ProtocolPeer::spawn(child_stdin, child_stdout, client));
+        let protocol_peer = Arc::new(ProtocolPeer::spawn(
+            child_stdin,
+            child_stdout,
+            client,
+            exit_signal_sender,
+        ));
 
         // Clone peer for the initialization task
         let peer_for_init = protocol_peer.clone();
@@ -311,7 +326,7 @@ impl ClaudeCode {
 
         Ok(SpawnedChild {
             child,
-            exit_signal: None,
+            exit_signal: Some(exit_signal_rx),
             protocol_peer: Some(protocol_peer),
         })
     }
