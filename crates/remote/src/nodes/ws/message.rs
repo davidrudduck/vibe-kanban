@@ -53,6 +53,10 @@ pub enum NodeMessage {
     #[serde(rename = "logs_batch")]
     LogsBatch(LogsBatchMessage),
 
+    /// Sync a label from node to hive
+    #[serde(rename = "label_sync")]
+    LabelSync(LabelSyncMessage),
+
     /// Acknowledgement of a hive message
     #[serde(rename = "ack")]
     Ack { message_id: Uuid },
@@ -111,6 +115,10 @@ pub enum HiveMessage {
     /// Notification that a node has been removed from the organization
     #[serde(rename = "node_removed")]
     NodeRemoved(NodeRemovedMessage),
+
+    /// Sync a label to node (broadcast from hive)
+    #[serde(rename = "label_sync")]
+    LabelSync(LabelSyncBroadcastMessage),
 }
 
 /// Authentication message from node to hive.
@@ -501,6 +509,58 @@ pub struct LogsBatchMessage {
     /// Whether this batch is compressed (gzip)
     #[serde(default)]
     pub compressed: bool,
+}
+
+/// Sync a label from node to hive.
+///
+/// Sent by nodes when a label is created or updated.
+/// The hive stores this in the labels table and broadcasts to other nodes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LabelSyncMessage {
+    /// The local label ID on the node
+    pub label_id: Uuid,
+    /// The shared label ID on the Hive (None for new labels)
+    pub shared_label_id: Option<Uuid>,
+    /// The project ID if this is a project-specific label, None for global labels
+    pub project_id: Option<Uuid>,
+    /// Remote project ID if the label is project-specific (for linking on hive side)
+    pub remote_project_id: Option<Uuid>,
+    /// Label name
+    pub name: String,
+    /// Lucide icon name
+    pub icon: String,
+    /// Hex color code (e.g., "#3b82f6")
+    pub color: String,
+    /// Version for conflict resolution
+    pub version: i64,
+    /// Whether this is an update to an existing label (vs new label)
+    pub is_update: bool,
+}
+
+/// Label sync broadcast from hive to nodes.
+///
+/// Sent by the hive when a label is created or updated on another node.
+/// Nodes use this to keep their local label cache in sync.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LabelSyncBroadcastMessage {
+    /// Unique message ID for acknowledgement
+    pub message_id: Uuid,
+    /// The shared label ID on the Hive
+    pub shared_label_id: Uuid,
+    /// The project ID if this is a project-specific label, None for global labels
+    pub project_id: Option<Uuid>,
+    /// ID of the node that owns/created this label
+    pub origin_node_id: Uuid,
+    /// Label name
+    pub name: String,
+    /// Lucide icon name
+    pub icon: String,
+    /// Hex color code (e.g., "#3b82f6")
+    pub color: String,
+    /// Version for conflict resolution
+    pub version: i64,
+    /// Whether this label was deleted
+    pub is_deleted: bool,
 }
 
 /// Current protocol version.
