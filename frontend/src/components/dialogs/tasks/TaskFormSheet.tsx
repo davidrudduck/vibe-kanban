@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence, PanInfo } from 'framer-motion';
+import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import {
   ArrowLeft,
   X,
@@ -13,11 +14,12 @@ import { useForm, useStore } from '@tanstack/react-form';
 import { useDropzone } from 'react-dropzone';
 
 import { cn } from '@/lib/utils';
-import { useIsMobile } from '@/hooks/useIsMobile';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import {
   usePendingVariables,
   type PendingVariable,
 } from '@/hooks/usePendingVariables';
+import { defineModal } from '@/lib/modals';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label as FormLabel } from '@/components/ui/label';
@@ -60,36 +62,17 @@ import type {
 
 /**
  * Props for TaskFormSheet component
+ * These match TaskFormDialogProps for compatibility
  */
 export type TaskFormSheetProps =
-  | {
-      mode: 'create';
-      projectId: string;
-      open: boolean;
-      onOpenChange: (open: boolean) => void;
-    }
-  | {
-      mode: 'edit';
-      projectId: string;
-      task: Task;
-      open: boolean;
-      onOpenChange: (open: boolean) => void;
-    }
-  | {
-      mode: 'duplicate';
-      projectId: string;
-      initialTask: Task;
-      open: boolean;
-      onOpenChange: (open: boolean) => void;
-    }
+  | { mode: 'create'; projectId: string }
+  | { mode: 'edit'; projectId: string; task: Task }
+  | { mode: 'duplicate'; projectId: string; initialTask: Task }
   | {
       mode: 'subtask';
       projectId: string;
       parentTaskId: string;
       initialBaseBranch?: string;
-      parentWorktreeAvailable?: boolean;
-      open: boolean;
-      onOpenChange: (open: boolean) => void;
     };
 
 type TaskFormValues = {
@@ -119,10 +102,12 @@ const DRAG_CLOSE_THRESHOLD = 100;
  * - Image attachment with drag-and-drop
  * - Template insertion support
  */
-export function TaskFormSheet(props: TaskFormSheetProps) {
-  const { mode, projectId, open, onOpenChange } = props;
+const TaskFormSheetImpl = NiceModal.create<TaskFormSheetProps>((props) => {
+  const { mode, projectId } = props;
   const editMode = mode === 'edit';
-  const isMobile = useIsMobile();
+  const modal = useModal();
+  // Use 768px breakpoint for mobile (matches tablet breakpoint from Session 1)
+  const isMobile = useMediaQuery('(max-width: 767px)');
   const { t } = useTranslation(['tasks', 'common']);
   const { createTask, createAndStart, updateTask } =
     useTaskMutations(projectId);
@@ -168,18 +153,12 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
 
   // Determine if parent worktree is available
   const parentWorktreeAvailable = useMemo(() => {
-    if (
-      'parentWorktreeAvailable' in props &&
-      props.parentWorktreeAvailable !== undefined
-    ) {
-      return props.parentWorktreeAvailable;
-    }
     if (parentAttempts.length === 0) return false;
     const latest = parentAttempts[0];
     if (!latest.container_ref) return false;
     if (latest.worktree_deleted) return false;
     return true;
-  }, [parentAttempts, props]);
+  }, [parentAttempts]);
 
   // Labels management
   const taskId = editMode ? (props as { task: Task }).task.id : undefined;
@@ -280,7 +259,7 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
             image_ids: images.length > 0 ? images.map((img) => img.id) : null,
           },
         },
-        { onSuccess: () => onOpenChange(false) }
+        { onSuccess: () => modal.remove() }
       );
     } else {
       const imageIds =
@@ -338,7 +317,7 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
           {
             onSuccess: async (result) => {
               await postCreateActions(result.id);
-              onOpenChange(false);
+              modal.remove();
             },
           }
         );
@@ -346,7 +325,7 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
         await createTask.mutateAsync(task, {
           onSuccess: async (createdTask) => {
             await postCreateActions(createdTask.id);
-            onOpenChange(false);
+            modal.remove();
           },
         });
       }
@@ -478,9 +457,9 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
       setShowDiscardWarning(true);
     } else {
       pendingVariables.clear();
-      onOpenChange(false);
+      modal.remove();
     }
-  }, [hasUnsavedChanges, onOpenChange, pendingVariables]);
+  }, [hasUnsavedChanges, modal, pendingVariables]);
 
   // Handle discard
   const handleDiscardChanges = useCallback(() => {
@@ -489,8 +468,8 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
     setNewlyUploadedImageIds([]);
     pendingVariables.clear();
     setShowDiscardWarning(false);
-    onOpenChange(false);
-  }, [form, onOpenChange, pendingVariables]);
+    modal.remove();
+  }, [form, modal, pendingVariables]);
 
   // Handle drag end for swipe-to-dismiss
   const handleDragEnd = useCallback(
@@ -504,7 +483,7 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
 
   // Escape key handler
   useEffect(() => {
-    if (!open) return;
+    if (!modal.visible) return;
 
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -514,18 +493,18 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
 
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
-  }, [open, handleClose]);
+  }, [modal.visible, handleClose]);
 
   // Prevent body scroll when open on mobile
   useEffect(() => {
-    if (!open || !isMobile) return;
+    if (!modal.visible || !isMobile) return;
 
     const originalOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = originalOverflow;
     };
-  }, [open, isMobile]);
+  }, [modal.visible, isMobile]);
 
   // Add variable handler
   const handleAddVariable = useCallback(() => {
@@ -572,7 +551,7 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
   }, [mode, t]);
 
   const loading = branchesLoading || userSystemLoading;
-  if (loading || !open) return null;
+  if (loading || !modal.visible) return null;
 
   // Render the form content
   const formContent = (
@@ -599,9 +578,9 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
             size="icon"
             onClick={handleClose}
             aria-label={t('common:back', 'Back')}
-            className="h-9 w-9"
+            className="h-12 w-12 -ml-2"
           >
-            <ArrowLeft className="h-5 w-5" />
+            <ArrowLeft className="h-6 w-6" />
           </Button>
         ) : (
           <Button
@@ -609,9 +588,9 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
             size="icon"
             onClick={handleClose}
             aria-label={t('common:close', 'Close')}
-            className="h-8 w-8 absolute right-3 top-3"
+            className="h-10 w-10 absolute right-3 top-3"
           >
-            <X className="h-4 w-4" />
+            <X className="h-5 w-5" />
           </Button>
         )}
         <h2 className="text-lg font-semibold">{headerTitle}</h2>
@@ -665,7 +644,7 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
                     'taskFormDialog.descriptionPlaceholder',
                     'Add details...'
                   )}
-                  className="text-sm resize-none"
+                  className={cn('resize-none', isMobile ? 'text-base' : 'text-sm')}
                   disabled={isSubmitting}
                   projectId={projectId}
                   onPasteFiles={handlePasteFiles}
@@ -707,7 +686,7 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
                     setNewVarValue('');
                   }}
                   aria-label={t('taskFormSheet.addVariable', 'Add variable')}
-                  className="h-7 px-2"
+                  className={cn('h-9 px-3', isMobile && 'h-11 px-4')}
                 >
                   <Plus className="h-4 w-4" />
                 </Button>
@@ -733,7 +712,7 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-6 w-6"
+                          className={cn('h-8 w-8', isMobile && 'h-10 w-10')}
                           onClick={() => {
                             setEditingVariable(variable);
                             setNewVarName(variable.name);
@@ -741,17 +720,20 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
                             setShowVariableEditor(true);
                           }}
                         >
-                          <FileText className="h-3 w-3" />
+                          <FileText className="h-4 w-4" />
                         </Button>
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-6 w-6 text-destructive"
+                          className={cn(
+                            'h-8 w-8 text-destructive',
+                            isMobile && 'h-10 w-10'
+                          )}
                           onClick={() =>
                             pendingVariables.removeVariable(variable.id)
                           }
                         >
-                          <Trash2 className="h-3 w-3" />
+                          <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
                     </div>
@@ -771,13 +753,13 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
                     onChange={(e) =>
                       setNewVarName(e.target.value.toUpperCase())
                     }
-                    className="font-mono text-sm"
+                    className={cn('font-mono', isMobile ? 'text-base' : 'text-sm')}
                   />
                   <Input
                     placeholder={t('taskFormSheet.variableValue', 'Value')}
                     value={newVarValue}
                     onChange={(e) => setNewVarValue(e.target.value)}
-                    className="font-mono text-sm"
+                    className={cn('font-mono', isMobile ? 'text-base' : 'text-sm')}
                   />
                   <div className="flex justify-end gap-2">
                     <Button
@@ -997,10 +979,10 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
               variant="outline"
               size="icon"
               onClick={dropzoneOpen}
-              className="h-9 w-9"
+              className={cn('h-11 w-11', isMobile && 'h-12 w-12')}
               aria-label={t('taskFormDialog.attachImage', 'Attach image')}
             >
-              <ImageIcon className="h-4 w-4" />
+              <ImageIcon className="h-5 w-5" />
             </Button>
 
             {/* Insert Template */}
@@ -1010,10 +992,10 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
               onClick={() => {
                 // TODO: Open template picker
               }}
-              className="h-9 w-9"
+              className={cn('h-11 w-11', isMobile && 'h-12 w-12')}
               aria-label={t('taskFormSheet.insertTemplate', 'Insert template')}
             >
-              <FileText className="h-4 w-4" />
+              <FileText className="h-5 w-5" />
             </Button>
           </div>
 
@@ -1076,7 +1058,7 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
               <Button
                 onClick={() => form.handleSubmit()}
                 disabled={!canSubmit}
-                className="w-full h-11 text-base"
+                className={cn('w-full h-11 text-base', isMobile && 'h-12')}
               >
                 {buttonText}
               </Button>
@@ -1093,7 +1075,7 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
     return (
       <>
         <AnimatePresence>
-          {open && (
+          {modal.visible && (
             <>
               {/* Backdrop */}
               <motion.div
@@ -1169,7 +1151,7 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
   return (
     <>
       <AnimatePresence>
-        {open && (
+        {modal.visible && (
           <>
             {/* Backdrop */}
             <motion.div
@@ -1235,6 +1217,14 @@ export function TaskFormSheet(props: TaskFormSheetProps) {
       )}
     </>
   );
-}
+});
+
+/**
+ * TaskFormSheet - Modal dialog for task creation/editing
+ * Renders as full-screen sheet on mobile (<768px) or centered modal on tablet/desktop
+ */
+export const TaskFormSheet = defineModal<TaskFormSheetProps, void>(
+  TaskFormSheetImpl
+);
 
 export default TaskFormSheet;
