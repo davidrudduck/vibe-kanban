@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::{ChildStdin, ChildStdout},
-    sync::Mutex,
+    sync::{Mutex, oneshot},
 };
 
 use super::types::{
@@ -11,13 +11,34 @@ use super::types::{
     SDKControlRequestMessage,
 };
 use crate::executors::{
-    ExecutorError,
+    ExecutorError, ExecutorExitResult,
     claude::{
         client::ClaudeAgentClient,
         types::{PermissionMode, SDKControlRequestType},
     },
 };
 use workspace_utils::approvals::Question;
+
+/// Clone-able wrapper for exit signal sender.
+/// The inner oneshot sender can only send once, so we use Option + take().
+#[derive(Clone)]
+pub struct ExitSignalSender {
+    inner: Arc<Mutex<Option<oneshot::Sender<ExecutorExitResult>>>>,
+}
+
+impl ExitSignalSender {
+    pub fn new(sender: oneshot::Sender<ExecutorExitResult>) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(Some(sender))),
+        }
+    }
+
+    pub async fn send_exit_signal(&self, result: ExecutorExitResult) {
+        if let Some(sender) = self.inner.lock().await.take() {
+            let _ = sender.send(result);
+        }
+    }
+}
 
 /// Handles bidirectional control protocol communication.
 /// Allows sending messages to a running Claude Code process via stdin.
@@ -27,7 +48,12 @@ pub struct ProtocolPeer {
 }
 
 impl ProtocolPeer {
-    pub fn spawn(stdin: ChildStdin, stdout: ChildStdout, client: Arc<ClaudeAgentClient>) -> Self {
+    pub fn spawn(
+        stdin: ChildStdin,
+        stdout: ChildStdout,
+        client: Arc<ClaudeAgentClient>,
+        exit_signal: ExitSignalSender,
+    ) -> Self {
         let peer = Self {
             stdin: Arc::new(Mutex::new(stdin)),
         };
@@ -37,6 +63,11 @@ impl ProtocolPeer {
             if let Err(e) = reader_peer.read_loop(stdout, client).await {
                 tracing::error!("Protocol reader loop error: {}", e);
             }
+            // Send exit signal when read loop completes (regardless of success/error)
+            // This triggers the exit monitor to kill the process group
+            exit_signal
+                .send_exit_signal(ExecutorExitResult::Success)
+                .await;
         });
 
         peer
@@ -301,5 +332,33 @@ impl ProtocolPeer {
             SDKControlRequestType::SetPermissionMode { mode },
         ))
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_exit_signal_sender_sends_once() {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let sender = ExitSignalSender::new(tx);
+
+        sender.send_exit_signal(ExecutorExitResult::Success).await;
+
+        let result = rx.await;
+        assert!(matches!(result, Ok(ExecutorExitResult::Success)));
+    }
+
+    #[tokio::test]
+    async fn test_exit_signal_sender_only_sends_first() {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let sender = ExitSignalSender::new(tx);
+
+        sender.send_exit_signal(ExecutorExitResult::Success).await;
+        sender.send_exit_signal(ExecutorExitResult::Failure).await; // Should be no-op
+
+        let result = rx.await;
+        assert!(matches!(result, Ok(ExecutorExitResult::Success)));
     }
 }
