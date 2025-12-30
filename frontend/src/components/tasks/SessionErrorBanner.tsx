@@ -30,10 +30,7 @@ export function SessionErrorBanner({ attemptId, onFixed }: Props) {
       aria-live="polite"
     >
       <div className="flex items-start gap-2">
-        <AlertCircle
-          className="mt-0.5 h-4 w-4 text-destructive"
-          aria-hidden
-        />
+        <AlertCircle className="mt-0.5 h-4 w-4 text-destructive" aria-hidden />
         <div className="text-sm leading-relaxed">
           <span className="font-medium">Session Error:</span> The agent session
           is corrupted and cannot be resumed. Click "Fix Sessions" to clear the

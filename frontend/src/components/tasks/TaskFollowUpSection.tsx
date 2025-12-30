@@ -65,10 +65,8 @@ export function TaskFollowUpSection({
     useBranchStatus(selectedAttemptId);
   const { branch: attemptBranch, refetch: refetchAttemptBranch } =
     useAttemptBranch(selectedAttemptId);
-  const {
-    hasSessionError,
-    invalidate: invalidateSessionError,
-  } = useSessionError(selectedAttemptId);
+  const { hasSessionError, invalidate: invalidateSessionError } =
+    useSessionError(selectedAttemptId);
   const { profiles } = useUserSystem();
 
   // Message queue for queuing multiple messages

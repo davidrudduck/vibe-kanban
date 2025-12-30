@@ -1,5 +1,13 @@
 import { useEffect, useCallback, memo, useMemo } from 'react';
-import { X, Plus, Terminal, Loader2, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react';
+import {
+  X,
+  Plus,
+  Terminal,
+  Loader2,
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react';
 import { useAttemptWorktreePath } from '@/hooks/useTerminalSession';
 import { useTerminalTabs, TerminalTab } from '@/hooks/useTerminalTabs';
 import { useSwipe } from '@/hooks/useSwipe';

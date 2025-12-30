@@ -116,6 +116,20 @@ module.exports = {
           success: "hsl(var(--console-success))",
           error: "hsl(var(--console-error))",
         },
+        // VK-Swarm "Midnight Terminal" palette
+        vks: {
+          void: "hsl(var(--vks-void, 240 33% 5%))",
+          surface: "hsl(var(--vks-surface, 240 18% 9%))",
+          "surface-bright": "hsl(var(--vks-surface-bright, 240 14% 12%))",
+          cyan: "hsl(var(--vks-cyan, 193 100% 50%))",
+          amber: "hsl(var(--vks-amber, 43 100% 50%))",
+          emerald: "hsl(var(--vks-emerald, 152 100% 50%))",
+          coral: "hsl(var(--vks-coral, 0 100% 71%))",
+          violet: "hsl(var(--vks-violet, 270 91% 65%))",
+          text: "hsl(var(--vks-text, 240 6% 90%))",
+          "text-muted": "hsl(var(--vks-text-muted, 240 4% 46%))",
+          "text-dim": "hsl(var(--vks-text-dim, 240 3% 26%))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -128,6 +142,8 @@ module.exports = {
         prose: 'var(--font-prose)',
         mono: 'var(--font-code)', // Alias for backwards compatibility
         'chivo-mono': ['Chivo Mono', 'Noto Emoji', 'monospace'], // Keep for direct usage
+        heading: 'var(--font-heading, var(--font-ui))', // VKS heading font with fallback
+        serif: ['"Source Serif 4"', 'Georgia', 'serif'], // Direct serif usage
       },
       keyframes: {
         "accordion-down": {

@@ -75,7 +75,10 @@ export function useTerminalSessionForPath(
 
   // Auto-create session if enabled and no existing session
   const shouldCreate =
-    options?.autoCreate && workingDir && !existingSession && sessions !== undefined;
+    options?.autoCreate &&
+    workingDir &&
+    !existingSession &&
+    sessions !== undefined;
 
   return {
     session: existingSession,

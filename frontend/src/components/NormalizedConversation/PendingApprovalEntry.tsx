@@ -298,7 +298,9 @@ function QuestionForm({
 
         return (
           <div key={question.header} className="space-y-2">
-            <div className="font-medium text-foreground">{question.question}</div>
+            <div className="font-medium text-foreground">
+              {question.question}
+            </div>
             <div className="flex flex-col gap-2">
               {question.options.map((option) => {
                 const isSelected = question.multiSelect
@@ -609,7 +611,8 @@ const PendingApprovalEntry = ({
       } else {
         const selectedOption = answer as string;
         if (selectedOption === 'Other') {
-          result[question.header] = currentOtherTexts[question.header] || 'Other';
+          result[question.header] =
+            currentOtherTexts[question.header] || 'Other';
         } else {
           result[question.header] = selectedOption || '';
         }
@@ -620,7 +623,10 @@ const PendingApprovalEntry = ({
 
   const handleQuestionSubmit = useCallback(() => {
     const finalAnswers = buildFinalAnswers();
-    console.debug('[PendingApprovalEntry] Submitting question answers:', finalAnswers);
+    console.debug(
+      '[PendingApprovalEntry] Submitting question answers:',
+      finalAnswers
+    );
     respond(true, undefined, finalAnswers);
   }, [buildFinalAnswers, respond]);
 
@@ -680,22 +686,24 @@ const PendingApprovalEntry = ({
             )}
 
             {/* Response submitted message for AskUserQuestion */}
-            {isAskUserQuestionWithQuestions && hasResponded && extractedQuestions && (
-              <div className="text-muted-foreground py-2 text-sm">
-                <div className="font-medium mb-1">User selected:</div>
-                {extractedQuestions.map((question) => {
-                  const answer = answers[question.header];
-                  const displayAnswer = Array.isArray(answer)
-                    ? answer.join(', ')
-                    : answer || 'No selection';
-                  return (
-                    <div key={question.header} className="ml-2">
-                      • {question.header}: {displayAnswer}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            {isAskUserQuestionWithQuestions &&
+              hasResponded &&
+              extractedQuestions && (
+                <div className="text-muted-foreground py-2 text-sm">
+                  <div className="font-medium mb-1">User selected:</div>
+                  {extractedQuestions.map((question) => {
+                    const answer = answers[question.header];
+                    const displayAnswer = Array.isArray(answer)
+                      ? answer.join(', ')
+                      : answer || 'No selection';
+                    return (
+                      <div key={question.header} className="ml-2">
+                        • {question.header}: {displayAnswer}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
             {/* Generic approve/deny UI for non-AskUserQuestion tools */}
             {!isAskUserQuestionWithQuestions && (

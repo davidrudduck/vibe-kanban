@@ -350,7 +350,9 @@ export function ProjectFormFields({
                     );
                   }
                 }}
-                placeholder={t('createDialog.createBlank.projectNamePlaceholder')}
+                placeholder={t(
+                  'createDialog.createBlank.projectNamePlaceholder'
+                )}
                 className="placeholder:text-secondary-foreground placeholder:opacity-100"
                 required
               />
@@ -369,7 +371,9 @@ export function ProjectFormFields({
                   type="text"
                   value={parentPath}
                   onChange={(e) => setParentPath(e.target.value)}
-                  placeholder={t('createDialog.createBlank.parentDirectoryPlaceholder')}
+                  placeholder={t(
+                    'createDialog.createBlank.parentDirectoryPlaceholder'
+                  )}
                   className="flex-1 placeholder:text-secondary-foreground placeholder:opacity-100"
                 />
                 <Button
@@ -441,7 +445,9 @@ export function ProjectFormFields({
                     const url = e.target.value.trim();
                     if (url) {
                       // Extract repo name from URL (handles https, ssh, and git protocols)
-                      const match = url.match(/(?:[/:])([^/:]+?)(?:\.git)?[/]?$/);
+                      const match = url.match(
+                        /(?:[/:])([^/:]+?)(?:\.git)?[/]?$/
+                      );
                       if (match && match[1]) {
                         const repoName = match[1].replace(/\.git$/, '');
                         setFolderName(repoName);
@@ -451,7 +457,9 @@ export function ProjectFormFields({
                       }
                     }
                   }}
-                  placeholder={t('createDialog.cloneFromUrl.repositoryUrlPlaceholder')}
+                  placeholder={t(
+                    'createDialog.cloneFromUrl.repositoryUrlPlaceholder'
+                  )}
                   className="placeholder:text-secondary-foreground placeholder:opacity-100"
                   required
                 />
@@ -470,7 +478,9 @@ export function ProjectFormFields({
                     type="text"
                     value={parentPath}
                     onChange={(e) => setParentPath(e.target.value)}
-                    placeholder={t('createDialog.cloneFromUrl.cloneToDirectoryPlaceholder')}
+                    placeholder={t(
+                      'createDialog.cloneFromUrl.cloneToDirectoryPlaceholder'
+                    )}
                     className="flex-1 placeholder:text-secondary-foreground placeholder:opacity-100"
                   />
                   <Button
@@ -480,8 +490,7 @@ export function ProjectFormFields({
                     onClick={async () => {
                       const selectedPath = await FolderPickerDialog.show({
                         title: 'Select Clone Destination',
-                        description:
-                          'Choose where to clone the repository',
+                        description: 'Choose where to clone the repository',
                         value: parentPath,
                       });
                       if (selectedPath) {
@@ -517,7 +526,9 @@ export function ProjectFormFields({
                       );
                     }
                   }}
-                  placeholder={t('createDialog.cloneFromUrl.projectNamePlaceholder')}
+                  placeholder={t(
+                    'createDialog.cloneFromUrl.projectNamePlaceholder'
+                  )}
                   className="placeholder:text-secondary-foreground placeholder:opacity-100"
                   required
                 />

@@ -2,8 +2,15 @@ import { ReactNode, useState } from 'react';
 import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels';
 import { AnimatePresence, motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import { useSwipe } from '@/hooks/useSwipe';
 
-export type LayoutMode = 'preview' | 'diffs' | 'files' | 'terminal' | null;
+export type LayoutMode =
+  | 'preview'
+  | 'diffs'
+  | 'files'
+  | 'terminal'
+  | 'processes'
+  | null;
 
 interface TasksLayoutProps {
   kanban: ReactNode;
@@ -13,6 +20,8 @@ interface TasksLayoutProps {
   mode: LayoutMode;
   isMobile?: boolean;
   rightHeader?: ReactNode;
+  /** Called when user swipes right on the detail panel (mobile only) */
+  onSwipeClose?: () => void;
 }
 
 type SplitSizes = [number, number];
@@ -154,7 +163,13 @@ function RightWorkArea({
               collapsible={false}
               className="min-w-0 min-h-0 overflow-hidden"
               role="region"
-              aria-label={mode === 'preview' ? 'Preview' : 'Diffs'}
+              aria-label={
+                mode === 'preview'
+                  ? 'Preview'
+                  : mode === 'processes'
+                    ? 'Processes'
+                    : 'Diffs'
+              }
             >
               <AuxRouter mode={mode} aux={aux} />
             </Panel>
@@ -275,8 +290,21 @@ export function TasksLayout({
   mode,
   isMobile = false,
   rightHeader,
+  onSwipeClose,
 }: TasksLayoutProps) {
   const desktopKey = isPanelOpen ? 'desktop-with-panel' : 'kanban-only';
+
+  // Swipe-to-close for mobile detail panel
+  const swipeHandlers = useSwipe(
+    {
+      onSwipeRight: () => {
+        if (isMobile && isPanelOpen && onSwipeClose) {
+          onSwipeClose();
+        }
+      },
+    },
+    { threshold: 75, maxTime: 400 }
+  );
 
   if (isMobile) {
     const columns = isPanelOpen ? ['0fr', '1fr', '0fr'] : ['1fr', '0fr', '0fr'];
@@ -309,6 +337,8 @@ export function TasksLayout({
           aria-label="Details"
           role="region"
           style={{ pointerEvents: isAttemptVisible ? 'auto' : 'none' }}
+          {...(isAttemptVisible ? swipeHandlers : {})}
+          data-testid="mobile-detail-panel"
         >
           {rightHeader && (
             <div className="shrink-0 sticky top-0 z-20 bg-background border-b">
@@ -321,7 +351,13 @@ export function TasksLayout({
         <div
           className="min-w-0 min-h-0 overflow-hidden border-l"
           aria-hidden={!isAuxVisible}
-          aria-label={mode === 'preview' ? 'Preview' : 'Diffs'}
+          aria-label={
+            mode === 'preview'
+              ? 'Preview'
+              : mode === 'processes'
+                ? 'Processes'
+                : 'Diffs'
+          }
           role="region"
           style={{ pointerEvents: isAuxVisible ? 'auto' : 'none' }}
         >

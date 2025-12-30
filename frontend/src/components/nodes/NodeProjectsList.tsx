@@ -18,7 +18,10 @@ interface NodeProjectsListProps {
 
 const syncStatusConfig: Record<
   string,
-  { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }
+  {
+    label: string;
+    variant: 'default' | 'secondary' | 'destructive' | 'outline';
+  }
 > = {
   synced: { label: 'Synced', variant: 'secondary' },
   pending: { label: 'Pending', variant: 'outline' },

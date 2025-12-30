@@ -6,7 +6,7 @@ import { AlertTriangle } from 'lucide-react';
 import { Loader } from '@/components/ui/loader';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useSearch } from '@/contexts/SearchContext';
-import { useAllTasks } from '@/hooks';
+import { useAllTasks, useIsMobile } from '@/hooks';
 import { paths } from '@/lib/paths';
 import {
   KanbanBoard,
@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/shadcn-io/kanban';
 import { statusBoardColors, statusLabels } from '@/utils/statusLabels';
 import { AllProjectsTaskCard } from '@/components/tasks/AllProjectsTaskCard';
+import MobileAllProjectsKanban from '@/components/tasks/MobileAllProjectsKanban';
 import type { TaskWithProjectInfo, TaskStatus } from 'shared/types';
 
 const TASK_STATUSES = [
@@ -33,6 +34,7 @@ export function AllProjectsTasks() {
   const { t } = useTranslation(['tasks', 'common']);
   const navigate = useNavigate();
   const { query: searchQuery } = useSearch();
+  const isMobile = useIsMobile();
 
   const { tasks, isLoading, error } = useAllTasks();
 
@@ -134,7 +136,8 @@ export function AllProjectsTasks() {
     return <Loader message={t('loading')} size={32} className="py-8" />;
   }
 
-  const kanbanContent =
+  // Empty state content
+  const emptyContent =
     tasks.length === 0 ? (
       <div className="max-w-7xl mx-auto mt-8">
         <Card>
@@ -158,34 +161,50 @@ export function AllProjectsTasks() {
           </CardContent>
         </Card>
       </div>
-    ) : (
-      <div className="w-full h-full overflow-x-auto overflow-y-auto overscroll-x-contain">
-        <KanbanProvider onDragEnd={handleDragEnd}>
-          {TASK_STATUSES.map((status) => {
-            const items = kanbanColumns[status];
-            return (
-              <KanbanBoard key={status} id={status}>
-                <KanbanHeader
-                  name={statusLabels[status]}
-                  color={statusBoardColors[status]}
-                />
-                <KanbanCards>
-                  {items.map((task, index) => (
-                    <AllProjectsTaskCard
-                      key={task.id}
-                      task={task}
-                      index={index}
-                      status={status}
-                      onViewDetails={handleViewTaskDetails}
-                    />
-                  ))}
-                </KanbanCards>
-              </KanbanBoard>
-            );
-          })}
-        </KanbanProvider>
-      </div>
-    );
+    ) : null;
+
+  // Desktop Kanban view (horizontal columns)
+  const desktopKanbanContent = (
+    <div className="w-full h-full overflow-x-auto overflow-y-auto overscroll-x-contain">
+      <KanbanProvider onDragEnd={handleDragEnd}>
+        {TASK_STATUSES.map((status) => {
+          const items = kanbanColumns[status];
+          return (
+            <KanbanBoard key={status} id={status}>
+              <KanbanHeader
+                name={statusLabels[status]}
+                color={statusBoardColors[status]}
+              />
+              <KanbanCards>
+                {items.map((task, index) => (
+                  <AllProjectsTaskCard
+                    key={task.id}
+                    task={task}
+                    index={index}
+                    status={status}
+                    onViewDetails={handleViewTaskDetails}
+                  />
+                ))}
+              </KanbanCards>
+            </KanbanBoard>
+          );
+        })}
+      </KanbanProvider>
+    </div>
+  );
+
+  // Mobile Kanban view (single column with swipe navigation)
+  const mobileKanbanContent = (
+    <MobileAllProjectsKanban
+      columns={kanbanColumns}
+      onViewTaskDetails={handleViewTaskDetails}
+      className="h-full"
+    />
+  );
+
+  // Choose the appropriate content based on state and viewport
+  const kanbanContent =
+    emptyContent ?? (isMobile ? mobileKanbanContent : desktopKanbanContent);
 
   return (
     <div className="min-h-full h-full flex flex-col">

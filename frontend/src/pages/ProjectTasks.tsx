@@ -13,7 +13,7 @@ import { useProject } from '@/contexts/ProjectContext';
 import { useTaskAttempts } from '@/hooks/useTaskAttempts';
 import { useTaskAttempt } from '@/hooks/useTaskAttempt';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
-import { useBranchStatus, useAttemptExecution } from '@/hooks';
+import { useBranchStatus, useAttemptExecution, useIsOrgAdmin } from '@/hooks';
 import { projectsApi } from '@/lib/api';
 import { paths } from '@/lib/paths';
 import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext';
@@ -41,6 +41,8 @@ import {
 import TaskKanbanBoard, {
   type KanbanColumnItem,
 } from '@/components/tasks/TaskKanbanBoard';
+import MobileKanbanBoard from '@/components/tasks/MobileKanbanBoard';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import type { DragEndEvent } from '@/components/ui/shadcn-io/kanban';
 import {
   useProjectTasks,
@@ -54,10 +56,11 @@ import { PreviewPanel } from '@/components/panels/PreviewPanel';
 import { DiffsPanel } from '@/components/panels/DiffsPanel';
 import { FilesPanel } from '@/components/files';
 import { TerminalsPanel } from '@/components/terminal';
+import { ProcessesPanel } from '@/components/panels/ProcessesPanel';
 import TaskAttemptPanel from '@/components/panels/TaskAttemptPanel';
 import TaskPanel from '@/components/panels/TaskPanel';
 import SharedTaskPanel from '@/components/panels/SharedTaskPanel';
-import TodoPanel from '@/components/tasks/TodoPanel';
+import { MobileConversationLayout } from '@/components/tasks/MobileConversationLayout';
 import { useAuth } from '@/hooks';
 import { NewCard, NewCardHeader } from '@/components/ui/new-card';
 import {
@@ -70,6 +73,9 @@ import {
 } from '@/components/ui/breadcrumb';
 import { AttemptHeaderActions } from '@/components/panels/AttemptHeaderActions';
 import { TaskPanelHeaderActions } from '@/components/panels/TaskPanelHeaderActions';
+import { MobileDetailHeader } from '@/components/panels/MobileDetailHeader';
+import { MobileViewModeSheet } from '@/components/panels/MobileViewModeSheet';
+import { ActionsDropdown } from '@/components/ui/actions-dropdown';
 
 import type { TaskWithAttemptStatus, TaskStatus } from 'shared/types';
 
@@ -145,10 +151,14 @@ export function ProjectTasks() {
   const [searchParams, setSearchParams] = useSearchParams();
   const isXL = useMediaQuery('(min-width: 1280px)');
   const isMobile = !isXL;
+  // Use sm breakpoint (640px) for mobile Kanban swipe view
+  const isMobileKanban = useIsMobile();
   const [selectedSharedTaskId, setSelectedSharedTaskId] = useState<
     string | null
   >(null);
+  const [isMobileViewModeOpen, setIsMobileViewModeOpen] = useState(false);
   const { userId } = useAuth();
+  const isOrgAdmin = useIsOrgAdmin();
 
   const {
     projectId,
@@ -283,7 +293,11 @@ export function ProjectTasks() {
 
   const rawMode = searchParams.get('view') as LayoutMode;
   const mode: LayoutMode =
-    rawMode === 'preview' || rawMode === 'diffs' || rawMode === 'files' || rawMode === 'terminal'
+    rawMode === 'preview' ||
+    rawMode === 'diffs' ||
+    rawMode === 'files' ||
+    rawMode === 'terminal' ||
+    rawMode === 'processes'
       ? rawMode
       : null;
 
@@ -831,6 +845,16 @@ export function ProjectTasks() {
           </CardContent>
         </Card>
       </div>
+    ) : isMobileKanban ? (
+      <MobileKanbanBoard
+        columns={kanbanColumns}
+        onViewTaskDetails={handleViewTaskDetails}
+        onViewSharedTask={handleViewSharedTask}
+        selectedTaskId={selectedTask?.id}
+        selectedSharedTaskId={selectedSharedTaskId}
+        projectId={projectId!}
+        className="h-full"
+      />
     ) : (
       <div className="w-full h-full overflow-x-auto overflow-y-auto overscroll-x-contain">
         <TaskKanbanBoard
@@ -846,7 +870,49 @@ export function ProjectTasks() {
       </div>
     );
 
-  const rightHeader = selectedTask ? (
+  // Mobile header with back button, view mode sheet, and actions dropdown
+  const mobileHeader = selectedTask ? (
+    <>
+      <MobileDetailHeader
+        title={truncateTitle(selectedTask?.title, 30) || 'Task'}
+        subtitle={!isTaskView ? attempt?.branch : undefined}
+        onBack={handleClosePanel}
+        mode={mode}
+        onViewModePress={
+          !isTaskView ? () => setIsMobileViewModeOpen(true) : undefined
+        }
+        actions={
+          <ActionsDropdown
+            task={selectedTask}
+            attempt={attempt}
+            sharedTask={getSharedTask(selectedTask)}
+            isOrgAdmin={isOrgAdmin}
+          />
+        }
+      />
+      {!isTaskView && (
+        <MobileViewModeSheet
+          open={isMobileViewModeOpen}
+          onOpenChange={setIsMobileViewModeOpen}
+          mode={mode}
+          onModeChange={setMode}
+        />
+      )}
+    </>
+  ) : selectedSharedTask ? (
+    <MobileDetailHeader
+      title={truncateTitle(selectedSharedTask?.title, 30) || 'Task'}
+      onBack={() => {
+        setSelectedSharedTaskId(null);
+        if (projectId) {
+          navigateWithSearch(paths.projectTasks(projectId), { replace: true });
+        }
+      }}
+    />
+  ) : null;
+
+  // Desktop header with breadcrumb navigation and full actions
+  const desktopHeader = selectedTask ? (
     <NewCardHeader
       className="shrink-0"
       actions={
@@ -940,6 +1006,9 @@ export function ProjectTasks() {
     </NewCardHeader>
   ) : null;
 
+  // Choose header based on viewport
+  const rightHeader = isMobile ? mobileHeader : desktopHeader;
+
   const attemptContent = selectedTask ? (
     <NewCard className="h-full min-h-0 flex flex-col bg-diagonal-lines bg-muted border-0">
       {isTaskView ? (
@@ -960,37 +1029,14 @@ export function ProjectTasks() {
           {({ logs, followUp, relationships, variables }) => (
             <>
               <GitErrorBanner />
-              <div className="flex-1 min-h-0 flex flex-col">
-                {/* Task Relationships - shown when parent/child tasks exist */}
-                {relationships && (
-                  <div className="shrink-0 border-b">
-                    <div className="mx-auto w-full max-w-[50rem]">
-                      {relationships}
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex-1 min-h-0 flex flex-col">{logs}</div>
-
-                <div className="shrink-0 border-t">
-                  <div className="mx-auto w-full max-w-[50rem]">
-                    <TodoPanel />
-                  </div>
-                </div>
-
-                {/* Variables Panel - shown when task has variables */}
-                <div className="shrink-0 border-t">
-                  <div className="mx-auto w-full max-w-[50rem]">
-                    {variables}
-                  </div>
-                </div>
-
-                <div className="min-h-0 max-h-[50%] border-t overflow-hidden">
-                  <div className="mx-auto w-full max-w-[50rem] h-full min-h-0">
-                    {followUp}
-                  </div>
-                </div>
-              </div>
+              <MobileConversationLayout
+                task={selectedTask}
+                logs={logs}
+                followUp={followUp}
+                relationships={relationships}
+                variables={variables}
+                isMobile={isMobile}
+              />
             </>
           )}
         </TaskAttemptPanel>
@@ -1028,6 +1074,9 @@ export function ProjectTasks() {
             onClose={() => setMode(null)}
           />
         )}
+        {mode === 'processes' && (
+          <ProcessesPanel attemptId={attempt.id} />
+        )}
       </div>
     ) : (
       <div className="relative h-full w-full" />
@@ -1048,6 +1097,7 @@ export function ProjectTasks() {
               mode={effectiveMode}
               isMobile={isMobile}
               rightHeader={rightHeader}
+              onSwipeClose={handleClosePanel}
             />
           </ExecutionProcessesProvider>
         </ReviewProvider>
