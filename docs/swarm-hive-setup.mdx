@@ -287,19 +287,55 @@ Projects on the node must be linked to the hive for task routing.
 
 When a project is linked, the node automatically registers the link with the hive.
 
+### Automatic Re-Linking on Connect
+
+When a node connects (or reconnects) to the hive, it automatically re-registers all previously linked projects. This ensures:
+
+- Projects linked before the node joined a hive are properly registered
+- Projects remain visible on the hive's `/nodes/{node_id}` page after reconnection
+- No manual re-linking is required after node restarts
+
+The auto-linking process:
+
+1. Node authenticates with hive via WebSocket
+2. Hive sends list of known linked projects for this node
+3. Node queries local database for all projects with `remote_project_id` set
+4. For any project not in the hive's list, node sends `LinkProject` message
+5. Hive registers the project-node relationship
+
+<Note>
+Auto-linking only registers local projects (where `is_remote = 0`). Projects that originated from the hive are not re-linked as they're already tracked by the hive.
+</Note>
+
 ### Automatic Sync After Linking
 
 Once a project is linked, the following data syncs automatically:
 
 | Data | Direction | Method |
 |------|-----------|--------|
-| Tasks | Bidirectional | ElectricSQL + WebSocket |
-| Labels | Bidirectional | LabelPublisher service |
+| Tasks (hive-created) | Hive → Node | ElectricSQL + WebSocket |
+| Tasks (locally-created) | Node → Hive | WebSocket (`TaskSync`) |
+| Labels | Bidirectional | WebSocket (`LabelSync`) |
 | Task Attempts | Node → Hive | HiveSyncService (background) |
 | Execution Processes | Node → Hive | HiveSyncService (background) |
 | Log Entries | Node → Hive | HiveSyncService (batched) |
 
 The **HiveSyncService** runs automatically in the background (every 5 seconds) to sync execution data. This is offline-first: data is queued locally if the Hive is unreachable and synced when connection is restored.
+
+### Local vs Remote Tasks
+
+Tasks have an `is_remote` flag that determines their editability:
+
+| Type | `is_remote` | Editable | Description |
+|------|-------------|----------|-------------|
+| Local | `0` | Yes | Created on this node |
+| Remote | `1` | No (view only) | From hive or another node |
+
+When you create a task locally on a node that's connected to a hive:
+1. The task is created with `is_remote = 0` (editable)
+2. When the task has execution attempts, it's synced to the hive
+3. The hive assigns a `shared_task_id` so execution data can be tracked
+4. The task remains editable on the originating node
 
 ---
 
@@ -466,6 +502,22 @@ The log viewer shows connection status:
 1. Verify project is linked to a remote project
 2. Check the node-project link exists in hive
 3. Ensure the node is online when task is created
+
+### Labels Not Syncing
+
+1. Check node is connected to hive (WebSocket connection active)
+2. Verify label has been modified after linking project
+3. Check node logs for `LabelSync` messages
+4. Labels sync every 5 seconds - wait for next sync cycle
+
+### Local Tasks Showing as Read-Only
+
+If tasks you created locally appear as read-only (greyed out, no edit options):
+
+1. Check `is_remote` flag in database: should be `0` for local tasks
+2. Verify project `is_remote` flag: should be `0` for locally-owned projects
+3. If incorrect, a migration may need to run to fix the flag
+4. Check logs for "sync from shared task" events that may have overwritten the flag
 
 ---
 
