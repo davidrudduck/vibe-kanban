@@ -396,6 +396,14 @@ npm run backend:dev                   # Backend only (auto-assigned port)
 HOST=0.0.0.0 pnpm run dev            # Network-accessible dev server
 ```
 
+### Production
+```bash
+pnpm run prod                         # Full build + run production
+pnpm run prod:build                   # Build frontend + release binary
+pnpm run prod:run                     # Run production binary (after build)
+pnpm run prod:backend                 # Backend only (release mode, no frontend build)
+```
+
 ### Validation
 ```bash
 npm run check                         # All checks (frontend + backend)
