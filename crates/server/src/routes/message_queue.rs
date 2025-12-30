@@ -77,10 +77,10 @@ pub async fn update_queued_message(
     ResponseJson(payload): ResponseJson<UpdateQueuedMessageRequest>,
 ) -> Result<ResponseJson<ApiResponse<QueuedMessage>>, ApiError> {
     // Validate content if provided
-    if let Some(ref content) = payload.content {
-        if content.trim().is_empty() {
-            return Err(ApiError::BadRequest("Message content cannot be empty".into()));
-        }
+    if let Some(ref content) = payload.content
+        && content.trim().is_empty()
+    {
+        return Err(ApiError::BadRequest("Message content cannot be empty".into()));
     }
 
     let message = deployment
