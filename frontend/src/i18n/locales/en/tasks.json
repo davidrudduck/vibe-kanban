@@ -176,7 +176,9 @@
     "cancel": "Cancel",
     "variant": "Variant:",
     "addToQueue": "Add to Queue",
-    "addToQueueTooltip": "Add message to queue"
+    "addToQueueTooltip": "Add message to queue",
+    "saveError": "Failed to save changes",
+    "confirmRemove": "Remove this message from the queue?"
   },
   "todos": {
     "title_one": "Todos ({{count}})",

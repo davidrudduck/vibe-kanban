@@ -202,7 +202,9 @@
     "cancel": "취소",
     "variant": "변형:",
     "addToQueue": "대기열에 추가",
-    "addToQueueTooltip": "메시지를 대기열에 추가"
+    "addToQueueTooltip": "메시지를 대기열에 추가",
+    "saveError": "변경 사항 저장에 실패했습니다",
+    "confirmRemove": "이 메시지를 대기열에서 제거하시겠습니까?"
   },
   "git": {
     "branch": {
