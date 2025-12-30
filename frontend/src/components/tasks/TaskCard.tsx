@@ -1,14 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { KanbanCard } from '@/components/ui/shadcn-io/kanban';
-import {
-  CheckCircle,
-  Link,
-  Loader2,
-  Server,
-  User,
-  XCircle,
-} from 'lucide-react';
-import type { TaskWithAttemptStatus } from 'shared/types';
+import { CheckCircle, Link, Loader2, XCircle } from 'lucide-react';
+import type { TaskStatus, TaskWithAttemptStatus } from 'shared/types';
 import { ActionsDropdown } from '@/components/ui/actions-dropdown';
 import { Button } from '@/components/ui/button';
 import { useNavigateWithSearch, useIsOrgAdmin } from '@/hooks';
@@ -19,13 +12,26 @@ import { TaskCardHeader } from './TaskCardHeader';
 import { useTranslation } from 'react-i18next';
 import { useProject } from '@/contexts/ProjectContext';
 import { cn } from '@/lib/utils';
-import { LabelBadge } from '@/components/labels/LabelBadge';
 import { ArchiveToggleIcon } from './ArchiveToggleIcon';
+import { CompactLabelList } from './CompactLabelList';
+import { DaysInColumnBadge } from './DaysInColumnBadge';
 import { tasksApi } from '@/lib/api';
 import {
   useTaskOptimistic,
   getArchivedCallback,
 } from '@/contexts/TaskOptimisticContext';
+
+/**
+ * Status color mapping for the left strip indicator.
+ * Uses CSS custom properties for theme consistency.
+ */
+const statusStripColors: Record<TaskStatus, string> = {
+  todo: 'before:bg-neutral-400 dark:before:bg-neutral-500',
+  inprogress: 'before:bg-blue-500',
+  inreview: 'before:bg-amber-500',
+  done: 'before:bg-green-500',
+  cancelled: 'before:bg-red-500',
+};
 
 /**
  * Get short node name from full hostname (e.g., "justX" from "justX.raverx.net")
@@ -34,6 +40,18 @@ function getShortNodeName(nodeName: string | null | undefined): string | null {
   if (!nodeName) return null;
   const dotIndex = nodeName.indexOf('.');
   return dotIndex > 0 ? nodeName.substring(0, dotIndex) : nodeName;
+}
+
+/**
+ * Truncate description to a maximum length, adding ellipsis if needed.
+ */
+function truncateDescription(
+  description: string | null | undefined,
+  maxLength: number = 40
+): string | null {
+  if (!description) return null;
+  if (description.length <= maxLength) return description;
+  return `${description.substring(0, maxLength)}...`;
 }
 
 type Task = TaskWithAttemptStatus;
@@ -169,6 +187,17 @@ export function TaskCard({
     updateTaskArchivedOptimistically,
   ]);
 
+  // Get status strip color - remote tasks use purple, shared tasks use their own color
+  const statusStripClass = task.is_remote
+    ? 'before:bg-purple-400'
+    : sharedTask
+      ? 'before:bg-card-foreground'
+      : statusStripColors[task.status as TaskStatus] ||
+        statusStripColors['todo'];
+
+  // Truncated description for compact view
+  const truncatedDesc = truncateDescription(task.description, 40);
+
   return (
     <KanbanCard
       key={task.id}
@@ -180,15 +209,14 @@ export function TaskCard({
       isOpen={isOpen}
       forwardedRef={localRef}
       className={cn(
-        task.is_remote
-          ? 'relative overflow-hidden pl-5 before:absolute before:left-0 before:top-0 before:bottom-0 before:w-[3px] before:bg-purple-400 before:content-[""]'
-          : sharedTask
-            ? 'relative overflow-hidden pl-5 before:absolute before:left-0 before:top-0 before:bottom-0 before:w-[3px] before:bg-card-foreground before:content-[""]'
-            : undefined,
+        // Status strip indicator (left border)
+        'relative overflow-hidden pl-5',
+        'before:absolute before:left-0 before:top-0 before:bottom-0 before:w-[3px] before:content-[""]',
+        statusStripClass,
         isArchived && 'opacity-60'
       )}
     >
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-1.5">
         <TaskCardHeader
           title={task.title}
           avatar={
@@ -197,18 +225,26 @@ export function TaskCard({
                   firstName: sharedTask.assignee_first_name ?? undefined,
                   lastName: sharedTask.assignee_last_name ?? undefined,
                   username: sharedTask.assignee_username ?? undefined,
+                  ownerName,
+                  nodeName: shortNodeName,
                 }
               : task.is_remote && task.remote_assignee_name
                 ? {
-                    // Parse from remote_assignee_name (e.g., "John Doe")
                     firstName:
                       task.remote_assignee_name.split(' ')[0] ?? undefined,
                     lastName:
                       task.remote_assignee_name.split(' ').slice(1).join(' ') ||
                       undefined,
                     username: task.remote_assignee_username ?? undefined,
+                    ownerName,
+                    nodeName: shortNodeName,
                   }
-                : undefined
+                : ownerName || shortNodeName
+                  ? {
+                      ownerName,
+                      nodeName: shortNodeName,
+                    }
+                  : undefined
           }
           right={
             <>
@@ -240,43 +276,27 @@ export function TaskCard({
             </>
           }
         />
-        {task.description && (
-          <p className="text-sm text-secondary-foreground break-words">
-            {task.description.length > 130
-              ? `${task.description.substring(0, 130)}...`
-              : task.description}
+        {/* Truncated description - single line */}
+        {truncatedDesc && (
+          <p
+            className="text-xs text-muted-foreground truncate"
+            title={task.description ?? undefined}
+          >
+            {truncatedDesc}
           </p>
         )}
-        {/* Owner and node info */}
-        {(ownerName || shortNodeName) && (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            {ownerName && (
-              <div className="flex items-center gap-1">
-                <User className="h-3 w-3" />
-                <span className="truncate max-w-[100px]">{ownerName}</span>
-              </div>
-            )}
-            {shortNodeName && (
-              <div className="flex items-center gap-1">
-                <Server className="h-3 w-3" />
-                <span>{shortNodeName}</span>
-              </div>
-            )}
-          </div>
-        )}
-        {/* Labels and Archive Icon - same line */}
+        {/* Compact footer: Labels, Days badge, Archive */}
         <div className="flex items-center justify-between gap-2">
-          <div className="flex flex-wrap gap-1 flex-1 min-w-0">
-            {labels?.map((label) => (
-              <LabelBadge key={label.id} label={label} size="sm" />
-            ))}
+          <CompactLabelList labels={labels} maxVisible={2} size="sm" />
+          <div className="flex items-center gap-1.5 shrink-0">
+            <DaysInColumnBadge activityAt={task.activity_at} />
+            <ArchiveToggleIcon
+              isArchived={isArchived}
+              onArchive={handleArchive}
+              onUnarchive={handleUnarchive}
+              disabled={task.is_remote || isArchiving}
+            />
           </div>
-          <ArchiveToggleIcon
-            isArchived={isArchived}
-            onArchive={handleArchive}
-            onUnarchive={handleUnarchive}
-            disabled={task.is_remote || isArchiving}
-          />
         </div>
       </div>
     </KanbanCard>
