@@ -20,9 +20,10 @@ use super::{
     connection::ConnectionManager,
     message::{
         AttemptSyncMessage, AuthResultMessage, DeregisterMessage, ExecutionSyncMessage,
-        HeartbeatMessage, HiveMessage, LinkProjectMessage, LinkedProjectInfo, LogsBatchMessage,
-        NodeMessage, NodeRemovedMessage, PROTOCOL_VERSION, ProjectSyncMessage, TaskExecutionStatus,
-        TaskOutputMessage, TaskProgressMessage, TaskStatusMessage, UnlinkProjectMessage,
+        HeartbeatMessage, HiveMessage, LabelSyncBroadcastMessage, LabelSyncMessage,
+        LinkProjectMessage, LinkedProjectInfo, LogsBatchMessage, NodeMessage, NodeRemovedMessage,
+        PROTOCOL_VERSION, ProjectSyncMessage, TaskExecutionStatus, TaskOutputMessage,
+        TaskProgressMessage, TaskStatusMessage, UnlinkProjectMessage,
     },
 };
 use crate::nodes::{
@@ -420,6 +421,9 @@ async fn handle_node_message(
             handle_execution_sync(node_id, execution, pool).await
         }
         NodeMessage::LogsBatch(logs) => handle_logs_batch(node_id, logs, pool).await,
+        NodeMessage::LabelSync(label) => {
+            handle_label_sync(node_id, organization_id, label, pool, connections).await
+        }
         NodeMessage::Ack { message_id } => {
             tracing::trace!(node_id = %node_id, message_id = %message_id, "received ack");
             Ok(())
@@ -1066,6 +1070,74 @@ async fn handle_logs_batch(
         entry_count = logs.entries.len(),
         "stored logs batch from node"
     );
+
+    Ok(())
+}
+
+/// Handle a label sync message from a node.
+///
+/// Upserts the label into the hive's labels table using version-based conflict resolution,
+/// then broadcasts the change to all other nodes in the organization.
+async fn handle_label_sync(
+    node_id: Uuid,
+    organization_id: Uuid,
+    label_sync: &LabelSyncMessage,
+    pool: &PgPool,
+    connections: &ConnectionManager,
+) -> Result<(), HandleError> {
+    use crate::db::labels::{LabelRepository, UpsertLabelFromNodeData};
+
+    let repo = LabelRepository::new(pool);
+
+    // Upsert the label with version-based conflict resolution
+    let (label, was_created) = repo
+        .upsert_from_node(UpsertLabelFromNodeData {
+            shared_label_id: label_sync.shared_label_id,
+            organization_id,
+            project_id: label_sync.remote_project_id,
+            origin_node_id: node_id,
+            name: label_sync.name.clone(),
+            icon: label_sync.icon.clone(),
+            color: label_sync.color.clone(),
+            version: label_sync.version,
+        })
+        .await
+        .map_err(|e| HandleError::Database(e.to_string()))?;
+
+    tracing::info!(
+        node_id = %node_id,
+        label_id = %label.id,
+        name = %label.name,
+        was_created = %was_created,
+        version = %label.version,
+        "synced label from node"
+    );
+
+    // Broadcast to all other nodes in the organization
+    let broadcast_msg = HiveMessage::LabelSync(LabelSyncBroadcastMessage {
+        message_id: Uuid::new_v4(),
+        shared_label_id: label.id,
+        project_id: label.project_id,
+        origin_node_id: node_id,
+        name: label.name,
+        icon: label.icon,
+        color: label.color,
+        version: label.version,
+        is_deleted: label.deleted_at.is_some(),
+    });
+
+    let failed = connections
+        .broadcast_to_org_except(organization_id, node_id, broadcast_msg)
+        .await;
+
+    if !failed.is_empty() {
+        tracing::warn!(
+            node_id = %node_id,
+            label_id = %label.id,
+            failed_count = failed.len(),
+            "failed to broadcast label sync to some nodes"
+        );
+    }
 
     Ok(())
 }
