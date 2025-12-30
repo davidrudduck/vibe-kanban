@@ -1,0 +1,248 @@
+---
+title: Storage Path Architecture
+description: Technical documentation for the configurable storage path system
+---
+
+This document covers the technical architecture of Vibe Kanban's storage path resolution system, including the environment variable overrides and default path logic.
+
+## Overview
+
+Vibe Kanban uses a unified approach for resolving storage paths:
+
+1. Check for environment variable override
+2. If set, apply tilde expansion and return
+3. Otherwise, use platform-specific defaults
+
+## Key Functions
+
+### database_path()
+
+**Location**: `crates/utils/src/assets.rs`
+
+Returns the full path to the SQLite database file.
+
+```rust
+pub fn database_path() -> PathBuf {
+    if let Ok(path) = std::env::var("VK_DATABASE_PATH") {
+        return expand_tilde(&path);
+    }
+    asset_dir().join("db.sqlite")
+}
+```
+
+**Environment Variable**: `VK_DATABASE_PATH`
+
+**Default Behavior**:
+- Development: `<project_root>/dev_assets/db.sqlite`
+- Production: Platform-specific data directory (e.g., `~/.local/share/vibe-kanban/db.sqlite`)
+
+### backup_dir()
+
+**Location**: `crates/utils/src/assets.rs`
+
+Returns the directory for database backups.
+
+```rust
+pub fn backup_dir() -> PathBuf {
+    if let Ok(path) = std::env::var("VK_BACKUP_DIR") {
+        return expand_tilde(&path);
+    }
+    asset_dir().join("backups")
+}
+```
+
+**Environment Variable**: `VK_BACKUP_DIR`
+
+**Default Behavior**:
+- Development: `<project_root>/dev_assets/backups/`
+- Production: `{data_dir}/backups/`
+
+### get_worktree_base_dir()
+
+**Location**: `crates/services/src/services/worktree_manager.rs`
+
+Returns the base directory for git worktrees.
+
+```rust
+impl WorktreeManager {
+    pub fn get_worktree_base_dir() -> PathBuf {
+        if let Ok(dir) = std::env::var("VK_WORKTREE_DIR") {
+            return expand_tilde(&dir);
+        }
+        get_vibe_kanban_temp_dir().join("worktrees")
+    }
+}
+```
+
+**Environment Variable**: `VK_WORKTREE_DIR`
+
+**Default Behavior**:
+- Development: `/var/tmp/vibe-kanban-dev/worktrees/`
+- Production: `/var/tmp/vibe-kanban/worktrees/`
+
+## Tilde Expansion
+
+**Location**: `crates/utils/src/path.rs`
+
+All storage path functions support tilde expansion via `expand_tilde()`:
+
+```rust
+pub fn expand_tilde(path: &str) -> PathBuf {
+    if path.starts_with("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(&path[2..]);
+        }
+    }
+    PathBuf::from(path)
+}
+```
+
+This allows users to specify paths like `~/vibe-kanban/db.sqlite` which expands to `/home/username/vibe-kanban/db.sqlite`.
+
+## Platform Detection
+
+The `asset_dir()` function determines the data directory based on build mode:
+
+```rust
+pub fn asset_dir() -> PathBuf {
+    #[cfg(debug_assertions)]
+    {
+        // Development: use dev_assets/ in project root
+        project_root().join("dev_assets")
+    }
+
+    #[cfg(not(debug_assertions))]
+    {
+        // Production: use platform-specific data directory
+        dirs::data_dir()
+            .map(|d| d.join("vibe-kanban"))
+            .unwrap_or_else(|| PathBuf::from("./data"))
+    }
+}
+```
+
+| Platform | Production Data Directory |
+|----------|--------------------------|
+| Linux | `~/.local/share/vibe-kanban/` |
+| macOS | `~/Library/Application Support/vibe-kanban/` |
+| Windows | `%APPDATA%\vibe-kanban\` |
+
+## Startup Logging
+
+**Location**: `crates/local-deployment/src/lib.rs`
+
+On startup, resolved paths are logged for debugging:
+
+```rust
+tracing::info!(
+    database = %database_path().display(),
+    backups = %backup_dir().display(),
+    worktrees = %WorktreeManager::get_worktree_base_dir().display(),
+    "Storage locations"
+);
+```
+
+Example output:
+```text
+INFO Storage locations database=/home/user/.local/share/vibe-kanban/db.sqlite
+     backups=/home/user/.local/share/vibe-kanban/backups
+     worktrees=/var/tmp/vibe-kanban/worktrees
+```
+
+## Consumer Locations
+
+### Database Path Consumers
+
+| File | Usage |
+|------|-------|
+| `crates/db/src/lib.rs` | Database connection initialization |
+| `crates/server/src/routes/backups.rs` | Backup creation endpoint |
+
+### Backup Directory Consumers
+
+| File | Usage |
+|------|-------|
+| `crates/db/src/backup.rs` | Backup creation and cleanup |
+
+### Worktree Directory Consumers
+
+| File | Usage |
+|------|-------|
+| `crates/services/src/services/worktree_manager.rs` | Worktree creation and management |
+| `crates/services/src/services/git.rs` | Git operations on worktrees |
+
+## Testing
+
+Unit tests verify environment variable handling with `#[serial]` for thread safety:
+
+```rust
+#[cfg(test)]
+mod tests {
+    use serial_test::serial;
+
+    #[test]
+    #[serial]
+    fn test_database_path_env_override() {
+        std::env::set_var("VK_DATABASE_PATH", "/custom/path/test.db");
+        let path = database_path();
+        std::env::remove_var("VK_DATABASE_PATH");
+        assert_eq!(path, PathBuf::from("/custom/path/test.db"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_database_path_tilde_expansion() {
+        std::env::set_var("VK_DATABASE_PATH", "~/vibe-kanban/db.sqlite");
+        let path = database_path();
+        std::env::remove_var("VK_DATABASE_PATH");
+        assert!(!path.to_string_lossy().contains("~"));
+        assert!(path.is_absolute());
+    }
+}
+```
+
+### Running Tests
+
+```bash
+# Run path function tests
+cargo test -p utils database_path
+cargo test -p utils backup_dir
+
+# Run worktree path tests
+cargo test -p services env_override_tests
+```
+
+## Design Decisions
+
+### Independent Backup Location
+
+Backups have their own `VK_BACKUP_DIR` variable rather than being derived from the database path. This allows:
+
+- Storing backups on different storage (e.g., NAS, cloud-synced folder)
+- Keeping backups when database location changes
+- Different retention policies per environment
+
+### Tilde Expansion
+
+Tilde expansion is performed at path resolution time, not at configuration load time. This ensures:
+
+- Consistent behavior across all path functions
+- Works regardless of how the environment variable is set
+- No need for shell preprocessing
+
+### No UI Configuration
+
+Storage paths are environment-variable only (no UI settings) because:
+
+- These are infrastructure decisions made at deployment
+- Changing paths at runtime would break existing data
+- Environment variables work well with containers and orchestration
+
+## Future Considerations
+
+Potential enhancements (out of scope for initial implementation):
+
+1. **Path Validation**: Warn at startup if directories don't exist or aren't writable
+2. **Storage Info UI**: Display current paths and disk usage in settings
+3. **Migration Tools**: Help users move data between storage locations
+4. **Configurable Backup Retention**: `VK_BACKUP_RETENTION` for custom retention counts

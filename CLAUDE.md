@@ -463,6 +463,16 @@ Runtime:
 - `HOST`: Backend host (default: 127.0.0.1)
 - `DISABLE_WORKTREE_ORPHAN_CLEANUP`: Set to `1` or `true` to disable automatic worktree cleanup (default: `0`, cleanup enabled)
 
+Storage (see `docs/configuration-customisation/storage-configuration.mdx` for full guide):
+- `VK_DATABASE_PATH`: Override database file location (supports tilde expansion)
+- `VK_BACKUP_DIR`: Override backup directory (default: `{data_dir}/backups`)
+- `VK_WORKTREE_DIR`: Override worktree directory (default: `/var/tmp/vibe-kanban/worktrees`)
+
+Logging:
+- `VK_FILE_LOGGING`: Enable file-based logging (default: `false`)
+- `VK_LOG_DIR`: Override log directory (default: `{data_dir}/logs`)
+- `VK_LOG_MAX_FILES`: Max daily log files to retain (default: `7`)
+
 MCP Server:
 - `MCP_PORT`: Port for HTTP MCP server. If set, backend auto-spawns MCP HTTP server at `http://{HOST}:{MCP_PORT}/mcp`. This allows executors to connect to a locally running MCP server instead of the published npm package.
 
