@@ -334,3 +334,31 @@ impl ProtocolPeer {
         .await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_exit_signal_sender_sends_once() {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let sender = ExitSignalSender::new(tx);
+
+        sender.send_exit_signal(ExecutorExitResult::Success).await;
+
+        let result = rx.await;
+        assert!(matches!(result, Ok(ExecutorExitResult::Success)));
+    }
+
+    #[tokio::test]
+    async fn test_exit_signal_sender_only_sends_first() {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let sender = ExitSignalSender::new(tx);
+
+        sender.send_exit_signal(ExecutorExitResult::Success).await;
+        sender.send_exit_signal(ExecutorExitResult::Failure).await; // Should be no-op
+
+        let result = rx.await;
+        assert!(matches!(result, Ok(ExecutorExitResult::Success)));
+    }
+}
