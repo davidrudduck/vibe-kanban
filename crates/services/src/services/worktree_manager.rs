@@ -144,6 +144,24 @@ impl WorktreeManager {
             branch_name_owned, path_str
         );
 
+        // Pre-flight check: is this branch checked out elsewhere?
+        // This prevents us from deleting the worktree directory only to find out
+        // that git won't let us recreate it because the branch is in use.
+        if let Some(conflict_path) = Self::is_branch_checked_out_elsewhere(
+            git_repo_path,
+            &branch_name_owned,
+            &worktree_path_owned,
+        )
+        .await?
+        {
+            return Err(WorktreeError::Repository(format!(
+                "Cannot recreate worktree: branch '{}' is currently checked out at '{}'. \
+                 Please complete or discard that work first, or remove that worktree.",
+                branch_name_owned,
+                conflict_path.display()
+            )));
+        }
+
         // Step 1: Comprehensive cleanup of existing worktree and metadata (non-blocking)
         Self::comprehensive_worktree_cleanup_async(
             git_repo_path,
@@ -197,6 +215,31 @@ impl WorktreeManager {
             match repo.find_worktree(worktree_name) {
                 Ok(_) => Ok(true),
                 Err(_) => Ok(false),
+            }
+        })
+        .await
+        .map_err(|e| WorktreeError::TaskJoin(format!("{e}")))?
+    }
+
+    /// Check if a branch is currently checked out in any other worktree
+    /// Returns Ok(Some(path)) if checked out elsewhere, Ok(None) if safe to proceed
+    async fn is_branch_checked_out_elsewhere(
+        repo_path: &Path,
+        branch_name: &str,
+        current_worktree_path: &Path,
+    ) -> Result<Option<PathBuf>, WorktreeError> {
+        let repo_path = repo_path.to_path_buf();
+        let branch_name = branch_name.to_string();
+        let current_worktree_path = current_worktree_path.to_path_buf();
+
+        tokio::task::spawn_blocking(move || {
+            let git_service = GitService::new();
+            match git_service.find_checkout_path_for_branch(&repo_path, &branch_name) {
+                Ok(Some(checkout_path)) if checkout_path != current_worktree_path => {
+                    Ok(Some(checkout_path))
+                }
+                Ok(_) => Ok(None),
+                Err(e) => Err(WorktreeError::GitService(e)),
             }
         })
         .await
