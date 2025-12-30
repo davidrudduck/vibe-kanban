@@ -315,4 +315,53 @@ impl<'a> TaskAssignmentRepository<'a> {
 
         Ok(rows.iter().map(|r| r.get("task_id")).collect())
     }
+
+    /// Create a synthetic assignment for locally-started tasks.
+    ///
+    /// These are tasks that were started on the node without Hive dispatch.
+    /// We create a "synthetic" assignment so that logs and execution data
+    /// can be properly linked via assignment_id foreign keys.
+    ///
+    /// If an active assignment already exists for this task+node, returns it instead.
+    pub async fn create_or_find_synthetic(
+        &self,
+        task_id: Uuid,
+        node_id: Uuid,
+        node_project_id: Uuid,
+    ) -> Result<NodeTaskAssignment, TaskAssignmentError> {
+        // First try to find an existing active assignment for this task
+        if let Some(existing) = self.find_active_for_task(task_id).await? {
+            return Ok(existing);
+        }
+
+        // Create a new synthetic assignment
+        // Use 'running' status since the task is already in progress locally
+        let assignment = sqlx::query_as::<_, NodeTaskAssignment>(
+            r#"
+            INSERT INTO node_task_assignments (task_id, node_id, node_project_id, execution_status, started_at)
+            VALUES ($1, $2, $3, 'running', NOW())
+            ON CONFLICT ON CONSTRAINT idx_task_assignments_active DO UPDATE
+            SET execution_status = node_task_assignments.execution_status
+            RETURNING
+                id,
+                task_id,
+                node_id,
+                node_project_id,
+                local_task_id,
+                local_attempt_id,
+                execution_status,
+                assigned_at,
+                started_at,
+                completed_at,
+                created_at
+            "#,
+        )
+        .bind(task_id)
+        .bind(node_id)
+        .bind(node_project_id)
+        .fetch_one(self.pool)
+        .await?;
+
+        Ok(assignment)
+    }
 }
