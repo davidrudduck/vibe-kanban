@@ -139,6 +139,9 @@
     "terminal": "Terminal",
     "relatedTasks": "Related tasks"
   },
+  "mobileDetailHeader": {
+    "viewMode": "Modo de vista"
+  },
   "branches": {
     "changeTarget": {
       "dialog": {
@@ -435,5 +438,20 @@
       "nameExists": "Ya existe una variable con este nombre",
       "saveFailed": "Error al guardar la variable"
     }
+  },
+  "taskFormSheet": {
+    "createTask": "Crear Tarea",
+    "editTask": "Editar Tarea",
+    "duplicateTask": "Duplicar Tarea",
+    "createSubtask": "Crear Subtarea",
+    "title": "Título",
+    "description": "Descripción",
+    "variables": "Variables",
+    "addVariable": "Agregar variable",
+    "variableName": "Nombre de variable (ej., API_KEY)",
+    "variableValue": "Valor",
+    "insertTemplate": "Insertar plantilla",
+    "execution": "Ejecución",
+    "createAndStart": "Crear e Iniciar"
   }
 }

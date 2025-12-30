@@ -1,0 +1,269 @@
+---
+title: Responsive Design Architecture
+description: Technical documentation for the responsive UI implementation
+---
+
+This document covers the technical architecture of Vibe Kanban's responsive design system, including breakpoints, key components, and implementation patterns.
+
+## Breakpoint Strategy
+
+Vibe Kanban uses a three-tier breakpoint system aligned with industry standards:
+
+| Tier | Breakpoint | Tailwind | Use Case |
+|------|------------|----------|----------|
+| Mobile | < 768px | default | Phones, small tablets in portrait |
+| Tablet | 768px - 1279px | md | Tablets, small laptops |
+| Desktop | ≥ 1280px | xl | Laptops, desktop monitors |
+
+### Rationale
+
+The 768px mobile breakpoint was chosen because:
+
+1. **Industry Standard**: Aligns with Bootstrap, Material Design, and Apple's Human Interface Guidelines
+2. **Device Coverage**: Captures all phones while giving tablets enhanced features
+3. **Touch Optimization**: Ensures touch-first interfaces where finger precision is limited
+4. **Content Density**: Allows multi-column layouts only when sufficient space exists
+
+## Key Responsive Components
+
+### ProjectTasks.tsx
+
+The main task view page with complex responsive logic:
+
+```typescript
+// Breakpoint detection
+const isMD = useMediaQuery('(min-width: 768px)');  // Tablet+
+const isXL = useMediaQuery('(min-width: 1280px)'); // Desktop
+
+// Layout decisions
+const showDesktopHeader = isMD;     // Toggle group at 768px+
+const showFullKanban = isXL;        // All columns visible at 1280px+
+const showMobileNav = !isMD;        // Bottom nav below 768px
+```
+
+### SettingsLayout.tsx
+
+Settings page with accordion/side-nav switch:
+
+```typescript
+const isMobile = useIsMobile(768);
+
+return isMobile
+  ? <MobileSettingsAccordion sections={sections} />
+  : <SideNavLayout sections={sections} />;
+```
+
+### TaskFormSheet.tsx
+
+Full-screen sheet on mobile, centered modal on desktop:
+
+```typescript
+const isDesktop = useMediaQuery('(min-width: 768px)');
+
+// Vaul Drawer configuration
+<Drawer.Root
+  direction={isDesktop ? 'right' : 'bottom'}
+  modal={true}
+>
+  <Drawer.Content className={isDesktop ? 'max-w-lg' : 'h-screen'}>
+    {/* Form content */}
+  </Drawer.Content>
+</Drawer.Root>
+```
+
+### MobileViewModeSheet.tsx
+
+View mode selector adapts between bottom sheet and popover:
+
+```typescript
+const isDesktop = useMediaQuery('(min-width: 768px)');
+
+return isDesktop
+  ? <Popover>{/* Radio group */}</Popover>
+  : <BottomSheet>{/* Large touch buttons */}</BottomSheet>;
+```
+
+## Hooks Reference
+
+### useIsMobile
+
+Custom hook for mobile detection with configurable threshold:
+
+```typescript
+// hooks/useIsMobile.ts
+export function useIsMobile(breakpoint = 640): boolean {
+  return useMediaQuery(`(max-width: ${breakpoint - 1}px)`);
+}
+
+// Usage
+const isMobile = useIsMobile();      // < 640px (default)
+const isMobile = useIsMobile(768);   // < 768px (custom)
+```
+
+### useMediaQuery
+
+Low-level hook for arbitrary media queries:
+
+```typescript
+// hooks/useMediaQuery.ts
+export function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(false);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(query);
+    setMatches(mediaQuery.matches);
+
+    const handler = (e: MediaQueryListEvent) => setMatches(e.matches);
+    mediaQuery.addEventListener('change', handler);
+    return () => mediaQuery.removeEventListener('change', handler);
+  }, [query]);
+
+  return matches;
+}
+```
+
+## Component Patterns
+
+### Conditional Rendering
+
+For significantly different layouts:
+
+```typescript
+function TaskView() {
+  const isMobile = useIsMobile(768);
+
+  if (isMobile) {
+    return <MobileTaskView />;
+  }
+  return <DesktopTaskView />;
+}
+```
+
+### Responsive Classes
+
+For styling differences only (no structural changes):
+
+```typescript
+<div className="
+  px-4 py-2           {/* Mobile base */}
+  md:px-6 md:py-4     {/* Tablet+ */}
+  xl:px-8 xl:py-6     {/* Desktop */}
+">
+  {content}
+</div>
+```
+
+### Sheet/Modal Pattern
+
+Full-screen on mobile, modal on desktop:
+
+```typescript
+<Sheet>
+  <SheetContent
+    side={isMobile ? 'bottom' : 'right'}
+    className={isMobile ? 'h-screen' : 'max-w-md'}
+  >
+    {content}
+  </SheetContent>
+</Sheet>
+```
+
+## Touch Target Guidelines
+
+All interactive elements on mobile meet minimum touch target requirements:
+
+| Element | Minimum Size | Tailwind Class |
+|---------|--------------|----------------|
+| Buttons | 48x48px | `min-h-12 min-w-12` |
+| List items | 48px height | `min-h-12` |
+| Input fields | 48px height | `h-12` |
+| Icon buttons | 44x44px | `size-11` |
+
+### Input Font Size
+
+To prevent iOS Safari zoom on focus, inputs use minimum 16px font:
+
+```typescript
+<Input className="text-base" /> {/* 16px prevents zoom */}
+```
+
+## State Preservation
+
+When transitioning between breakpoints:
+
+1. **URL State**: Query parameters persist across viewport changes
+2. **React Query Cache**: Data remains cached regardless of layout
+3. **Zustand Stores**: UI state (expanded sections, scroll position) maintained
+4. **Context Providers**: No re-mounting on breakpoint changes
+
+## Testing Approach
+
+### Viewport Testing
+
+Test at key breakpoints:
+
+```typescript
+// Common test viewports
+const VIEWPORTS = {
+  mobile: { width: 375, height: 667 },   // iPhone SE
+  tablet: { width: 768, height: 1024 },  // iPad Mini
+  desktop: { width: 1280, height: 800 }, // Laptop
+};
+```
+
+### Playwright Example
+
+```typescript
+test('shows mobile nav on small screens', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  await page.goto('/projects/123');
+
+  await expect(page.getByRole('navigation', { name: 'bottom' }))
+    .toBeVisible();
+});
+
+test('shows desktop header on tablet', async ({ page }) => {
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await page.goto('/projects/123');
+
+  await expect(page.getByRole('group', { name: 'View mode' }))
+    .toBeVisible();
+});
+```
+
+## Performance Considerations
+
+### Media Query Efficiency
+
+- Hooks use `matchMedia` listener (not polling)
+- Queries evaluated only when viewport actually changes
+- No re-renders on scroll or other events
+
+### Lazy Loading
+
+Mobile-specific components are code-split:
+
+```typescript
+const MobileKanbanBoard = lazy(() =>
+  import('./MobileKanbanBoard')
+);
+
+const DesktopKanbanBoard = lazy(() =>
+  import('./DesktopKanbanBoard')
+);
+```
+
+### CSS Containment
+
+Heavy components use contain for paint optimization:
+
+```css
+.kanban-column {
+  contain: content;
+}
+```
+
+## Related Documentation
+
+- [Mobile Experience](/core-features/mobile-experience) - User-facing mobile features
+- [Keyboard Shortcuts](/configuration-customisation/keyboard-shortcuts) - Navigation shortcuts
