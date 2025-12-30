@@ -953,13 +953,16 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                 t.shared_task_id,
                 t.created_at,
                 t.updated_at,
-                t.remote_synced_at,
                 t.is_remote,
                 t.remote_assignee_user_id,
                 t.remote_assignee_name,
                 t.remote_assignee_username,
                 t.remote_version,
-                t.remote_archived_at
+                t.remote_last_synced_at,
+                t.remote_stream_node_id,
+                t.remote_stream_url,
+                t.archived_at,
+                t.activity_at
             FROM tasks t
             INNER JOIN task_attempts ta ON ta.task_id = t.id
             INNER JOIN projects p ON p.id = t.project_id
