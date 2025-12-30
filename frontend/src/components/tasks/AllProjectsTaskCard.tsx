@@ -1,21 +1,32 @@
 import { useCallback, useRef } from 'react';
 import { KanbanCard } from '@/components/ui/shadcn-io/kanban';
-import {
-  CheckCircle,
-  FolderOpen,
-  Loader2,
-  Server,
-  User,
-  XCircle,
-} from 'lucide-react';
-import type { TaskWithProjectInfo } from 'shared/types';
+import { CheckCircle, FolderOpen, Loader2, XCircle } from 'lucide-react';
+import type { TaskStatus, TaskWithProjectInfo } from 'shared/types';
 import { TaskCardHeader } from './TaskCardHeader';
+import { DaysInColumnBadge } from './DaysInColumnBadge';
+import { cn } from '@/lib/utils';
 
-interface AllProjectsTaskCardProps {
-  task: TaskWithProjectInfo;
-  index: number;
-  status: string;
-  onViewDetails: (task: TaskWithProjectInfo) => void;
+/**
+ * Status color mapping for the left strip indicator.
+ */
+const statusStripColors: Record<TaskStatus, string> = {
+  todo: 'before:bg-neutral-400 dark:before:bg-neutral-500',
+  inprogress: 'before:bg-blue-500',
+  inreview: 'before:bg-amber-500',
+  done: 'before:bg-green-500',
+  cancelled: 'before:bg-red-500',
+};
+
+/**
+ * Truncate description to a maximum length, adding ellipsis if needed.
+ */
+function truncateDescription(
+  description: string | null | undefined,
+  maxLength: number = 40
+): string | null {
+  if (!description) return null;
+  if (description.length <= maxLength) return description;
+  return `${description.substring(0, maxLength)}...`;
 }
 
 /**
@@ -25,6 +36,13 @@ function getShortNodeName(nodeName: string | null | undefined): string | null {
   if (!nodeName) return null;
   const dotIndex = nodeName.indexOf('.');
   return dotIndex > 0 ? nodeName.substring(0, dotIndex) : nodeName;
+}
+
+interface AllProjectsTaskCardProps {
+  task: TaskWithProjectInfo;
+  index: number;
+  status: string;
+  onViewDetails: (task: TaskWithProjectInfo) => void;
 }
 
 export function AllProjectsTaskCard({
@@ -49,6 +67,14 @@ export function AllProjectsTaskCard({
           .join(' ')
       : (task.remote_assignee_name ?? task.remote_assignee_username ?? null);
 
+  // Get status strip color - remote tasks use purple
+  const statusStripClass = task.is_remote
+    ? 'before:bg-purple-400'
+    : statusStripColors[task.status as TaskStatus] || statusStripColors['todo'];
+
+  // Truncated description for compact view
+  const truncatedDesc = truncateDescription(task.description, 40);
+
   return (
     <KanbanCard
       key={task.id}
@@ -58,13 +84,13 @@ export function AllProjectsTaskCard({
       parent={status}
       onClick={handleClick}
       forwardedRef={localRef}
-      className={
-        task.is_remote
-          ? 'relative overflow-hidden pl-5 before:absolute before:left-0 before:top-0 before:bottom-0 before:w-[3px] before:bg-purple-400 before:content-[""]'
-          : undefined
-      }
+      className={cn(
+        'relative overflow-hidden pl-5',
+        'before:absolute before:left-0 before:top-0 before:bottom-0 before:w-[3px] before:content-[""]',
+        statusStripClass
+      )}
     >
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-1.5">
         <TaskCardHeader
           title={task.title}
           avatar={
@@ -76,6 +102,8 @@ export function AllProjectsTaskCard({
                   firstName: task.assignee_first_name ?? undefined,
                   lastName: task.assignee_last_name ?? undefined,
                   username: task.assignee_username ?? undefined,
+                  ownerName,
+                  nodeName: shortNodeName,
                 }
               : // Fallback: parse combined name for legacy data
                 task.remote_assignee_name
@@ -86,8 +114,15 @@ export function AllProjectsTaskCard({
                       task.remote_assignee_name.split(' ').slice(1).join(' ') ||
                       undefined,
                     username: task.remote_assignee_username ?? undefined,
+                    ownerName,
+                    nodeName: shortNodeName,
                   }
-                : undefined
+                : ownerName || shortNodeName
+                  ? {
+                      ownerName,
+                      nodeName: shortNodeName,
+                    }
+                  : undefined
           }
           right={
             <>
@@ -103,38 +138,28 @@ export function AllProjectsTaskCard({
             </>
           }
         />
-
-        {task.description && (
-          <p className="text-sm text-secondary-foreground break-words">
-            {task.description.length > 100
-              ? `${task.description.substring(0, 100)}...`
-              : task.description}
+        {/* Truncated description - single line */}
+        {truncatedDesc && (
+          <p
+            className="text-xs text-muted-foreground truncate"
+            title={task.description ?? undefined}
+          >
+            {truncatedDesc}
           </p>
         )}
-
-        {/* Project, owner, and node info */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          {/* Project name */}
-          <div className="flex items-center gap-1">
-            <FolderOpen className="h-3 w-3" />
-            <span className="truncate max-w-[120px]">{task.project_name}</span>
+        {/* Compact footer: Project name, node name, and days badge */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1 text-xs text-muted-foreground min-w-0">
+            <FolderOpen className="h-3 w-3 shrink-0" />
+            <span className="truncate">{task.project_name}</span>
+            {shortNodeName && (
+              <>
+                <span className="shrink-0">·</span>
+                <span className="shrink-0">{shortNodeName}</span>
+              </>
+            )}
           </div>
-
-          {/* Owner/assignee */}
-          {ownerName && (
-            <div className="flex items-center gap-1">
-              <User className="h-3 w-3" />
-              <span className="truncate max-w-[100px]">{ownerName}</span>
-            </div>
-          )}
-
-          {/* Node (short hostname) */}
-          {shortNodeName && (
-            <div className="flex items-center gap-1">
-              <Server className="h-3 w-3" />
-              <span>{shortNodeName}</span>
-            </div>
-          )}
+          <DaysInColumnBadge activityAt={task.activity_at} />
         </div>
       </div>
     </KanbanCard>
