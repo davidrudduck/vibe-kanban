@@ -1,0 +1,237 @@
+---
+title: TaskCard Component Architecture
+description: Technical documentation for the TaskCard component system
+---
+
+This document describes the internal architecture of the TaskCard component system, including component hierarchy, props interfaces, and styling approach.
+
+## Component Hierarchy
+
+```text
+TaskCard.tsx
+├── TaskCardHeader.tsx
+│   ├── Avatar (user avatar with tooltip)
+│   ├── Title (truncated, 2 lines max)
+│   └── Right actions (status icons, dropdown)
+├── Description (truncated text)
+└── Footer Row
+    ├── CompactLabelList.tsx
+    │   ├── LabelBadge (visible labels)
+    │   └── Overflow badge (+N with tooltip)
+    ├── DaysInColumnBadge.tsx
+    └── ArchiveToggleIcon.tsx
+```
+
+## TaskCard Variants
+
+Three variants share the compact layout pattern:
+
+| Component | Use Case |
+|-----------|----------|
+| `TaskCard.tsx` | Standard local project tasks |
+| `SharedTaskCard.tsx` | Tasks shared via hive/swarm |
+| `AllProjectsTaskCard.tsx` | Cross-project task view |
+
+## Props Interfaces
+
+### TaskCard
+
+```typescript
+interface TaskCardProps {
+  task: TaskWithAttemptStatus;
+  index: number;
+  status: string;
+  onViewDetails: (task: Task) => void;
+  isOpen?: boolean;
+  projectId: string;
+  sharedTask?: SharedTaskRecord;
+}
+```
+
+### DaysInColumnBadge
+
+```typescript
+interface DaysInColumnBadgeProps {
+  /** The activity timestamp (when task entered current status) */
+  activityAt: Date | string | null | undefined;
+  /** Additional CSS classes */
+  className?: string;
+}
+```
+
+### CompactLabelList
+
+```typescript
+interface CompactLabelListProps {
+  /** Array of labels to display */
+  labels: Label[] | undefined;
+  /** Maximum visible labels before collapsing (default: 2) */
+  maxVisible?: number;
+  /** Badge size: 'sm' or 'md' */
+  size?: 'sm' | 'md';
+  /** Additional CSS classes */
+  className?: string;
+}
+```
+
+## Utility Functions
+
+### daysInColumn.ts
+
+Located at `frontend/src/utils/daysInColumn.ts`:
+
+```typescript
+// Calculate days since activity date
+getDaysInColumn(activityAt: Date | string | null | undefined): number
+
+// Format days for display ("1d", "7d+", or null if < 1 day)
+formatDaysInColumn(days: number): string | null
+
+// Get Tailwind classes for age-based styling
+getDaysStyle(days: number): string
+```
+
+## Styling Approach
+
+### Status Strip (Pseudo-element)
+
+The left strip uses CSS `::before` pseudo-element with Tailwind classes:
+
+```typescript
+const statusStripColors: Record<TaskStatus, string> = {
+  todo: 'before:bg-neutral-400 dark:before:bg-neutral-500',
+  inprogress: 'before:bg-blue-500',
+  inreview: 'before:bg-amber-500',
+  done: 'before:bg-green-500',
+  cancelled: 'before:bg-red-500',
+};
+```
+
+Applied to the card wrapper:
+
+```typescript
+className={cn(
+  'relative overflow-hidden pl-5',
+  'before:absolute before:left-0 before:top-0 before:bottom-0',
+  'before:w-[3px] before:content-[""]',
+  statusStripClass,
+  isArchived && 'opacity-60'
+)}
+```
+
+### Days Badge Styling
+
+Age-appropriate coloring via `getDaysStyle()`:
+
+| Days | Classes |
+|------|---------|
+| 1-2 | `bg-muted text-muted-foreground` |
+| 3-6 | `bg-amber-100 text-amber-700` (light) / `bg-amber-900/30 text-amber-400` (dark) |
+| 7+ | `bg-red-100 text-red-700` (light) / `bg-red-900/30 text-red-400` (dark) |
+
+### Responsive Layout
+
+Cards use flexbox with gap utilities:
+
+```typescript
+// Card body
+<div className="flex flex-col gap-1.5">
+
+// Footer row
+<div className="flex items-center justify-between gap-2">
+  <div className="flex items-center gap-2 min-w-0 overflow-hidden">
+    {/* Labels */}
+  </div>
+  <div className="flex items-center gap-1.5 shrink-0">
+    {/* Days badge, Archive button */}
+  </div>
+</div>
+```
+
+## Testing Strategy
+
+### Unit Tests
+
+Located in `__tests__/` directories alongside components:
+
+| Test File | Coverage |
+|-----------|----------|
+| `daysInColumn.test.ts` | Utility functions (24 tests) |
+| `DaysInColumnBadge.test.tsx` | Badge rendering (12 tests) |
+| `CompactLabelList.test.tsx` | Label overflow (11 tests) |
+
+### Test Patterns
+
+```typescript
+// Testing utility functions
+describe('getDaysInColumn', () => {
+  it('returns 0 for null input', () => {
+    expect(getDaysInColumn(null)).toBe(0);
+  });
+
+  it('returns correct days for past date', () => {
+    const twoDaysAgo = new Date();
+    twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+    expect(getDaysInColumn(twoDaysAgo)).toBe(2);
+  });
+});
+
+// Testing React components
+describe('DaysInColumnBadge', () => {
+  it('returns null for less than 1 day', () => {
+    const { container } = render(
+      <DaysInColumnBadge activityAt={new Date()} />
+    );
+    expect(container.firstChild).toBeNull();
+  });
+});
+```
+
+## Integration Points
+
+### Data Flow
+
+```text
+useTaskLabels hook
+       │
+       ▼
+CompactLabelList ────► LabelBadge components
+       │
+       ▼
+TaskCard renders with labels
+
+task.activity_at
+       │
+       ▼
+getDaysInColumn() ────► DaysInColumnBadge
+       │
+       ▼
+Badge with age styling
+```
+
+### Context Dependencies
+
+- `ProjectContext`: Provides node name for footer
+- `TaskOptimisticContext`: Enables optimistic updates for archive/unarchive
+- `useTaskLabels`: Fetches labels via React Query
+
+## File Locations
+
+```text
+frontend/src/
+├── components/tasks/
+│   ├── TaskCard.tsx
+│   ├── TaskCardHeader.tsx
+│   ├── SharedTaskCard.tsx
+│   ├── AllProjectsTaskCard.tsx
+│   ├── CompactLabelList.tsx
+│   ├── DaysInColumnBadge.tsx
+│   ├── ArchiveToggleIcon.tsx
+│   └── __tests__/
+│       ├── DaysInColumnBadge.test.tsx
+│       └── CompactLabelList.test.tsx
+└── utils/
+    ├── daysInColumn.ts
+    └── __tests__/
+        └── daysInColumn.test.ts
+```
