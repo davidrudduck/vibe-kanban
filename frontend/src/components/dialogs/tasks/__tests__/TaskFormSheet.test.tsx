@@ -79,7 +79,7 @@ describe('TaskFormSheet Component Interface', () => {
 
 describe('ParentWorktreeDialog Component Interface', () => {
   it('should export ParentWorktreeDialog component', async () => {
-    const module = await import('../ParentWorktreeDialog');
+    const module = await import('@/components/tasks/ParentWorktreeDialog');
     expect(module.ParentWorktreeDialog).toBeDefined();
     expect(typeof module.ParentWorktreeDialog).toBe('function');
   });
@@ -116,7 +116,7 @@ describe('ParentWorktreeDialog Component Interface', () => {
 
 describe('TemplatePicker Component Interface', () => {
   it('should export TemplatePicker component', async () => {
-    const module = await import('../TemplatePicker');
+    const module = await import('@/components/tasks/TemplatePicker');
     expect(module.TemplatePicker).toBeDefined();
     expect(typeof module.TemplatePicker).toBe('function');
   });

@@ -48,7 +48,8 @@ const settingsNavigation = [
 export function SettingsLayout() {
   const { t } = useTranslation('settings');
   const { enableScope, disableScope } = useHotkeysContext();
-  const isMobile = useIsMobile();
+  // Use 768px breakpoint for mobile/tablet consistency (md breakpoint)
+  const isMobile = useIsMobile(768);
 
   // Enable SETTINGS scope when component mounts
   useEffect(() => {

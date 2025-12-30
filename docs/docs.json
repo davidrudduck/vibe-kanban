@@ -86,6 +86,12 @@
         ]
       },
       {
+        "group": "Architecture",
+        "pages": [
+          "architecture/ui-responsive-design"
+        ]
+      },
+      {
         "group": "Swarm Architecture",
         "pages": [
           "swarm-hive-setup",
