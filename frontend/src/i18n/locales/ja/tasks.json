@@ -438,5 +438,20 @@
       "nameExists": "この名前の変数は既に存在します",
       "saveFailed": "変数の保存に失敗しました"
     }
+  },
+  "taskFormSheet": {
+    "createTask": "タスク作成",
+    "editTask": "タスク編集",
+    "duplicateTask": "タスク複製",
+    "createSubtask": "サブタスク作成",
+    "title": "タイトル",
+    "description": "説明",
+    "variables": "変数",
+    "addVariable": "変数を追加",
+    "variableName": "変数名（例：API_KEY）",
+    "variableValue": "値",
+    "insertTemplate": "テンプレートを挿入",
+    "execution": "実行",
+    "createAndStart": "作成して開始"
   }
 }

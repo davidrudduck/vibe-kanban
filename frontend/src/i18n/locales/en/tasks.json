@@ -440,6 +440,21 @@
       "discardChanges": "Discard Changes"
     }
   },
+  "taskFormSheet": {
+    "createTask": "Create Task",
+    "editTask": "Edit Task",
+    "duplicateTask": "Duplicate Task",
+    "createSubtask": "Create Subtask",
+    "title": "Title",
+    "description": "Description",
+    "variables": "Variables",
+    "addVariable": "Add variable",
+    "variableName": "Variable name (e.g., API_KEY)",
+    "variableValue": "Value",
+    "insertTemplate": "Insert template",
+    "execution": "Execution",
+    "createAndStart": "Create & Start"
+  },
   "variables": {
     "title": "Variables",
     "panelTitle": "Variables ({{count}})",
