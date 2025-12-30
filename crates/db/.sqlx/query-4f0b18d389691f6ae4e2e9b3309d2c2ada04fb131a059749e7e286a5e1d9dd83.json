@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT  ta.id                AS \"id!: Uuid\",\n                       ta.task_id           AS \"task_id!: Uuid\",\n                       ta.container_ref,\n                       ta.branch,\n                       ta.target_branch,\n                       ta.executor AS \"executor!\",\n                       ta.worktree_deleted  AS \"worktree_deleted!: bool\",\n                       ta.setup_completed_at AS \"setup_completed_at: DateTime<Utc>\",\n                       ta.created_at        AS \"created_at!: DateTime<Utc>\",\n                       ta.updated_at        AS \"updated_at!: DateTime<Utc>\",\n                       ta.hive_synced_at    AS \"hive_synced_at: DateTime<Utc>\"\n               FROM    task_attempts ta\n               JOIN    tasks t ON ta.task_id = t.id\n               JOIN    projects p ON t.project_id = p.id\n               WHERE   ta.id = $1 AND t.id = $2 AND p.id = $3",
+  "query": "SELECT  id                AS \"id!: Uuid\",\n                       task_id           AS \"task_id!: Uuid\",\n                       container_ref,\n                       branch,\n                       target_branch,\n                       executor AS \"executor!\",\n                       worktree_deleted  AS \"worktree_deleted!: bool\",\n                       setup_completed_at AS \"setup_completed_at: DateTime<Utc>\",\n                       created_at        AS \"created_at!: DateTime<Utc>\",\n                       updated_at        AS \"updated_at!: DateTime<Utc>\",\n                       hive_synced_at    AS \"hive_synced_at: DateTime<Utc>\",\n                       hive_assignment_id AS \"hive_assignment_id: Uuid\"\n               FROM    task_attempts\n               WHERE   hive_assignment_id = $1",
   "describe": {
     "columns": [
       {
@@ -57,10 +57,15 @@
         "name": "hive_synced_at: DateTime<Utc>",
         "ordinal": 10,
         "type_info": "Text"
+      },
+      {
+        "name": "hive_assignment_id: Uuid",
+        "ordinal": 11,
+        "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 3
+      "Right": 1
     },
     "nullable": [
       true,
@@ -73,8 +78,9 @@
       true,
       false,
       false,
+      true,
       true
     ]
   },
-  "hash": "2e9a84628a1a4bc6fa94c61ee1827e16cbcc3a638fd81dc66ba1e14e1112d2f9"
+  "hash": "4f0b18d389691f6ae4e2e9b3309d2c2ada04fb131a059749e7e286a5e1d9dd83"
 }

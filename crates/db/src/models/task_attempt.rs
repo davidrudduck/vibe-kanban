@@ -50,6 +50,10 @@ pub struct TaskAttempt {
     /// When this attempt was last synced to the Hive. NULL means not yet synced.
     #[ts(optional)]
     pub hive_synced_at: Option<DateTime<Utc>>,
+    /// The assignment ID from the Hive for tasks dispatched by the Hive.
+    /// NULL for locally-started tasks until a synthetic assignment is created.
+    #[ts(optional)]
+    pub hive_assignment_id: Option<Uuid>,
 }
 
 /// GitHub PR creation parameters
@@ -112,7 +116,8 @@ impl TaskAttempt {
                               setup_completed_at AS "setup_completed_at: DateTime<Utc>",
                               created_at AS "created_at!: DateTime<Utc>",
                               updated_at AS "updated_at!: DateTime<Utc>",
-                              hive_synced_at AS "hive_synced_at: DateTime<Utc>"
+                              hive_synced_at AS "hive_synced_at: DateTime<Utc>",
+                              hive_assignment_id AS "hive_assignment_id: Uuid"
                        FROM task_attempts
                        WHERE task_id = $1
                        ORDER BY created_at DESC"#,
@@ -133,7 +138,8 @@ impl TaskAttempt {
                               setup_completed_at AS "setup_completed_at: DateTime<Utc>",
                               created_at AS "created_at!: DateTime<Utc>",
                               updated_at AS "updated_at!: DateTime<Utc>",
-                              hive_synced_at AS "hive_synced_at: DateTime<Utc>"
+                              hive_synced_at AS "hive_synced_at: DateTime<Utc>",
+                              hive_assignment_id AS "hive_assignment_id: Uuid"
                        FROM task_attempts
                        ORDER BY created_at DESC"#
             )
@@ -165,7 +171,8 @@ impl TaskAttempt {
                        ta.setup_completed_at AS "setup_completed_at: DateTime<Utc>",
                        ta.created_at        AS "created_at!: DateTime<Utc>",
                        ta.updated_at        AS "updated_at!: DateTime<Utc>",
-                       ta.hive_synced_at    AS "hive_synced_at: DateTime<Utc>"
+                       ta.hive_synced_at    AS "hive_synced_at: DateTime<Utc>",
+                       ta.hive_assignment_id AS "hive_assignment_id: Uuid"
                FROM    task_attempts ta
                JOIN    tasks t ON ta.task_id = t.id
                JOIN    projects p ON t.project_id = p.id
@@ -239,7 +246,8 @@ impl TaskAttempt {
                        setup_completed_at AS "setup_completed_at: DateTime<Utc>",
                        created_at        AS "created_at!: DateTime<Utc>",
                        updated_at        AS "updated_at!: DateTime<Utc>",
-                       hive_synced_at    AS "hive_synced_at: DateTime<Utc>"
+                       hive_synced_at    AS "hive_synced_at: DateTime<Utc>",
+                       hive_assignment_id AS "hive_assignment_id: Uuid"
                FROM    task_attempts
                WHERE   id = $1"#,
             id
@@ -261,7 +269,8 @@ impl TaskAttempt {
                        setup_completed_at AS "setup_completed_at: DateTime<Utc>",
                        created_at        AS "created_at!: DateTime<Utc>",
                        updated_at        AS "updated_at!: DateTime<Utc>",
-                       hive_synced_at    AS "hive_synced_at: DateTime<Utc>"
+                       hive_synced_at    AS "hive_synced_at: DateTime<Utc>",
+                       hive_assignment_id AS "hive_assignment_id: Uuid"
                FROM    task_attempts
                WHERE   rowid = $1"#,
             rowid
@@ -382,7 +391,7 @@ impl TaskAttempt {
             TaskAttempt,
             r#"INSERT INTO task_attempts (id, task_id, container_ref, branch, target_branch, executor, worktree_deleted, setup_completed_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-               RETURNING id as "id!: Uuid", task_id as "task_id!: Uuid", container_ref, branch, target_branch, executor as "executor!",  worktree_deleted as "worktree_deleted!: bool", setup_completed_at as "setup_completed_at: DateTime<Utc>", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>""#,
+               RETURNING id as "id!: Uuid", task_id as "task_id!: Uuid", container_ref, branch, target_branch, executor as "executor!",  worktree_deleted as "worktree_deleted!: bool", setup_completed_at as "setup_completed_at: DateTime<Utc>", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", hive_assignment_id as "hive_assignment_id: Uuid""#,
             id,
             task_id,
             Option::<String>::None, // Container isn't known yet
@@ -556,7 +565,8 @@ impl TaskAttempt {
                        setup_completed_at AS "setup_completed_at: DateTime<Utc>",
                        created_at        AS "created_at!: DateTime<Utc>",
                        updated_at        AS "updated_at!: DateTime<Utc>",
-                       hive_synced_at    AS "hive_synced_at: DateTime<Utc>"
+                       hive_synced_at    AS "hive_synced_at: DateTime<Utc>",
+                       hive_assignment_id AS "hive_assignment_id: Uuid"
                FROM    task_attempts
                WHERE   hive_synced_at IS NULL
                ORDER BY created_at ASC
@@ -604,5 +614,49 @@ impl TaskAttempt {
 
         let result = query_builder.execute(pool).await?;
         Ok(result.rows_affected())
+    }
+
+    /// Set the Hive assignment ID for this attempt.
+    /// This is called when a task is dispatched by the Hive to store the assignment relationship.
+    pub async fn set_hive_assignment_id(
+        pool: &SqlitePool,
+        id: Uuid,
+        assignment_id: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            "UPDATE task_attempts SET hive_assignment_id = $1, updated_at = datetime('now') WHERE id = $2",
+            assignment_id,
+            id
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Find a task attempt by its Hive assignment ID.
+    pub async fn find_by_hive_assignment_id(
+        pool: &SqlitePool,
+        assignment_id: Uuid,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            TaskAttempt,
+            r#"SELECT  id                AS "id!: Uuid",
+                       task_id           AS "task_id!: Uuid",
+                       container_ref,
+                       branch,
+                       target_branch,
+                       executor AS "executor!",
+                       worktree_deleted  AS "worktree_deleted!: bool",
+                       setup_completed_at AS "setup_completed_at: DateTime<Utc>",
+                       created_at        AS "created_at!: DateTime<Utc>",
+                       updated_at        AS "updated_at!: DateTime<Utc>",
+                       hive_synced_at    AS "hive_synced_at: DateTime<Utc>",
+                       hive_assignment_id AS "hive_assignment_id: Uuid"
+               FROM    task_attempts
+               WHERE   hive_assignment_id = $1"#,
+            assignment_id
+        )
+        .fetch_optional(pool)
+        .await
     }
 }

@@ -244,6 +244,36 @@ impl<'a> NodeProjectRepository<'a> {
         Ok(())
     }
 
+    /// Find a node project link by node ID and project ID.
+    pub async fn find_by_node_and_project(
+        &self,
+        node_id: Uuid,
+        project_id: Uuid,
+    ) -> Result<Option<NodeProject>, NodeProjectError> {
+        let link = sqlx::query_as::<_, NodeProject>(
+            r#"
+            SELECT
+                id,
+                node_id,
+                project_id,
+                local_project_id,
+                git_repo_path,
+                default_branch,
+                sync_status,
+                last_synced_at,
+                created_at
+            FROM node_projects
+            WHERE node_id = $1 AND project_id = $2
+            "#,
+        )
+        .bind(node_id)
+        .bind(project_id)
+        .fetch_optional(self.pool)
+        .await?;
+
+        Ok(link)
+    }
+
     /// Delete a project link by node ID and project ID.
     ///
     /// This ensures the node owns the project link before deleting it.

@@ -111,6 +111,9 @@ impl<C: ContainerService + Sync> AssignmentHandler<C> {
         )
         .await?;
 
+        // Store the Hive assignment ID on the attempt for later sync
+        TaskAttempt::set_hive_assignment_id(&self.db.pool, task_attempt.id, assignment_id).await?;
+
         // Update the node state with local IDs
         {
             let mut state = self.node_state.write().await;

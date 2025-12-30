@@ -269,6 +269,35 @@ impl SharedTask {
         .fetch_optional(pool)
         .await
     }
+
+    /// Find all shared tasks that have no assignee (unassigned).
+    pub async fn find_unassigned(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            SharedTask,
+            r#"
+            SELECT
+                id                         AS "id!: Uuid",
+                remote_project_id          AS "remote_project_id!: Uuid",
+                title                      AS title,
+                description                AS description,
+                status                     AS "status!: TaskStatus",
+                assignee_user_id           AS "assignee_user_id: Uuid",
+                assignee_first_name        AS "assignee_first_name: String",
+                assignee_last_name         AS "assignee_last_name: String",
+                assignee_username          AS "assignee_username: String",
+                version                    AS "version!: i64",
+                last_event_seq             AS "last_event_seq: i64",
+                created_at                 AS "created_at!: DateTime<Utc>",
+                updated_at                 AS "updated_at!: DateTime<Utc>",
+                activity_at                AS "activity_at: DateTime<Utc>"
+            FROM shared_tasks
+            WHERE assignee_user_id IS NULL
+            ORDER BY updated_at DESC
+            "#
+        )
+        .fetch_all(pool)
+        .await
+    }
 }
 
 #[derive(Debug, Clone, FromRow)]

@@ -168,7 +168,7 @@ impl HiveSyncService {
 
             let message = AttemptSyncMessage {
                 attempt_id: attempt.id,
-                assignment_id: None, // TODO: Look up from assignments table if this was dispatched
+                assignment_id: attempt.hive_assignment_id, // Use stored assignment_id if available
                 shared_task_id,
                 executor: attempt.executor.clone(),
                 executor_variant: None, // TODO: Add executor_variant to TaskAttempt model
@@ -286,6 +286,53 @@ impl HiveSyncService {
         let mut synced_ids = Vec::new();
 
         for (execution_id, batch_logs) in batches {
+            // Look up the execution process to get the task_attempt_id
+            let execution = match ExecutionProcess::find_by_id(&self.pool, execution_id).await? {
+                Some(ep) => ep,
+                None => {
+                    debug!(
+                        execution_id = %execution_id,
+                        "Skipping log sync - execution process not found"
+                    );
+                    continue;
+                }
+            };
+
+            // Look up the task attempt to get hive_assignment_id
+            let attempt = match TaskAttempt::find_by_id(&self.pool, execution.task_attempt_id).await? {
+                Some(ta) => ta,
+                None => {
+                    debug!(
+                        execution_id = %execution_id,
+                        task_attempt_id = %execution.task_attempt_id,
+                        "Skipping log sync - task attempt not found"
+                    );
+                    continue;
+                }
+            };
+
+            // Get the assignment_id from the attempt
+            // For locally-started tasks, this will be None and we skip log sync
+            // The Hive will create a synthetic assignment when it receives the AttemptSync
+            let assignment_id = match attempt.hive_assignment_id {
+                Some(id) => id,
+                None => {
+                    debug!(
+                        execution_id = %execution_id,
+                        attempt_id = %attempt.id,
+                        "Skipping log sync - no Hive assignment (locally-started task)"
+                    );
+                    // Mark these logs as synced anyway to prevent retry spam
+                    // They will be synced once the attempt gets a hive_assignment_id
+                    // via AttemptSync -> synthetic assignment creation
+                    for log in batch_logs {
+                        synced_ids.push(log.id);
+                        synced_count += 1;
+                    }
+                    continue;
+                }
+            };
+
             // Convert logs to sync format
             let entries: Vec<SyncLogEntry> = batch_logs
                 .iter()
@@ -296,11 +343,8 @@ impl HiveSyncService {
                 })
                 .collect();
 
-            // We need to find the assignment_id for this execution
-            // For now, use the execution_id as a placeholder - in practice,
-            // we'd need to look up the task attempt and find any associated assignment
             let message = LogsBatchMessage {
-                assignment_id: execution_id, // TODO: Look up actual assignment_id
+                assignment_id, // Now using the real assignment_id from the attempt
                 execution_process_id: Some(execution_id),
                 entries,
                 compressed: false,

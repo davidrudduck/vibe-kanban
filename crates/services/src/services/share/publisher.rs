@@ -133,6 +133,21 @@ impl SharePublisher {
         Ok(record)
     }
 
+    /// Assign a shared task to a user by task ID.
+    ///
+    /// This is a convenience method that looks up the shared task and assigns it.
+    /// Used for auto-assigning unassigned tasks during startup.
+    pub async fn assign_task(&self, shared_task_id: Uuid, user_id: Uuid) -> Result<(), ShareError> {
+        let shared_task = SharedTask::find_by_id(&self.db.pool, shared_task_id)
+            .await?
+            .ok_or(ShareError::TaskNotFound(shared_task_id))?;
+
+        self.assign_shared_task(&shared_task, Some(user_id.to_string()), None)
+            .await?;
+
+        Ok(())
+    }
+
     pub async fn delete_shared_task(&self, shared_task_id: Uuid) -> Result<(), ShareError> {
         let shared_task = SharedTask::find_by_id(&self.db.pool, shared_task_id)
             .await?

@@ -878,17 +878,85 @@ async fn send_message(
 /// Handle an attempt sync message from a node.
 ///
 /// Upserts the task attempt into node_task_attempts.
+/// For locally-started tasks (without assignment_id), creates a synthetic assignment.
 async fn handle_attempt_sync(
     node_id: Uuid,
     attempt: &AttemptSyncMessage,
     pool: &PgPool,
 ) -> Result<(), HandleError> {
+    use crate::db::node_projects::NodeProjectRepository;
     use crate::db::node_task_attempts::{NodeTaskAttemptRepository, UpsertNodeTaskAttempt};
+    use crate::db::task_assignments::TaskAssignmentRepository;
+    use crate::db::tasks::SharedTaskRepository;
+
+    // Determine assignment_id: use provided one or create a synthetic one
+    let assignment_id = match attempt.assignment_id {
+        Some(id) => Some(id),
+        None => {
+            // For locally-started tasks, we need to create a synthetic assignment
+            // First, find the project_id from the shared_task
+            let shared_task_repo = SharedTaskRepository::new(pool);
+            let shared_task = shared_task_repo
+                .find_by_id(attempt.shared_task_id)
+                .await
+                .map_err(|e| HandleError::Database(e.to_string()))?;
+
+            if let Some(task) = shared_task {
+                // Find the node_project link for this project and node
+                let node_project_repo = NodeProjectRepository::new(pool);
+                let node_project = node_project_repo
+                    .find_by_node_and_project(node_id, task.project_id)
+                    .await
+                    .map_err(|e| HandleError::Database(e.to_string()))?;
+
+                if let Some(np) = node_project {
+                    // Create or find a synthetic assignment
+                    let assignment_repo = TaskAssignmentRepository::new(pool);
+                    match assignment_repo
+                        .create_or_find_synthetic(attempt.shared_task_id, node_id, np.id)
+                        .await
+                    {
+                        Ok(assignment) => {
+                            tracing::info!(
+                                node_id = %node_id,
+                                attempt_id = %attempt.attempt_id,
+                                assignment_id = %assignment.id,
+                                "created synthetic assignment for locally-started task"
+                            );
+                            Some(assignment.id)
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                node_id = %node_id,
+                                attempt_id = %attempt.attempt_id,
+                                error = %e,
+                                "failed to create synthetic assignment, proceeding without"
+                            );
+                            None
+                        }
+                    }
+                } else {
+                    tracing::debug!(
+                        node_id = %node_id,
+                        project_id = %task.project_id,
+                        "no node_project link found for synthetic assignment"
+                    );
+                    None
+                }
+            } else {
+                tracing::debug!(
+                    shared_task_id = %attempt.shared_task_id,
+                    "shared task not found for synthetic assignment"
+                );
+                None
+            }
+        }
+    };
 
     let repo = NodeTaskAttemptRepository::new(pool);
     repo.upsert(&UpsertNodeTaskAttempt {
         id: attempt.attempt_id,
-        assignment_id: attempt.assignment_id,
+        assignment_id,
         shared_task_id: attempt.shared_task_id,
         node_id,
         executor: attempt.executor.clone(),
@@ -908,6 +976,7 @@ async fn handle_attempt_sync(
         node_id = %node_id,
         attempt_id = %attempt.attempt_id,
         shared_task_id = %attempt.shared_task_id,
+        assignment_id = ?assignment_id,
         "synced task attempt from node"
     );
 

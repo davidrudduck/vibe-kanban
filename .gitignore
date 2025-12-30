@@ -97,4 +97,4 @@ remote-frontend/dist
 .vk_progress.md
 
 # Playwright MCP screenshots (development artifacts)
-.playwright-mcp/
+.playwright-mcp/prod_db_copy.sqlite

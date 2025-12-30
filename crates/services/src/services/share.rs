@@ -334,6 +334,26 @@ impl RemoteSync {
                 tracing::warn!(error = ?e, "Startup sync failed");
             }
         }
+
+        // Auto-assign any unassigned shared tasks to the authenticated user
+        if let Some(user_id) = user_id {
+            match auto_assign_unassigned_tasks(&self.db.pool, &publisher, user_id).await {
+                Ok(count) => {
+                    if count > 0 {
+                        tracing::info!(
+                            assigned_count = count,
+                            user_id = %user_id,
+                            "Startup sync: auto-assigned unassigned tasks"
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = ?e, "Failed to auto-assign unassigned tasks on startup");
+                }
+            }
+        } else {
+            tracing::debug!("Startup sync: no authenticated user, skipping auto-assignment of unassigned tasks");
+        }
     }
 
     async fn linked_remote_projects(&self) -> Result<Vec<Uuid>, ShareError> {
@@ -909,6 +929,58 @@ pub async fn migrate_unlinked_projects(
     );
 
     Ok(linked_count)
+}
+
+/// Auto-assign all unassigned shared tasks to the specified user.
+///
+/// This is called during startup to ensure all synced tasks have an assignee.
+/// When a task is synced from the Hive without an assignee, this assigns it to
+/// the node's authenticated user.
+pub async fn auto_assign_unassigned_tasks(
+    pool: &SqlitePool,
+    publisher: &SharePublisher,
+    user_id: Uuid,
+) -> Result<usize, ShareError> {
+    let unassigned = SharedTask::find_unassigned(pool).await?;
+
+    if unassigned.is_empty() {
+        tracing::debug!("No unassigned shared tasks to auto-assign");
+        return Ok(0);
+    }
+
+    tracing::info!(
+        task_count = unassigned.len(),
+        user_id = %user_id,
+        "Auto-assigning unassigned shared tasks"
+    );
+
+    let mut assigned_count = 0;
+    for task in unassigned {
+        match publisher.assign_task(task.id, user_id).await {
+            Ok(()) => {
+                tracing::debug!(
+                    task_id = %task.id,
+                    task_title = %task.title,
+                    "Auto-assigned unassigned task to user"
+                );
+                assigned_count += 1;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    task_id = %task.id,
+                    error = ?e,
+                    "Failed to auto-assign unassigned task"
+                );
+            }
+        }
+    }
+
+    tracing::info!(
+        assigned_count,
+        "Completed auto-assignment of unassigned tasks"
+    );
+
+    Ok(assigned_count)
 }
 
 /// Share all existing local tasks for a project to the Hive.
