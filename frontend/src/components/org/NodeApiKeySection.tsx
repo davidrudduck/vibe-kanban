@@ -35,6 +35,7 @@ import {
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -347,17 +348,19 @@ function ApiKeyItem({
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-medium text-sm">{apiKey.name}</span>
             {apiKey.node_id && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex items-center gap-1 text-xs text-muted-foreground bg-secondary px-1.5 py-0.5 rounded">
-                    <Server className="h-3 w-3" />
-                    Bound
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Bound to node: {apiKey.node_id.slice(0, 8)}...</p>
-                </TooltipContent>
-              </Tooltip>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground bg-secondary px-1.5 py-0.5 rounded">
+                      <Server className="h-3 w-3" />
+                      Bound
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Bound to node: {apiKey.node_id.slice(0, 8)}...</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             )}
             {!apiKey.node_id && !apiKey.revoked_at && (
               <span className="text-xs text-muted-foreground bg-secondary/50 px-1.5 py-0.5 rounded">
@@ -382,31 +385,33 @@ function ApiKeyItem({
           <Badge variant="destructive">Revoked</Badge>
         ) : isBlocked ? (
           <>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Badge
-                  variant="destructive"
-                  className="flex items-center gap-1"
-                >
-                  <AlertTriangle className="h-3 w-3" />
-                  Blocked
-                </Badge>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-xs">
-                <p className="font-medium">Key blocked</p>
-                <p className="text-xs opacity-80">
-                  {apiKey.blocked_reason || 'Duplicate key use detected'}
-                </p>
-                {apiKey.blocked_at && (
-                  <p className="text-xs opacity-60 mt-1">
-                    Blocked{' '}
-                    {formatDistanceToNow(new Date(apiKey.blocked_at), {
-                      addSuffix: true,
-                    })}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge
+                    variant="destructive"
+                    className="flex items-center gap-1"
+                  >
+                    <AlertTriangle className="h-3 w-3" />
+                    Blocked
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  <p className="font-medium">Key blocked</p>
+                  <p className="text-xs opacity-80">
+                    {apiKey.blocked_reason || 'Duplicate key use detected'}
                   </p>
-                )}
-              </TooltipContent>
-            </Tooltip>
+                  {apiKey.blocked_at && (
+                    <p className="text-xs opacity-60 mt-1">
+                      Blocked{' '}
+                      {formatDistanceToNow(new Date(apiKey.blocked_at), {
+                        addSuffix: true,
+                      })}
+                    </p>
+                  )}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             {isAdmin && (
               <Button
                 variant="outline"

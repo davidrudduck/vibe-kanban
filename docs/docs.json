@@ -54,7 +54,8 @@
           "core-features/reviewing-code-changes",
           "core-features/browsing-files",
           "core-features/completing-a-task",
-          "core-features/mobile-experience"
+          "core-features/mobile-experience",
+          "core-features/task-cards"
         ]
       },
       {
@@ -83,6 +84,12 @@
           "integrations/vscode-extension",
           "integrations/mcp-server-configuration",
           "integrations/vibe-kanban-mcp-server"
+        ]
+      },
+      {
+        "group": "Architecture",
+        "pages": [
+          "architecture/ui-responsive-design"
         ]
       },
       {

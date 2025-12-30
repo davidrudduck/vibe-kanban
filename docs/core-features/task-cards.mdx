@@ -1,0 +1,107 @@
+---
+title: Task Cards
+description: Compact, information-rich task cards for the Kanban board
+---
+
+Task cards are the primary way to visualize and interact with tasks on the Kanban board. Each card displays essential information at a glance while keeping the interface clean and uncluttered.
+
+## Card Layout
+
+Task cards use a compact 3-layer information hierarchy:
+
+```text
+┌──┬──────────────────────────────────────────┐
+│  │ [Avatar] Title (2 lines max)      [···] │
+│S │ Description snippet (40 chars)...       │
+│  │ [nodename] [Labels] [+N]  [3d] [Archive]│
+└──┴──────────────────────────────────────────┘
+```
+
+- **Status Strip**: 3px colored bar on the left edge indicating task status
+- **Header Row**: Avatar, title (max 2 lines), and action menu
+- **Description**: Single line, truncated to ~40 characters
+- **Footer Row**: Node name, labels, days in column badge, and archive button
+
+## Status Strip Colors
+
+The left strip provides instant visual recognition of task status:
+
+| Status | Color | Description |
+|--------|-------|-------------|
+| **To Do** | Gray | Tasks waiting to be started |
+| **In Progress** | Blue | Actively being worked on |
+| **In Review** | Amber | Awaiting code review |
+| **Done** | Green | Successfully completed |
+| **Cancelled** | Red | No longer needed |
+| **Remote** | Purple | Tasks from connected nodes |
+
+## Days in Column Badge
+
+Tasks that have been in the same status for an extended period display an age badge to help identify stale items:
+
+| Age | Badge | Style |
+|-----|-------|-------|
+| < 1 day | Not shown | — |
+| 1-2 days | "1d", "2d" | Subtle gray |
+| 3-6 days | "3d" - "6d" | Amber warning |
+| 7+ days | "7d+" | Red warning |
+
+The badge calculates time based on the task's `activity_at` timestamp, which updates when a task changes status or has new activity.
+
+## Label Display
+
+To prevent visual clutter, labels are shown in a compact format:
+
+- **First 2 labels**: Displayed as full badges with icons
+- **Additional labels**: Collapsed into a "+N" indicator
+- **Tooltip**: Hovering the "+N" badge reveals all hidden label names
+
+## Avatar and Owner Info
+
+The avatar in the card header provides context about task ownership:
+
+- **Assigned tasks**: Shows the assignee's avatar with initials
+- **Unassigned tasks**: Shows a generic user icon
+- **Tooltip on hover**: Displays owner name and node name (if applicable)
+
+This moves detailed owner/node information out of the card body while keeping it accessible.
+
+## Execution Status Indicators
+
+Icons in the header row indicate the task's execution status:
+
+| Icon | Meaning |
+|------|---------|
+| Spinning loader (blue) | AI agent currently working on task |
+| Check circle (green) | Has a successfully merged attempt |
+| X circle (red) | Last attempt failed |
+| Link icon | Task has a parent (click to navigate) |
+
+## Archive Button
+
+Each card includes an archive button in the bottom-right corner:
+
+- **Click to archive**: Moves the task to archived state
+- **Archived tasks**: Displayed with 60% opacity and show unarchive option
+- **Remote tasks**: Archive button is disabled
+
+<Note>
+On mobile devices, you can also swipe left on a task card to archive it. See [Mobile Experience](/core-features/mobile-experience) for details.
+</Note>
+
+## Truncated Description
+
+Task descriptions are truncated to approximately 40 characters to maintain consistent card heights:
+
+- **Full description**: Available in the task detail panel
+- **Tooltip**: Hovering shows the complete description on desktop
+- **Click the card**: Opens the full task details with complete description
+
+## Accessibility
+
+Task cards maintain accessibility standards:
+
+- **Keyboard navigation**: Tab to navigate between cards, Enter to open
+- **Screen readers**: ARIA labels describe card content and status
+- **Touch targets**: All interactive elements meet 44x44px minimum size
+- **Color contrast**: Status colors meet WCAG AA standards in both themes
