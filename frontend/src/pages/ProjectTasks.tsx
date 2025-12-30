@@ -149,9 +149,11 @@ export function ProjectTasks() {
   const navigate = useNavigate();
   const { enableScope, disableScope, activeScopes } = useHotkeysContext();
   const [searchParams, setSearchParams] = useSearchParams();
-  const isXL = useMediaQuery('(min-width: 1280px)');
-  const isMobile = !isXL;
-  // Use sm breakpoint (640px) for mobile Kanban swipe view
+  // Tablet breakpoint: 768px+ (md) - gets desktop header with toggle group
+  const isMD = useMediaQuery('(min-width: 768px)');
+  // Mobile is < 768px for UI purposes (header, panels, bottom sheet)
+  const isMobile = !isMD;
+  // Use sm breakpoint (640px) for mobile Kanban swipe view only
   const isMobileKanban = useIsMobile();
   const [selectedSharedTaskId, setSelectedSharedTaskId] = useState<
     string | null
