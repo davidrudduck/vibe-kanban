@@ -5,3 +5,4 @@ export { OrganizationSettings } from './OrganizationSettings';
 export { AgentSettings } from './AgentSettings';
 export { McpSettings } from './McpSettings';
 export { BackupSettings } from './BackupSettings';
+export { MobileSettingsAccordion } from './MobileSettingsAccordion';

@@ -1,4 +1,11 @@
-import { HardDrive, ChevronUp, Loader2, MoreHorizontal, Package, Trash2 } from 'lucide-react';
+import {
+  HardDrive,
+  ChevronUp,
+  Loader2,
+  MoreHorizontal,
+  Package,
+  Trash2,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
@@ -166,15 +173,11 @@ export function DiskUsageIndicator() {
             <span className="font-medium">
               {t('diskUsage.title', 'Worktree Disk Usage')}
             </span>
-            <Badge
-              variant="secondary"
-              className={cn(usageColor, 'font-mono')}
-            >
+            <Badge variant="secondary" className={cn(usageColor, 'font-mono')}>
               {formatBytes(data.used_bytes)}
             </Badge>
             <Badge variant="outline" className="text-xs">
-              {data.worktree_count}{' '}
-              {t('diskUsage.worktrees', 'worktrees')}
+              {data.worktree_count} {t('diskUsage.worktrees', 'worktrees')}
             </Badge>
           </div>
           <ChevronUp
@@ -205,7 +208,8 @@ export function DiskUsageIndicator() {
           )}
         </div>
         <div className="text-xs text-muted-foreground mt-3 px-2 border-t border-border pt-2">
-          {t('diskUsage.directory', 'Directory')}: <code className="text-xs">{data.worktree_dir}</code>
+          {t('diskUsage.directory', 'Directory')}:{' '}
+          <code className="text-xs">{data.worktree_dir}</code>
         </div>
       </Card>
     </details>

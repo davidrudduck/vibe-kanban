@@ -15,7 +15,10 @@
         "organizationsDesc": "Manage organization members and permissions",
         "backups": "Backups",
         "backupsDesc": "Database backup management"
-      }
+      },
+      "searchPlaceholder": "Search settings...",
+      "noResults": "No settings match your search",
+      "clearSearch": "Clear search"
     },
     "backups": {
       "title": "Database Backups",

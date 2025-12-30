@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useTerminalSettings, getTerminalSettings } from './useTerminalSettings';
+import {
+  useTerminalSettings,
+  getTerminalSettings,
+} from './useTerminalSettings';
 
 // Mock localStorage
 const localStorageMock = (() => {

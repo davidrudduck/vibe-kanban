@@ -15,6 +15,8 @@ import { useEffect } from 'react';
 import { useHotkeysContext } from 'react-hotkeys-hook';
 import { useKeyExit } from '@/keyboard/hooks';
 import { Scope } from '@/keyboard/registry';
+import { useIsMobile } from '@/hooks/useIsMobile';
+import { MobileSettingsAccordion } from './MobileSettingsAccordion';
 
 const settingsNavigation = [
   {
@@ -46,6 +48,7 @@ const settingsNavigation = [
 export function SettingsLayout() {
   const { t } = useTranslation('settings');
   const { enableScope, disableScope } = useHotkeysContext();
+  const isMobile = useIsMobile();
 
   // Enable SETTINGS scope when component mounts
   useEffect(() => {
@@ -68,6 +71,34 @@ export function SettingsLayout() {
   // Register ESC keyboard shortcut
   useKeyExit(handleBack, { scope: Scope.SETTINGS });
 
+  // Mobile: Use accordion pattern with all sections on one page
+  if (isMobile) {
+    return (
+      <div className="h-full flex flex-col overflow-hidden">
+        {/* Mobile Header */}
+        <div className="flex items-center justify-between bg-background border-b border-border px-4 py-3 shrink-0">
+          <h1 className="text-lg font-semibold">
+            {t('settings.layout.nav.title')}
+          </h1>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleBack}
+            className="h-8 w-8 p-0"
+            aria-label="Close settings"
+          >
+            <X className="h-5 w-5" />
+          </Button>
+        </div>
+        {/* Mobile Accordion Content */}
+        <div className="flex-1 overflow-hidden">
+          <MobileSettingsAccordion />
+        </div>
+      </div>
+    );
+  }
+
+  // Tablet/Desktop: Side navigation with router outlet
   return (
     <div className="h-full overflow-auto">
       <div className="container mx-auto px-4 py-8">

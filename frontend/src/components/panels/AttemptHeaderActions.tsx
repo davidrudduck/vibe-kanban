@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Eye, FileDiff, FolderTree, Terminal, X } from 'lucide-react';
+import { Eye, FileDiff, FolderTree, Terminal, Cog, X } from 'lucide-react';
 import { Button } from '../ui/button';
 import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group';
 import {
@@ -120,7 +120,26 @@ export const AttemptHeaderActions = ({
                 </ToggleGroupItem>
               </TooltipTrigger>
               <TooltipContent side="bottom">
-                {t('attemptHeaderActions.terminal', { defaultValue: 'Terminal' })}
+                {t('attemptHeaderActions.terminal', {
+                  defaultValue: 'Terminal',
+                })}
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <ToggleGroupItem
+                  value="processes"
+                  aria-label="Processes"
+                  active={mode === 'processes'}
+                >
+                  <Cog className="h-4 w-4" />
+                </ToggleGroupItem>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {t('attemptHeaderActions.processes', {
+                  defaultValue: 'Processes',
+                })}
               </TooltipContent>
             </Tooltip>
           </ToggleGroup>

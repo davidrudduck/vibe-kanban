@@ -40,9 +40,28 @@ import {
 } from 'shared/types';
 
 // Font option arrays (since ts-rs generates string literal unions, not enums)
-const UI_FONTS: UiFont[] = ['INTER', 'ROBOTO', 'PUBLIC_SANS', 'CHIVO_MONO', 'SYSTEM'];
-const CODE_FONTS: CodeFont[] = ['JET_BRAINS_MONO', 'CASCADIA_MONO', 'HACK', 'IBM_PLEX_MONO', 'CHIVO_MONO', 'SYSTEM'];
-const PROSE_FONTS: ProseFont[] = ['INTER', 'ROBOTO', 'GEORGIA', 'CHIVO_MONO', 'SYSTEM'];
+const UI_FONTS: UiFont[] = [
+  'INTER',
+  'ROBOTO',
+  'PUBLIC_SANS',
+  'CHIVO_MONO',
+  'SYSTEM',
+];
+const CODE_FONTS: CodeFont[] = [
+  'JET_BRAINS_MONO',
+  'CASCADIA_MONO',
+  'HACK',
+  'IBM_PLEX_MONO',
+  'CHIVO_MONO',
+  'SYSTEM',
+];
+const PROSE_FONTS: ProseFont[] = [
+  'INTER',
+  'ROBOTO',
+  'GEORGIA',
+  'CHIVO_MONO',
+  'SYSTEM',
+];
 import { getLanguageOptions } from '@/i18n/languages';
 
 import { toPrettyCase } from '@/utils/string';
@@ -352,21 +371,25 @@ export function GeneralSettings() {
             >
               <SelectTrigger id="ui-font">
                 <SelectValue
-                  placeholder={t(
-                    'settings.general.fonts.uiFont.placeholder'
-                  )}
+                  placeholder={t('settings.general.fonts.uiFont.placeholder')}
                 />
               </SelectTrigger>
               <SelectContent>
                 {UI_FONTS.map((font) => (
                   <SelectItem key={font} value={font}>
-                    {t(`settings.general.fonts.fontNames.${
-                      font === 'INTER' ? 'inter' :
-                      font === 'ROBOTO' ? 'roboto' :
-                      font === 'PUBLIC_SANS' ? 'publicSans' :
-                      font === 'CHIVO_MONO' ? 'chivoMono' :
-                      'system'
-                    }`)}
+                    {t(
+                      `settings.general.fonts.fontNames.${
+                        font === 'INTER'
+                          ? 'inter'
+                          : font === 'ROBOTO'
+                            ? 'roboto'
+                            : font === 'PUBLIC_SANS'
+                              ? 'publicSans'
+                              : font === 'CHIVO_MONO'
+                                ? 'chivoMono'
+                                : 'system'
+                      }`
+                    )}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -392,22 +415,27 @@ export function GeneralSettings() {
             >
               <SelectTrigger id="code-font">
                 <SelectValue
-                  placeholder={t(
-                    'settings.general.fonts.codeFont.placeholder'
-                  )}
+                  placeholder={t('settings.general.fonts.codeFont.placeholder')}
                 />
               </SelectTrigger>
               <SelectContent>
                 {CODE_FONTS.map((font) => (
                   <SelectItem key={font} value={font}>
-                    {t(`settings.general.fonts.fontNames.${
-                      font === 'JET_BRAINS_MONO' ? 'jetBrainsMono' :
-                      font === 'CASCADIA_MONO' ? 'cascadiaMono' :
-                      font === 'HACK' ? 'hack' :
-                      font === 'IBM_PLEX_MONO' ? 'ibmPlexMono' :
-                      font === 'CHIVO_MONO' ? 'chivoMono' :
-                      'system'
-                    }`)}
+                    {t(
+                      `settings.general.fonts.fontNames.${
+                        font === 'JET_BRAINS_MONO'
+                          ? 'jetBrainsMono'
+                          : font === 'CASCADIA_MONO'
+                            ? 'cascadiaMono'
+                            : font === 'HACK'
+                              ? 'hack'
+                              : font === 'IBM_PLEX_MONO'
+                                ? 'ibmPlexMono'
+                                : font === 'CHIVO_MONO'
+                                  ? 'chivoMono'
+                                  : 'system'
+                      }`
+                    )}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -441,13 +469,19 @@ export function GeneralSettings() {
               <SelectContent>
                 {PROSE_FONTS.map((font) => (
                   <SelectItem key={font} value={font}>
-                    {t(`settings.general.fonts.fontNames.${
-                      font === 'INTER' ? 'inter' :
-                      font === 'ROBOTO' ? 'roboto' :
-                      font === 'GEORGIA' ? 'georgia' :
-                      font === 'CHIVO_MONO' ? 'chivoMono' :
-                      'system'
-                    }`)}
+                    {t(
+                      `settings.general.fonts.fontNames.${
+                        font === 'INTER'
+                          ? 'inter'
+                          : font === 'ROBOTO'
+                            ? 'roboto'
+                            : font === 'GEORGIA'
+                              ? 'georgia'
+                              : font === 'CHIVO_MONO'
+                                ? 'chivoMono'
+                                : 'system'
+                      }`
+                    )}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -909,11 +943,7 @@ export function GeneralSettings() {
           </div>
 
           <div className="pt-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={resetTerminalSettings}
-            >
+            <Button variant="outline" size="sm" onClick={resetTerminalSettings}>
               {t('settings.general.terminal.reset')}
             </Button>
           </div>
@@ -956,18 +986,38 @@ export function GeneralSettings() {
                   {t('settings.general.timestamps.timezone.local')}
                 </SelectItem>
                 <SelectItem value="UTC">UTC</SelectItem>
-                <SelectItem value="America/New_York">America/New_York (EST/EDT)</SelectItem>
-                <SelectItem value="America/Chicago">America/Chicago (CST/CDT)</SelectItem>
-                <SelectItem value="America/Denver">America/Denver (MST/MDT)</SelectItem>
-                <SelectItem value="America/Los_Angeles">America/Los_Angeles (PST/PDT)</SelectItem>
-                <SelectItem value="Europe/London">Europe/London (GMT/BST)</SelectItem>
-                <SelectItem value="Europe/Paris">Europe/Paris (CET/CEST)</SelectItem>
-                <SelectItem value="Europe/Berlin">Europe/Berlin (CET/CEST)</SelectItem>
+                <SelectItem value="America/New_York">
+                  America/New_York (EST/EDT)
+                </SelectItem>
+                <SelectItem value="America/Chicago">
+                  America/Chicago (CST/CDT)
+                </SelectItem>
+                <SelectItem value="America/Denver">
+                  America/Denver (MST/MDT)
+                </SelectItem>
+                <SelectItem value="America/Los_Angeles">
+                  America/Los_Angeles (PST/PDT)
+                </SelectItem>
+                <SelectItem value="Europe/London">
+                  Europe/London (GMT/BST)
+                </SelectItem>
+                <SelectItem value="Europe/Paris">
+                  Europe/Paris (CET/CEST)
+                </SelectItem>
+                <SelectItem value="Europe/Berlin">
+                  Europe/Berlin (CET/CEST)
+                </SelectItem>
                 <SelectItem value="Asia/Tokyo">Asia/Tokyo (JST)</SelectItem>
-                <SelectItem value="Asia/Shanghai">Asia/Shanghai (CST)</SelectItem>
+                <SelectItem value="Asia/Shanghai">
+                  Asia/Shanghai (CST)
+                </SelectItem>
                 <SelectItem value="Asia/Seoul">Asia/Seoul (KST)</SelectItem>
-                <SelectItem value="Asia/Singapore">Asia/Singapore (SGT)</SelectItem>
-                <SelectItem value="Australia/Sydney">Australia/Sydney (AEST/AEDT)</SelectItem>
+                <SelectItem value="Asia/Singapore">
+                  Asia/Singapore (SGT)
+                </SelectItem>
+                <SelectItem value="Australia/Sydney">
+                  Australia/Sydney (AEST/AEDT)
+                </SelectItem>
               </SelectContent>
             </Select>
             <p className="text-sm text-muted-foreground">

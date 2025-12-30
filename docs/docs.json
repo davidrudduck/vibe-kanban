@@ -53,7 +53,8 @@
           "core-features/testing-your-application",
           "core-features/reviewing-code-changes",
           "core-features/browsing-files",
-          "core-features/completing-a-task"
+          "core-features/completing-a-task",
+          "core-features/mobile-experience"
         ]
       },
       {

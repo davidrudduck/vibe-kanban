@@ -321,7 +321,10 @@ export const useConversationHistory = ({
       // Helper to get process name from executor action
       const getProcessName = (executorAction: ExecutorAction): string => {
         const typ = executorAction.typ;
-        if (typ.type === 'CodingAgentInitialRequest' || typ.type === 'CodingAgentFollowUpRequest') {
+        if (
+          typ.type === 'CodingAgentInitialRequest' ||
+          typ.type === 'CodingAgentFollowUpRequest'
+        ) {
           return 'Coding Agent';
         }
         if (typ.type === 'ScriptRequest') {
@@ -353,10 +356,13 @@ export const useConversationHistory = ({
         .flatMap((p, index) => {
           const entries: PatchTypeWithKey[] = [];
           const liveProcess = getLiveExecutionProcess(p.executionProcess.id);
-          const processName = getProcessName(p.executionProcess.executor_action);
+          const processName = getProcessName(
+            p.executionProcess.executor_action
+          );
 
           // Skip timestamps for Setup/Cleanup scripts (run in parallel, duration inaccurate)
-          const skipTimestamps = processName === 'Setup Script' || processName === 'Cleanup Script';
+          const skipTimestamps =
+            processName === 'Setup Script' || processName === 'Cleanup Script';
 
           // Add execution start marker
           if (!skipTimestamps && liveProcess?.started_at) {
@@ -458,7 +464,11 @@ export const useConversationHistory = ({
             }
 
             // Add execution end marker for completed processes
-            if (!isProcessRunning && liveProcess?.started_at && liveProcess?.completed_at) {
+            if (
+              !isProcessRunning &&
+              liveProcess?.started_at &&
+              liveProcess?.completed_at
+            ) {
               entries.push(
                 executionEndPatch(
                   p.executionProcess.id,
@@ -550,9 +560,12 @@ export const useConversationHistory = ({
             entries.push(toolPatchWithKey);
 
             // Add execution end marker for completed script processes (skip Setup/Cleanup)
-            if (!skipTimestamps &&
-                executionProcess?.status !== ExecutionProcessStatus.running &&
-                executionProcess?.started_at && executionProcess?.completed_at) {
+            if (
+              !skipTimestamps &&
+              executionProcess?.status !== ExecutionProcessStatus.running &&
+              executionProcess?.started_at &&
+              executionProcess?.completed_at
+            ) {
               entries.push(
                 executionEndPatch(
                   p.executionProcess.id,
