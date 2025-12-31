@@ -178,7 +178,9 @@
     "addToQueue": "Add to Queue",
     "addToQueueTooltip": "Add message to queue",
     "saveError": "Failed to save changes",
-    "confirmRemove": "Remove this message from the queue?"
+    "confirmRemove": "Remove this message from the queue?",
+    "removeError": "Failed to remove message",
+    "injectingMessage": "Sending message..."
   },
   "todos": {
     "title_one": "Todos ({{count}})",

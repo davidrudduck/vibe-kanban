@@ -719,7 +719,10 @@ export function TaskFollowUpSection({
                   title={t('messageQueue.addToQueueTooltip')}
                 >
                   {isAddingToQueue || isInjecting ? (
-                    <Loader2 className="animate-spin h-4 w-4" />
+                    <>
+                      <Loader2 className="animate-spin h-4 w-4 mr-1" />
+                      <span className="hidden sm:inline">{t('messageQueue.injectingMessage')}</span>
+                    </>
                   ) : (
                     <>
                       <ListPlus className="h-4 w-4 mr-1" />
