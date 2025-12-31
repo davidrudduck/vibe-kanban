@@ -29,7 +29,7 @@ const createMockTask = (
   description: `Description for task ${id}`,
   status,
   parent_task_id: null,
-  shared_task_id: null,
+  swarm_task_id: null,
   created_at: '2024-01-01T00:00:00Z',
   updated_at: '2024-01-01T00:00:00Z',
   is_remote: false,

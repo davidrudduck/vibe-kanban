@@ -78,7 +78,7 @@ function createMockTask(
     updated_at: new Date().toISOString(),
     archived_at: archivedAt,
     parent_task_id: null,
-    shared_task_id: null,
+    swarm_task_id: null,
     executor: 'CLAUDE_CODE',
     has_in_progress_attempt: false,
     has_merged_attempt: false,

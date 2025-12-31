@@ -34,6 +34,9 @@ pub struct Task {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     // Remote task fields (Phase 1F)
+    /// DEPRECATED: Use swarm_task_id to determine if task is linked to swarm.
+    /// This field is kept for backwards compatibility but will be removed in a future release.
+    /// Tasks with swarm_task_id != NULL are swarm-linked and editable (changes sync to hive).
     pub is_remote: bool,
     pub remote_assignee_user_id: Option<Uuid>,
     pub remote_assignee_name: Option<String>,

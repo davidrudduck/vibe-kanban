@@ -30,7 +30,7 @@ export function useRemoteConnectionStatus(
 ): UseRemoteConnectionStatusResult {
   const { enabled = true } = options ?? {};
 
-  const isRemote = Boolean(task?.is_remote && task?.shared_task_id);
+  const isRemote = Boolean(task?.is_remote && task?.swarm_task_id);
   const taskId = task?.id;
 
   const [connectionInfo, setConnectionInfo] =

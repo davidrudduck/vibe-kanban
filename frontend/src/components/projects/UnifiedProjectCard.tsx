@@ -116,7 +116,7 @@ function UnifiedProjectCard({ project, isFocused, onRefresh, onEdit }: Props) {
           name: project.name,
           git_repo_path: project.git_repo_path,
           created_at: project.created_at,
-          remote_project_id: project.remote_project_id,
+          swarm_project_id: project.swarm_project_id,
         } as Project,
       });
     }
@@ -281,13 +281,13 @@ function UnifiedProjectCard({ project, isFocused, onRefresh, onEdit }: Props) {
                 )}
 
                 {/* Remote-only project actions */}
-                {!project.has_local && project.remote_project_id && (
+                {!project.has_local && project.swarm_project_id && (
                   <DropdownMenuItem
                     onClick={async (e) => {
                       e.stopPropagation();
                       try {
                         const result = await LinkToLocalFolderDialog.show({
-                          remoteProjectId: project.remote_project_id!,
+                          remoteProjectId: project.swarm_project_id!,
                           projectName: project.name,
                         });
                         if (result.action === 'linked') {

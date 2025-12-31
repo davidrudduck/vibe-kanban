@@ -34,11 +34,11 @@ export function DiffsPanel({ selectedAttempt, task, gitOps }: DiffsPanelProps) {
 
   // Build remote stream info if this is a remote task
   const remoteStreamInfo: RemoteStreamInfo | undefined = useMemo(() => {
-    if (task?.is_remote && task?.shared_task_id) {
+    if (task?.is_remote && task?.swarm_task_id) {
       return { taskId: task.id };
     }
     return undefined;
-  }, [task?.is_remote, task?.shared_task_id, task?.id]);
+  }, [task?.is_remote, task?.swarm_task_id, task?.id]);
 
   const { diffs, error, connectionType } = useDiffStream(
     selectedAttempt?.id ?? null,

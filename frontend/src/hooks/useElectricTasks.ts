@@ -117,8 +117,8 @@ export function useElectricTasks(
     // Filter tasks by project and deleted status
     const filtered = data.filter((task) => {
       // Filter by project - Electric syncs project_id from PostgreSQL
-      // Both project_id (from Electric) and remote_project_id (compatibility) are checked
-      const taskProjectId = task.project_id ?? task.remote_project_id;
+      // Both project_id (from Electric) and swarm_project_id (compatibility) are checked
+      const taskProjectId = task.project_id ?? task.swarm_project_id;
       if (taskProjectId !== projectId) {
         return false;
       }
