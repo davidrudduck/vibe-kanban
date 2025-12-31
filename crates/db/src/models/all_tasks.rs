@@ -17,7 +17,7 @@ pub struct TaskWithProjectInfo {
     pub description: Option<String>,
     pub status: TaskStatus,
     pub parent_task_id: Option<Uuid>,
-    pub shared_task_id: Option<Uuid>,
+    pub swarm_task_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub is_remote: bool,
@@ -33,7 +33,7 @@ pub struct TaskWithProjectInfo {
     /// Timestamp of last significant activity (status change, execution start).
     #[ts(type = "Date | null")]
     pub activity_at: Option<DateTime<Utc>>,
-    // Assignee fields from shared_tasks (for consistent avatar/owner display)
+    // Assignee fields (from remote_assignee_* fields on task)
     pub assignee_first_name: Option<String>,
     pub assignee_last_name: Option<String>,
     pub assignee_username: Option<String>,
@@ -65,7 +65,7 @@ impl AllTasksResponse {
   t.description                   AS "description",
   t.status                        AS "status!: TaskStatus",
   t.parent_task_id                AS "parent_task_id: Uuid",
-  t.shared_task_id                AS "shared_task_id: Uuid",
+  t.swarm_task_id                AS "swarm_task_id: Uuid",
   t.created_at                    AS "created_at!: DateTime<Utc>",
   t.updated_at                    AS "updated_at!: DateTime<Utc>",
   t.is_remote                     AS "is_remote!: bool",
@@ -83,10 +83,10 @@ impl AllTasksResponse {
   p.name                          AS "project_name!",
   p.source_node_name              AS "source_node_name",
 
-  -- Assignee info from shared_tasks (for consistent avatar/owner display)
-  st.assignee_first_name          AS "assignee_first_name",
-  st.assignee_last_name           AS "assignee_last_name",
-  COALESCE(st.assignee_username, t.remote_assignee_username) AS "assignee_username",
+  -- Assignee info (remote_assignee_* fields on task, shared_tasks table removed)
+  t.remote_assignee_name          AS "assignee_first_name",
+  NULL                            AS "assignee_last_name: String",
+  t.remote_assignee_username      AS "assignee_username",
 
   -- Attempt status: has_in_progress_attempt
   CASE WHEN EXISTS (
@@ -137,7 +137,6 @@ impl AllTasksResponse {
 
 FROM tasks t
 JOIN projects p ON t.project_id = p.id
-LEFT JOIN shared_tasks st ON t.shared_task_id = st.id
 WHERE (t.archived_at IS NULL OR $1)
 ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
             include_archived
@@ -154,7 +153,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                 description: rec.description,
                 status: rec.status,
                 parent_task_id: rec.parent_task_id,
-                shared_task_id: rec.shared_task_id,
+                swarm_task_id: rec.swarm_task_id,
                 created_at: rec.created_at,
                 updated_at: rec.updated_at,
                 is_remote: rec.is_remote,

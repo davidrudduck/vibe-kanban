@@ -29,13 +29,13 @@ pub struct AssignSharedTaskResponse {
 
 pub fn router() -> Router<DeploymentImpl> {
     Router::new().route(
-        "/shared-tasks/{shared_task_id}/assign",
+        "/shared-tasks/{swarm_task_id}/assign",
         post(assign_shared_task),
     )
 }
 
 pub async fn assign_shared_task(
-    Path(shared_task_id): Path<Uuid>,
+    Path(swarm_task_id): Path<Uuid>,
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<AssignSharedTaskRequest>,
 ) -> Result<ResponseJson<ApiResponse<AssignSharedTaskResponse>>, ApiError> {
@@ -43,7 +43,7 @@ pub async fn assign_shared_task(
         return Err(ShareError::MissingConfig("share publisher unavailable").into());
     };
 
-    let shared_task = SharedTask::find_by_id(&deployment.db().pool, shared_task_id)
+    let shared_task = SharedTask::find_by_id(&deployment.db().pool, swarm_task_id)
         .await?
         .ok_or_else(|| ApiError::Conflict("shared task not found".into()))?;
 
