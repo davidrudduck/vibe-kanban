@@ -457,5 +457,10 @@
     "insertTemplate": "Insertar plantilla",
     "execution": "Ejecución",
     "createAndStart": "Crear e Iniciar"
+  },
+  "templatePicker": {
+    "title": "Insertar Plantilla",
+    "searchPlaceholder": "Buscar plantillas...",
+    "noResults": "No se encontraron plantillas"
   }
 }

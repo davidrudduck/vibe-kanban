@@ -96,5 +96,5 @@ remote-frontend/dist
 # Worktree progress tracking (branch-specific, not carried forward)
 .vk_progress.md
 
-# Playwright MCP screenshots (development artifacts)
-.playwright-mcp/prod_db_copy.sqlite
+# Playwright MCP screenshots and development artifacts
+.playwright-mcp/

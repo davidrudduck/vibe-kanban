@@ -457,5 +457,10 @@
     "insertTemplate": "テンプレートを挿入",
     "execution": "実行",
     "createAndStart": "作成して開始"
+  },
+  "templatePicker": {
+    "title": "テンプレートを挿入",
+    "searchPlaceholder": "テンプレートを検索...",
+    "noResults": "テンプレートが見つかりません"
   }
 }
