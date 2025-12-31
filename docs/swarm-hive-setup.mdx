@@ -274,18 +274,40 @@ pnpm run dev
 
 ## Linking Projects
 
-Projects on the node must be linked to the hive for task routing.
+**Projects are not automatically linked.** When a node joins a hive, nothing is shared by default. You must explicitly link projects via the Swarm Management settings page.
 
-### Via the Frontend
+### Explicit Linking Architecture
 
-1. Open a project on the node's local frontend
-2. Click the menu (three dots) on the project card
-3. Select "Link to Remote Project"
-4. Choose your organization and create/select a remote project
+The swarm uses an **explicit linking model**:
+
+1. **Nothing linked by default** - Joining a hive doesn't auto-share anything
+2. **Explicit user control** - All linking is done through the Swarm Management UI
+3. **Hive connectivity required** - Nodes must be connected to create/edit swarm-linked entities
+4. **One swarm project → many nodes** - The same swarm project can be linked to projects on multiple nodes
+
+### Via the Swarm Management UI
+
+1. Navigate to **Settings → Swarm Management**
+2. Sign in to your hive account if not already signed in
+3. Select your organization from the dropdown
+4. In the **Swarm Projects** section, find the swarm project you want to link
+5. Select a local project from the dropdown and click **Link**
+
+To unlink a project:
+1. Find the linked project in the Swarm Projects section
+2. Click the **Unlink** button
 
 ### Via the API
 
-When a project is linked, the node automatically registers the link with the hive.
+```bash
+# Link a local project to a swarm project
+curl -X POST http://localhost:3000/api/projects/{local-project-id}/link \
+  -H "Content-Type: application/json" \
+  -d '{"swarm_project_id": "swarm-project-uuid"}'
+
+# Unlink a project from swarm
+curl -X POST http://localhost:3000/api/projects/{local-project-id}/unlink
+```
 
 ### Automatic Re-Linking on Connect
 
@@ -299,13 +321,9 @@ The auto-linking process:
 
 1. Node authenticates with hive via WebSocket
 2. Hive sends list of known linked projects for this node
-3. Node queries local database for all projects with `remote_project_id` set
+3. Node queries local database for all projects with `swarm_project_id` set
 4. For any project not in the hive's list, node sends `LinkProject` message
 5. Hive registers the project-node relationship
-
-<Note>
-Auto-linking only registers local projects (where `is_remote = 0`). Projects that originated from the hive are not re-linked as they're already tracked by the hive.
-</Note>
 
 ### Automatic Sync After Linking
 
@@ -313,8 +331,7 @@ Once a project is linked, the following data syncs automatically:
 
 | Data | Direction | Method |
 |------|-----------|--------|
-| Tasks (hive-created) | Hive → Node | ElectricSQL + WebSocket |
-| Tasks (locally-created) | Node → Hive | WebSocket (`TaskSync`) |
+| Tasks | Bidirectional | WebSocket (`TaskSync`) |
 | Labels | Bidirectional | WebSocket (`LabelSync`) |
 | Task Attempts | Node → Hive | HiveSyncService (background) |
 | Execution Processes | Node → Hive | HiveSyncService (background) |
@@ -322,20 +339,20 @@ Once a project is linked, the following data syncs automatically:
 
 The **HiveSyncService** runs automatically in the background (every 5 seconds) to sync execution data. This is offline-first: data is queued locally if the Hive is unreachable and synced when connection is restored.
 
-### Local vs Remote Tasks
+### Task Ownership
 
-Tasks have an `is_remote` flag that determines their editability:
+With the explicit linking architecture:
 
-| Type | `is_remote` | Editable | Description |
-|------|-------------|----------|-------------|
-| Local | `0` | Yes | Created on this node |
-| Remote | `1` | No (view only) | From hive or another node |
+| Project State | Task Behavior |
+|--------------|---------------|
+| **Unlinked** (`swarm_project_id = NULL`) | Tasks are local-only, fully editable |
+| **Linked** (`swarm_project_id = UUID`) | Tasks sync to hive, fully editable on any linked node |
 
-When you create a task locally on a node that's connected to a hive:
-1. The task is created with `is_remote = 0` (editable)
-2. When the task has execution attempts, it's synced to the hive
-3. The hive assigns a `shared_task_id` so execution data can be tracked
-4. The task remains editable on the originating node
+When a project is linked:
+1. Existing local tasks are migrated to the hive (become swarm tasks)
+2. New tasks created on any linked node sync to the hive immediately
+3. All linked nodes see all tasks for that swarm project
+4. Tasks are fully editable from any node - changes sync automatically
 
 ---
 
@@ -510,14 +527,14 @@ The log viewer shows connection status:
 3. Check node logs for `LabelSync` messages
 4. Labels sync every 5 seconds - wait for next sync cycle
 
-### Local Tasks Showing as Read-Only
+### Tasks Not Editable
 
-If tasks you created locally appear as read-only (greyed out, no edit options):
+All tasks (local and swarm-linked) should be fully editable. If you cannot edit a task:
 
-1. Check `is_remote` flag in database: should be `0` for local tasks
-2. Verify project `is_remote` flag: should be `0` for locally-owned projects
-3. If incorrect, a migration may need to run to fix the flag
-4. Check logs for "sync from shared task" events that may have overwritten the flag
+1. Check if the project is properly linked - unlinked projects' tasks are local-only
+2. Verify hive connectivity - swarm-linked tasks require hive connection to sync changes
+3. Check the browser console for API errors
+4. Verify you're signed in to the hive
 
 ---
 
