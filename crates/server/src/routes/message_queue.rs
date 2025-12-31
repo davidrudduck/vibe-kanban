@@ -44,7 +44,9 @@ pub async fn add_queued_message(
     ResponseJson(payload): ResponseJson<AddQueuedMessageRequest>,
 ) -> Result<ResponseJson<ApiResponse<QueuedMessage>>, ApiError> {
     if payload.content.trim().is_empty() {
-        return Err(ApiError::BadRequest("Message content cannot be empty".into()));
+        return Err(ApiError::BadRequest(
+            "Message content cannot be empty".into(),
+        ));
     }
 
     // Check queue limit
@@ -80,13 +82,20 @@ pub async fn update_queued_message(
     if let Some(ref content) = payload.content
         && content.trim().is_empty()
     {
-        return Err(ApiError::BadRequest("Message content cannot be empty".into()));
+        return Err(ApiError::BadRequest(
+            "Message content cannot be empty".into(),
+        ));
     }
 
     let message = deployment
         .local_container()
         .message_queue()
-        .update(task_attempt.id, message_id, payload.content, payload.variant)
+        .update(
+            task_attempt.id,
+            message_id,
+            payload.content,
+            payload.variant,
+        )
         .await;
 
     match message {
@@ -166,5 +175,8 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             load_task_attempt_middleware,
         ));
 
-    Router::new().nest("/task-attempts/{task_attempt_id}/message-queue", queue_routes)
+    Router::new().nest(
+        "/task-attempts/{task_attempt_id}/message-queue",
+        queue_routes,
+    )
 }

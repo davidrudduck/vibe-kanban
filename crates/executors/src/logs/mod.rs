@@ -134,8 +134,7 @@ impl NormalizedEntryError {
             || content_lower.contains("unauthorized")
             || content_lower.contains("forbidden")
             || content_lower.contains("403")
-            || content_lower.contains("401")
-                && !content_lower.contains("authentication required")
+            || content_lower.contains("401") && !content_lower.contains("authentication required")
         {
             return Self::PermissionDenied;
         }
@@ -435,7 +434,9 @@ mod tests {
     fn test_classify_setup_required() {
         // Test various authentication-related error messages
         assert_eq!(
-            NormalizedEntryError::classify("Authentication required. Please run 'cursor-agent login' first."),
+            NormalizedEntryError::classify(
+                "Authentication required. Please run 'cursor-agent login' first."
+            ),
             NormalizedEntryError::SetupRequired
         );
         assert_eq!(
@@ -678,7 +679,11 @@ mod tests {
                 // Should be approximately 30 seconds (allow for small timing variance)
                 assert!(waited_seconds.is_some());
                 let seconds = waited_seconds.unwrap();
-                assert!((29..=31).contains(&seconds), "Expected ~30 seconds, got {}", seconds);
+                assert!(
+                    (29..=31).contains(&seconds),
+                    "Expected ~30 seconds, got {}",
+                    seconds
+                );
             }
             _ => panic!("Expected TimedOut status"),
         }

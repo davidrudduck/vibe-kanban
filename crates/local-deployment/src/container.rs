@@ -29,7 +29,9 @@ use deployment::{DeploymentError, RemoteClientNotConfigured};
 use executors::{
     actions::{Executable, ExecutorAction},
     approvals::{ExecutorApprovalService, NoopExecutorApprovalService},
-    executors::{BaseCodingAgent, ExecutorExitResult, ExecutorExitSignal, claude::protocol::ProtocolPeer},
+    executors::{
+        BaseCodingAgent, ExecutorExitResult, ExecutorExitSignal, claude::protocol::ProtocolPeer,
+    },
     logs::{
         NormalizedEntryType,
         utils::{
@@ -955,12 +957,9 @@ impl LocalContainerService {
         let container_ref = self.ensure_container_exists(&ctx.task_attempt).await?;
 
         // Get session id - use find_previous_session_ids to skip invalidated sessions
-        let session_ids = ExecutionProcess::find_previous_session_ids(
-            &self.db.pool,
-            ctx.task_attempt.id,
-            5,
-        )
-        .await?;
+        let session_ids =
+            ExecutionProcess::find_previous_session_ids(&self.db.pool, ctx.task_attempt.id, 5)
+                .await?;
 
         let Some(session_id) = session_ids.into_iter().next() else {
             tracing::warn!(

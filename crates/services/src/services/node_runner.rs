@@ -838,7 +838,9 @@ async fn auto_link_local_projects(
             command_tx
                 .send(NodeMessage::LinkProject(link_msg))
                 .await
-                .map_err(|_| NodeRunnerError::SyncError("Failed to send LinkProject".to_string()))?;
+                .map_err(|_| {
+                    NodeRunnerError::SyncError("Failed to send LinkProject".to_string())
+                })?;
 
             linked_count += 1;
             tracing::info!(

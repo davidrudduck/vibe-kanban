@@ -462,9 +462,7 @@ impl Copilot {
         // Try to parse JSON content from DEBUG lines
         if level == "DEBUG" || level == "LOG" {
             // Check for model info: "Using model: <model>"
-            if !*model_reported
-                && let Some(model) = content.strip_prefix("Using model: ")
-            {
+            if !*model_reported && let Some(model) = content.strip_prefix("Using model: ") {
                 *model_reported = true;
                 return Some(NormalizedEntry {
                     timestamp: None,

@@ -352,7 +352,9 @@ impl RemoteSync {
                 }
             }
         } else {
-            tracing::debug!("Startup sync: no authenticated user, skipping auto-assignment of unassigned tasks");
+            tracing::debug!(
+                "Startup sync: no authenticated user, skipping auto-assignment of unassigned tasks"
+            );
         }
     }
 

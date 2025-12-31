@@ -940,7 +940,10 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
     ///
     /// This query ensures we sync tasks before their attempts, so the attempts
     /// can reference a valid `shared_task_id`.
-    pub async fn find_needing_sync(pool: &SqlitePool, limit: i64) -> Result<Vec<Self>, sqlx::Error> {
+    pub async fn find_needing_sync(
+        pool: &SqlitePool,
+        limit: i64,
+    ) -> Result<Vec<Self>, sqlx::Error> {
         // Use runtime query to avoid sqlx cache issues
         sqlx::query_as::<_, Self>(
             r#"SELECT DISTINCT

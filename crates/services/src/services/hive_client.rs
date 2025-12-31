@@ -858,7 +858,10 @@ impl HiveClient {
                         "task sync failed"
                     );
                 }
-                let _ = self.event_tx.send(HiveEvent::TaskSyncResponse(response)).await;
+                let _ = self
+                    .event_tx
+                    .send(HiveEvent::TaskSyncResponse(response))
+                    .await;
             }
             HiveMessage::HeartbeatAck { server_time } => {
                 tracing::trace!(server_time = %server_time, "heartbeat acknowledged");
