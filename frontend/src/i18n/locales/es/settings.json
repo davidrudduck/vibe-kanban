@@ -12,7 +12,11 @@
         "mcp": "Servidores MCP",
         "mcpDesc": "Servidores de Protocolo de Contexto de Modelo (MCP)",
         "organizations": "Organization Settings",
-        "organizationsDesc": "Manage organization members and permissions"
+        "organizationsDesc": "Manage organization members and permissions",
+        "backups": "Copias de seguridad",
+        "backupsDesc": "Gestión de copias de seguridad de la base de datos",
+        "swarm": "Gestión de Enjambre",
+        "swarmDesc": "Gestionar proyectos vinculados entre nodos"
       }
     },
     "general": {
