@@ -104,7 +104,7 @@ export function useProjectMutations(options?: UseProjectMutationsOptions) {
     mutationKey: ['linkToExisting'],
     mutationFn: async (data: {
       localProjectId: string;
-      data: { remote_project_id: string };
+      data: { swarm_project_id: string };
     }) => {
       console.warn('Link to existing API not implemented', data.localProjectId);
       throw new Error('Link to existing API not implemented');

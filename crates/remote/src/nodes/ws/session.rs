@@ -1191,6 +1191,7 @@ async fn handle_task_sync(
     let repo = SharedTaskRepository::new(pool);
     match repo
         .upsert_from_node(UpsertTaskFromNodeData {
+            swarm_task_id: task_sync.swarm_task_id,
             project_id: task_sync.swarm_project_id,
             organization_id: project.organization_id,
             origin_node_id: node_id,

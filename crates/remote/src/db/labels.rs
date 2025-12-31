@@ -547,16 +547,61 @@ impl LabelRepository<'_> {
         }
 
         // Create new label (or for new labels without swarm_label_id)
-        let label = self
-            .create(CreateLabelData {
+        // Use find_or_create to handle potential UNIQUE constraint conflicts
+        let (label, was_created) = self
+            .find_or_create(CreateLabelData {
                 organization_id: data.organization_id,
                 project_id: data.project_id,
                 origin_node_id: Some(data.origin_node_id),
-                name: data.name,
-                icon: data.icon,
-                color: data.color,
+                name: data.name.clone(),
+                icon: data.icon.clone(),
+                color: data.color.clone(),
             })
             .await?;
+
+        // If label already existed, update it with the incoming data if version is higher
+        if !was_created && label.version < data.version {
+            // Use runtime query to avoid SQLx cache issues
+            let updated: Label = sqlx::query_as(
+                r#"
+                UPDATE labels AS l
+                SET name           = $2,
+                    icon           = $3,
+                    color          = $4,
+                    version        = $5,
+                    origin_node_id = $6,
+                    updated_at     = NOW()
+                WHERE l.id = $1
+                  AND l.deleted_at IS NULL
+                RETURNING
+                    l.id,
+                    l.organization_id,
+                    l.project_id,
+                    l.origin_node_id,
+                    l.name,
+                    l.icon,
+                    l.color,
+                    l.version,
+                    l.deleted_at,
+                    l.created_at,
+                    l.updated_at
+                "#,
+            )
+            .bind(label.id)
+            .bind(&data.name)
+            .bind(&data.icon)
+            .bind(&data.color)
+            .bind(data.version)
+            .bind(data.origin_node_id)
+            .fetch_one(self.pool)
+            .await?;
+            return Ok((updated, false));
+        }
+
+        // If label already existed but has same or higher version, just return it
+        if !was_created {
+            return Ok((label, false));
+        }
 
         // Update the version to match the node's version
         let label = sqlx::query_as!(
