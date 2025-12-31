@@ -30,11 +30,35 @@ export function useMessageQueue(attemptId: string | undefined) {
       if (!attemptId) throw new Error('No attempt ID');
       return messageQueueApi.add(attemptId, content, variant);
     },
-    onSuccess: (newMessage) => {
+    onMutate: async ({ content, variant }) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previousQueue = queryClient.getQueryData<QueuedMessage[]>(queryKey);
+      const tempMessage: QueuedMessage = {
+        id: `temp-${Date.now()}`,
+        task_attempt_id: attemptId!,
+        content,
+        variant,
+        position: previousQueue?.length ?? 0,
+        created_at: new Date().toISOString(),
+      };
       queryClient.setQueryData<QueuedMessage[]>(queryKey, (old = []) => [
         ...old,
-        newMessage,
+        tempMessage,
       ]);
+      return { previousQueue };
+    },
+    onError: (_error, _vars, context) => {
+      if (context?.previousQueue) {
+        queryClient.setQueryData(queryKey, context.previousQueue);
+      }
+    },
+    onSuccess: (newMessage) => {
+      queryClient.setQueryData<QueuedMessage[]>(queryKey, (old = []) =>
+        old.map((msg) => (msg.id.startsWith('temp-') ? newMessage : msg))
+      );
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey });
     },
   });
 
@@ -51,10 +75,34 @@ export function useMessageQueue(attemptId: string | undefined) {
       if (!attemptId) throw new Error('No attempt ID');
       return messageQueueApi.update(attemptId, messageId, content, variant);
     },
+    onMutate: async ({ messageId, content, variant }) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previousQueue = queryClient.getQueryData<QueuedMessage[]>(queryKey);
+      queryClient.setQueryData<QueuedMessage[]>(queryKey, (old = []) =>
+        old.map((msg) =>
+          msg.id === messageId
+            ? {
+                ...msg,
+                content: content ?? msg.content,
+                variant: variant !== undefined ? variant : msg.variant,
+              }
+            : msg
+        )
+      );
+      return { previousQueue };
+    },
+    onError: (_error, _vars, context) => {
+      if (context?.previousQueue) {
+        queryClient.setQueryData(queryKey, context.previousQueue);
+      }
+    },
     onSuccess: (updatedMessage) => {
       queryClient.setQueryData<QueuedMessage[]>(queryKey, (old = []) =>
         old.map((msg) => (msg.id === updatedMessage.id ? updatedMessage : msg))
       );
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey });
     },
   });
 
@@ -76,6 +124,9 @@ export function useMessageQueue(attemptId: string | undefined) {
         queryClient.setQueryData(queryKey, context.previousQueue);
       }
     },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey });
+    },
   });
 
   const reorderMutation = useMutation({
@@ -83,8 +134,32 @@ export function useMessageQueue(attemptId: string | undefined) {
       if (!attemptId) throw new Error('No attempt ID');
       return messageQueueApi.reorder(attemptId, messageIds);
     },
+    onMutate: async (messageIds) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previousQueue = queryClient.getQueryData<QueuedMessage[]>(queryKey);
+      // Reorder optimistically based on the new order
+      if (previousQueue) {
+        const messageMap = new Map(previousQueue.map((msg) => [msg.id, msg]));
+        const reorderedQueue = messageIds
+          .map((id, index) => {
+            const msg = messageMap.get(id);
+            return msg ? { ...msg, position: index } : null;
+          })
+          .filter((msg): msg is QueuedMessage => msg !== null);
+        queryClient.setQueryData<QueuedMessage[]>(queryKey, reorderedQueue);
+      }
+      return { previousQueue };
+    },
+    onError: (_error, _messageIds, context) => {
+      if (context?.previousQueue) {
+        queryClient.setQueryData(queryKey, context.previousQueue);
+      }
+    },
     onSuccess: (reorderedMessages) => {
       queryClient.setQueryData<QueuedMessage[]>(queryKey, reorderedMessages);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey });
     },
   });
 
@@ -93,8 +168,19 @@ export function useMessageQueue(attemptId: string | undefined) {
       if (!attemptId) throw new Error('No attempt ID');
       return messageQueueApi.clear(attemptId);
     },
-    onSuccess: () => {
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey });
+      const previousQueue = queryClient.getQueryData<QueuedMessage[]>(queryKey);
       queryClient.setQueryData<QueuedMessage[]>(queryKey, []);
+      return { previousQueue };
+    },
+    onError: (_error, _vars, context) => {
+      if (context?.previousQueue) {
+        queryClient.setQueryData(queryKey, context.previousQueue);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey });
     },
   });
 
