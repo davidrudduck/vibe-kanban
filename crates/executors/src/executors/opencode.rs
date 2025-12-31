@@ -350,11 +350,11 @@ impl Opencode {
     ) {
         while let Some(line) = log_lines.next().await {
             if line.starts_with("ERROR") || LogUtils::is_error_line(&line) {
+                // Use automatic error classification based on content patterns
+                let error_type = NormalizedEntryError::classify(&line);
                 let entry = NormalizedEntry {
                     timestamp: None,
-                    entry_type: NormalizedEntryType::ErrorMessage {
-                        error_type: NormalizedEntryError::Other,
-                    },
+                    entry_type: NormalizedEntryType::ErrorMessage { error_type },
                     content: line.clone(),
                     metadata: None,
                 };
@@ -638,6 +638,14 @@ impl Opencode {
                         .and_then(|m| m.exit)
                         .map(|code| crate::logs::CommandExitStatus::ExitCode { code });
 
+                    // Determine tool status based on share event status
+                    let tool_status = match status {
+                        "completed" => ToolStatus::Success,
+                        "error" => ToolStatus::Failed,
+                        "running" => ToolStatus::Created,
+                        _ => ToolStatus::Created,
+                    };
+
                     let (result, mut content_text) = match status {
                         "completed" => {
                             let output = state.output.as_deref().unwrap_or("");
@@ -821,7 +829,7 @@ impl Opencode {
                         entry_type: NormalizedEntryType::ToolUse {
                             tool_name: tool.clone(),
                             action_type: resolved_action_type,
-                            status: ToolStatus::Success,
+                            status: tool_status,
                         },
                         content: content_text,
                         metadata: None,
