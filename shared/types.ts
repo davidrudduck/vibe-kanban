@@ -843,7 +843,17 @@ value: JsonValue, };
 
 export type ToolResultValueType = { "type": "markdown" } | { "type": "json" };
 
-export type ToolStatus = { "status": "created" } | { "status": "success" } | { "status": "failed" } | { "status": "denied", reason: string | null, } | { "status": "pending_approval", approval_id: string, requested_at: string, timeout_at: string, } | { "status": "timed_out" } | { "status": "pending_question", question_id: string, questions: Array<Question>, requested_at: string, timeout_at: string, } | { "status": "answered", 
+export type DenialSource = "user" | "hook" | "policy" | "system";
+
+export type ToolStatus = { "status": "created" } | { "status": "success" } | { "status": "failed" } | { "status": "denied", reason: string | null, 
+/**
+ * Source of the denial
+ */
+source: DenialSource, } | { "status": "pending_approval", approval_id: string, requested_at: string, timeout_at: string, } | { "status": "timed_out", 
+/**
+ * How long the approval was waited for before timing out, in seconds
+ */
+waited_seconds: bigint | null, } | { "status": "pending_question", question_id: string, questions: Array<Question>, requested_at: string, timeout_at: string, } | { "status": "answered", 
 /**
  * Map of question text -> selected answer(s)
  */

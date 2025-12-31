@@ -243,6 +243,22 @@ impl NormalizedEntry {
     }
 }
 
+/// Source of denial for tool execution
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Default, PartialEq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum DenialSource {
+    /// User explicitly denied the tool
+    #[default]
+    User,
+    /// Hook or pre-flight check denied the tool
+    Hook,
+    /// Permission policy denied the tool
+    Policy,
+    /// System/executor denied the tool
+    System,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
 #[ts(export)]
 #[serde(tag = "status", rename_all = "snake_case")]
@@ -253,13 +269,20 @@ pub enum ToolStatus {
     Failed,
     Denied {
         reason: Option<String>,
+        /// Source of the denial
+        #[serde(default)]
+        source: DenialSource,
     },
     PendingApproval {
         approval_id: String,
         requested_at: DateTime<Utc>,
         timeout_at: DateTime<Utc>,
     },
-    TimedOut,
+    TimedOut {
+        /// How long the approval was waited for before timing out, in seconds
+        #[serde(default)]
+        waited_seconds: Option<u64>,
+    },
     /// Pending user question for AskUserQuestion tool
     PendingQuestion {
         question_id: String,
@@ -280,8 +303,11 @@ impl ToolStatus {
             ApprovalStatus::Approved => Some(ToolStatus::Created),
             ApprovalStatus::Denied { reason } => Some(ToolStatus::Denied {
                 reason: reason.clone(),
+                source: DenialSource::User, // Default to user denial
             }),
-            ApprovalStatus::TimedOut => Some(ToolStatus::TimedOut),
+            ApprovalStatus::TimedOut => Some(ToolStatus::TimedOut {
+                waited_seconds: None,
+            }),
             ApprovalStatus::Pending => None, // this should not happen
         }
     }
@@ -305,10 +331,26 @@ impl ToolStatus {
             }
             ApprovalStatus::Denied { reason } => Some(ToolStatus::Denied {
                 reason: reason.clone(),
+                source: DenialSource::User, // Default to user denial
             }),
-            ApprovalStatus::TimedOut => Some(ToolStatus::TimedOut),
+            ApprovalStatus::TimedOut => Some(ToolStatus::TimedOut {
+                waited_seconds: None,
+            }),
             ApprovalStatus::Pending => None,
         }
+    }
+
+    /// Create a TimedOut status with the waited duration
+    pub fn timed_out_with_duration(requested_at: DateTime<Utc>) -> Self {
+        let waited = (Utc::now() - requested_at).num_seconds().max(0) as u64;
+        ToolStatus::TimedOut {
+            waited_seconds: Some(waited),
+        }
+    }
+
+    /// Create a Denied status with a specific source
+    pub fn denied_with_source(reason: Option<String>, source: DenialSource) -> Self {
+        ToolStatus::Denied { reason, source }
     }
 }
 
@@ -571,5 +613,123 @@ mod tests {
             NormalizedEntryError::classify("CONNECTION REFUSED"),
             NormalizedEntryError::NetworkError
         );
+    }
+
+    #[test]
+    fn test_denial_source_default() {
+        // Test that DenialSource defaults to User
+        let source = DenialSource::default();
+        assert_eq!(source, DenialSource::User);
+    }
+
+    #[test]
+    fn test_denial_source_serialization() {
+        // Test serialization of DenialSource variants
+        assert_eq!(
+            serde_json::to_string(&DenialSource::User).unwrap(),
+            "\"user\""
+        );
+        assert_eq!(
+            serde_json::to_string(&DenialSource::Hook).unwrap(),
+            "\"hook\""
+        );
+        assert_eq!(
+            serde_json::to_string(&DenialSource::Policy).unwrap(),
+            "\"policy\""
+        );
+        assert_eq!(
+            serde_json::to_string(&DenialSource::System).unwrap(),
+            "\"system\""
+        );
+    }
+
+    #[test]
+    fn test_tool_status_denied_with_source() {
+        // Test denied_with_source helper method
+        let status =
+            ToolStatus::denied_with_source(Some("User said no".to_string()), DenialSource::User);
+        match status {
+            ToolStatus::Denied { reason, source } => {
+                assert_eq!(reason, Some("User said no".to_string()));
+                assert_eq!(source, DenialSource::User);
+            }
+            _ => panic!("Expected Denied status"),
+        }
+
+        // Test with Hook source
+        let status = ToolStatus::denied_with_source(None, DenialSource::Hook);
+        match status {
+            ToolStatus::Denied { reason, source } => {
+                assert_eq!(reason, None);
+                assert_eq!(source, DenialSource::Hook);
+            }
+            _ => panic!("Expected Denied status"),
+        }
+    }
+
+    #[test]
+    fn test_tool_status_timed_out_with_duration() {
+        // Test timed_out_with_duration helper method
+        // Use a time 30 seconds in the past
+        let requested_at = chrono::Utc::now() - chrono::Duration::seconds(30);
+        let status = ToolStatus::timed_out_with_duration(requested_at);
+        match status {
+            ToolStatus::TimedOut { waited_seconds } => {
+                // Should be approximately 30 seconds (allow for small timing variance)
+                assert!(waited_seconds.is_some());
+                let seconds = waited_seconds.unwrap();
+                assert!((29..=31).contains(&seconds), "Expected ~30 seconds, got {}", seconds);
+            }
+            _ => panic!("Expected TimedOut status"),
+        }
+    }
+
+    #[test]
+    fn test_tool_status_from_approval_status_includes_source() {
+        use workspace_utils::approvals::ApprovalStatus;
+
+        // Test that from_approval_status creates Denied with User source
+        let status = ToolStatus::from_approval_status(&ApprovalStatus::Denied {
+            reason: Some("Rejected".to_string()),
+        });
+        match status {
+            Some(ToolStatus::Denied { reason, source }) => {
+                assert_eq!(reason, Some("Rejected".to_string()));
+                assert_eq!(source, DenialSource::User);
+            }
+            _ => panic!("Expected Denied status"),
+        }
+    }
+
+    #[test]
+    fn test_tool_status_timed_out_serialization() {
+        // Test serialization of TimedOut with waited_seconds
+        let status = ToolStatus::TimedOut {
+            waited_seconds: Some(45),
+        };
+        let json = serde_json::to_string(&status).unwrap();
+        assert!(json.contains("\"timed_out\""));
+        assert!(json.contains("\"waited_seconds\":45"));
+
+        // Test with None
+        let status = ToolStatus::TimedOut {
+            waited_seconds: None,
+        };
+        let json = serde_json::to_string(&status).unwrap();
+        assert!(json.contains("\"timed_out\""));
+        assert!(json.contains("\"waited_seconds\":null"));
+    }
+
+    #[test]
+    fn test_tool_status_denied_serialization() {
+        // Test serialization of Denied with source
+        let status = ToolStatus::Denied {
+            reason: Some("Not allowed".to_string()),
+            source: DenialSource::Policy,
+        };
+        let json = serde_json::to_string(&status).unwrap();
+        assert!(json.contains("\"denied\""));
+        assert!(json.contains("\"source\":\"policy\""));
+        assert!(json.contains("\"reason\":\"Not allowed\""));
     }
 }
