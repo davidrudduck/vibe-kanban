@@ -1,0 +1,182 @@
+---
+title: "Storage Configuration"
+description: "Configure custom storage locations for database, backups, and worktrees"
+sidebarTitle: "Storage Locations"
+---
+
+## Overview
+
+Vibe Kanban stores data in platform-specific default locations. You can override these
+locations using environment variables to customize where data is stored.
+
+All storage environment variables support **tilde expansion** (e.g., `~/vibe-kanban/db.sqlite`
+expands to `/home/username/vibe-kanban/db.sqlite`).
+
+## Default Storage Locations
+
+| Category | Development | Production |
+|----------|-------------|------------|
+| **Database** | `<project_root>/dev_assets/db.sqlite` | `~/.local/share/vibe-kanban/db.sqlite` |
+| **Backups** | `<project_root>/dev_assets/backups/` | `~/.local/share/vibe-kanban/backups/` |
+| **Worktrees** | `/var/tmp/vibe-kanban-dev/worktrees/` | `/var/tmp/vibe-kanban/worktrees/` |
+| **Logs** | `<project_root>/dev_assets/logs/` | `~/.local/share/vibe-kanban/logs/` |
+
+<Note>
+Production locations use platform-specific data directories. On macOS, this is
+`~/Library/Application Support/vibe-kanban/`. On Windows, it's `%APPDATA%\vibe-kanban\`.
+</Note>
+
+## Configuration Options
+
+### Database Location
+
+<ParamField path="VK_DATABASE_PATH" type="string">
+  Full path to the SQLite database file. Parent directories are created automatically if they don't exist.
+</ParamField>
+
+```bash
+# Example: Store database in a custom location
+VK_DATABASE_PATH=~/vibe-kanban/db.sqlite
+
+# Example: Use a specific directory for all Vibe Kanban data
+VK_DATABASE_PATH=/data/vibe-kanban/db.sqlite
+```
+
+### Backup Directory
+
+<ParamField path="VK_BACKUP_DIR" type="string">
+  Directory for automatic database backups. Backups are created before migrations
+  and can be triggered manually via the API.
+</ParamField>
+
+```bash
+# Example: Store backups in a separate location
+VK_BACKUP_DIR=~/vibe-kanban-backups
+
+# Example: Store backups on a different drive
+VK_BACKUP_DIR=/mnt/backup/vibe-kanban
+```
+
+<Info>
+Vibe Kanban automatically retains the 5 most recent backups and deletes older ones.
+</Info>
+
+### Worktree Directory
+
+<ParamField path="VK_WORKTREE_DIR" type="string">
+  Base directory for git worktrees. Each task attempt creates a worktree in this
+  directory for isolated code changes.
+</ParamField>
+
+```bash
+# Example: Use a custom worktree location
+VK_WORKTREE_DIR=~/dev/worktrees
+
+# Example: Use a faster SSD for worktrees
+VK_WORKTREE_DIR=/mnt/nvme/vibe-kanban/worktrees
+```
+
+<Warning>
+Worktrees can consume significant disk space. Choose a location with adequate
+storage, especially when running multiple concurrent tasks.
+</Warning>
+
+## Logging Configuration
+
+These variables are already documented in
+[Database Performance](/configuration-customisation/database-performance) but are
+related to storage:
+
+<ParamField path="VK_FILE_LOGGING" type="boolean" default="false">
+  Enable file-based logging. When enabled, logs are written to disk in JSON format
+  with daily rotation.
+</ParamField>
+
+<ParamField path="VK_LOG_DIR" type="string">
+  Directory for log files. Only used when `VK_FILE_LOGGING=true`.
+</ParamField>
+
+<ParamField path="VK_LOG_MAX_FILES" type="number" default="7">
+  Number of daily log files to retain.
+</ParamField>
+
+## Startup Logging
+
+When Vibe Kanban starts, it logs the resolved storage locations:
+
+```text
+INFO Storage locations database=/home/user/.local/share/vibe-kanban/db.sqlite
+     backups=/home/user/.local/share/vibe-kanban/backups
+     worktrees=/var/tmp/vibe-kanban/worktrees
+```
+
+This helps verify your configuration is applied correctly.
+
+## Example Configurations
+
+### Centralized Data Directory
+
+Store all Vibe Kanban data in a single location:
+
+```bash
+export VK_DATABASE_PATH=~/vibe-kanban/db.sqlite
+export VK_BACKUP_DIR=~/vibe-kanban/backups
+export VK_WORKTREE_DIR=~/vibe-kanban/worktrees
+export VK_LOG_DIR=~/vibe-kanban/logs
+export VK_FILE_LOGGING=true
+```
+
+### Docker/Container Configuration
+
+When running in Docker, mount volumes for persistent data:
+
+```bash
+export VK_DATABASE_PATH=/data/db.sqlite
+export VK_BACKUP_DIR=/data/backups
+export VK_WORKTREE_DIR=/data/worktrees
+```
+
+```yaml
+# docker-compose.yml
+volumes:
+  - ./vibe-kanban-data:/data
+```
+
+### High-Performance Setup
+
+Use fast storage for worktrees while keeping backups on reliable storage:
+
+```bash
+export VK_DATABASE_PATH=/mnt/ssd/vibe-kanban/db.sqlite
+export VK_BACKUP_DIR=/mnt/nas/vibe-kanban/backups
+export VK_WORKTREE_DIR=/mnt/nvme/worktrees
+```
+
+## Troubleshooting
+
+### Permission Errors
+
+If you see permission errors on startup:
+
+1. Ensure the parent directories exist and are writable
+2. Check file ownership matches the user running Vibe Kanban
+3. On Linux, avoid paths in `/root/` unless running as root
+
+### Path Not Expanding
+
+If tilde (`~`) is not expanding:
+
+- Ensure the path is quoted properly in your shell
+- Use the full absolute path instead: `/home/username/...`
+
+### Backups Not Created
+
+If backups aren't appearing in your custom directory:
+
+1. Check the startup logs for the resolved backup path
+2. Verify the directory is writable
+3. Backups are only created before migrations or when triggered via API
+
+<Card title="Database Performance" icon="database" href="/configuration-customisation/database-performance">
+  Configure database performance settings and monitoring
+</Card>

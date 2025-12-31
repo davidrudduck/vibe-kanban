@@ -390,6 +390,22 @@ impl NodeRunnerHandle {
             HiveEvent::Error { message } => {
                 tracing::error!(message = %message, "error from hive");
             }
+            HiveEvent::TaskSyncResponse(response) => {
+                if response.success {
+                    tracing::info!(
+                        local_task_id = %response.local_task_id,
+                        shared_task_id = %response.shared_task_id,
+                        "task sync response received - task will be updated"
+                    );
+                } else {
+                    tracing::warn!(
+                        local_task_id = %response.local_task_id,
+                        error = ?response.error,
+                        "task sync failed"
+                    );
+                }
+                // Note: DB update happens in run_node_runner where we have access to the pool
+            }
         }
 
         Some(event)
@@ -577,7 +593,7 @@ pub fn spawn_node_runner<C: ContainerService + Sync + Send + 'static>(
                 Some(HiveEvent::Connected {
                     node_id,
                     organization_id,
-                    ..
+                    linked_projects,
                 }) => {
                     // Sync remote projects into unified schema on connect
                     if let Some(ref client) = remote_client
@@ -585,6 +601,13 @@ pub fn spawn_node_runner<C: ContainerService + Sync + Send + 'static>(
                             sync_remote_projects(&db.pool, client, organization_id, node_id).await
                     {
                         tracing::warn!(error = ?e, "Failed to sync remote projects on connect");
+                    }
+
+                    // Auto-link local projects that have remote_project_id but aren't registered with hive
+                    if let Err(e) =
+                        auto_link_local_projects(&db.pool, &command_tx, &linked_projects).await
+                    {
+                        tracing::warn!(error = ?e, "Failed to auto-link local projects");
                     }
                 }
                 Some(HiveEvent::TaskAssigned(assignment)) => {
@@ -621,6 +644,31 @@ pub fn spawn_node_runner<C: ContainerService + Sync + Send + 'static>(
                         }
                     } else {
                         tracing::warn!("task cancellation received but no container available");
+                    }
+                }
+                Some(HiveEvent::TaskSyncResponse(response)) => {
+                    if response.success {
+                        // Update the local task with the shared_task_id
+                        if let Err(e) = Task::set_shared_task_id(
+                            &db.pool,
+                            response.local_task_id,
+                            Some(response.shared_task_id),
+                        )
+                        .await
+                        {
+                            tracing::error!(
+                                error = ?e,
+                                local_task_id = %response.local_task_id,
+                                shared_task_id = %response.shared_task_id,
+                                "failed to update task with shared_task_id"
+                            );
+                        } else {
+                            tracing::info!(
+                                local_task_id = %response.local_task_id,
+                                shared_task_id = %response.shared_task_id,
+                                "updated local task with shared_task_id"
+                            );
+                        }
                     }
                 }
                 Some(_) => {
@@ -751,4 +799,60 @@ fn convert_task_status(status: &RemoteTaskStatus) -> TaskStatus {
         RemoteTaskStatus::Done => TaskStatus::Done,
         RemoteTaskStatus::Cancelled => TaskStatus::Cancelled,
     }
+}
+
+/// Auto-link all local projects that have remote_project_id but aren't registered with hive.
+///
+/// This function is called on connection to ensure all previously-linked projects
+/// are properly registered with the hive. This handles the case where projects were
+/// linked before the node joined the hive, or if the hive's node_projects table was reset.
+async fn auto_link_local_projects(
+    pool: &SqlitePool,
+    command_tx: &mpsc::Sender<NodeMessage>,
+    linked_projects: &[LinkedProjectInfo],
+) -> Result<(), NodeRunnerError> {
+    // Get all local projects with remote_project_id set
+    let local_projects = Project::find_all_with_remote_id(pool).await?;
+
+    let mut linked_count = 0;
+    for project in local_projects {
+        let remote_project_id = match project.remote_project_id {
+            Some(id) => id,
+            None => continue,
+        };
+
+        // Check if already registered with hive (is_owned == true for this project)
+        // We match on local_project_id because that's the unique identifier on this node
+        let already_linked = linked_projects
+            .iter()
+            .any(|lp| lp.is_owned && lp.local_project_id == project.id);
+
+        if !already_linked {
+            let link_msg = LinkProjectMessage {
+                project_id: remote_project_id,
+                local_project_id: project.id,
+                git_repo_path: project.git_repo_path.to_string_lossy().to_string(),
+                default_branch: "main".to_string(), // Default to main
+            };
+
+            command_tx
+                .send(NodeMessage::LinkProject(link_msg))
+                .await
+                .map_err(|_| NodeRunnerError::SyncError("Failed to send LinkProject".to_string()))?;
+
+            linked_count += 1;
+            tracing::info!(
+                project_id = %project.id,
+                remote_project_id = %remote_project_id,
+                name = %project.name,
+                "Auto-linked project to hive"
+            );
+        }
+    }
+
+    if linked_count > 0 {
+        tracing::info!(linked_count, "Auto-linked local projects to hive");
+    }
+
+    Ok(())
 }
