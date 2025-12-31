@@ -29,7 +29,6 @@ use crate::{
 };
 
 mod mcp;
-const CURSOR_AUTH_REQUIRED_MSG: &str = "Authentication required. Please run 'cursor-agent login' first, or set CURSOR_API_KEY environment variable.";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, JsonSchema)]
 pub struct CursorAgent {
@@ -136,46 +135,29 @@ impl StandardCodingAgentExecutor for CursorAgent {
         let entry_index_provider = EntryIndexProvider::start_from(&msg_store);
 
         // Custom stderr processor for Cursor that detects login errors
+        // Process stderr with automatic error classification
         let msg_store_stderr = msg_store.clone();
         let entry_index_provider_stderr = entry_index_provider.clone();
         tokio::spawn(async move {
             let mut stderr = msg_store_stderr.stderr_chunked_stream();
             let mut processor = PlainTextLogProcessor::builder()
                 .normalized_entry_producer(Box::new(|content: String| {
-                    let content = strip_ansi_escapes::strip_str(&content);
-
+                    let stripped_content = strip_ansi_escapes::strip_str(&content);
+                    let error_type = NormalizedEntryError::classify(&stripped_content);
                     NormalizedEntry {
                         timestamp: None,
-                        entry_type: NormalizedEntryType::ErrorMessage {
-                            error_type: NormalizedEntryError::Other,
-                        },
-                        content,
+                        entry_type: NormalizedEntryType::ErrorMessage { error_type },
+                        content: stripped_content,
                         metadata: None,
                     }
                 }))
                 .time_gap(Duration::from_secs(2))
-                .index_provider(entry_index_provider_stderr.clone())
+                .index_provider(entry_index_provider_stderr)
                 .build();
 
             while let Some(Ok(chunk)) = stderr.next().await {
-                let content = strip_ansi_escapes::strip_str(&chunk);
-                if content.contains(CURSOR_AUTH_REQUIRED_MSG) {
-                    let error_message = NormalizedEntry {
-                        timestamp: None,
-                        entry_type: NormalizedEntryType::ErrorMessage {
-                            error_type: NormalizedEntryError::SetupRequired,
-                        },
-                        content: content.to_string(),
-                        metadata: None,
-                    };
-                    let id = entry_index_provider_stderr.next();
-                    msg_store_stderr
-                        .push_patch(ConversationPatch::add_normalized_entry(id, error_message));
-                } else {
-                    // Always emit error message
-                    for patch in processor.process(chunk) {
-                        msg_store_stderr.push_patch(patch);
-                    }
+                for patch in processor.process(chunk) {
+                    msg_store_stderr.push_patch(patch);
                 }
             }
         });

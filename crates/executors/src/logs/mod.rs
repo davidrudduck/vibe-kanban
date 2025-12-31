@@ -66,8 +66,108 @@ pub struct NormalizedConversation {
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum NormalizedEntryError {
+    /// Authentication or login required
     SetupRequired,
+    /// Rate limit exceeded (429, quota, throttling)
+    RateLimited,
+    /// Network connectivity issues (connection refused, timeout, DNS)
+    NetworkError,
+    /// Tool execution failed
+    ToolExecutionError,
+    /// Permission denied (403, unauthorized)
+    PermissionDenied,
+    /// API or model error (invalid request, model unavailable)
+    ApiError,
+    /// Generic/unclassified error
     Other,
+}
+
+impl NormalizedEntryError {
+    /// Classify error message content into appropriate error type
+    pub fn classify(content: &str) -> Self {
+        let content_lower = content.to_lowercase();
+
+        // Check for setup/auth required patterns
+        if content_lower.contains("authentication required")
+            || content_lower.contains("auth required")
+            || content_lower.contains("please log in")
+            || content_lower.contains("login required")
+            || content_lower.contains("not authenticated")
+            || content_lower.contains("please run")
+                && (content_lower.contains("login") || content_lower.contains("auth"))
+        {
+            return Self::SetupRequired;
+        }
+
+        // Check for rate limiting patterns
+        if content_lower.contains("rate limit")
+            || content_lower.contains("rate-limit")
+            || content_lower.contains("ratelimit")
+            || content_lower.contains("too many requests")
+            || content_lower.contains("quota exceeded")
+            || content_lower.contains("throttle")
+            || content_lower.contains("429")
+            || content_lower.contains("overloaded")
+        {
+            return Self::RateLimited;
+        }
+
+        // Check for network error patterns
+        if content_lower.contains("connection refused")
+            || content_lower.contains("connection reset")
+            || content_lower.contains("connection timed out")
+            || content_lower.contains("network error")
+            || content_lower.contains("dns resolution")
+            || content_lower.contains("could not resolve")
+            || content_lower.contains("econnrefused")
+            || content_lower.contains("enotfound")
+            || content_lower.contains("etimedout")
+            || content_lower.contains("socket hang up")
+            || content_lower.contains("network is unreachable")
+        {
+            return Self::NetworkError;
+        }
+
+        // Check for permission denied patterns
+        if content_lower.contains("permission denied")
+            || content_lower.contains("access denied")
+            || content_lower.contains("unauthorized")
+            || content_lower.contains("forbidden")
+            || content_lower.contains("403")
+            || content_lower.contains("401")
+                && !content_lower.contains("authentication required")
+        {
+            return Self::PermissionDenied;
+        }
+
+        // Check for tool execution error patterns
+        if content_lower.contains("tool execution failed")
+            || content_lower.contains("command failed")
+            || content_lower.contains("tool error")
+            || content_lower.contains("execution error")
+            || content_lower.contains("subprocess failed")
+        {
+            return Self::ToolExecutionError;
+        }
+
+        // Check for API error patterns
+        if content_lower.contains("api error")
+            || content_lower.contains("invalid request")
+            || content_lower.contains("bad request")
+            || content_lower.contains("model not found")
+            || content_lower.contains("model unavailable")
+            || content_lower.contains("invalid api key")
+            || content_lower.contains("service unavailable")
+            || content_lower.contains("500")
+            || content_lower.contains("502")
+            || content_lower.contains("503")
+            || content_lower.contains("504")
+        {
+            return Self::ApiError;
+        }
+
+        Self::Other
+    }
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -283,4 +383,193 @@ pub enum FileChange {
         /// Whether line number in the hunks are reliable.
         has_line_numbers: bool,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_classify_setup_required() {
+        // Test various authentication-related error messages
+        assert_eq!(
+            NormalizedEntryError::classify("Authentication required. Please run 'cursor-agent login' first."),
+            NormalizedEntryError::SetupRequired
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("Error: Auth required to continue"),
+            NormalizedEntryError::SetupRequired
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("Please log in to your account"),
+            NormalizedEntryError::SetupRequired
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("Error: login required before running commands"),
+            NormalizedEntryError::SetupRequired
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("User not authenticated"),
+            NormalizedEntryError::SetupRequired
+        );
+    }
+
+    #[test]
+    fn test_classify_rate_limited() {
+        // Test rate limiting error messages
+        assert_eq!(
+            NormalizedEntryError::classify("Error: Rate limit exceeded, please try again later"),
+            NormalizedEntryError::RateLimited
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("HTTP 429: Too many requests"),
+            NormalizedEntryError::RateLimited
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("API quota exceeded for this month"),
+            NormalizedEntryError::RateLimited
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("Request throttled, slow down"),
+            NormalizedEntryError::RateLimited
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("Model is overloaded, try again"),
+            NormalizedEntryError::RateLimited
+        );
+    }
+
+    #[test]
+    fn test_classify_network_error() {
+        // Test network-related error messages
+        assert_eq!(
+            NormalizedEntryError::classify("Error: Connection refused by remote host"),
+            NormalizedEntryError::NetworkError
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("Connection timed out after 30s"),
+            NormalizedEntryError::NetworkError
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("Network error: could not resolve hostname"),
+            NormalizedEntryError::NetworkError
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("ECONNREFUSED: Connection refused"),
+            NormalizedEntryError::NetworkError
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("Error: ETIMEDOUT - request timed out"),
+            NormalizedEntryError::NetworkError
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("Socket hang up during request"),
+            NormalizedEntryError::NetworkError
+        );
+    }
+
+    #[test]
+    fn test_classify_permission_denied() {
+        // Test permission/authorization error messages
+        assert_eq!(
+            NormalizedEntryError::classify("Permission denied: cannot access /etc/passwd"),
+            NormalizedEntryError::PermissionDenied
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("Error: Access denied to resource"),
+            NormalizedEntryError::PermissionDenied
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("HTTP 403: Forbidden"),
+            NormalizedEntryError::PermissionDenied
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("Unauthorized: invalid credentials"),
+            NormalizedEntryError::PermissionDenied
+        );
+    }
+
+    #[test]
+    fn test_classify_tool_execution_error() {
+        // Test tool/command execution error messages
+        assert_eq!(
+            NormalizedEntryError::classify("Tool execution failed: npm install returned error"),
+            NormalizedEntryError::ToolExecutionError
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("Command failed with exit code 1"),
+            NormalizedEntryError::ToolExecutionError
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("Tool error: unable to parse response"),
+            NormalizedEntryError::ToolExecutionError
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("Subprocess failed with signal SIGKILL"),
+            NormalizedEntryError::ToolExecutionError
+        );
+    }
+
+    #[test]
+    fn test_classify_api_error() {
+        // Test API-related error messages
+        assert_eq!(
+            NormalizedEntryError::classify("API error: invalid request format"),
+            NormalizedEntryError::ApiError
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("Error: Bad request - missing required field"),
+            NormalizedEntryError::ApiError
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("Model not found: gpt-5-ultra"),
+            NormalizedEntryError::ApiError
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("Error: Invalid API key provided"),
+            NormalizedEntryError::ApiError
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("HTTP 500: Internal server error"),
+            NormalizedEntryError::ApiError
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("HTTP 503: Service unavailable"),
+            NormalizedEntryError::ApiError
+        );
+    }
+
+    #[test]
+    fn test_classify_other() {
+        // Test that unrecognized errors fall back to Other
+        assert_eq!(
+            NormalizedEntryError::classify("Some random error message"),
+            NormalizedEntryError::Other
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("Warning: deprecated function used"),
+            NormalizedEntryError::Other
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("Info: processing complete"),
+            NormalizedEntryError::Other
+        );
+    }
+
+    #[test]
+    fn test_classify_case_insensitive() {
+        // Verify case-insensitive matching
+        assert_eq!(
+            NormalizedEntryError::classify("AUTHENTICATION REQUIRED"),
+            NormalizedEntryError::SetupRequired
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("RATE LIMIT EXCEEDED"),
+            NormalizedEntryError::RateLimited
+        );
+        assert_eq!(
+            NormalizedEntryError::classify("CONNECTION REFUSED"),
+            NormalizedEntryError::NetworkError
+        );
+    }
 }
