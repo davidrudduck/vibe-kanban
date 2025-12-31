@@ -202,7 +202,11 @@
     "cancel": "Cancelar",
     "variant": "Variante:",
     "addToQueue": "Agregar a la cola",
-    "addToQueueTooltip": "Agregar mensaje a la cola"
+    "addToQueueTooltip": "Agregar mensaje a la cola",
+    "saveError": "Error al guardar los cambios",
+    "confirmRemove": "¿Eliminar este mensaje de la cola?",
+    "removeError": "Error al eliminar el mensaje",
+    "injectingMessage": "Enviando mensaje..."
   },
   "git": {
     "branch": {
