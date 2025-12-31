@@ -545,8 +545,16 @@ impl WorktreeManager {
         .map_err(|e| WorktreeError::TaskJoin(format!("{e}")))?
     }
 
-    /// Get the base directory for vibe-kanban worktrees
+    /// Get the base directory for vibe-kanban worktrees.
+    ///
+    /// Respects the `VK_WORKTREE_DIR` environment variable for custom locations.
+    /// Supports tilde expansion (e.g., `~/my-worktrees`).
+    ///
+    /// Default: `{temp_dir}/worktrees` (e.g., `/var/tmp/vibe-kanban/worktrees`)
     pub fn get_worktree_base_dir() -> std::path::PathBuf {
+        if let Ok(dir) = std::env::var("VK_WORKTREE_DIR") {
+            return utils::path::expand_tilde(&dir);
+        }
         utils::path::get_vibe_kanban_temp_dir().join("worktrees")
     }
 
@@ -704,4 +712,41 @@ pub struct WorktreeSize {
     /// Associated task attempt ID (if found via container_ref matching)
     #[ts(optional)]
     pub attempt_id: Option<Uuid>,
+}
+
+#[cfg(test)]
+mod env_override_tests {
+    use super::*;
+    use serial_test::serial;
+    use std::env;
+
+    #[test]
+    #[serial]
+    fn test_worktree_dir_default() {
+        // SAFETY: Tests run serially via #[serial] attribute
+        unsafe { env::remove_var("VK_WORKTREE_DIR") };
+        let path = WorktreeManager::get_worktree_base_dir();
+        assert!(path.to_string_lossy().contains("worktrees"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_worktree_dir_env_override() {
+        // SAFETY: Tests run serially via #[serial] attribute
+        unsafe { env::set_var("VK_WORKTREE_DIR", "/custom/worktrees") };
+        let path = WorktreeManager::get_worktree_base_dir();
+        unsafe { env::remove_var("VK_WORKTREE_DIR") };
+        assert_eq!(path, std::path::PathBuf::from("/custom/worktrees"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_worktree_dir_tilde_expansion() {
+        // SAFETY: Tests run serially via #[serial] attribute
+        unsafe { env::set_var("VK_WORKTREE_DIR", "~/my-worktrees") };
+        let path = WorktreeManager::get_worktree_base_dir();
+        unsafe { env::remove_var("VK_WORKTREE_DIR") };
+        assert!(!path.to_string_lossy().contains('~'));
+        assert!(path.is_absolute());
+    }
 }

@@ -8,20 +8,20 @@ use axum::{
 };
 use db::{BackupInfo, BackupService};
 use tokio_util::io::ReaderStream;
-use utils::{assets::asset_dir, response::ApiResponse};
+use utils::{assets::database_path, response::ApiResponse};
 
 use crate::{DeploymentImpl, error::ApiError};
 
 /// List all available database backups
 async fn list_backups() -> Result<ResponseJson<ApiResponse<Vec<BackupInfo>>>, ApiError> {
-    let db_path = asset_dir().join("db.sqlite");
+    let db_path = database_path();
     let backups = BackupService::list_backups(&db_path)?;
     Ok(ResponseJson(ApiResponse::success(backups)))
 }
 
 /// Create a new database backup
 async fn create_backup() -> Result<ResponseJson<ApiResponse<BackupInfo>>, ApiError> {
-    let db_path = asset_dir().join("db.sqlite");
+    let db_path = database_path();
     let info = BackupService::create_backup(&db_path)?;
     Ok(ResponseJson(ApiResponse::success(info)))
 }
@@ -30,14 +30,14 @@ async fn create_backup() -> Result<ResponseJson<ApiResponse<BackupInfo>>, ApiErr
 async fn delete_backup(
     Path(filename): Path<String>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
-    let db_path = asset_dir().join("db.sqlite");
+    let db_path = database_path();
     BackupService::delete_backup(&db_path, &filename)?;
     Ok(ResponseJson(ApiResponse::success(())))
 }
 
 /// Download a database backup file
 async fn download_backup(Path(filename): Path<String>) -> Result<Response<Body>, ApiError> {
-    let db_path = asset_dir().join("db.sqlite");
+    let db_path = database_path();
     let backup_path = BackupService::get_backup_path(&db_path, &filename)?;
 
     let file = tokio::fs::File::open(&backup_path).await?;
@@ -61,7 +61,7 @@ async fn restore_backup(
     while let Some(field) = multipart.next_field().await? {
         if field.name() == Some("backup") {
             let data = field.bytes().await?;
-            let db_path = asset_dir().join("db.sqlite");
+            let db_path = database_path();
             BackupService::restore_from_data(&db_path, &data)?;
             return Ok(ResponseJson(ApiResponse::success(
                 "You must restart the application for the database restore to finalise."

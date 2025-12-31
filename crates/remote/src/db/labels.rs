@@ -452,6 +452,20 @@ impl<'a> LabelRepository<'a> {
     }
 }
 
+/// Data for upserting a label from a node
+#[derive(Debug, Clone)]
+pub struct UpsertLabelFromNodeData {
+    /// Shared label ID (if updating an existing label)
+    pub shared_label_id: Option<Uuid>,
+    pub organization_id: Uuid,
+    pub project_id: Option<Uuid>,
+    pub origin_node_id: Uuid,
+    pub name: String,
+    pub icon: String,
+    pub color: String,
+    pub version: i64,
+}
+
 impl LabelRepository<'_> {
     /// Get the organization_id for a label
     pub async fn organization_id(
@@ -468,5 +482,108 @@ impl LabelRepository<'_> {
         )
         .fetch_optional(pool)
         .await
+    }
+
+    /// Upsert a label from a node with version-based conflict resolution.
+    ///
+    /// If the label is new (shared_label_id is None), creates a new label.
+    /// If the label exists, updates it only if the incoming version is higher.
+    /// Returns the label and whether it was created (true) or updated (false).
+    pub async fn upsert_from_node(
+        &self,
+        data: UpsertLabelFromNodeData,
+    ) -> Result<(Label, bool), LabelError> {
+        // If shared_label_id is provided, try to update existing label
+        if let Some(shared_label_id) = data.shared_label_id {
+            // Update only if incoming version is higher or equal
+            let updated = sqlx::query_as!(
+                Label,
+                r#"
+                UPDATE labels AS l
+                SET name           = $2,
+                    icon           = $3,
+                    color          = $4,
+                    version        = $5,
+                    origin_node_id = $6,
+                    updated_at     = NOW()
+                WHERE l.id = $1
+                  AND l.version < $5
+                  AND l.deleted_at IS NULL
+                RETURNING
+                    l.id              AS "id!",
+                    l.organization_id AS "organization_id!",
+                    l.project_id      AS "project_id?",
+                    l.origin_node_id  AS "origin_node_id?",
+                    l.name            AS "name!",
+                    l.icon            AS "icon!",
+                    l.color           AS "color!",
+                    l.version         AS "version!",
+                    l.deleted_at      AS "deleted_at?",
+                    l.created_at      AS "created_at!",
+                    l.updated_at      AS "updated_at!"
+                "#,
+                shared_label_id,
+                data.name,
+                data.icon,
+                data.color,
+                data.version,
+                data.origin_node_id,
+            )
+            .fetch_optional(self.pool)
+            .await?;
+
+            if let Some(label) = updated {
+                return Ok((label, false));
+            }
+
+            // If no update, label might have higher version already or doesn't exist
+            // Try to fetch it
+            if let Some(label) = self.find_by_id(shared_label_id).await? {
+                // Label exists with same or higher version, no update needed
+                return Ok((label, false));
+            }
+
+            // Label doesn't exist, fall through to create
+        }
+
+        // Create new label (or for new labels without shared_label_id)
+        let label = self
+            .create(CreateLabelData {
+                organization_id: data.organization_id,
+                project_id: data.project_id,
+                origin_node_id: Some(data.origin_node_id),
+                name: data.name,
+                icon: data.icon,
+                color: data.color,
+            })
+            .await?;
+
+        // Update the version to match the node's version
+        let label = sqlx::query_as!(
+            Label,
+            r#"
+            UPDATE labels
+            SET version = $2
+            WHERE id = $1
+            RETURNING
+                id              AS "id!",
+                organization_id AS "organization_id!",
+                project_id      AS "project_id?",
+                origin_node_id  AS "origin_node_id?",
+                name            AS "name!",
+                icon            AS "icon!",
+                color           AS "color!",
+                version         AS "version!",
+                deleted_at      AS "deleted_at?",
+                created_at      AS "created_at!",
+                updated_at      AS "updated_at!"
+            "#,
+            label.id,
+            data.version
+        )
+        .fetch_one(self.pool)
+        .await?;
+
+        Ok((label, true))
     }
 }

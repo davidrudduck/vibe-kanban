@@ -8,7 +8,7 @@ use sqlx::{
     },
 };
 use tracing::warn;
-use utils::assets::asset_dir;
+use utils::assets::database_path;
 
 pub mod backup;
 pub mod metrics;
@@ -102,7 +102,7 @@ pub struct DBService {
 
 impl DBService {
     pub async fn new() -> Result<DBService, Error> {
-        let db_path = asset_dir().join("db.sqlite");
+        let db_path = database_path();
         let database_url = format!("sqlite://{}", db_path.to_string_lossy());
         let max_connections = get_max_connections();
 
@@ -170,7 +170,7 @@ impl DBService {
             + Sync
             + 'static,
     {
-        let db_path = asset_dir().join("db.sqlite");
+        let db_path = database_path();
         let database_url = format!("sqlite://{}", db_path.to_string_lossy());
         let max_connections = get_max_connections();
 

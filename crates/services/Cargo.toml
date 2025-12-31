@@ -66,3 +66,4 @@ security-framework = "2"
 
 [dev-dependencies]
 wiremock = "0.6"
+serial_test = "3.0"
