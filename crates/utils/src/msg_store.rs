@@ -83,6 +83,16 @@ impl MsgStore {
         self.push(LogMsg::Finished);
     }
 
+    /// Check if the store has received a Finished message.
+    pub fn is_finished(&self) -> bool {
+        self.inner
+            .read()
+            .unwrap()
+            .history
+            .iter()
+            .any(|s| matches!(s.msg, LogMsg::Finished))
+    }
+
     pub fn get_receiver(&self) -> broadcast::Receiver<LogMsg> {
         self.sender.subscribe()
     }

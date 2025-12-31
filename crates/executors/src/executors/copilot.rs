@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     process::Stdio,
     sync::Arc,
@@ -8,12 +9,13 @@ use std::{
 use async_trait::async_trait;
 use command_group::AsyncCommandGroup;
 use futures::StreamExt;
+use lazy_static::lazy_static;
 use regex::Regex;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio::{
     fs,
-    io::AsyncWriteExt,
+    io::{AsyncBufReadExt, AsyncSeekExt, AsyncWriteExt, BufReader},
     process::Command,
     time::{interval, timeout},
 };
@@ -27,8 +29,10 @@ use crate::{
         AppendPrompt, AvailabilityInfo, ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
     },
     logs::{
-        NormalizedEntry, NormalizedEntryType, plain_text_processor::PlainTextLogProcessor,
-        stderr_processor::normalize_stderr_logs, utils::EntryIndexProvider,
+        ActionType, NormalizedEntry, NormalizedEntryType, ToolStatus,
+        plain_text_processor::PlainTextLogProcessor,
+        stderr_processor::normalize_stderr_logs,
+        utils::{ConversationPatch, EntryIndexProvider},
     },
     stdout_dup::{self, StdoutAppender},
 };
@@ -184,9 +188,15 @@ impl StandardCodingAgentExecutor for Copilot {
     /// Parses both stderr and stdout logs for Copilot executor using PlainTextLogProcessor.
     ///
     /// Each entry is converted into an `AssistantMessage` or `ErrorMessage` and emitted as patches.
-    fn normalize_logs(&self, msg_store: Arc<MsgStore>, _worktree_path: &Path) {
+    /// Additionally, starts a log file watcher to extract structured information like model info
+    /// from Copilot's debug log files.
+    fn normalize_logs(&self, msg_store: Arc<MsgStore>, worktree_path: &Path) {
         let entry_index_counter = EntryIndexProvider::start_from(&msg_store);
         normalize_stderr_logs(msg_store.clone(), entry_index_counter.clone());
+
+        let worktree_path = worktree_path.to_path_buf();
+        let entry_index_for_log_watcher = entry_index_counter.clone();
+        let msg_store_for_log_watcher = msg_store.clone();
 
         // Normalize Agent logs
         tokio::spawn(async move {
@@ -197,6 +207,18 @@ impl StandardCodingAgentExecutor for Copilot {
             while let Some(Ok(line)) = stdout_lines.next().await {
                 if let Some(session_id) = line.strip_prefix(Self::SESSION_PREFIX) {
                     msg_store.push_session_id(session_id.trim().to_string());
+                    continue;
+                }
+
+                // Check for log directory path and start log file watcher
+                if let Some(log_dir) = line.strip_prefix(Self::LOG_DIR_PREFIX) {
+                    let log_dir_path = PathBuf::from(log_dir.trim());
+                    Self::start_log_file_watcher(
+                        log_dir_path,
+                        msg_store_for_log_watcher.clone(),
+                        entry_index_for_log_watcher.clone(),
+                        worktree_path.clone(),
+                    );
                     continue;
                 }
 
@@ -294,20 +316,306 @@ impl Copilot {
         .map_err(|_| format!("No [session-]<uuid>.log found in {log_dir_path:?}"))
     }
 
+    /// Find the session log file path once it exists
+    async fn find_session_log_file(log_dir_path: PathBuf) -> Result<PathBuf, String> {
+        let mut ticker = interval(Duration::from_millis(200));
+        let re =
+            Regex::new(r"^(?:session-)?([0-9a-fA-F-]{36})\.log$").map_err(|e| e.to_string())?;
+
+        timeout(Duration::from_secs(600), async {
+            loop {
+                if let Ok(mut rd) = fs::read_dir(&log_dir_path).await {
+                    while let Ok(Some(e)) = rd.next_entry().await {
+                        if let Some(file_name) = e.file_name().to_str()
+                            && re.is_match(file_name)
+                        {
+                            return e.path();
+                        }
+                    }
+                }
+                ticker.tick().await;
+            }
+        })
+        .await
+        .map_err(|_| format!("No session log found in {log_dir_path:?}"))
+    }
+
     const SESSION_PREFIX: &'static str = "[copilot-session] ";
+    const LOG_DIR_PREFIX: &'static str = "[copilot-log-dir] ";
 
     // Find session id and write it to stdout prefixed
     fn send_session_id(log_dir_path: PathBuf, stdout_appender: StdoutAppender) {
         tokio::spawn(async move {
-            match Self::watch_session_id(log_dir_path).await {
+            match Self::watch_session_id(log_dir_path.clone()).await {
                 Ok(session_id) => {
                     let session_line = format!("{}{}\n", Self::SESSION_PREFIX, session_id);
                     stdout_appender.append_line(&session_line);
+                    // Also send log dir path for log file parsing
+                    let log_dir_line =
+                        format!("{}{}\n", Self::LOG_DIR_PREFIX, log_dir_path.display());
+                    stdout_appender.append_line(&log_dir_line);
                 }
                 Err(e) => {
                     tracing::error!("Failed to find session ID: {}", e);
                 }
             }
         });
+    }
+
+    /// Start watching and parsing the Copilot log file for structured information
+    fn start_log_file_watcher(
+        log_dir_path: PathBuf,
+        msg_store: Arc<MsgStore>,
+        entry_index: EntryIndexProvider,
+        worktree_path: PathBuf,
+    ) {
+        tokio::spawn(async move {
+            // Wait for the log file to be created
+            let log_file_path = match Self::find_session_log_file(log_dir_path).await {
+                Ok(path) => path,
+                Err(e) => {
+                    tracing::error!("Failed to find session log file: {}", e);
+                    return;
+                }
+            };
+
+            // Parse the log file
+            if let Err(e) =
+                Self::parse_log_file(log_file_path, msg_store, entry_index, worktree_path).await
+            {
+                tracing::error!("Error parsing log file: {}", e);
+            }
+        });
+    }
+
+    /// Parse Copilot log file and emit normalized entries for tool calls
+    async fn parse_log_file(
+        log_file_path: PathBuf,
+        msg_store: Arc<MsgStore>,
+        entry_index: EntryIndexProvider,
+        worktree_path: PathBuf,
+    ) -> Result<(), std::io::Error> {
+        let worktree_str = worktree_path.to_string_lossy().to_string();
+
+        // Track tool call states for begin/end matching
+        let mut tool_states: HashMap<String, ToolCallState> = HashMap::new();
+        let mut model_reported = false;
+
+        // Open file for reading, following as it grows
+        let file = fs::File::open(&log_file_path).await?;
+        let mut reader = BufReader::new(file);
+        let mut line_buf = String::new();
+
+        loop {
+            line_buf.clear();
+            let bytes_read = reader.read_line(&mut line_buf).await?;
+
+            if bytes_read == 0 {
+                // Check if we've reached the end and should stop
+                if msg_store.is_finished() {
+                    break;
+                }
+                // Wait briefly for more content
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                // Re-open file to catch new content (tail -f style)
+                let file = fs::File::open(&log_file_path).await?;
+                let pos = reader.stream_position().await.unwrap_or(0);
+                reader = BufReader::new(file);
+                reader.seek(std::io::SeekFrom::Start(pos)).await?;
+                continue;
+            }
+
+            let line = line_buf.trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            // Parse log line: "TIMESTAMP [LEVEL] MESSAGE" or JSON inside "[DEBUG] {...}"
+            if let Some(entry) = Self::parse_log_line(
+                line,
+                &mut tool_states,
+                &mut model_reported,
+                &worktree_str,
+                &msg_store,
+                &entry_index,
+            ) {
+                let id = entry_index.next();
+                msg_store.push_patch(ConversationPatch::add_normalized_entry(id, entry));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Parse a single log line and optionally return a NormalizedEntry
+    fn parse_log_line(
+        line: &str,
+        tool_states: &mut HashMap<String, ToolCallState>,
+        model_reported: &mut bool,
+        worktree_str: &str,
+        msg_store: &Arc<MsgStore>,
+        entry_index: &EntryIndexProvider,
+    ) -> Option<NormalizedEntry> {
+        // Extract log level and message content
+        let (level, content) = Self::parse_log_level_and_content(line)?;
+
+        // Try to parse JSON content from DEBUG lines
+        if level == "DEBUG" || level == "LOG" {
+            // Check for model info: "Using model: <model>"
+            if !*model_reported
+                && let Some(model) = content.strip_prefix("Using model: ")
+            {
+                *model_reported = true;
+                return Some(NormalizedEntry {
+                    timestamp: None,
+                    entry_type: NormalizedEntryType::SystemMessage,
+                    content: format!("Model: {}", model.trim()),
+                    metadata: None,
+                });
+            }
+
+            // Try to parse tool call JSON
+            if let Some(json_start) = content.find('{') {
+                let json_str = &content[json_start..];
+                if let Ok(tool_event) = serde_json::from_str::<CopilotToolEvent>(json_str) {
+                    return Self::handle_tool_event(
+                        tool_event,
+                        tool_states,
+                        worktree_str,
+                        msg_store,
+                        entry_index,
+                    );
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Parse log level and content from a log line
+    fn parse_log_level_and_content(line: &str) -> Option<(&str, &str)> {
+        // Format: "2025-12-31T01:40:37.640Z [LEVEL] content"
+        let bracket_start = line.find('[')?;
+        let bracket_end = line.find(']')?;
+
+        if bracket_start >= bracket_end {
+            return None;
+        }
+
+        let level = line.get(bracket_start + 1..bracket_end)?;
+        let content = line.get(bracket_end + 1..)?.trim();
+
+        Some((level, content))
+    }
+
+    /// Handle a parsed tool event and optionally return a NormalizedEntry
+    fn handle_tool_event(
+        _event: CopilotToolEvent,
+        _tool_states: &mut HashMap<String, ToolCallState>,
+        _worktree_str: &str,
+        _msg_store: &Arc<MsgStore>,
+        _entry_index: &EntryIndexProvider,
+    ) -> Option<NormalizedEntry> {
+        // Tool events from Copilot logs are not in a structured format we can easily parse
+        // The actual tool calls happen internally and results are streamed to stdout
+        // For now, we rely on stdout parsing for tool output
+        None
+    }
+}
+
+/// State for tracking tool calls across begin/end events
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+struct ToolCallState {
+    index: Option<usize>,
+    tool_name: String,
+    action_type: ActionType,
+    status: ToolStatus,
+}
+
+/// Copilot tool event structure for parsing log JSON
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum CopilotToolEvent {
+    /// Tool call with name and arguments
+    ToolCall {
+        name: Option<String>,
+        function: Option<CopilotFunction>,
+        #[serde(rename = "type")]
+        event_type: Option<String>,
+    },
+    /// Unknown event
+    Unknown(serde_json::Value),
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+struct CopilotFunction {
+    name: Option<String>,
+    parameters: Option<serde_json::Value>,
+}
+
+lazy_static! {
+    /// Regex for parsing tool call patterns in stdout
+    static ref TOOL_CALL_REGEX: Regex = Regex::new(
+        r"(?i)^\s*(?:running|executing|calling)\s+(?:tool\s+)?[`']?(\w+)[`']?"
+    ).expect("valid regex");
+
+    /// Regex for detecting file operations
+    static ref FILE_OP_REGEX: Regex = Regex::new(
+        r"(?i)(?:(?:viewing|reading|editing|creating|writing)\s+(?:file\s+)?[`']?([^\s`']+)[`']?|[`']([^\s`']+)[`']?\s+(?:created|updated|modified|read))"
+    ).expect("valid regex");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_log_level_and_content() {
+        let line = "2025-12-31T01:40:37.640Z [DEBUG] Using model: claude-haiku-4.5";
+        let result = Copilot::parse_log_level_and_content(line);
+        assert!(result.is_some());
+        let (level, content) = result.unwrap();
+        assert_eq!(level, "DEBUG");
+        assert_eq!(content, "Using model: claude-haiku-4.5");
+    }
+
+    #[test]
+    fn test_parse_log_level_log() {
+        let line = "2025-12-31T01:41:08.899Z [LOG] Creating MCP client for github-mcp-server...";
+        let result = Copilot::parse_log_level_and_content(line);
+        assert!(result.is_some());
+        let (level, content) = result.unwrap();
+        assert_eq!(level, "LOG");
+        assert!(content.contains("MCP client"));
+    }
+
+    #[test]
+    fn test_parse_model_info() {
+        let mut tool_states = HashMap::new();
+        let mut model_reported = false;
+        let msg_store = Arc::new(MsgStore::new());
+        let entry_index = EntryIndexProvider::test_new();
+
+        let line = "2025-12-31T01:41:08.664Z [DEBUG] Using model: claude-haiku-4.5";
+        let result = Copilot::parse_log_line(
+            line,
+            &mut tool_states,
+            &mut model_reported,
+            "/tmp/test",
+            &msg_store,
+            &entry_index,
+        );
+
+        assert!(result.is_some());
+        let entry = result.unwrap();
+        assert!(matches!(
+            entry.entry_type,
+            NormalizedEntryType::SystemMessage
+        ));
+        assert!(entry.content.contains("claude-haiku-4.5"));
+        assert!(model_reported);
     }
 }
