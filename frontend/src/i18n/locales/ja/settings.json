@@ -12,7 +12,11 @@
         "mcp": "MCPサーバー",
         "mcpDesc": "モデルコンテキストプロトコルサーバー",
         "organizations": "Organization Settings",
-        "organizationsDesc": "Manage organization members and permissions"
+        "organizationsDesc": "Manage organization members and permissions",
+        "backups": "バックアップ",
+        "backupsDesc": "データベースバックアップ管理",
+        "swarm": "スワーム管理",
+        "swarmDesc": "ノード間でリンクされたプロジェクトを管理"
       }
     },
     "general": {

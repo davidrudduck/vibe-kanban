@@ -14,7 +14,9 @@
         "organizations": "Organization Settings",
         "organizationsDesc": "Manage organization members and permissions",
         "backups": "Backups",
-        "backupsDesc": "Database backup management"
+        "backupsDesc": "Database backup management",
+        "swarm": "Swarm Management",
+        "swarmDesc": "Manage linked projects across nodes"
       },
       "searchPlaceholder": "Search settings...",
       "noResults": "No settings match your search",
@@ -525,6 +527,61 @@
         "unsavedChanges": "• You have unsaved changes",
         "discard": "Discard",
         "confirmSwitch": "You have unsaved changes. Are you sure you want to switch projects? Your changes will be lost."
+      }
+    },
+    "swarm": {
+      "loading": "Loading swarm settings...",
+      "loginRequired": {
+        "title": "Sign in to access Swarm Management",
+        "description": "You need to sign in to manage swarm projects and link local projects to swarm projects.",
+        "action": "Sign In"
+      },
+      "errors": {
+        "loadFailed": "Failed to load swarm settings.",
+        "linkFailed": "Failed to link project.",
+        "unlinkFailed": "Failed to unlink project."
+      },
+      "success": {
+        "linked": "Project linked successfully.",
+        "unlinked": "Project unlinked successfully."
+      },
+      "connection": {
+        "title": "Hive Connection",
+        "description": "Manage your connection to the hive for swarm synchronization.",
+        "connected": "Connected",
+        "disconnected": "Disconnected"
+      },
+      "organization": {
+        "label": "Organization",
+        "placeholder": "Select an organization",
+        "noOrganizations": "No organizations available",
+        "helper": "Select the organization to manage swarm projects for."
+      },
+      "projects": {
+        "title": "Swarm Projects",
+        "description": "Projects shared across the swarm in {{orgName}}.",
+        "loading": "Loading projects...",
+        "noSwarmProjects": "No swarm projects found.",
+        "noSwarmProjectsHint": "Create a swarm project to share tasks across nodes.",
+        "selectProject": "Select a local project",
+        "noAvailable": "No available projects",
+        "notLinked": "Not linked to a local project",
+        "link": "Link",
+        "unlink": "Unlink"
+      },
+      "localProjects": {
+        "title": "Local Projects",
+        "description": "Projects on this node and their swarm linking status.",
+        "loading": "Loading local projects...",
+        "noProjects": "No local projects found.",
+        "localOnly": "Local only"
+      },
+      "info": {
+        "title": "How Swarm Linking Works",
+        "linkingTitle": "Project Linking",
+        "linkingDescription": "Link a local project to a swarm project to sync tasks across all nodes where that swarm project is linked.",
+        "syncTitle": "Task Synchronization",
+        "syncDescription": "When projects are linked, tasks created or updated on any node are automatically synchronized to all other linked nodes."
       }
     }
   },
