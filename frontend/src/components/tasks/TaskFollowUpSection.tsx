@@ -16,7 +16,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { imagesApi } from '@/lib/api.ts';
 import type { TaskWithAttemptStatus } from 'shared/types';
-import { useBranchStatus, useSessionError, useMessageQueue } from '@/hooks';
+import { useBranchStatus, useSessionError, useMessageQueueInjection } from '@/hooks';
 import { useAttemptExecution } from '@/hooks/useAttemptExecution';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { cn } from '@/lib/utils';
@@ -69,11 +69,16 @@ export function TaskFollowUpSection({
     useSessionError(selectedAttemptId);
   const { profiles } = useUserSystem();
 
-  // Message queue for queuing multiple messages
+  // Get the ID of the currently running process (for live message injection)
+  const runningProcessId = useMemo(() => {
+    return processes.find((p) => p.status === 'running')?.id;
+  }, [processes]);
+
+  // Message queue for queuing multiple messages (with live injection support)
   const {
     queue: messageQueue,
     isLoading: isMessageQueueLoading,
-    addMessage: addToMessageQueue,
+    addAndInject,
     updateMessage: updateQueuedMessage,
     removeMessage: removeFromQueue,
     reorderMessages: reorderQueue,
@@ -81,7 +86,8 @@ export function TaskFollowUpSection({
     isAdding: isAddingToQueue,
     isRemoving: isRemovingFromQueue,
     isClearing: isClearingQueue,
-  } = useMessageQueue(selectedAttemptId);
+    isInjecting,
+  } = useMessageQueueInjection(selectedAttemptId, runningProcessId);
   const { comments, generateReviewMarkdown, clearComments } = useReview();
   const {
     generateMarkdown: generateClickedMarkdown,
@@ -693,17 +699,18 @@ export function TaskFollowUpSection({
             )}
             {isAttemptRunning && (
               <div className="flex items-center gap-2">
-                {/* Add to Message Queue button */}
+                {/* Add to Message Queue button (with live injection when running) */}
                 <Button
                   onClick={async () => {
                     if (followUpMessage.trim()) {
-                      await addToMessageQueue(followUpMessage.trim(), selectedVariant);
+                      await addAndInject(followUpMessage.trim(), selectedVariant);
                       setFollowUpMessage('');
                     }
                   }}
                   disabled={
                     !followUpMessage.trim() ||
                     isAddingToQueue ||
+                    isInjecting ||
                     !isDraftLoaded ||
                     isRetryActive
                   }
@@ -711,7 +718,7 @@ export function TaskFollowUpSection({
                   variant="secondary"
                   title={t('messageQueue.addToQueueTooltip')}
                 >
-                  {isAddingToQueue ? (
+                  {isAddingToQueue || isInjecting ? (
                     <Loader2 className="animate-spin h-4 w-4" />
                   ) : (
                     <>
