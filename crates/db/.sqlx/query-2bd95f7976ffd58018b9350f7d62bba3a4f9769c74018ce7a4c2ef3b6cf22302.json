@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE tasks\n               SET swarm_task_id = NULL\n               WHERE project_id IN (\n                   SELECT id FROM projects WHERE swarm_project_id = $1\n               )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "2bd95f7976ffd58018b9350f7d62bba3a4f9769c74018ce7a4c2ef3b6cf22302"
+}

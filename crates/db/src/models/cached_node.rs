@@ -1,36 +1,21 @@
 //! Cached node model for storing node information synced from the hive (legacy implementation).
 //!
-//! This provides a local cache of all nodes in the organization, allowing
-//! the frontend to show a unified view of projects across all nodes.
-//!
 //! # DEPRECATION NOTICE
 //!
-//! This module is a candidate for deprecation in a future release. It will be
-//! replaced by ElectricSQL-based real-time sync for node data.
+//! This module is **DEPRECATED** and its database table has been **DROPPED**.
+//! The cached_nodes table no longer exists.
 //!
-//! ## Future Migration Path
+//! The type definitions are kept for backwards compatibility with existing code
+//! that still references these types. All database operations will return errors.
 //!
-//! When Electric sync is extended to include node data:
-//! - Electric shapes for the `nodes` table will provide real-time updates
-//! - The frontend `useElectricNodes` hook (to be created) will replace polling
-//! - This SQLite cache will no longer be needed
+//! ## Migration
 //!
-//! ## Current Status
-//!
-//! This implementation is still active and required for:
-//! - Node status display in the frontend
-//! - Project routing to the correct source node
-//! - Node capability detection
-//!
-//! ## See Also
-//!
-//! - `crates/services/src/services/node_cache.rs` - Service that populates this cache
-//! - `crates/remote/migrations/20251225000000_electric_support.sql` - nodes in publication
-//! - `frontend/src/lib/electric/collections.ts` - TanStack DB collections (includes nodes)
+//! This module was removed as part of the explicit swarm linking migration.
+//! Node information is now managed via the swarm management UI.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool};
+use sqlx::SqlitePool;
 use ts_rs::TS;
 use uuid::Uuid;
 
@@ -103,17 +88,15 @@ fn default_max_concurrent() -> i32 {
     1
 }
 
-/// A cached node from the hive
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
+/// A cached node from the hive (legacy - table dropped).
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct CachedNode {
     pub id: Uuid,
     pub organization_id: Uuid,
     pub name: String,
     pub machine_id: String,
-    #[sqlx(try_from = "String")]
     pub status: CachedNodeStatus,
     /// JSON-serialized capabilities
-    #[sqlx(rename = "capabilities")]
     #[serde(default)]
     capabilities_json: String,
     pub public_url: Option<String>,
@@ -155,177 +138,42 @@ pub struct CachedNodeInput {
     pub updated_at: DateTime<Utc>,
 }
 
+fn table_dropped_error() -> sqlx::Error {
+    sqlx::Error::Protocol(
+        "cached_nodes table has been dropped - use swarm management instead".to_string(),
+    )
+}
+
 impl CachedNode {
-    /// List all cached nodes for an organization
+    /// DEPRECATED: Table has been dropped.
     pub async fn list_by_organization(
-        pool: &SqlitePool,
-        organization_id: Uuid,
+        _pool: &SqlitePool,
+        _organization_id: Uuid,
     ) -> Result<Vec<Self>, sqlx::Error> {
-        sqlx::query_as!(
-            CachedNode,
-            r#"
-            SELECT
-                id                  AS "id!: Uuid",
-                organization_id     AS "organization_id!: Uuid",
-                name                AS "name!",
-                machine_id          AS "machine_id!",
-                status              AS "status!: String",
-                capabilities        AS "capabilities_json!",
-                public_url          AS "public_url?",
-                last_heartbeat_at   AS "last_heartbeat_at?: DateTime<Utc>",
-                connected_at        AS "connected_at?: DateTime<Utc>",
-                disconnected_at     AS "disconnected_at?: DateTime<Utc>",
-                created_at          AS "created_at!: DateTime<Utc>",
-                updated_at          AS "updated_at!: DateTime<Utc>",
-                last_synced_at      AS "last_synced_at!: DateTime<Utc>"
-            FROM cached_nodes
-            WHERE organization_id = $1
-            ORDER BY name ASC
-            "#,
-            organization_id
-        )
-        .fetch_all(pool)
-        .await
+        Err(table_dropped_error())
     }
 
-    /// Find a cached node by ID
-    pub async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error> {
-        sqlx::query_as!(
-            CachedNode,
-            r#"
-            SELECT
-                id                  AS "id!: Uuid",
-                organization_id     AS "organization_id!: Uuid",
-                name                AS "name!",
-                machine_id          AS "machine_id!",
-                status              AS "status!: String",
-                capabilities        AS "capabilities_json!",
-                public_url          AS "public_url?",
-                last_heartbeat_at   AS "last_heartbeat_at?: DateTime<Utc>",
-                connected_at        AS "connected_at?: DateTime<Utc>",
-                disconnected_at     AS "disconnected_at?: DateTime<Utc>",
-                created_at          AS "created_at!: DateTime<Utc>",
-                updated_at          AS "updated_at!: DateTime<Utc>",
-                last_synced_at      AS "last_synced_at!: DateTime<Utc>"
-            FROM cached_nodes
-            WHERE id = $1
-            "#,
-            id
-        )
-        .fetch_optional(pool)
-        .await
+    /// DEPRECATED: Table has been dropped.
+    pub async fn find_by_id(_pool: &SqlitePool, _id: Uuid) -> Result<Option<Self>, sqlx::Error> {
+        Err(table_dropped_error())
     }
 
-    /// Upsert a cached node
-    pub async fn upsert(pool: &SqlitePool, data: CachedNodeInput) -> Result<Self, sqlx::Error> {
-        let status = data.status.to_string();
-        let capabilities_json =
-            serde_json::to_string(&data.capabilities).unwrap_or_else(|_| "{}".to_string());
-
-        sqlx::query_as!(
-            CachedNode,
-            r#"
-            INSERT INTO cached_nodes (
-                id, organization_id, name, machine_id, status, capabilities,
-                public_url, last_heartbeat_at, connected_at, disconnected_at,
-                created_at, updated_at, last_synced_at
-            )
-            VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, datetime('now', 'subsec')
-            )
-            ON CONFLICT(id) DO UPDATE SET
-                organization_id   = excluded.organization_id,
-                name              = excluded.name,
-                machine_id        = excluded.machine_id,
-                status            = excluded.status,
-                capabilities      = excluded.capabilities,
-                public_url        = excluded.public_url,
-                last_heartbeat_at = excluded.last_heartbeat_at,
-                connected_at      = excluded.connected_at,
-                disconnected_at   = excluded.disconnected_at,
-                created_at        = excluded.created_at,
-                updated_at        = excluded.updated_at,
-                last_synced_at    = datetime('now', 'subsec')
-            RETURNING
-                id                  AS "id!: Uuid",
-                organization_id     AS "organization_id!: Uuid",
-                name                AS "name!",
-                machine_id          AS "machine_id!",
-                status              AS "status!: String",
-                capabilities        AS "capabilities_json!",
-                public_url          AS "public_url?",
-                last_heartbeat_at   AS "last_heartbeat_at?: DateTime<Utc>",
-                connected_at        AS "connected_at?: DateTime<Utc>",
-                disconnected_at     AS "disconnected_at?: DateTime<Utc>",
-                created_at          AS "created_at!: DateTime<Utc>",
-                updated_at          AS "updated_at!: DateTime<Utc>",
-                last_synced_at      AS "last_synced_at!: DateTime<Utc>"
-            "#,
-            data.id,
-            data.organization_id,
-            data.name,
-            data.machine_id,
-            status,
-            capabilities_json,
-            data.public_url,
-            data.last_heartbeat_at,
-            data.connected_at,
-            data.disconnected_at,
-            data.created_at,
-            data.updated_at
-        )
-        .fetch_one(pool)
-        .await
+    /// DEPRECATED: Table has been dropped.
+    pub async fn upsert(_pool: &SqlitePool, _data: CachedNodeInput) -> Result<Self, sqlx::Error> {
+        Err(table_dropped_error())
     }
 
-    /// Remove nodes that are not in the given list of IDs (stale entries)
+    /// DEPRECATED: Table has been dropped.
     pub async fn remove_stale(
-        pool: &SqlitePool,
-        organization_id: Uuid,
-        keep_ids: &[Uuid],
+        _pool: &SqlitePool,
+        _organization_id: Uuid,
+        _keep_ids: &[Uuid],
     ) -> Result<u64, sqlx::Error> {
-        if keep_ids.is_empty() {
-            // Remove all nodes for this org
-            let result = sqlx::query!(
-                "DELETE FROM cached_nodes WHERE organization_id = $1",
-                organization_id
-            )
-            .execute(pool)
-            .await?;
-            return Ok(result.rows_affected());
-        }
-
-        // Build the IN clause for IDs to keep using X'...' hex BLOB literals
-        // SQLite stores UUIDs as BLOBs, so we need to format them as hex literals
-        let placeholders: Vec<String> = keep_ids
-            .iter()
-            .map(|id| {
-                // Convert UUID bytes to hex string for BLOB literal
-                let bytes = id.as_bytes();
-                let hex: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
-                format!("X'{}'", hex)
-            })
-            .collect();
-        let in_clause = placeholders.join(", ");
-
-        let query = format!(
-            "DELETE FROM cached_nodes WHERE organization_id = ? AND id NOT IN ({})",
-            in_clause
-        );
-
-        let result = sqlx::query(&query)
-            .bind(organization_id)
-            .execute(pool)
-            .await?;
-
-        Ok(result.rows_affected())
+        Err(table_dropped_error())
     }
 
-    /// Remove a specific cached node
-    pub async fn remove(pool: &SqlitePool, id: Uuid) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query!("DELETE FROM cached_nodes WHERE id = $1", id)
-            .execute(pool)
-            .await?;
-        Ok(result.rows_affected() > 0)
+    /// DEPRECATED: Table has been dropped.
+    pub async fn remove(_pool: &SqlitePool, _id: Uuid) -> Result<bool, sqlx::Error> {
+        Err(table_dropped_error())
     }
 }

@@ -523,7 +523,7 @@ impl TaskServer {
             status: Some(TaskStatus::Todo),
             parent_task_id: resolved_parent_task_id,
             image_ids: None,
-            shared_task_id: None,
+            swarm_task_id: None,
         };
 
         let task: Task = match self

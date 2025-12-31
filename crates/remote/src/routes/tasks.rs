@@ -511,7 +511,7 @@ impl From<SharedTaskWithUser> for SharedTaskResponse {
 /// Response containing connection information for streaming from a remote node.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskStreamConnectionInfoResponse {
-    /// The task ID (shared_task_id)
+    /// The task ID (swarm_task_id)
     pub task_id: Uuid,
     /// The node ID where the task attempt is running
     pub node_id: Uuid,

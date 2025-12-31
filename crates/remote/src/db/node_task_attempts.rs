@@ -20,7 +20,7 @@ pub enum NodeTaskAttemptError {
 pub struct UpsertNodeTaskAttempt {
     pub id: Uuid,
     pub assignment_id: Option<Uuid>,
-    pub shared_task_id: Uuid,
+    pub swarm_task_id: Uuid,
     pub node_id: Uuid,
     pub executor: String,
     pub executor_variant: Option<String>,
@@ -50,7 +50,7 @@ impl<'a> NodeTaskAttemptRepository<'a> {
         let attempt = sqlx::query_as::<_, NodeTaskAttempt>(
             r#"
             INSERT INTO node_task_attempts (
-                id, assignment_id, shared_task_id, node_id,
+                id, assignment_id, swarm_task_id, node_id,
                 executor, executor_variant, branch, target_branch,
                 container_ref, worktree_deleted, setup_completed_at,
                 created_at, updated_at
@@ -67,7 +67,7 @@ impl<'a> NodeTaskAttemptRepository<'a> {
                 setup_completed_at = EXCLUDED.setup_completed_at,
                 updated_at = EXCLUDED.updated_at
             RETURNING
-                id, assignment_id, shared_task_id, node_id,
+                id, assignment_id, swarm_task_id, node_id,
                 executor, executor_variant, branch, target_branch,
                 container_ref, worktree_deleted, setup_completed_at,
                 created_at, updated_at
@@ -75,7 +75,7 @@ impl<'a> NodeTaskAttemptRepository<'a> {
         )
         .bind(data.id)
         .bind(data.assignment_id)
-        .bind(data.shared_task_id)
+        .bind(data.swarm_task_id)
         .bind(data.node_id)
         .bind(&data.executor)
         .bind(&data.executor_variant)
@@ -100,7 +100,7 @@ impl<'a> NodeTaskAttemptRepository<'a> {
         let attempt = sqlx::query_as::<_, NodeTaskAttempt>(
             r#"
             SELECT
-                id, assignment_id, shared_task_id, node_id,
+                id, assignment_id, swarm_task_id, node_id,
                 executor, executor_variant, branch, target_branch,
                 container_ref, worktree_deleted, setup_completed_at,
                 created_at, updated_at
@@ -116,23 +116,23 @@ impl<'a> NodeTaskAttemptRepository<'a> {
     }
 
     /// Find all attempts for a shared task
-    pub async fn find_by_shared_task_id(
+    pub async fn find_by_swarm_task_id(
         &self,
-        shared_task_id: Uuid,
+        swarm_task_id: Uuid,
     ) -> Result<Vec<NodeTaskAttempt>, NodeTaskAttemptError> {
         let attempts = sqlx::query_as::<_, NodeTaskAttempt>(
             r#"
             SELECT
-                id, assignment_id, shared_task_id, node_id,
+                id, assignment_id, swarm_task_id, node_id,
                 executor, executor_variant, branch, target_branch,
                 container_ref, worktree_deleted, setup_completed_at,
                 created_at, updated_at
             FROM node_task_attempts
-            WHERE shared_task_id = $1
+            WHERE swarm_task_id = $1
             ORDER BY created_at DESC
             "#,
         )
-        .bind(shared_task_id)
+        .bind(swarm_task_id)
         .fetch_all(self.pool)
         .await?;
 
@@ -147,7 +147,7 @@ impl<'a> NodeTaskAttemptRepository<'a> {
         let attempts = sqlx::query_as::<_, NodeTaskAttempt>(
             r#"
             SELECT
-                id, assignment_id, shared_task_id, node_id,
+                id, assignment_id, swarm_task_id, node_id,
                 executor, executor_variant, branch, target_branch,
                 container_ref, worktree_deleted, setup_completed_at,
                 created_at, updated_at
