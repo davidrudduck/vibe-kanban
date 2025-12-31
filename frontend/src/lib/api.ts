@@ -83,6 +83,7 @@ import {
   RevokeInvitationRequest,
   UpdateMemberRoleRequest,
   LinkToLocalFolderRequest,
+  LinkToExistingRequest,
   UpdateMemberRoleResponse,
   Invitation,
   RemoteProject,
@@ -462,6 +463,25 @@ export const projectsApi = {
       open_prs: number;
       last_synced_at: Date | null;
     }>(response);
+  },
+
+  // Swarm Linking
+  linkToExisting: async (
+    projectId: string,
+    data: LinkToExistingRequest
+  ): Promise<Project> => {
+    const response = await makeRequest(`/api/projects/${projectId}/link`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    return handleApiResponse<Project>(response);
+  },
+
+  unlink: async (projectId: string): Promise<Project> => {
+    const response = await makeRequest(`/api/projects/${projectId}/unlink`, {
+      method: 'POST',
+    });
+    return handleApiResponse<Project>(response);
   },
 };
 

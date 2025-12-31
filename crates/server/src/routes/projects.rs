@@ -86,6 +86,14 @@ pub struct LinkToLocalFolderRequest {
     pub project_name: Option<String>,
 }
 
+/// Request to link an existing local project to a remote swarm project
+#[derive(Deserialize, TS)]
+#[ts(export)]
+pub struct LinkToExistingRequest {
+    /// The remote project ID to link to (from the Hive)
+    pub swarm_project_id: Uuid,
+}
+
 /// A project in the unified view - can be local or from another node
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(tag = "type")]
@@ -729,6 +737,98 @@ async fn apply_remote_project_link(
     }
 
     Ok(updated_project)
+}
+
+/// Link an existing local project to a remote swarm project.
+/// This is used from the Swarm Management UI to connect a local project to a remote one.
+pub async fn link_to_existing(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+    Json(payload): Json<LinkToExistingRequest>,
+) -> Result<ResponseJson<ApiResponse<Project>>, ApiError> {
+    // Check if project is already linked
+    if project.swarm_project_id.is_some() {
+        return Ok(ResponseJson(ApiResponse::error(
+            "Project is already linked to a swarm project. Unlink it first.",
+        )));
+    }
+
+    // Get the remote project from the hive
+    let client = deployment.remote_client()?;
+    let remote_project = client.get_project(payload.swarm_project_id).await?;
+
+    // Apply the link
+    let updated_project =
+        apply_remote_project_link(&deployment, project.id, remote_project).await?;
+
+    tracing::info!(
+        project_id = %updated_project.id,
+        swarm_project_id = %payload.swarm_project_id,
+        "Linked local project to remote swarm project"
+    );
+
+    Ok(ResponseJson(ApiResponse::success(updated_project)))
+}
+
+/// Unlink a local project from its remote swarm project.
+/// This clears the swarm_project_id and notifies the hive.
+pub async fn unlink_project(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<Project>>, ApiError> {
+    let pool = &deployment.db().pool;
+
+    // Check if project is linked
+    let swarm_project_id = match project.swarm_project_id {
+        Some(id) => id,
+        None => {
+            return Ok(ResponseJson(ApiResponse::error(
+                "Project is not linked to any swarm project",
+            )));
+        }
+    };
+
+    // Clear the swarm_project_id
+    Project::set_swarm_project_id(pool, project.id, None).await?;
+
+    // Notify the hive about the unlink if we're connected as a node
+    if let Some(ctx) = deployment.node_runner_context() {
+        use services::services::hive_client::UnlinkProjectMessage;
+
+        if ctx.is_connected().await {
+            let unlink_msg = UnlinkProjectMessage {
+                project_id: swarm_project_id,
+            };
+
+            if let Err(e) = ctx.send_unlink_project(unlink_msg).await {
+                tracing::warn!(
+                    project_id = %project.id,
+                    swarm_project_id = %swarm_project_id,
+                    error = %e,
+                    "failed to send unlink_project to hive"
+                );
+            } else {
+                tracing::info!(
+                    project_id = %project.id,
+                    swarm_project_id = %swarm_project_id,
+                    "sent unlink_project to hive"
+                );
+            }
+        }
+    }
+
+    // Fetch the updated project
+    let updated_project = Project::find_by_id(pool, project.id)
+        .await?
+        .ok_or(ProjectError::ProjectNotFound)?;
+
+    tracing::info!(
+        project_id = %project.id,
+        old_swarm_project_id = %swarm_project_id,
+        "Unlinked local project from remote swarm project"
+    );
+
+    Ok(ResponseJson(ApiResponse::success(updated_project)))
 }
 
 pub async fn create_project(
@@ -1667,6 +1767,9 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/open-editor", post(open_project_in_editor))
         // File browser endpoints
         .route("/files", get(list_project_files))
+        // Swarm linking endpoints
+        .route("/link", post(link_to_existing))
+        .route("/unlink", post(unlink_project))
         // GitHub integration endpoints
         .route("/github", post(set_github_enabled))
         .route("/github/counts", get(get_github_counts))

@@ -96,6 +96,12 @@ local_folder_path: string,
  */
 project_name: string | null, };
 
+export type LinkToExistingRequest = { 
+/**
+ * The remote project ID to link to (from the Hive)
+ */
+swarm_project_id: string, };
+
 export type UnifiedProject = { "type": "local" } & Project | { "type": "remote" } & RemoteNodeProject;
 
 export type RemoteNodeProject = { 

@@ -5,6 +5,7 @@ import type {
   UpdateProject,
   Project,
   LinkToLocalFolderRequest,
+  LinkToExistingRequest,
 } from 'shared/types';
 
 interface UseProjectMutationsOptions {
@@ -14,10 +15,10 @@ interface UseProjectMutationsOptions {
   onUpdateError?: (err: unknown) => void;
   onLinkLocalFolderSuccess?: (project: Project) => void;
   onLinkLocalFolderError?: (err: unknown) => void;
-  // Legacy link/unlink options (deprecated - API not implemented)
-  onLinkSuccess?: () => void;
+  // Link/unlink to existing swarm project
+  onLinkSuccess?: (project: Project) => void;
   onLinkError?: (err: unknown) => void;
-  onUnlinkSuccess?: () => void;
+  onUnlinkSuccess?: (project: Project) => void;
   onUnlinkError?: (err: unknown) => void;
 }
 
@@ -98,31 +99,77 @@ export function useProjectMutations(options?: UseProjectMutationsOptions) {
     },
   });
 
-  // Stub mutations for link/unlink (API not yet implemented)
-  // These are referenced by OrganizationSettings but don't work
+  // Link an existing local project to an existing remote swarm project
   const linkToExisting = useMutation({
     mutationKey: ['linkToExisting'],
     mutationFn: async (data: {
       localProjectId: string;
-      data: { swarm_project_id: string };
+      data: LinkToExistingRequest;
     }) => {
-      console.warn('Link to existing API not implemented', data.localProjectId);
-      throw new Error('Link to existing API not implemented');
+      return projectsApi.linkToExisting(data.localProjectId, data.data);
+    },
+    onSuccess: (project: Project) => {
+      // Update the project in cache
+      queryClient.setQueryData(['project', project.id], project);
+
+      // Invalidate related queries
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['mergedProjects'] });
+      queryClient.invalidateQueries({ queryKey: ['unifiedProjects'] });
+
+      // Invalidate organization projects queries
+      queryClient.invalidateQueries({
+        queryKey: ['organizations'],
+        predicate: (query) => {
+          const key = query.queryKey;
+          return (
+            key.length === 3 &&
+            key[0] === 'organizations' &&
+            key[2] === 'projects'
+          );
+        },
+      });
+
+      options?.onLinkSuccess?.(project);
     },
     onError: (err) => {
-      console.error('Link to existing not implemented:', err);
+      console.error('Failed to link project:', err);
       options?.onLinkError?.(err);
     },
   });
 
+  // Unlink a local project from its remote swarm project
   const unlinkProject = useMutation({
     mutationKey: ['unlinkProject'],
     mutationFn: async (projectId: string) => {
-      console.warn('Unlink project API not implemented', projectId);
-      throw new Error('Unlink project API not implemented');
+      return projectsApi.unlink(projectId);
+    },
+    onSuccess: (project: Project) => {
+      // Update the project in cache
+      queryClient.setQueryData(['project', project.id], project);
+
+      // Invalidate related queries
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['mergedProjects'] });
+      queryClient.invalidateQueries({ queryKey: ['unifiedProjects'] });
+
+      // Invalidate organization projects queries
+      queryClient.invalidateQueries({
+        queryKey: ['organizations'],
+        predicate: (query) => {
+          const key = query.queryKey;
+          return (
+            key.length === 3 &&
+            key[0] === 'organizations' &&
+            key[2] === 'projects'
+          );
+        },
+      });
+
+      options?.onUnlinkSuccess?.(project);
     },
     onError: (err) => {
-      console.error('Unlink project not implemented:', err);
+      console.error('Failed to unlink project:', err);
       options?.onUnlinkError?.(err);
     },
   });
