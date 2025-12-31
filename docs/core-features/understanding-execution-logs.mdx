@@ -1,0 +1,221 @@
+---
+title: "Understanding Execution Logs"
+description: "Learn how to read and interpret the execution logs from AI coding agents"
+sidebarTitle: "Understanding Logs"
+---
+
+When a coding agent runs, every action is logged and displayed in real-time. Understanding these logs helps you track progress, debug issues, and provide better feedback.
+
+## Log Entry Types
+
+Each log entry has a specific type that determines how it's displayed:
+
+### Messages
+
+| Type | Icon | Description |
+|------|------|-------------|
+| **User Message** | User avatar | Messages you've sent to the agent |
+| **Assistant Message** | Agent avatar | Text responses from the agent |
+| **System Message** | Info icon | Configuration and model information |
+| **Thinking** | Brain icon | Agent's reasoning process (when available) |
+
+### Tool Actions
+
+Tool actions show what the agent is doing:
+
+| Action | Description |
+|--------|-------------|
+| **File Read** | Agent reading a file's contents |
+| **File Edit** | Changes made to a file (expandable to see diff) |
+| **Command Run** | Shell command executed with output |
+| **Search** | Code or file searches |
+| **Web Fetch** | External URL requests |
+| **Task Create** | Sub-task creation |
+| **Plan** | Implementation plan presentation |
+| **Todo** | Todo list management |
+
+<Tip>
+Click on any file edit action to expand and see exactly what changed. The diff viewer shows additions in green and removals in red.
+</Tip>
+
+### Tool Status
+
+Each tool action shows its current status:
+
+| Status | Display | Meaning |
+|--------|---------|---------|
+| **Running** | Spinner | Tool is currently executing |
+| **Success** | Green checkmark | Tool completed successfully |
+| **Failed** | Red X | Tool execution failed |
+| **Pending Approval** | Approval buttons | Waiting for your approval |
+| **Denied** | Red badge | You (or a hook) denied the action |
+| **Timed Out** | Clock icon | Approval timed out before response |
+| **Answered** | Green checkmark | You answered a question |
+
+## Error Messages
+
+Errors are automatically classified to help you quickly identify the issue:
+
+### Error Types
+
+<AccordionGroup>
+<Accordion title="Setup Required">
+The agent needs authentication or initial setup.
+
+**Common causes:**
+- Not logged in to the agent's service
+- Missing API key or credentials
+- Agent not properly configured
+
+**Solution:** Follow the agent's setup instructions to authenticate.
+</Accordion>
+
+<Accordion title="Rate Limited">
+You've hit API rate limits or quotas.
+
+**Common causes:**
+- Too many requests in a short period
+- Monthly quota exceeded
+- Model is overloaded
+
+**Solution:** Wait a few minutes and try again, or check your usage limits.
+</Accordion>
+
+<Accordion title="Network Error">
+Connection issues between Vibe Kanban and the agent's service.
+
+**Common causes:**
+- Internet connectivity issues
+- Service temporarily unavailable
+- DNS resolution failures
+
+**Solution:** Check your internet connection and try again.
+</Accordion>
+
+<Accordion title="Permission Denied">
+Access was denied to a resource.
+
+**Common causes:**
+- Insufficient permissions for an operation
+- Trying to access restricted files
+- Invalid credentials
+
+**Solution:** Check permissions and credentials for the affected resource.
+</Accordion>
+
+<Accordion title="Tool Execution Error">
+A tool or command failed during execution.
+
+**Common causes:**
+- Command returned an error
+- Build or test failures
+- Invalid tool arguments
+
+**Solution:** Review the error output and fix the underlying issue.
+</Accordion>
+
+<Accordion title="API Error">
+The AI service returned an error.
+
+**Common causes:**
+- Invalid request format
+- Model unavailable
+- Service errors (500, 503)
+
+**Solution:** Try again, or switch to a different model if available.
+</Accordion>
+</AccordionGroup>
+
+## Approval Workflow
+
+<Note>
+Approvals are currently supported for Codex and Claude Code agents.
+</Note>
+
+When an agent requests approval for a sensitive action:
+
+<Steps>
+<Step title="Approval Request Appears">
+The log shows the action with approve/deny buttons below it.
+</Step>
+
+<Step title="Review the Action">
+Examine what the agent wants to do. Click to expand file changes if applicable.
+</Step>
+
+<Step title="Respond">
+- Click **Approve** (checkmark) to allow the action
+- Click **Deny** (X) to reject it and optionally provide feedback
+</Step>
+
+<Step title="Agent Continues">
+The agent proceeds based on your decision. If denied, it may try an alternative approach.
+</Step>
+</Steps>
+
+### Approval Timeout
+
+If you don't respond to an approval request within the timeout period:
+
+- The request is automatically denied
+- The log shows how long the approval was waited for
+- The agent may retry with a different approach
+
+<Warning>
+Keep the Vibe Kanban tab open while agents are running to ensure you can respond to approval requests promptly.
+</Warning>
+
+## Filtering and Navigation
+
+### Scrolling Behavior
+
+- **Auto-scroll**: Logs automatically scroll to show new entries as they arrive
+- **Manual scroll**: Scroll up to pause auto-scrolling and review earlier logs
+- **Return to bottom**: Click the "Jump to bottom" button to resume auto-scrolling
+
+### Large Log Volumes
+
+For long-running tasks, logs use virtual scrolling for performance:
+- Only visible entries are rendered
+- Scrolling remains smooth even with thousands of entries
+- Memory usage stays low regardless of log size
+
+## Troubleshooting
+
+### Logs Not Appearing
+
+If logs aren't showing up:
+
+1. **Check the WebSocket connection** - Look for the connection indicator in the UI
+2. **Refresh the page** - Reconnects to the log stream
+3. **Check the process status** - Ensure the agent is actually running
+
+### Missing Tool Details
+
+Some agents provide more detail than others:
+
+| Agent | Tool Detail Level |
+|-------|-------------------|
+| Claude Code | Full tool calls with arguments and results |
+| Codex | Full tool calls with arguments and results |
+| Gemini/ACP | Comprehensive tool and thought tracking |
+| Cursor | Tool calls with JSONL parsing |
+| Copilot | Basic text output with model info from logs |
+| Opencode | Tool calls via share bridge |
+
+### Understanding Agent-Specific Output
+
+Different agents have different output styles:
+
+- **Claude Code**: Detailed tool calls with file diffs and command results
+- **Codex**: JSON-RPC events with approval integration
+- **Gemini**: Thoughts, plans, and tool calls from ACP protocol
+- **Cursor**: JSONL-based tool events
+- **Copilot**: Plain text streaming with log file parsing
+- **Opencode**: Tool events via share bridge integration
+
+## Related Documentation
+
+- [Monitoring Task Execution](/core-features/monitoring-task-execution) - Real-time monitoring overview
+- [Reviewing Code Changes](/core-features/reviewing-code-changes) - Reviewing agent changes
+- [Agent Configurations](/configuration-customisation/agent-configurations) - Configuring agent behavior

@@ -50,6 +50,7 @@
           "core-features/creating-projects",
           "core-features/creating-tasks",
           "core-features/monitoring-task-execution",
+          "core-features/understanding-execution-logs",
           "core-features/testing-your-application",
           "core-features/reviewing-code-changes",
           "core-features/browsing-files",
@@ -91,7 +92,8 @@
         "group": "Architecture",
         "pages": [
           "architecture/ui-responsive-design",
-          "architecture/storage-paths"
+          "architecture/storage-paths",
+          "architecture/executor-normalization"
         ]
       },
       {
