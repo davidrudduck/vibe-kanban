@@ -459,6 +459,11 @@
     "execution": "Execution",
     "createAndStart": "Create & Start"
   },
+  "templatePicker": {
+    "title": "Insert Template",
+    "searchPlaceholder": "Search templates...",
+    "noResults": "No templates found"
+  },
   "variables": {
     "title": "Variables",
     "panelTitle": "Variables ({{count}})",

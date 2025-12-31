@@ -50,7 +50,11 @@ import {
 } from '@/hooks';
 import { useTaskLabels } from '@/hooks/useTaskLabels';
 import { LabelSelect } from '@/components/labels';
-import { labelsApi, taskVariablesApi } from '@/lib/api';
+import {
+  TemplatePicker,
+  Template as PickerTemplate,
+} from '@/components/tasks/TemplatePicker';
+import { labelsApi, taskVariablesApi, templatesApi } from '@/lib/api';
 import { insertImageMarkdownAtPosition } from '@/utils/markdownImages';
 import type {
   Task,
@@ -135,6 +139,10 @@ const TaskFormSheetImpl = NiceModal.create<TaskFormSheetProps>((props) => {
   const forceCreateOnlyRef = useRef(false);
   const insertPositionRef = useRef<number>(0);
   const sheetRef = useRef<HTMLDivElement>(null);
+
+  // Template picker state
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [customTemplates, setCustomTemplates] = useState<PickerTemplate[]>([]);
 
   const { data: branches, isLoading: branchesLoading } =
     useProjectBranches(projectId);
@@ -506,6 +514,39 @@ const TaskFormSheetImpl = NiceModal.create<TaskFormSheetProps>((props) => {
     };
   }, [modal.visible, isMobile]);
 
+  // Fetch templates when picker opens
+  useEffect(() => {
+    if (showTemplatePicker) {
+      templatesApi
+        .list()
+        .then((templates) => {
+          setCustomTemplates(
+            templates.map((t) => ({
+              id: t.id,
+              name: t.template_name,
+              description: `@${t.template_name}`,
+              content: t.content,
+            }))
+          );
+        })
+        .catch(console.error);
+    }
+  }, [showTemplatePicker]);
+
+  // Template selection handler
+  const handleTemplateSelect = useCallback(
+    (template: PickerTemplate) => {
+      const currentDescription = form.getFieldValue('description') || '';
+      const cursorPos = insertPositionRef.current ?? currentDescription.length;
+      const newDescription =
+        currentDescription.slice(0, cursorPos) +
+        template.content +
+        currentDescription.slice(cursorPos);
+      form.setFieldValue('description', newDescription);
+    },
+    [form]
+  );
+
   // Add variable handler
   const handleAddVariable = useCallback(() => {
     if (!newVarName.trim()) return;
@@ -644,7 +685,10 @@ const TaskFormSheetImpl = NiceModal.create<TaskFormSheetProps>((props) => {
                     'taskFormDialog.descriptionPlaceholder',
                     'Add details...'
                   )}
-                  className={cn('resize-none', isMobile ? 'text-base' : 'text-sm')}
+                  className={cn(
+                    'resize-none',
+                    isMobile ? 'text-base' : 'text-sm'
+                  )}
                   disabled={isSubmitting}
                   projectId={projectId}
                   onPasteFiles={handlePasteFiles}
@@ -753,13 +797,19 @@ const TaskFormSheetImpl = NiceModal.create<TaskFormSheetProps>((props) => {
                     onChange={(e) =>
                       setNewVarName(e.target.value.toUpperCase())
                     }
-                    className={cn('font-mono', isMobile ? 'text-base' : 'text-sm')}
+                    className={cn(
+                      'font-mono',
+                      isMobile ? 'text-base' : 'text-sm'
+                    )}
                   />
                   <Input
                     placeholder={t('taskFormSheet.variableValue', 'Value')}
                     value={newVarValue}
                     onChange={(e) => setNewVarValue(e.target.value)}
-                    className={cn('font-mono', isMobile ? 'text-base' : 'text-sm')}
+                    className={cn(
+                      'font-mono',
+                      isMobile ? 'text-base' : 'text-sm'
+                    )}
                   />
                   <div className="flex justify-end gap-2">
                     <Button
@@ -989,9 +1039,7 @@ const TaskFormSheetImpl = NiceModal.create<TaskFormSheetProps>((props) => {
             <Button
               variant="outline"
               size="icon"
-              onClick={() => {
-                // TODO: Open template picker
-              }}
+              onClick={() => setShowTemplatePicker(true)}
               className={cn('h-11 w-11', isMobile && 'h-12 w-12')}
               aria-label={t('taskFormSheet.insertTemplate', 'Insert template')}
             >
@@ -1066,6 +1114,15 @@ const TaskFormSheetImpl = NiceModal.create<TaskFormSheetProps>((props) => {
           }}
         </form.Subscribe>
       </div>
+
+      {/* Template Picker */}
+      <TemplatePicker
+        open={showTemplatePicker}
+        onOpenChange={setShowTemplatePicker}
+        onSelect={handleTemplateSelect}
+        customTemplates={customTemplates}
+        showDefaults={true}
+      />
     </div>
   );
 
@@ -1162,13 +1219,14 @@ const TaskFormSheetImpl = NiceModal.create<TaskFormSheetProps>((props) => {
               onClick={handleClose}
             />
 
-            {/* Centered modal */}
+            {/* Top-anchored modal */}
             <motion.div
               data-testid="task-form-sheet"
               className={cn(
                 'fixed z-[9999] bg-background rounded-lg shadow-xl flex flex-col overflow-hidden',
-                'left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2',
-                'w-[min(95vw,600px)] max-h-[min(90vh,800px)]'
+                'left-1/2 -translate-x-1/2',
+                'top-[5vh]',
+                'w-[min(95vw,600px)] max-h-[90vh]'
               )}
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
