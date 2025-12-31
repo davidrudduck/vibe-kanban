@@ -1,6 +1,13 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, ChevronRight, Trash2, GripVertical, X } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  Trash2,
+  GripVertical,
+  X,
+  Loader2,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
@@ -13,7 +20,6 @@ type Props = {
   onRemove: (messageId: string) => Promise<void>;
   onReorder: (messageIds: string[]) => Promise<void>;
   onClear: () => Promise<void>;
-  isUpdating?: boolean;
   isRemoving?: boolean;
   isClearing?: boolean;
 };
@@ -26,7 +32,6 @@ function MessageQueueItem({
   onRemove,
   onMoveUp,
   onMoveDown,
-  isUpdating,
   isRemoving,
   t,
 }: {
@@ -37,23 +42,51 @@ function MessageQueueItem({
   onRemove: () => Promise<void>;
   onMoveUp: () => void;
   onMoveDown: () => void;
-  isUpdating?: boolean;
   isRemoving?: boolean;
   t: (key: string) => string;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   const handleSave = async () => {
-    if (editContent.trim() && editContent !== message.content) {
-      await onUpdate(editContent.trim());
+    if (!editContent.trim() || editContent === message.content) {
+      setIsEditing(false);
+      setSaveError(null);
+      return;
     }
-    setIsEditing(false);
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      await onUpdate(editContent.trim());
+      setIsEditing(false);
+    } catch (error) {
+      console.error('Failed to save message:', error);
+      setSaveError(t('messageQueue.saveError'));
+      // Stay in edit mode on error
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleCancel = () => {
     setEditContent(message.content);
     setIsEditing(false);
+    setSaveError(null);
+  };
+
+  const handleRemove = async () => {
+    if (window.confirm(t('messageQueue.confirmRemove'))) {
+      setRemoveError(null);
+      try {
+        await onRemove();
+      } catch (error) {
+        console.error('Failed to remove message:', error);
+        setRemoveError(t('messageQueue.removeError'));
+      }
+    }
   };
 
   return (
@@ -83,6 +116,9 @@ function MessageQueueItem({
       <div className="flex-1 min-w-0">
         {isEditing ? (
           <div className="space-y-2">
+            {saveError && (
+              <div className="text-xs text-destructive">{saveError}</div>
+            )}
             <Textarea
               value={editContent}
               onChange={(e) => setEditContent(e.target.value)}
@@ -90,8 +126,12 @@ function MessageQueueItem({
               autoFocus
             />
             <div className="flex gap-2">
-              <Button size="sm" onClick={handleSave} disabled={isUpdating}>
-                {t('messageQueue.save')}
+              <Button size="sm" onClick={handleSave} disabled={isSaving}>
+                {isSaving ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  t('messageQueue.save')
+                )}
               </Button>
               <Button size="sm" variant="ghost" onClick={handleCancel}>
                 {t('messageQueue.cancel')}
@@ -111,13 +151,16 @@ function MessageQueueItem({
             {t('messageQueue.variant')} {message.variant}
           </span>
         )}
+        {removeError && (
+          <div className="text-xs text-destructive mt-1">{removeError}</div>
+        )}
       </div>
 
       <Button
         variant="ghost"
         size="icon"
         className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-        onClick={onRemove}
+        onClick={handleRemove}
         disabled={isRemoving}
       >
         <X className="h-4 w-4" />
@@ -133,7 +176,6 @@ function MessageQueuePanel({
   onRemove,
   onReorder,
   onClear,
-  isUpdating,
   isRemoving,
   isClearing,
 }: Props) {
@@ -220,7 +262,6 @@ function MessageQueuePanel({
                 onRemove={() => onRemove(message.id)}
                 onMoveUp={() => handleMoveUp(index)}
                 onMoveDown={() => handleMoveDown(index)}
-                isUpdating={isUpdating}
                 isRemoving={isRemoving}
                 t={t}
               />
