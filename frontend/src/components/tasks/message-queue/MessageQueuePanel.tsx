@@ -49,6 +49,7 @@ function MessageQueueItem({
   const [editContent, setEditContent] = useState(message.content);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   const handleSave = async () => {
     if (!editContent.trim() || editContent === message.content) {
@@ -78,10 +79,12 @@ function MessageQueueItem({
 
   const handleRemove = async () => {
     if (window.confirm(t('messageQueue.confirmRemove'))) {
+      setRemoveError(null);
       try {
         await onRemove();
       } catch (error) {
         console.error('Failed to remove message:', error);
+        setRemoveError(t('messageQueue.removeError'));
       }
     }
   };
@@ -147,6 +150,9 @@ function MessageQueueItem({
           <span className="text-xs text-muted-foreground mt-1 block">
             {t('messageQueue.variant')} {message.variant}
           </span>
+        )}
+        {removeError && (
+          <div className="text-xs text-destructive mt-1">{removeError}</div>
         )}
       </div>
 
