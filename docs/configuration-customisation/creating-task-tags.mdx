@@ -1,11 +1,16 @@
 ---
-title: "Creating Task Tags"
-description: "Create reusable text snippets that can be quickly inserted into task descriptions using @mentions. Task tags are available globally across all projects."
+title: "Task Tags and Templates"
+description: "Create reusable text snippets that can be quickly inserted into task descriptions using @mentions or the Insert Template button. Templates are available globally across all projects."
 ---
 
 ## What are task tags?
 
-Task tags are reusable text snippets that you can quickly insert into task descriptions by typing `@` followed by the tag name. When you select a tag, its content is automatically inserted at your cursor position.
+Task tags (also known as templates) are reusable text snippets that you can quickly insert into task descriptions. There are two ways to insert them:
+
+1. **@mention** - Type `@` followed by the tag name in any description field
+2. **Insert Template button** - Click the template icon in the task form toolbar
+
+When you select a template, its content is automatically inserted at your cursor position.
 
 <Tip>
 Task tags use snake_case naming (no spaces allowed). For example: `bug_report`, `feature_request`, or `code_review_checklist`.
@@ -69,13 +74,50 @@ Insert task tags into task descriptions and follow-up messages using @mention au
 </Step>
 </Steps>
 
-## Common use cases
+## Using the Insert Template button
+
+The task form includes an **Insert Template** button in the toolbar (next to the file search and image upload buttons). This provides a visual way to browse and insert templates.
+
+<Steps>
+<Step title="Open the template picker">
+  Click the **Insert Template** button (document icon) in the task form toolbar. A template picker dialog will open.
+</Step>
+
+<Step title="Browse or search templates">
+  The picker shows both built-in templates and your custom task tags. Use the search field to filter templates by name or description.
+</Step>
+
+<Step title="Select a template">
+  Click on any template to insert its content at your cursor position in the description field. The picker closes automatically after selection.
+</Step>
+</Steps>
+
+<Info>
+On mobile devices, the template picker appears as a bottom sheet for easier touch interaction.
+</Info>
+
+## Built-in templates
+
+Vibe Kanban includes four built-in templates that are always available:
+
+| Template | Description |
+|----------|-------------|
+| **Bug Report** | Structured format for reporting bugs with steps to reproduce, expected vs actual behaviour, and environment details |
+| **Feature Request** | Template for proposing new features with problem statement, proposed solution, and alternatives |
+| **Code Review Checklist** | Comprehensive checklist covering functionality, code quality, testing, security, and documentation |
+| **Quick Task** | Minimal template with goal, acceptance criteria, and notes sections |
+
+<Tip>
+Built-in templates appear alongside your custom task tags when using the Insert Template button. You cannot modify or delete built-in templates, but you can create custom tags with similar names to override them for @mention autocomplete.
+</Tip>
+
+## Custom template examples
 
 <AccordionGroup>
 <Accordion title="Bug report templates">
 Create a `bug_report` tag with standardised bug reporting fields:
 
-```
+```text
 **Description:**
 
 **Steps to reproduce:**
@@ -89,12 +131,13 @@ Create a `bug_report` tag with standardised bug reporting fields:
 
 **Environment:**
 ```
+
 </Accordion>
 
 <Accordion title="Acceptance criteria checklists">
 Create an `acceptance_criteria` tag for feature requirements:
 
-```
+```text
 **Acceptance criteria:**
 - [ ] Functionality works as specified
 - [ ] Unit tests added
@@ -102,12 +145,13 @@ Create an `acceptance_criteria` tag for feature requirements:
 - [ ] Accessibility requirements met
 - [ ] Performance benchmarks passed
 ```
+
 </Accordion>
 
 <Accordion title="Code review guidelines">
 Create a `code_review` tag with review checklist items:
 
-```
+```text
 **Code review checklist:**
 - [ ] Code follows project conventions
 - [ ] Tests cover edge cases
@@ -115,9 +159,10 @@ Create a `code_review` tag with review checklist items:
 - [ ] Performance impact assessed
 - [ ] Documentation is clear
 ```
+
 </Accordion>
 </AccordionGroup>
 
 <Tip>
-Task tags work in all text fields that support the @mention feature, including task descriptions and follow-up messages, making it easy to maintain consistency across your tasks.
+Both @mention and Insert Template methods work in task description fields. Use @mention for quick keyboard-driven insertion, and the Insert Template button when you want to browse available templates visually.
 </Tip>

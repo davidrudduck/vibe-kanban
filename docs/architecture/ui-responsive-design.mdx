@@ -55,21 +55,34 @@ return isMobile
 
 ### TaskFormSheet.tsx
 
-Full-screen sheet on mobile, centered modal on desktop:
+Full-screen sheet on mobile, top-anchored modal on desktop:
 
 ```typescript
 const isDesktop = useMediaQuery('(min-width: 768px)');
 
-// Vaul Drawer configuration
+// Desktop modal uses top-anchored positioning to ensure footer visibility
+// Mobile uses Vaul Drawer with bottom sheet pattern
 <Drawer.Root
-  direction={isDesktop ? 'right' : 'bottom'}
+  direction={isDesktop ? undefined : 'bottom'}  // Modal on desktop, bottom sheet on mobile
   modal={true}
 >
-  <Drawer.Content className={isDesktop ? 'max-w-lg' : 'h-screen'}>
-    {/* Form content */}
+  <Drawer.Content className={cn(
+    isDesktop && [
+      'left-1/2 -translate-x-1/2',  // Horizontally centered
+      'top-[5vh]',                   // Top-anchored with 5vh gap
+      'w-[min(95vw,600px)]',        // Responsive width
+      'max-h-[90vh]',               // Max height ensures footer visible
+    ],
+    !isDesktop && 'h-screen'        // Full-screen on mobile
+  )}>
+    {/* Form with sticky footer */}
   </Drawer.Content>
 </Drawer.Root>
 ```
+
+<Note>
+Desktop modals are **top-anchored** rather than vertically centered to ensure the footer toolbar (containing action buttons like Submit, Cancel, and Insert Template) remains visible and accessible regardless of content height.
+</Note>
 
 ### MobileViewModeSheet.tsx
 
