@@ -15,6 +15,8 @@ vi.mock('react-i18next', () => ({
         'messageQueue.save': 'Save',
         'messageQueue.cancel': 'Cancel',
         'messageQueue.variant': 'Variant:',
+        'messageQueue.saveError': 'Failed to save changes',
+        'messageQueue.confirmRemove': 'Remove this message from the queue?',
       };
       return translations[key] || key;
     },
@@ -128,7 +130,8 @@ describe('MessageQueuePanel', () => {
   describe('remove functionality', () => {
     const messages = [createMessage('1', 'Test message', 0)];
 
-    it('calls onRemove when delete button clicked', () => {
+    it('calls onRemove when delete button clicked and confirm accepted', () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
       render(<MessageQueuePanel {...defaultProps} queue={messages} />);
 
       // Hover to show the X button
@@ -142,8 +145,25 @@ describe('MessageQueuePanel', () => {
       const deleteButton = deleteButtons.find(btn => btn.querySelector('svg.lucide-x'));
       if (deleteButton) {
         fireEvent.click(deleteButton);
+        expect(confirmSpy).toHaveBeenCalledWith('Remove this message from the queue?');
         expect(mockOnRemove).toHaveBeenCalledWith('1');
       }
+      confirmSpy.mockRestore();
+    });
+
+    it('does not call onRemove when confirm is cancelled', () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+      render(<MessageQueuePanel {...defaultProps} queue={messages} />);
+
+      // Find and click the delete button (X icon button)
+      const deleteButtons = screen.getAllByRole('button');
+      const deleteButton = deleteButtons.find(btn => btn.querySelector('svg.lucide-x'));
+      if (deleteButton) {
+        fireEvent.click(deleteButton);
+        expect(confirmSpy).toHaveBeenCalled();
+        expect(mockOnRemove).not.toHaveBeenCalled();
+      }
+      confirmSpy.mockRestore();
     });
   });
 
@@ -250,6 +270,57 @@ describe('MessageQueuePanel', () => {
       // Should show original message content again (not in edit mode)
       expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
       expect(screen.getByText('Original message')).toBeInTheDocument();
+    });
+
+    it('stays in edit mode when save fails', async () => {
+      const failingUpdate = vi.fn().mockRejectedValue(new Error('Save failed'));
+      render(<MessageQueuePanel {...defaultProps} queue={messages} onUpdate={failingUpdate} />);
+
+      // Enter edit mode
+      const messageContent = screen.getByText('Original message');
+      fireEvent.click(messageContent);
+
+      // Make changes and save
+      const textarea = screen.getByRole('textbox');
+      fireEvent.change(textarea, { target: { value: 'Updated message' } });
+
+      const saveButton = screen.getByText('Save');
+      fireEvent.click(saveButton);
+
+      // Wait for error to appear
+      await waitFor(() => {
+        expect(screen.getByText('Failed to save changes')).toBeInTheDocument();
+      });
+
+      // Should still be in edit mode
+      expect(screen.getByRole('textbox')).toBeInTheDocument();
+    });
+
+    it('clears error when cancel clicked after error', async () => {
+      const failingUpdate = vi.fn().mockRejectedValue(new Error('Save failed'));
+      render(<MessageQueuePanel {...defaultProps} queue={messages} onUpdate={failingUpdate} />);
+
+      // Enter edit mode and trigger error
+      const messageContent = screen.getByText('Original message');
+      fireEvent.click(messageContent);
+
+      const textarea = screen.getByRole('textbox');
+      fireEvent.change(textarea, { target: { value: 'Updated message' } });
+
+      const saveButton = screen.getByText('Save');
+      fireEvent.click(saveButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('Failed to save changes')).toBeInTheDocument();
+      });
+
+      // Click cancel
+      const cancelButton = screen.getByText('Cancel');
+      fireEvent.click(cancelButton);
+
+      // Error should be cleared and should exit edit mode
+      expect(screen.queryByText('Failed to save changes')).not.toBeInTheDocument();
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     });
   });
 

@@ -202,7 +202,11 @@
     "cancel": "キャンセル",
     "variant": "バリアント:",
     "addToQueue": "キューに追加",
-    "addToQueueTooltip": "メッセージをキューに追加"
+    "addToQueueTooltip": "メッセージをキューに追加",
+    "saveError": "変更の保存に失敗しました",
+    "confirmRemove": "このメッセージをキューから削除しますか？",
+    "removeError": "メッセージの削除に失敗しました",
+    "injectingMessage": "メッセージを送信中..."
   },
   "git": {
     "branch": {
