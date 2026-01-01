@@ -34,7 +34,7 @@ export type Project = { id: string, name: string, git_repo_path: string, setup_s
 /**
  * When true, setup script runs concurrently with the coding agent
  */
-parallel_setup_script: boolean, remote_project_id: string | null, created_at: Date, updated_at: Date, is_remote: boolean, source_node_id: string | null, source_node_name: string | null, source_node_public_url: string | null, source_node_status: string | null, remote_last_synced_at: Date | null, 
+parallel_setup_script: boolean, swarm_project_id: string | null, created_at: Date, updated_at: Date, is_remote: boolean, source_node_id: string | null, source_node_name: string | null, source_node_public_url: string | null, source_node_status: string | null, remote_last_synced_at: Date | null, 
 /**
  * Whether GitHub integration is enabled for this project
  */
@@ -86,7 +86,7 @@ export type LinkToLocalFolderRequest = {
 /**
  * The remote project ID to link to (from the Hive)
  */
-remote_project_id: string, 
+swarm_project_id: string, 
 /**
  * The local folder path where the project will be created
  */
@@ -95,6 +95,12 @@ local_folder_path: string,
  * Optional project name (defaults to folder name if not provided)
  */
 project_name: string | null, };
+
+export type LinkToExistingRequest = { 
+/**
+ * The remote project ID to link to (from the Hive)
+ */
+swarm_project_id: string, };
 
 export type UnifiedProject = { "type": "local" } & Project | { "type": "remote" } & RemoteNodeProject;
 
@@ -132,7 +138,7 @@ id: string, name: string, git_repo_path: string, created_at: Date,
 /**
  * Linking status - Hive project ID (if linked)
  */
-remote_project_id: string | null, 
+swarm_project_id: string | null, 
 /**
  * Location info - where the project runs
  */
@@ -166,7 +172,7 @@ node_short_name: string, node_status: CachedNodeStatus, node_public_url: string 
 /**
  * The project ID on that node
  */
-remote_project_id: string, };
+swarm_project_id: string, };
 
 export type MergedProjectsResponse = { projects: Array<MergedProject>, };
 
@@ -234,7 +240,7 @@ color: string,
 /**
  * UUID of the label in the Hive (NULL if not yet synced)
  */
-shared_label_id?: string, 
+swarm_label_id?: string, 
 /**
  * Optimistic locking version for conflict resolution
  */
@@ -281,7 +287,13 @@ inherited: boolean, };
 
 export type TaskStatus = "todo" | "inprogress" | "inreview" | "done" | "cancelled";
 
-export type Task = { id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_task_id: string | null, shared_task_id: string | null, created_at: string, updated_at: string, is_remote: boolean, remote_assignee_user_id: string | null, remote_assignee_name: string | null, remote_assignee_username: string | null, remote_version: bigint, remote_last_synced_at: string | null, remote_stream_node_id: string | null, remote_stream_url: string | null, 
+export type Task = { id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_task_id: string | null, swarm_task_id: string | null, created_at: string, updated_at: string, 
+/**
+ * DEPRECATED: Use swarm_task_id to determine if task is linked to swarm.
+ * This field is kept for backwards compatibility but will be removed in a future release.
+ * Tasks with swarm_task_id != NULL are swarm-linked and editable (changes sync to hive).
+ */
+is_remote: boolean, remote_assignee_user_id: string | null, remote_assignee_name: string | null, remote_assignee_username: string | null, remote_version: bigint, remote_last_synced_at: string | null, remote_stream_node_id: string | null, remote_stream_url: string | null, 
 /**
  * Timestamp when task was archived. NULL means not archived.
  */
@@ -292,7 +304,13 @@ archived_at: Date | null,
  */
 activity_at: Date | null, };
 
-export type TaskWithAttemptStatus = { has_in_progress_attempt: boolean, has_merged_attempt: boolean, last_attempt_failed: boolean, executor: string, id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_task_id: string | null, shared_task_id: string | null, created_at: string, updated_at: string, is_remote: boolean, remote_assignee_user_id: string | null, remote_assignee_name: string | null, remote_assignee_username: string | null, remote_version: bigint, remote_last_synced_at: string | null, remote_stream_node_id: string | null, remote_stream_url: string | null, 
+export type TaskWithAttemptStatus = { has_in_progress_attempt: boolean, has_merged_attempt: boolean, last_attempt_failed: boolean, executor: string, id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_task_id: string | null, swarm_task_id: string | null, created_at: string, updated_at: string, 
+/**
+ * DEPRECATED: Use swarm_task_id to determine if task is linked to swarm.
+ * This field is kept for backwards compatibility but will be removed in a future release.
+ * Tasks with swarm_task_id != NULL are swarm-linked and editable (changes sync to hive).
+ */
+is_remote: boolean, remote_assignee_user_id: string | null, remote_assignee_name: string | null, remote_assignee_username: string | null, remote_version: bigint, remote_last_synced_at: string | null, remote_stream_node_id: string | null, remote_stream_url: string | null, 
 /**
  * Timestamp when task was archived. NULL means not archived.
  */
@@ -305,7 +323,7 @@ activity_at: Date | null, };
 
 export type TaskRelationships = { parent_task: Task | null, current_attempt: TaskAttempt, children: Array<Task>, };
 
-export type TaskWithProjectInfo = { id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_task_id: string | null, shared_task_id: string | null, created_at: string, updated_at: string, is_remote: boolean, remote_assignee_user_id: string | null, remote_assignee_name: string | null, remote_assignee_username: string | null, remote_version: bigint, remote_last_synced_at: string | null, remote_stream_node_id: string | null, remote_stream_url: string | null, archived_at: Date | null, 
+export type TaskWithProjectInfo = { id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_task_id: string | null, swarm_task_id: string | null, created_at: string, updated_at: string, is_remote: boolean, remote_assignee_user_id: string | null, remote_assignee_name: string | null, remote_assignee_username: string | null, remote_version: bigint, remote_last_synced_at: string | null, remote_stream_node_id: string | null, remote_stream_url: string | null, archived_at: Date | null, 
 /**
  * Timestamp of last significant activity (status change, execution start).
  */
@@ -333,11 +351,11 @@ dismissed: number, };
 
 export type ActivityFeed = { items: Array<ActivityFeedItem>, counts: ActivityCounts, };
 
-export type CreateTask = { project_id: string, title: string, description: string | null, status: TaskStatus | null, parent_task_id: string | null, image_ids: Array<string> | null, shared_task_id: string | null, };
+export type CreateTask = { project_id: string, title: string, description: string | null, status: TaskStatus | null, parent_task_id: string | null, image_ids: Array<string> | null, swarm_task_id: string | null, };
 
 export type UpdateTask = { title: string | null, description: string | null, status: TaskStatus | null, parent_task_id: string | null, image_ids: Array<string> | null, };
 
-export type SharedTask = { id: string, remote_project_id: string, title: string, description: string | null, status: TaskStatus, assignee_user_id: string | null, assignee_first_name: string | null, assignee_last_name: string | null, assignee_username: string | null, version: bigint, last_event_seq: bigint | null, created_at: Date, updated_at: Date, activity_at: Date | null, };
+export type SharedTask = { id: string, swarm_project_id: string, title: string, description: string | null, status: TaskStatus, assignee_user_id: string | null, assignee_first_name: string | null, assignee_last_name: string | null, assignee_username: string | null, version: bigint, last_event_seq: bigint | null, created_at: Date, updated_at: Date, activity_at: Date | null, };
 
 export type Image = { id: string, file_path: string, original_name: string, mime_type: string | null, size_bytes: bigint, hash: string, created_at: string, updated_at: string, };
 
@@ -748,7 +766,12 @@ export type TaskAttempt = { id: string, task_id: string, container_ref: string |
 /**
  * When this attempt was last synced to the Hive. NULL means not yet synced.
  */
-hive_synced_at?: string, };
+hive_synced_at?: string, 
+/**
+ * The assignment ID from the Hive for tasks dispatched by the Hive.
+ * NULL for locally-started tasks until a synthetic assignment is created.
+ */
+hive_assignment_id?: string, };
 
 export type ExecutionProcess = { id: string, task_attempt_id: string, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, 
 /**

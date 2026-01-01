@@ -12,7 +12,11 @@
         "mcp": "MCP 서버",
         "mcpDesc": "Model Context Protocol 서버",
         "organizations": "Organization Settings",
-        "organizationsDesc": "Manage organization members and permissions"
+        "organizationsDesc": "Manage organization members and permissions",
+        "backups": "백업",
+        "backupsDesc": "데이터베이스 백업 관리",
+        "swarm": "스웜 관리",
+        "swarmDesc": "노드 간 연결된 프로젝트 관리"
       }
     },
     "general": {

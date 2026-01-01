@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE projects\n               SET swarm_project_id = $2\n               WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "d155efad2a695f2cdd32c8bdd7bc9921db3c7508dc70d10539788713d06d9183"
+}

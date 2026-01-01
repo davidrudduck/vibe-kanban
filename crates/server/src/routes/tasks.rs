@@ -165,7 +165,7 @@ pub async fn create_task(
             );
 
             // Sync unarchive to Hive if parent is shared
-            if parent_task.shared_task_id.is_some()
+            if parent_task.swarm_task_id.is_some()
                 && let Ok(publisher) = deployment.share_publisher()
                 && let Some(updated_parent) = Task::find_by_id(pool, parent_task_id).await?
             {
@@ -204,13 +204,13 @@ pub async fn create_task(
             .map(|p| p.user_id);
 
         match publisher.share_task(task.id, user_id).await {
-            Ok(shared_task_id) => {
+            Ok(swarm_task_id) => {
                 tracing::info!(
                     task_id = %task.id,
-                    shared_task_id = %shared_task_id,
+                    swarm_task_id = %swarm_task_id,
                     "Auto-shared task to Hive"
                 );
-                // Update local task with shared_task_id for consistency
+                // Update local task with swarm_task_id for consistency
                 if let Some(updated) = Task::find_by_id(pool, task.id).await? {
                     task = updated;
                 }
@@ -246,12 +246,12 @@ async fn create_remote_task(
     }
 
     let remote_client = deployment.remote_client()?;
-    let remote_project_id = project.remote_project_id.ok_or_else(|| {
-        ApiError::BadRequest("Remote project missing remote_project_id".to_string())
+    let swarm_project_id = project.swarm_project_id.ok_or_else(|| {
+        ApiError::BadRequest("Remote project missing swarm_project_id".to_string())
     })?;
 
     let request = CreateSharedTaskRequest {
-        project_id: remote_project_id,
+        project_id: swarm_project_id,
         title: payload.title.clone(),
         description: payload.description.clone(),
         status: None, // Default to Todo on the Hive
@@ -288,7 +288,7 @@ async fn create_remote_task(
 
     tracing::info!(
         task_id = %task.id,
-        shared_task_id = ?task.shared_task_id,
+        swarm_task_id = ?task.swarm_task_id,
         project_id = %project.id,
         "Created remote task via Hive"
     );
@@ -334,7 +334,7 @@ pub async fn create_task_and_start(
 
     // Auto-share task if project is linked to the Hive
     if let Some(project) = Project::find_by_id(pool, task.project_id).await?
-        && project.remote_project_id.is_some()
+        && project.swarm_project_id.is_some()
         && let Ok(publisher) = deployment.share_publisher()
     {
         // Get user_id for sharing - use cached profile if available (optional)
@@ -345,10 +345,10 @@ pub async fn create_task_and_start(
             .map(|p| p.user_id);
 
         match publisher.share_task(task.id, user_id).await {
-            Ok(shared_task_id) => {
+            Ok(swarm_task_id) => {
                 tracing::info!(
                     task_id = %task.id,
-                    shared_task_id = %shared_task_id,
+                    swarm_task_id = %swarm_task_id,
                     "Auto-shared task to Hive"
                 );
             }
@@ -492,7 +492,7 @@ pub async fn update_task(
     }
 
     // If task has been shared, broadcast update (fire-and-forget to avoid blocking)
-    if task.shared_task_id.is_some()
+    if task.swarm_task_id.is_some()
         && let Ok(publisher) = deployment.share_publisher()
     {
         let task_clone = task.clone();
@@ -536,9 +536,9 @@ async fn update_remote_task(
     }
 
     let remote_client = deployment.remote_client()?;
-    let shared_task_id = existing_task
-        .shared_task_id
-        .ok_or_else(|| ApiError::BadRequest("Remote task missing shared_task_id".to_string()))?;
+    let swarm_task_id = existing_task
+        .swarm_task_id
+        .ok_or_else(|| ApiError::BadRequest("Remote task missing swarm_task_id".to_string()))?;
 
     let request = UpdateSharedTaskRequest {
         title: payload.title.clone(),
@@ -549,7 +549,7 @@ async fn update_remote_task(
     };
 
     let response = remote_client
-        .update_shared_task(shared_task_id, &request)
+        .update_shared_task(swarm_task_id, &request)
         .await?;
 
     // Build display name from user data
@@ -579,7 +579,7 @@ async fn update_remote_task(
 
     tracing::info!(
         task_id = %task.id,
-        shared_task_id = ?task.shared_task_id,
+        swarm_task_id = ?task.swarm_task_id,
         "Updated remote task via Hive"
     );
 
@@ -633,13 +633,13 @@ pub async fn delete_task(
         .collect();
 
     // Fire-and-forget remote deletion to avoid blocking local operation
-    if let Some(shared_task_id) = task.shared_task_id
+    if let Some(swarm_task_id) = task.swarm_task_id
         && let Ok(publisher) = deployment.share_publisher()
     {
         tokio::spawn(async move {
             match tokio::time::timeout(
                 std::time::Duration::from_secs(5),
-                publisher.delete_shared_task(shared_task_id),
+                publisher.delete_shared_task(swarm_task_id),
             )
             .await
             {
@@ -707,29 +707,29 @@ async fn delete_remote_task(
     deployment: &DeploymentImpl,
     task: &Task,
 ) -> Result<(StatusCode, ResponseJson<ApiResponse<()>>), ApiError> {
-    // If task has shared_task_id, delete from Hive
+    // If task has swarm_task_id, delete from Hive
     // The WebSocket handler will receive the deletion event and clean up locally
-    if let Some(shared_task_id) = task.shared_task_id {
+    if let Some(swarm_task_id) = task.swarm_task_id {
         let remote_client = deployment.remote_client()?;
         let request = DeleteSharedTaskRequest { version: None };
         remote_client
-            .delete_shared_task(shared_task_id, &request)
+            .delete_shared_task(swarm_task_id, &request)
             .await?;
 
         tracing::info!(
             task_id = %task.id,
-            shared_task_id = %shared_task_id,
+            swarm_task_id = %swarm_task_id,
             "Deleted remote task via Hive; local cache will be cleaned by WebSocket sync"
         );
         // NOTE: Do NOT delete locally here - WebSocket handler will process
         // the "task.deleted" event and clean up the local cache in a transaction
     } else {
-        // Task is marked remote but has no shared_task_id (sync never completed)
+        // Task is marked remote but has no swarm_task_id (sync never completed)
         // Delete locally since there's no Hive event to sync from
         let pool = &deployment.db().pool;
         tracing::warn!(
             task_id = %task.id,
-            "Deleting remote task that was never synced to Hive (no shared_task_id)"
+            "Deleting remote task that was never synced to Hive (no swarm_task_id)"
         );
         Task::delete(pool, task.id).await?;
     }
@@ -748,13 +748,13 @@ pub async fn get_available_nodes(
 ) -> Result<ResponseJson<ApiResponse<ListProjectNodesResponse>>, ApiError> {
     let pool = &deployment.db().pool;
 
-    // Get the task's project to find the remote_project_id
+    // Get the task's project to find the swarm_project_id
     let project = Project::find_by_id(pool, task.project_id)
         .await?
         .ok_or_else(|| ApiError::BadRequest("Project not found".to_string()))?;
 
     // If the project is not linked to the hive, return empty list
-    let Some(remote_project_id) = project.remote_project_id else {
+    let Some(swarm_project_id) = project.swarm_project_id else {
         return Ok(ResponseJson(ApiResponse::success(
             ListProjectNodesResponse { nodes: vec![] },
         )));
@@ -762,7 +762,7 @@ pub async fn get_available_nodes(
 
     // Query the hive for nodes that have this project linked
     let client = deployment.remote_client()?;
-    let response = client.list_project_nodes(remote_project_id).await?;
+    let response = client.list_project_nodes(swarm_project_id).await?;
 
     Ok(ResponseJson(ApiResponse::success(response)))
 }
@@ -776,14 +776,14 @@ pub async fn get_stream_connection_info(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<TaskStreamConnectionInfoResponse>>, ApiError> {
     // This endpoint is only valid for remote tasks
-    let shared_task_id = task.shared_task_id.ok_or_else(|| {
-        ApiError::BadRequest("Task is not a remote task or has no shared_task_id".to_string())
+    let swarm_task_id = task.swarm_task_id.ok_or_else(|| {
+        ApiError::BadRequest("Task is not a remote task or has no swarm_task_id".to_string())
     })?;
 
     // Call the hive to get connection info
     let client = deployment.remote_client()?;
     let response = client
-        .get_task_stream_connection_info(shared_task_id)
+        .get_task_stream_connection_info(swarm_task_id)
         .await?;
 
     Ok(ResponseJson(ApiResponse::success(response)))

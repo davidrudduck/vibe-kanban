@@ -115,7 +115,7 @@ export function ProjectSettings() {
         setSearchParams({});
       }
     },
-    [hasUnsavedChanges, selectedProjectId, setSearchParams, t]
+    [hasUnsavedChanges, selectedProjectId, setSearchParams, t, clearSuccess]
   );
 
   // Sync selectedProjectId when URL changes (with unsaved changes prompt)
@@ -151,6 +151,7 @@ export function ProjectSettings() {
     selectedProjectId,
     setSearchParams,
     t,
+    clearSuccess,
   ]);
 
   // Populate draft from server data

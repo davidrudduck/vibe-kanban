@@ -17,7 +17,7 @@ pub struct Label {
     pub color: String,
     /// UUID of the label in the Hive (NULL if not yet synced)
     #[ts(optional)]
-    pub shared_label_id: Option<Uuid>,
+    pub swarm_label_id: Option<Uuid>,
     /// Optimistic locking version for conflict resolution
     pub version: i64,
     /// Timestamp of last successful sync to Hive
@@ -84,7 +84,7 @@ impl Label {
                 name,
                 icon,
                 color,
-                shared_label_id as "shared_label_id: Uuid",
+                swarm_label_id as "swarm_label_id: Uuid",
                 version as "version!: i64",
                 synced_at as "synced_at: DateTime<Utc>",
                 created_at as "created_at!: DateTime<Utc>",
@@ -108,7 +108,7 @@ impl Label {
                 name,
                 icon,
                 color,
-                shared_label_id as "shared_label_id: Uuid",
+                swarm_label_id as "swarm_label_id: Uuid",
                 version as "version!: i64",
                 synced_at as "synced_at: DateTime<Utc>",
                 created_at as "created_at!: DateTime<Utc>",
@@ -131,7 +131,7 @@ impl Label {
                 name,
                 icon,
                 color,
-                shared_label_id as "shared_label_id: Uuid",
+                swarm_label_id as "swarm_label_id: Uuid",
                 version as "version!: i64",
                 synced_at as "synced_at: DateTime<Utc>",
                 created_at as "created_at!: DateTime<Utc>",
@@ -157,7 +157,7 @@ impl Label {
                 name,
                 icon,
                 color,
-                shared_label_id as "shared_label_id: Uuid",
+                swarm_label_id as "swarm_label_id: Uuid",
                 version as "version!: i64",
                 synced_at as "synced_at: DateTime<Utc>",
                 created_at as "created_at!: DateTime<Utc>",
@@ -197,7 +197,7 @@ impl Label {
                 name,
                 icon,
                 color,
-                shared_label_id as "shared_label_id: Uuid",
+                swarm_label_id as "swarm_label_id: Uuid",
                 version as "version!: i64",
                 synced_at as "synced_at: DateTime<Utc>",
                 created_at as "created_at!: DateTime<Utc>",
@@ -232,7 +232,7 @@ impl Label {
                 l.name,
                 l.icon,
                 l.color,
-                l.shared_label_id as "shared_label_id: Uuid",
+                l.swarm_label_id as "swarm_label_id: Uuid",
                 l.version as "version!: i64",
                 l.synced_at as "synced_at: DateTime<Utc>",
                 l.created_at as "created_at!: DateTime<Utc>",
@@ -323,23 +323,23 @@ impl Label {
                 name,
                 icon,
                 color,
-                shared_label_id as "shared_label_id: Uuid",
+                swarm_label_id as "swarm_label_id: Uuid",
                 version as "version!: i64",
                 synced_at as "synced_at: DateTime<Utc>",
                 created_at as "created_at!: DateTime<Utc>",
                 updated_at as "updated_at!: DateTime<Utc>"
             FROM labels
-            WHERE shared_label_id IS NULL
+            WHERE swarm_label_id IS NULL
             ORDER BY created_at ASC"#
         )
         .fetch_all(pool)
         .await
     }
 
-    /// Find a label by its Hive shared_label_id
-    pub async fn find_by_shared_label_id<'e, E>(
+    /// Find a label by its Hive swarm_label_id
+    pub async fn find_by_swarm_label_id<'e, E>(
         executor: E,
-        shared_label_id: Uuid,
+        swarm_label_id: Uuid,
     ) -> Result<Option<Self>, sqlx::Error>
     where
         E: Executor<'e, Database = Sqlite>,
@@ -352,31 +352,31 @@ impl Label {
                 name,
                 icon,
                 color,
-                shared_label_id as "shared_label_id: Uuid",
+                swarm_label_id as "swarm_label_id: Uuid",
                 version as "version!: i64",
                 synced_at as "synced_at: DateTime<Utc>",
                 created_at as "created_at!: DateTime<Utc>",
                 updated_at as "updated_at!: DateTime<Utc>"
             FROM labels
-            WHERE shared_label_id = $1"#,
-            shared_label_id
+            WHERE swarm_label_id = $1"#,
+            swarm_label_id
         )
         .fetch_optional(executor)
         .await
     }
 
-    /// Set the shared_label_id after syncing to Hive
-    pub async fn set_shared_label_id(
+    /// Set the swarm_label_id after syncing to Hive
+    pub async fn set_swarm_label_id(
         pool: &SqlitePool,
         id: Uuid,
-        shared_label_id: Uuid,
+        swarm_label_id: Uuid,
     ) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"UPDATE labels
-            SET shared_label_id = $2, synced_at = datetime('now', 'subsec'), updated_at = datetime('now', 'subsec')
+            SET swarm_label_id = $2, synced_at = datetime('now', 'subsec'), updated_at = datetime('now', 'subsec')
             WHERE id = $1"#,
             id,
-            shared_label_id
+            swarm_label_id
         )
         .execute(pool)
         .await?;
@@ -396,14 +396,14 @@ impl Label {
         Ok(())
     }
 
-    /// Clear the shared_label_id (unlink from Hive)
-    pub async fn clear_shared_label_id<'e, E>(executor: E, id: Uuid) -> Result<(), sqlx::Error>
+    /// Clear the swarm_label_id (unlink from Hive)
+    pub async fn clear_swarm_label_id<'e, E>(executor: E, id: Uuid) -> Result<(), sqlx::Error>
     where
         E: Executor<'e, Database = Sqlite>,
     {
         sqlx::query!(
             r#"UPDATE labels
-            SET shared_label_id = NULL, synced_at = NULL, updated_at = datetime('now', 'subsec')
+            SET swarm_label_id = NULL, synced_at = NULL, updated_at = datetime('now', 'subsec')
             WHERE id = $1"#,
             id
         )
@@ -422,13 +422,13 @@ impl Label {
                 name,
                 icon,
                 color,
-                shared_label_id as "shared_label_id: Uuid",
+                swarm_label_id as "swarm_label_id: Uuid",
                 version as "version!: i64",
                 synced_at as "synced_at: DateTime<Utc>",
                 created_at as "created_at!: DateTime<Utc>",
                 updated_at as "updated_at!: DateTime<Utc>"
             FROM labels
-            WHERE shared_label_id IS NOT NULL
+            WHERE swarm_label_id IS NOT NULL
               AND updated_at > synced_at
             ORDER BY updated_at ASC"#
         )
@@ -450,10 +450,10 @@ impl Label {
         Ok(result.version)
     }
 
-    /// Create a label from a Hive sync (with shared_label_id already set)
+    /// Create a label from a Hive sync (with swarm_label_id already set)
     pub async fn create_from_hive<'e, E>(
         executor: E,
-        shared_label_id: Uuid,
+        swarm_label_id: Uuid,
         project_id: Option<Uuid>,
         name: &str,
         icon: &str,
@@ -466,7 +466,7 @@ impl Label {
         let id = Uuid::new_v4();
         sqlx::query_as!(
             Label,
-            r#"INSERT INTO labels (id, project_id, name, icon, color, shared_label_id, version, synced_at)
+            r#"INSERT INTO labels (id, project_id, name, icon, color, swarm_label_id, version, synced_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, datetime('now', 'subsec'))
             RETURNING
                 id as "id!: Uuid",
@@ -474,7 +474,7 @@ impl Label {
                 name,
                 icon,
                 color,
-                shared_label_id as "shared_label_id: Uuid",
+                swarm_label_id as "swarm_label_id: Uuid",
                 version as "version!: i64",
                 synced_at as "synced_at: DateTime<Utc>",
                 created_at as "created_at!: DateTime<Utc>",
@@ -484,7 +484,7 @@ impl Label {
             name,
             icon,
             color,
-            shared_label_id,
+            swarm_label_id,
             version
         )
         .fetch_one(executor)
@@ -514,7 +514,7 @@ impl Label {
                 name,
                 icon,
                 color,
-                shared_label_id as "shared_label_id: Uuid",
+                swarm_label_id as "swarm_label_id: Uuid",
                 version as "version!: i64",
                 synced_at as "synced_at: DateTime<Utc>",
                 created_at as "created_at!: DateTime<Utc>",

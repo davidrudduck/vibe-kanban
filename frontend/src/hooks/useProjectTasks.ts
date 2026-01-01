@@ -67,7 +67,7 @@ export interface UseProjectTasksOptions {
  * Server sends initial snapshot: replace /tasks with an object keyed by id.
  * Live updates arrive at /tasks/<id> via add/replace/remove operations.
  *
- * Note: remote_project_id is NOT passed to the backend - the backend fetches it
+ * Note: swarm_project_id is NOT passed to the backend - the backend fetches it
  * from the database using project_id. This avoids a race condition where
  * ProjectContext loads late, causing endpoint changes and WebSocket reconnection.
  */
@@ -262,17 +262,17 @@ export const useProjectTasks = (
       cancelled: [],
     };
 
-    // Build a set of shared_task_ids that are already represented in local tasks
+    // Build a set of swarm_task_ids that are already represented in local tasks
     // This ensures we don't show duplicates when a task exists in both
     // the local tasks table (with is_remote=true) AND the shared_tasks table
     const referencedSharedIds = new Set(
       Object.values(localTasksById)
-        .map((task) => task.shared_task_id)
+        .map((task) => task.swarm_task_id)
         .filter((id): id is string => Boolean(id))
     );
 
     Object.values(sharedTasksById).forEach((sharedTask) => {
-      // Skip this shared task if its ID matches a local task's shared_task_id
+      // Skip this shared task if its ID matches a local task's swarm_task_id
       // This properly deduplicates remote tasks that appear in both tables
       if (referencedSharedIds.has(sharedTask.id)) {
         return;

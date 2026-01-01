@@ -141,7 +141,10 @@ export function ActionsDropdown({
   const hasAttemptActions = Boolean(attempt);
   const hasTaskActions = Boolean(task);
   const isShared = Boolean(sharedTask);
-  const isRemote = Boolean(task?.is_remote);
+  // DEPRECATED: is_remote is being phased out. In the new swarm architecture,
+  // all tasks (local or swarm-linked) are editable. Changes to swarm tasks sync to hive.
+  // Setting to false to enable all actions for all tasks.
+  const isRemote = false; // Was: Boolean(task?.is_remote);
 
   // Check if this task uses a shared worktree (prevents subtask creation)
   const { usesSharedWorktree } = useTaskUsesSharedWorktree(task?.id);

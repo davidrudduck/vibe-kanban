@@ -118,10 +118,10 @@ impl HiveSyncService {
 
     /// Perform one sync cycle.
     ///
-    /// This syncs tasks first (to get shared_task_id), then attempts, executions,
+    /// This syncs tasks first (to get swarm_task_id), then attempts, executions,
     /// logs, and labels in order.
     pub async fn sync_once(&self) -> Result<(), HiveSyncError> {
-        // Sync tasks first (to ensure shared_task_id exists for attempts)
+        // Sync tasks first (to ensure swarm_task_id exists for attempts)
         let tasks_synced = self.sync_tasks().await?;
         if tasks_synced > 0 {
             debug!(count = tasks_synced, "Synced tasks to Hive");
@@ -157,17 +157,17 @@ impl HiveSyncService {
         Ok(())
     }
 
-    /// Sync tasks that need a shared_task_id to the Hive.
+    /// Sync tasks that need a swarm_task_id to the Hive.
     ///
     /// This finds tasks that:
     /// 1. Have unsynced attempts (attempts without hive_synced_at)
-    /// 2. Don't have a shared_task_id
-    /// 3. Belong to projects with a remote_project_id
+    /// 2. Don't have a swarm_task_id
+    /// 3. Belong to projects with a swarm_project_id
     ///
     /// For each such task, we send a TaskSync message to the Hive.
-    /// The Hive will respond with a TaskSyncResponse containing the shared_task_id.
+    /// The Hive will respond with a TaskSyncResponse containing the swarm_task_id.
     async fn sync_tasks(&self) -> Result<usize, HiveSyncError> {
-        // Find tasks that need syncing: have unsynced attempts but no shared_task_id
+        // Find tasks that need syncing: have unsynced attempts but no swarm_task_id
         let tasks = Task::find_needing_sync(&self.pool, self.config.max_tasks_per_batch).await?;
 
         if tasks.is_empty() {
@@ -177,7 +177,7 @@ impl HiveSyncService {
         let mut synced_count = 0;
 
         for task in &tasks {
-            // Look up the project to get remote_project_id
+            // Look up the project to get swarm_project_id
             let project = match Project::find_by_id(&self.pool, task.project_id).await? {
                 Some(p) => p,
                 None => {
@@ -191,7 +191,7 @@ impl HiveSyncService {
             };
 
             // Skip if project isn't linked to hive
-            let remote_project_id = match project.remote_project_id {
+            let swarm_project_id = match project.swarm_project_id {
                 Some(id) => id,
                 None => {
                     debug!(
@@ -211,13 +211,13 @@ impl HiveSyncService {
 
             let message = TaskSyncMessage {
                 local_task_id: task.id,
-                shared_task_id: task.shared_task_id,
-                remote_project_id,
+                swarm_task_id: task.swarm_task_id,
+                swarm_project_id,
                 title: task.title.clone(),
                 description: task.description.clone(),
                 status,
                 version: 1, // Initial version for new sync
-                is_update: task.shared_task_id.is_some(),
+                is_update: task.swarm_task_id.is_some(),
                 created_at: task.created_at,
                 updated_at: task.updated_at,
             };
@@ -232,7 +232,7 @@ impl HiveSyncService {
             info!(
                 task_id = %task.id,
                 title = %task.title,
-                remote_project_id = %remote_project_id,
+                swarm_project_id = %swarm_project_id,
                 "Sent task sync to Hive"
             );
         }
@@ -253,13 +253,13 @@ impl HiveSyncService {
         let mut synced_ids = Vec::new();
 
         for attempt in &attempts {
-            // Look up the task to get the shared_task_id
+            // Look up the task to get the swarm_task_id
             let task = Task::find_by_id(&self.pool, attempt.task_id)
                 .await?
                 .ok_or(HiveSyncError::TaskNotFound(attempt.task_id))?;
 
             // Skip if task isn't linked to Hive
-            let shared_task_id = match task.shared_task_id {
+            let swarm_task_id = match task.swarm_task_id {
                 Some(id) => id,
                 None => {
                     debug!(
@@ -273,7 +273,7 @@ impl HiveSyncService {
             let message = AttemptSyncMessage {
                 attempt_id: attempt.id,
                 assignment_id: attempt.hive_assignment_id, // Use stored assignment_id if available
-                shared_task_id,
+                swarm_task_id,
                 executor: attempt.executor.clone(),
                 executor_variant: None, // TODO: Add executor_variant to TaskAttempt model
                 branch: attempt.branch.clone(),
@@ -476,7 +476,7 @@ impl HiveSyncService {
 
     /// Sync unsynced labels to the Hive.
     ///
-    /// This syncs both new labels (no shared_label_id) and modified labels
+    /// This syncs both new labels (no swarm_label_id) and modified labels
     /// (updated_at > synced_at).
     async fn sync_labels(&self) -> Result<usize, HiveSyncError> {
         // First, get labels that have never been synced
@@ -512,10 +512,10 @@ impl HiveSyncService {
         let mut synced_ids = Vec::new();
 
         for (label_id, (label, is_update)) in labels_to_sync {
-            // Look up the project to get remote_project_id (if this is a project-specific label)
-            let remote_project_id = if let Some(project_id) = label.project_id {
+            // Look up the project to get swarm_project_id (if this is a project-specific label)
+            let swarm_project_id = if let Some(project_id) = label.project_id {
                 match Project::find_by_id(&self.pool, project_id).await? {
-                    Some(project) => project.remote_project_id,
+                    Some(project) => project.swarm_project_id,
                     None => {
                         debug!(
                             label_id = %label_id,
@@ -532,9 +532,9 @@ impl HiveSyncService {
 
             let message = LabelSyncMessage {
                 label_id: label.id,
-                shared_label_id: label.shared_label_id,
+                swarm_label_id: label.swarm_label_id,
                 project_id: label.project_id,
-                remote_project_id,
+                swarm_project_id,
                 name: label.name.clone(),
                 icon: label.icon.clone(),
                 color: label.color.clone(),
@@ -563,8 +563,8 @@ impl HiveSyncService {
         }
 
         // Mark all synced labels
-        // Note: For new labels, the Hive will respond with the shared_label_id
-        // which will be set via Label::set_shared_label_id
+        // Note: For new labels, the Hive will respond with the swarm_label_id
+        // which will be set via Label::set_swarm_label_id
         // For updated labels, we just mark them as synced
         for label_id in &synced_ids {
             Label::mark_synced(&self.pool, *label_id).await?;
