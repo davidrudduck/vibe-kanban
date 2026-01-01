@@ -1,6 +1,8 @@
 {
   "back": "뒤로",
   "close": "닫기",
+  "optional": "선택사항",
+  "cancel": "취소",
   "branchSelector": {
     "badges": {
       "current": "현재",
