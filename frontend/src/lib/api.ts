@@ -1927,3 +1927,328 @@ export const messageQueueApi = {
     return handleApiResponse<void>(response);
   },
 };
+
+// === Swarm Projects API ===
+import type {
+  SwarmProject,
+  SwarmProjectWithNodes,
+  SwarmProjectNode,
+  CreateSwarmProjectRequest,
+  UpdateSwarmProjectRequest,
+  MergeSwarmProjectsRequest,
+  LinkSwarmProjectNodeRequest,
+  ListSwarmProjectsResponse,
+  SwarmProjectResponse,
+  ListSwarmProjectNodesResponse,
+  SwarmProjectNodeResponse,
+} from '@/types/swarm';
+
+export const swarmProjectsApi = {
+  /**
+   * List all swarm projects for an organization.
+   */
+  list: async (organizationId: string): Promise<SwarmProjectWithNodes[]> => {
+    const response = await makeRequest(
+      `/api/swarm/projects?organization_id=${encodeURIComponent(organizationId)}`
+    );
+    const result = await handleApiResponse<ListSwarmProjectsResponse>(response);
+    return result.projects;
+  },
+
+  /**
+   * Get a specific swarm project by ID.
+   */
+  getById: async (projectId: string): Promise<SwarmProject> => {
+    const response = await makeRequest(`/api/swarm/projects/${projectId}`);
+    const result = await handleApiResponse<SwarmProjectResponse>(response);
+    return result.project;
+  },
+
+  /**
+   * Create a new swarm project.
+   */
+  create: async (data: CreateSwarmProjectRequest): Promise<SwarmProject> => {
+    const response = await makeRequest('/api/swarm/projects', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    const result = await handleApiResponse<SwarmProjectResponse>(response);
+    return result.project;
+  },
+
+  /**
+   * Update an existing swarm project.
+   */
+  update: async (
+    projectId: string,
+    data: UpdateSwarmProjectRequest
+  ): Promise<SwarmProject> => {
+    const response = await makeRequest(`/api/swarm/projects/${projectId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+    const result = await handleApiResponse<SwarmProjectResponse>(response);
+    return result.project;
+  },
+
+  /**
+   * Delete a swarm project.
+   */
+  delete: async (projectId: string): Promise<void> => {
+    const response = await makeRequest(`/api/swarm/projects/${projectId}`, {
+      method: 'DELETE',
+    });
+    return handleApiResponse<void>(response);
+  },
+
+  /**
+   * Merge a source swarm project into a target project.
+   * The source project is deleted and all node links are transferred to the target.
+   */
+  merge: async (
+    targetProjectId: string,
+    data: MergeSwarmProjectsRequest
+  ): Promise<SwarmProject> => {
+    const response = await makeRequest(
+      `/api/swarm/projects/${targetProjectId}/merge`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+    const result = await handleApiResponse<SwarmProjectResponse>(response);
+    return result.project;
+  },
+
+  /**
+   * List all nodes linked to a swarm project.
+   */
+  listNodes: async (projectId: string): Promise<SwarmProjectNode[]> => {
+    const response = await makeRequest(
+      `/api/swarm/projects/${projectId}/nodes`
+    );
+    const result =
+      await handleApiResponse<ListSwarmProjectNodesResponse>(response);
+    return result.nodes;
+  },
+
+  /**
+   * Link a node project to a swarm project.
+   */
+  linkNode: async (
+    projectId: string,
+    data: LinkSwarmProjectNodeRequest
+  ): Promise<SwarmProjectNode> => {
+    const response = await makeRequest(
+      `/api/swarm/projects/${projectId}/nodes`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+    const result = await handleApiResponse<SwarmProjectNodeResponse>(response);
+    return result.link;
+  },
+
+  /**
+   * Unlink a node from a swarm project.
+   */
+  unlinkNode: async (projectId: string, nodeId: string): Promise<void> => {
+    const response = await makeRequest(
+      `/api/swarm/projects/${projectId}/nodes/${nodeId}`,
+      {
+        method: 'DELETE',
+      }
+    );
+    return handleApiResponse<void>(response);
+  },
+};
+
+// === Swarm Labels API ===
+import type {
+  SwarmLabel,
+  CreateSwarmLabelRequest,
+  UpdateSwarmLabelRequest,
+  MergeSwarmLabelsRequest,
+  PromoteLabelToOrgRequest,
+  ListSwarmLabelsResponse,
+  SwarmLabelResponse,
+} from '@/types/swarm';
+
+export const swarmLabelsApi = {
+  /**
+   * List all swarm labels for an organization.
+   */
+  list: async (organizationId: string): Promise<SwarmLabel[]> => {
+    const response = await makeRequest(
+      `/api/swarm/labels?organization_id=${encodeURIComponent(organizationId)}`
+    );
+    const result = await handleApiResponse<ListSwarmLabelsResponse>(response);
+    return result.labels;
+  },
+
+  /**
+   * Get a specific swarm label by ID.
+   */
+  getById: async (labelId: string): Promise<SwarmLabel> => {
+    const response = await makeRequest(`/api/swarm/labels/${labelId}`);
+    const result = await handleApiResponse<SwarmLabelResponse>(response);
+    return result.label;
+  },
+
+  /**
+   * Create a new organization-global swarm label.
+   */
+  create: async (data: CreateSwarmLabelRequest): Promise<SwarmLabel> => {
+    const response = await makeRequest('/api/swarm/labels', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    const result = await handleApiResponse<SwarmLabelResponse>(response);
+    return result.label;
+  },
+
+  /**
+   * Update an existing swarm label.
+   */
+  update: async (
+    labelId: string,
+    data: UpdateSwarmLabelRequest
+  ): Promise<SwarmLabel> => {
+    const response = await makeRequest(`/api/swarm/labels/${labelId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+    const result = await handleApiResponse<SwarmLabelResponse>(response);
+    return result.label;
+  },
+
+  /**
+   * Delete a swarm label.
+   */
+  delete: async (labelId: string): Promise<void> => {
+    const response = await makeRequest(`/api/swarm/labels/${labelId}`, {
+      method: 'DELETE',
+    });
+    return handleApiResponse<void>(response);
+  },
+
+  /**
+   * Merge a source label into a target label.
+   * All tasks with the source label are updated to use the target label.
+   */
+  merge: async (
+    targetLabelId: string,
+    data: MergeSwarmLabelsRequest
+  ): Promise<SwarmLabel> => {
+    const response = await makeRequest(
+      `/api/swarm/labels/${targetLabelId}/merge`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+    const result = await handleApiResponse<SwarmLabelResponse>(response);
+    return result.label;
+  },
+
+  /**
+   * Promote a project-specific label to an organization-global label.
+   */
+  promoteToOrg: async (data: PromoteLabelToOrgRequest): Promise<SwarmLabel> => {
+    const response = await makeRequest('/api/swarm/labels/promote', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    const result = await handleApiResponse<SwarmLabelResponse>(response);
+    return result.label;
+  },
+};
+
+// === Swarm Templates API ===
+import type {
+  SwarmTemplate,
+  CreateSwarmTemplateRequest,
+  UpdateSwarmTemplateRequest,
+  MergeSwarmTemplatesRequest,
+  ListSwarmTemplatesResponse,
+  SwarmTemplateResponse,
+} from '@/types/swarm';
+
+export const swarmTemplatesApi = {
+  /**
+   * List all swarm templates for an organization.
+   */
+  list: async (organizationId: string): Promise<SwarmTemplate[]> => {
+    const response = await makeRequest(
+      `/api/swarm/templates?organization_id=${encodeURIComponent(organizationId)}`
+    );
+    const result =
+      await handleApiResponse<ListSwarmTemplatesResponse>(response);
+    return result.templates;
+  },
+
+  /**
+   * Get a specific swarm template by ID.
+   */
+  getById: async (templateId: string): Promise<SwarmTemplate> => {
+    const response = await makeRequest(`/api/swarm/templates/${templateId}`);
+    const result = await handleApiResponse<SwarmTemplateResponse>(response);
+    return result.template;
+  },
+
+  /**
+   * Create a new swarm template.
+   */
+  create: async (data: CreateSwarmTemplateRequest): Promise<SwarmTemplate> => {
+    const response = await makeRequest('/api/swarm/templates', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    const result = await handleApiResponse<SwarmTemplateResponse>(response);
+    return result.template;
+  },
+
+  /**
+   * Update an existing swarm template.
+   */
+  update: async (
+    templateId: string,
+    data: UpdateSwarmTemplateRequest
+  ): Promise<SwarmTemplate> => {
+    const response = await makeRequest(`/api/swarm/templates/${templateId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+    const result = await handleApiResponse<SwarmTemplateResponse>(response);
+    return result.template;
+  },
+
+  /**
+   * Delete a swarm template.
+   */
+  delete: async (templateId: string): Promise<void> => {
+    const response = await makeRequest(`/api/swarm/templates/${templateId}`, {
+      method: 'DELETE',
+    });
+    return handleApiResponse<void>(response);
+  },
+
+  /**
+   * Merge a source template into a target template.
+   */
+  merge: async (
+    targetTemplateId: string,
+    data: MergeSwarmTemplatesRequest
+  ): Promise<SwarmTemplate> => {
+    const response = await makeRequest(
+      `/api/swarm/templates/${targetTemplateId}/merge`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+    const result = await handleApiResponse<SwarmTemplateResponse>(response);
+    return result.template;
+  },
+};

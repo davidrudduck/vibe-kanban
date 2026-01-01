@@ -13,6 +13,8 @@
         "mcpDesc": "Model Context Protocol servers",
         "organizations": "Organization Settings",
         "organizationsDesc": "Manage organization members and permissions",
+        "swarm": "Swarm",
+        "swarmDesc": "Manage shared projects across nodes",
         "backups": "Backups",
         "backupsDesc": "Database backup management"
       },
@@ -467,6 +469,82 @@
         "success": "Settings Saved!",
         "successMessage": "✓ MCP configuration saved successfully!",
         "loading": "Loading current MCP server configuration..."
+      }
+    },
+    "swarm": {
+      "title": "Swarm Management",
+      "description": "Manage shared projects, labels, and templates across your swarm nodes.",
+      "loading": "Loading swarm settings...",
+      "loadError": "Failed to load organizations",
+      "selectOrg": "Select Organization",
+      "selectOrgPlaceholder": "Choose an organization...",
+      "selectOrgHelper": "Select the organization whose swarm settings you want to manage.",
+      "noOrgs": "No organizations available",
+      "loginRequired": {
+        "title": "Sign in to manage swarm",
+        "description": "Sign in to your account to manage swarm projects, labels, and templates across your organizations.",
+        "action": "Sign In"
+      },
+      "projects": {
+        "title": "Swarm Projects",
+        "description": "Manage shared projects across your swarm nodes. Link local projects to share tasks between nodes.",
+        "noOrganization": "Please select an organization to manage swarm projects.",
+        "loading": "Loading swarm projects...",
+        "error": "Failed to load swarm projects. Please try again.",
+        "empty": "No swarm projects yet. Create one to start sharing projects across nodes.",
+        "createFirst": "Create your first project",
+        "add": "Add Project",
+        "addShort": "Add",
+        "refresh": "Refresh",
+        "mergeProjects": "Merge Projects",
+        "node": "node",
+        "nodes": "nodes",
+        "edit": "Edit",
+        "editTooltip": "Edit project",
+        "delete": "Delete",
+        "deleteTooltip": "Delete project",
+        "unlink": "Unlink",
+        "unlinkTooltip": "Unlink this node",
+        "loadingNodes": "Loading linked nodes...",
+        "noNodes": "No nodes linked to this project yet.",
+        "linkedAt": "Linked",
+        "dialog": {
+          "createTitle": "Create Swarm Project",
+          "createDescription": "Create a new swarm project that can be linked to node projects.",
+          "editTitle": "Edit Swarm Project",
+          "editDescription": "Update the project name and description.",
+          "nameLabel": "Name",
+          "namePlaceholder": "e.g., My Shared Project",
+          "nameRequired": "Project name is required",
+          "descriptionLabel": "Description",
+          "descriptionPlaceholder": "Brief description of the project",
+          "save": "Save Changes",
+          "create": "Create Project"
+        },
+        "deleteConfirm": {
+          "title": "Delete Swarm Project?",
+          "description": "This will delete \"{{name}}\" and unlink all {{count}} nodes. This action cannot be undone.",
+          "confirm": "Delete Project"
+        }
+      },
+      "merge": {
+        "title": "Merge Projects",
+        "description": "Merge another project into \"{{target}}\". All linked nodes will be transferred and the source project will be deleted.",
+        "sourceLabel": "Merge from",
+        "selectSource": "Select a project to merge...",
+        "targetLabel": "Merge into",
+        "sourceRequired": "Please select a project to merge",
+        "noOtherProjects": "No other projects available to merge.",
+        "warning": "\"{{source}}\" will be deleted after merging. This action cannot be undone.",
+        "confirm": "Merge Projects"
+      },
+      "labels": {
+        "title": "Swarm Labels",
+        "comingSoon": "Organization-wide label management coming soon."
+      },
+      "templates": {
+        "title": "Swarm Templates",
+        "comingSoon": "Organization-wide template management coming soon."
       }
     },
     "projects": {
