@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -81,6 +81,39 @@ pub struct LabelRepository<'a> {
 impl<'a> LabelRepository<'a> {
     pub fn new(pool: &'a PgPool) -> Self {
         Self { pool }
+    }
+
+    /// Find swarm labels for an organization (project_id = NULL, excludes deleted)
+    pub async fn find_swarm_labels(
+        &self,
+        organization_id: Uuid,
+    ) -> Result<Vec<Label>, LabelError> {
+        let labels = sqlx::query_as::<_, Label>(
+            r#"
+            SELECT
+                id,
+                organization_id,
+                project_id,
+                origin_node_id,
+                name,
+                icon,
+                color,
+                version,
+                deleted_at,
+                created_at,
+                updated_at
+            FROM labels
+            WHERE organization_id = $1
+              AND project_id IS NULL
+              AND deleted_at IS NULL
+            ORDER BY name ASC
+            "#,
+        )
+        .bind(organization_id)
+        .fetch_all(self.pool)
+        .await?;
+
+        Ok(labels)
     }
 
     /// Find a label by ID (excludes deleted)
@@ -585,5 +618,160 @@ impl LabelRepository<'_> {
         .await?;
 
         Ok((label, true))
+    }
+
+    /// Merge two labels by moving all task associations from source to target.
+    ///
+    /// This operation:
+    /// 1. Moves all task-label associations from source_id to target_id
+    /// 2. Soft-deletes the source label
+    ///
+    /// Returns the target label and the number of migrated task associations.
+    pub async fn merge_labels(
+        &self,
+        source_id: Uuid,
+        target_id: Uuid,
+    ) -> Result<(Label, u64), LabelError> {
+        let mut tx = self.pool.begin().await?;
+
+        // First, update task associations from source to target
+        // Only move those where target doesn't already have the same task
+        let result = sqlx::query(
+            r#"
+            WITH moved AS (
+                UPDATE shared_task_labels
+                SET label_id = $2
+                WHERE label_id = $1
+                  AND shared_task_id NOT IN (
+                      SELECT shared_task_id FROM shared_task_labels WHERE label_id = $2
+                  )
+                RETURNING 1
+            )
+            SELECT COUNT(*)::bigint AS count FROM moved
+            "#,
+        )
+        .bind(source_id)
+        .bind(target_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let migrated: i64 = result.get("count");
+
+        // Delete remaining source associations (tasks that already had target label)
+        sqlx::query("DELETE FROM shared_task_labels WHERE label_id = $1")
+            .bind(source_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // Soft-delete the source label
+        sqlx::query(
+            r#"
+            UPDATE labels
+            SET deleted_at = NOW(),
+                version = version + 1,
+                updated_at = NOW()
+            WHERE id = $1
+              AND deleted_at IS NULL
+            "#,
+        )
+        .bind(source_id)
+        .execute(&mut *tx)
+        .await?;
+
+        // Fetch the target label
+        let label = sqlx::query_as::<_, Label>(
+            r#"
+            SELECT
+                id,
+                organization_id,
+                project_id,
+                origin_node_id,
+                name,
+                icon,
+                color,
+                version,
+                deleted_at,
+                created_at,
+                updated_at
+            FROM labels
+            WHERE id = $1
+            "#,
+        )
+        .bind(target_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+
+        Ok((label, migrated as u64))
+    }
+
+    /// Promote a project-scoped label to a swarm label by setting project_id to NULL.
+    ///
+    /// This makes the label available across all projects in the organization.
+    pub async fn promote_to_swarm(&self, label_id: Uuid) -> Result<Label, LabelError> {
+        // Check if there's already a swarm label with the same name in the org
+        let existing = self.find_by_id(label_id).await?;
+        let label = existing.ok_or(LabelError::NotFound)?;
+
+        if label.project_id.is_none() {
+            // Already a swarm label
+            return Ok(label);
+        }
+
+        // Check for name conflict with existing swarm labels
+        let conflict = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            SELECT id
+            FROM labels
+            WHERE organization_id = $1
+              AND project_id IS NULL
+              AND name = $2
+              AND deleted_at IS NULL
+              AND id != $3
+            "#,
+        )
+        .bind(label.organization_id)
+        .bind(&label.name)
+        .bind(label_id)
+        .fetch_optional(self.pool)
+        .await?;
+
+        if conflict.is_some() {
+            return Err(LabelError::Conflict(format!(
+                "A swarm label with name '{}' already exists",
+                label.name
+            )));
+        }
+
+        // Promote to swarm label
+        let promoted = sqlx::query_as::<_, Label>(
+            r#"
+            UPDATE labels
+            SET project_id = NULL,
+                version = version + 1,
+                updated_at = NOW()
+            WHERE id = $1
+              AND deleted_at IS NULL
+            RETURNING
+                id,
+                organization_id,
+                project_id,
+                origin_node_id,
+                name,
+                icon,
+                color,
+                version,
+                deleted_at,
+                created_at,
+                updated_at
+            "#,
+        )
+        .bind(label_id)
+        .fetch_optional(self.pool)
+        .await?
+        .ok_or(LabelError::NotFound)?;
+
+        Ok(promoted)
     }
 }

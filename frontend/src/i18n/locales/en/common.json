@@ -2,6 +2,8 @@
   "search": "Search",
   "back": "Back",
   "close": "Close",
+  "optional": "optional",
+  "cancel": "Cancel",
   "buttons": {
     "save": "Save",
     "cancel": "Cancel",

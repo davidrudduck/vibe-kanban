@@ -9,6 +9,12 @@ use remote::{
     nodes::{Node, NodeApiKey, NodeProject},
     routes::{
         projects::ListProjectNodesResponse,
+        swarm_labels::{ListSwarmLabelsResponse, MergeLabelsResult, SwarmLabelResponse},
+        swarm_projects::{
+            ListSwarmProjectNodesResponse, ListSwarmProjectsResponse, SwarmProjectNodeResponse,
+            SwarmProjectResponse,
+        },
+        swarm_templates::{ListSwarmTemplatesResponse, SwarmTemplateResponse},
         tasks::{
             AssignSharedTaskRequest, BulkSharedTasksResponse, CreateSharedTaskRequest,
             DeleteSharedTaskRequest, SharedTaskResponse, TaskStreamConnectionInfoResponse,
@@ -722,6 +728,100 @@ impl RemoteClient {
     }
 
     // =====================
+    // Swarm Project APIs
+    // =====================
+
+    /// Lists all swarm projects for an organization.
+    pub async fn list_swarm_projects(
+        &self,
+        organization_id: Uuid,
+    ) -> Result<ListSwarmProjectsResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/swarm/projects?organization_id={organization_id}"))
+            .await
+    }
+
+    /// Gets a specific swarm project by ID.
+    pub async fn get_swarm_project(
+        &self,
+        project_id: Uuid,
+    ) -> Result<SwarmProjectResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/swarm/projects/{project_id}"))
+            .await
+    }
+
+    /// Creates a new swarm project.
+    pub async fn create_swarm_project(
+        &self,
+        request: &CreateSwarmProjectRequest,
+    ) -> Result<SwarmProjectResponse, RemoteClientError> {
+        self.post_authed("/v1/swarm/projects", Some(request)).await
+    }
+
+    /// Updates an existing swarm project.
+    pub async fn update_swarm_project(
+        &self,
+        project_id: Uuid,
+        request: &UpdateSwarmProjectRequest,
+    ) -> Result<SwarmProjectResponse, RemoteClientError> {
+        self.patch_authed(&format!("/v1/swarm/projects/{project_id}"), request)
+            .await
+    }
+
+    /// Deletes a swarm project.
+    pub async fn delete_swarm_project(
+        &self,
+        project_id: Uuid,
+    ) -> Result<(), RemoteClientError> {
+        self.delete_authed(&format!("/v1/swarm/projects/{project_id}"))
+            .await
+    }
+
+    /// Merges two swarm projects by moving all node links from source to target.
+    pub async fn merge_swarm_projects(
+        &self,
+        target_id: Uuid,
+        source_id: Uuid,
+    ) -> Result<SwarmProjectResponse, RemoteClientError> {
+        self.post_authed(
+            &format!("/v1/swarm/projects/{target_id}/merge"),
+            Some(&MergeSwarmProjectsRequest { source_id }),
+        )
+        .await
+    }
+
+    /// Lists all node links for a swarm project.
+    pub async fn list_swarm_project_nodes(
+        &self,
+        project_id: Uuid,
+    ) -> Result<ListSwarmProjectNodesResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/swarm/projects/{project_id}/nodes"))
+            .await
+    }
+
+    /// Links a node project to a swarm project.
+    pub async fn link_swarm_project_node(
+        &self,
+        project_id: Uuid,
+        request: &LinkSwarmProjectNodeRequest,
+    ) -> Result<SwarmProjectNodeResponse, RemoteClientError> {
+        self.post_authed(
+            &format!("/v1/swarm/projects/{project_id}/nodes"),
+            Some(request),
+        )
+        .await
+    }
+
+    /// Unlinks a node from a swarm project.
+    pub async fn unlink_swarm_project_node(
+        &self,
+        project_id: Uuid,
+        node_id: Uuid,
+    ) -> Result<(), RemoteClientError> {
+        self.delete_authed(&format!("/v1/swarm/projects/{project_id}/nodes/{node_id}"))
+            .await
+    }
+
+    // =====================
     // Label APIs
     // =====================
 
@@ -779,6 +879,144 @@ impl RemoteClient {
     pub async fn get_label(&self, label_id: Uuid) -> Result<LabelResponse, RemoteClientError> {
         self.get_authed(&format!("/v1/labels/{label_id}")).await
     }
+
+    // =====================
+    // Swarm Label APIs
+    // =====================
+
+    /// Lists all swarm labels for an organization (org-global labels with project_id = NULL).
+    pub async fn list_swarm_labels(
+        &self,
+        organization_id: Uuid,
+    ) -> Result<ListSwarmLabelsResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/swarm/labels?organization_id={organization_id}"))
+            .await
+    }
+
+    /// Gets a specific swarm label by ID.
+    pub async fn get_swarm_label(
+        &self,
+        label_id: Uuid,
+    ) -> Result<SwarmLabelResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/swarm/labels/{label_id}"))
+            .await
+    }
+
+    /// Creates a new swarm label (org-global).
+    pub async fn create_swarm_label(
+        &self,
+        request: &CreateSwarmLabelRequest,
+    ) -> Result<SwarmLabelResponse, RemoteClientError> {
+        self.post_authed("/v1/swarm/labels", Some(request)).await
+    }
+
+    /// Updates an existing swarm label.
+    pub async fn update_swarm_label(
+        &self,
+        label_id: Uuid,
+        request: &UpdateSwarmLabelRequest,
+    ) -> Result<SwarmLabelResponse, RemoteClientError> {
+        self.patch_authed(&format!("/v1/swarm/labels/{label_id}"), request)
+            .await
+    }
+
+    /// Deletes a swarm label.
+    pub async fn delete_swarm_label(
+        &self,
+        label_id: Uuid,
+    ) -> Result<(), RemoteClientError> {
+        self.delete_authed(&format!("/v1/swarm/labels/{label_id}"))
+            .await
+    }
+
+    /// Merges two swarm labels by moving all task associations from source to target.
+    pub async fn merge_swarm_labels(
+        &self,
+        target_id: Uuid,
+        source_id: Uuid,
+    ) -> Result<MergeLabelsResult, RemoteClientError> {
+        self.post_authed(
+            &format!("/v1/swarm/labels/{target_id}/merge"),
+            Some(&MergeSwarmLabelsRequest { source_id }),
+        )
+        .await
+    }
+
+    /// Promotes a project-scoped label to a swarm label (org-global).
+    pub async fn promote_label_to_swarm(
+        &self,
+        label_id: Uuid,
+    ) -> Result<SwarmLabelResponse, RemoteClientError> {
+        self.post_authed(
+            "/v1/swarm/labels/promote",
+            Some(&PromoteToSwarmRequest { label_id }),
+        )
+        .await
+    }
+
+    // =====================
+    // Swarm Template APIs
+    // =====================
+
+    /// Lists all swarm templates for an organization.
+    pub async fn list_swarm_templates(
+        &self,
+        organization_id: Uuid,
+    ) -> Result<ListSwarmTemplatesResponse, RemoteClientError> {
+        self.get_authed(&format!(
+            "/v1/swarm/templates?organization_id={organization_id}"
+        ))
+        .await
+    }
+
+    /// Gets a specific swarm template by ID.
+    pub async fn get_swarm_template(
+        &self,
+        template_id: Uuid,
+    ) -> Result<SwarmTemplateResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/swarm/templates/{template_id}"))
+            .await
+    }
+
+    /// Creates a new swarm template.
+    pub async fn create_swarm_template(
+        &self,
+        request: &CreateSwarmTemplateRequest,
+    ) -> Result<SwarmTemplateResponse, RemoteClientError> {
+        self.post_authed("/v1/swarm/templates", Some(request)).await
+    }
+
+    /// Updates an existing swarm template.
+    pub async fn update_swarm_template(
+        &self,
+        template_id: Uuid,
+        request: &UpdateSwarmTemplateRequest,
+    ) -> Result<SwarmTemplateResponse, RemoteClientError> {
+        self.patch_authed(&format!("/v1/swarm/templates/{template_id}"), request)
+            .await
+    }
+
+    /// Deletes a swarm template.
+    pub async fn delete_swarm_template(
+        &self,
+        template_id: Uuid,
+    ) -> Result<(), RemoteClientError> {
+        self.delete_authed(&format!("/v1/swarm/templates/{template_id}"))
+            .await
+    }
+
+    /// Merges two swarm templates by soft-deleting the source.
+    pub async fn merge_swarm_templates(
+        &self,
+        target_id: Uuid,
+        source_id: Uuid,
+    ) -> Result<SwarmTemplateResponse, RemoteClientError> {
+        self.post_authed(
+            &format!("/v1/swarm/templates/{target_id}/merge"),
+            Some(&MergeSwarmTemplatesRequest { source_id }),
+        )
+        .await
+    }
 }
 
 /// Request payload for creating a node API key
@@ -802,6 +1040,48 @@ pub struct CreateRemoteProjectPayload {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Value>,
+}
+
+// =====================
+// Swarm Project Types
+// =====================
+
+/// Request payload for creating a swarm project
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateSwarmProjectRequest {
+    pub organization_id: Uuid,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub metadata: Option<Value>,
+}
+
+/// Request payload for updating a swarm project
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateSwarmProjectRequest {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub metadata: Option<Value>,
+}
+
+/// Request payload for merging swarm projects
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MergeSwarmProjectsRequest {
+    pub source_id: Uuid,
+}
+
+/// Request payload for linking a node to a swarm project
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LinkSwarmProjectNodeRequest {
+    pub node_id: Uuid,
+    pub local_project_id: Uuid,
+    pub git_repo_path: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub os_type: Option<String>,
 }
 
 // =====================
@@ -867,6 +1147,92 @@ pub struct LabelResponse {
 #[derive(Debug, Deserialize)]
 pub struct ListLabelsResponse {
     pub labels: Vec<HiveLabel>,
+}
+
+// =====================
+// Swarm Label Types
+// =====================
+
+/// Request payload for creating a swarm label
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateSwarmLabelRequest {
+    pub organization_id: Uuid,
+    pub name: String,
+    #[serde(default = "default_icon")]
+    pub icon: String,
+    #[serde(default = "default_color")]
+    pub color: String,
+}
+
+fn default_icon() -> String {
+    "tag".to_string()
+}
+
+fn default_color() -> String {
+    "#6b7280".to_string()
+}
+
+/// Request payload for updating a swarm label
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateSwarmLabelRequest {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub icon: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub version: Option<i64>,
+}
+
+/// Request payload for merging swarm labels
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MergeSwarmLabelsRequest {
+    pub source_id: Uuid,
+}
+
+/// Request payload for promoting a label to swarm
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PromoteToSwarmRequest {
+    pub label_id: Uuid,
+}
+
+// =====================
+// Swarm Template Types
+// =====================
+
+/// Request payload for creating a swarm template
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateSwarmTemplateRequest {
+    pub organization_id: Uuid,
+    pub name: String,
+    #[serde(default)]
+    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub metadata: Option<Value>,
+}
+
+/// Request payload for updating a swarm template
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateSwarmTemplateRequest {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub metadata: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub version: Option<i64>,
+}
+
+/// Request payload for merging swarm templates
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MergeSwarmTemplatesRequest {
+    pub source_id: Uuid,
 }
 
 fn map_reqwest_error(e: reqwest::Error) -> RemoteClientError {

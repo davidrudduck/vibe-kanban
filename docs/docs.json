@@ -100,6 +100,9 @@
         "group": "Swarm Architecture",
         "pages": [
           "swarm-hive-setup",
+          "core-features/swarm-management",
+          "core-features/project-linking",
+          "architecture/swarm-sync",
           "future/phase-4-load-balancing"
         ]
       }

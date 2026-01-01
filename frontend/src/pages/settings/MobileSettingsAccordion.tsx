@@ -7,6 +7,7 @@ import {
   Server,
   FolderOpen,
   Building2,
+  Network,
   Database,
   ChevronDown,
   Search,
@@ -29,6 +30,9 @@ const OrganizationSettings = lazy(() =>
   import('./OrganizationSettings').then((m) => ({
     default: m.OrganizationSettings,
   }))
+);
+const SwarmSettings = lazy(() =>
+  import('./SwarmSettings').then((m) => ({ default: m.SwarmSettings }))
 );
 const AgentSettings = lazy(() =>
   import('./AgentSettings').then((m) => ({ default: m.AgentSettings }))
@@ -65,6 +69,12 @@ const settingsSections: SettingsSection[] = [
     path: 'organizations',
     icon: Building2,
     component: OrganizationSettings,
+  },
+  {
+    id: 'swarm',
+    path: 'swarm',
+    icon: Network,
+    component: SwarmSettings,
   },
   {
     id: 'agents',

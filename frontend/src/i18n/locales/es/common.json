@@ -1,6 +1,8 @@
 {
   "back": "Atrás",
   "close": "Cerrar",
+  "optional": "opcional",
+  "cancel": "Cancelar",
   "branchSelector": {
     "badges": {
       "current": "actual",

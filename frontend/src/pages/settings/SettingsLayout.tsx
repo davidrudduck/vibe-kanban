@@ -7,6 +7,7 @@ import {
   X,
   FolderOpen,
   Building2,
+  Network,
   Database,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -30,6 +31,10 @@ const settingsNavigation = [
   {
     path: 'organizations',
     icon: Building2,
+  },
+  {
+    path: 'swarm',
+    icon: Network,
   },
   {
     path: 'agents',

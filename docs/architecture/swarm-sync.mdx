@@ -1,0 +1,476 @@
+---
+title: "Swarm Sync Architecture"
+description: "Technical documentation of the swarm synchronization data model and sync flows"
+---
+
+This document describes the technical architecture of swarm synchronization between nodes and the hive server.
+
+## Data Model Overview
+
+The swarm architecture uses a hub-and-spoke model where the hive (PostgreSQL) serves as the central source of truth, and nodes (SQLite) maintain local caches with bidirectional sync.
+
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│                              HIVE (PostgreSQL)                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  swarm_projects          │  swarm_labels           │  swarm_templates   │
+│  ├─ id                   │  ├─ id                  │  ├─ id             │
+│  ├─ organization_id      │  ├─ organization_id     │  ├─ organization_id│
+│  ├─ name                 │  ├─ name, icon, color   │  ├─ name, content  │
+│  └─ created_at           │  └─ created_at          │  └─ created_at     │
+│                          │                         │                    │
+│  swarm_project_nodes     │  swarm_tasks            │  execution_logs    │
+│  ├─ swarm_project_id     │  ├─ swarm_project_id    │  ├─ assignment_id  │
+│  ├─ node_id              │  ├─ title, description  │  ├─ output_type    │
+│  ├─ local_project_id     │  ├─ status, version     │  ├─ content        │
+│  ├─ git_repo_path        │  └─ created_at          │  └─ timestamp      │
+│  └─ os_type              │                         │                    │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                    ┌───────────────┼───────────────┐
+                    │ WebSocket     │  WebSocket    │ WebSocket
+                    ▼               ▼               ▼
+┌─────────────────────┐  ┌─────────────────────┐  ┌─────────────────────┐
+│    NODE A (SQLite)  │  │    NODE B (SQLite)  │  │    NODE C (SQLite)  │
+├─────────────────────┤  ├─────────────────────┤  ├─────────────────────┤
+│ projects            │  │ projects            │  │ projects            │
+│ ├─ swarm_project_id │  │ ├─ swarm_project_id │  │ ├─ swarm_project_id │
+│ └─ (NULL = local)   │  │ └─ (NULL = local)   │  │ └─ (NULL = local)   │
+│                     │  │                     │  │                     │
+│ tasks (CACHE)       │  │ tasks (CACHE)       │  │ tasks (CACHE)       │
+│ ├─ swarm_task_id    │  │ ├─ swarm_task_id    │  │ ├─ swarm_task_id    │
+│ └─ (NULL = local)   │  │ └─ (NULL = local)   │  │ └─ (NULL = local)   │
+│                     │  │                     │  │                     │
+│ labels              │  │ labels              │  │ labels              │
+│ ├─ swarm_label_id   │  │ ├─ swarm_label_id   │  │ ├─ swarm_label_id   │
+│ └─ (NULL = local)   │  │ └─ (NULL = local)   │  │ └─ (NULL = local)   │
+└─────────────────────┘  └─────────────────────┘  └─────────────────────┘
+```
+
+## Entity Linking States
+
+Entities on nodes have a linking state determined by their `swarm_*_id` field:
+
+| Entity | `swarm_*_id = NULL` | `swarm_*_id = UUID` |
+|--------|---------------------|---------------------|
+| Project | Local only, not shared | Linked to swarm project |
+| Task | Local only (in unlinked project) | Swarm-owned, synced |
+| Label | Local only, cannot be used in swarm tasks | Available across all nodes |
+| Template | Local only | Available across all nodes |
+
+## Hive Database Schema
+
+### swarm_projects
+
+Central registry of shared projects.
+
+```sql
+CREATE TABLE swarm_projects (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID NOT NULL REFERENCES organizations(id),
+  name TEXT NOT NULL,
+  description TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(organization_id, name)
+);
+```
+
+### swarm_project_nodes
+
+Junction table linking swarm projects to node projects.
+
+```sql
+CREATE TABLE swarm_project_nodes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  swarm_project_id UUID NOT NULL REFERENCES swarm_projects(id) ON DELETE CASCADE,
+  node_id UUID NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+  local_project_id UUID NOT NULL,
+  git_repo_path TEXT NOT NULL,
+  os_type TEXT,
+  linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(swarm_project_id, node_id, local_project_id)
+);
+```
+
+### swarm_tasks
+
+Shared tasks owned by the hive.
+
+```sql
+CREATE TABLE swarm_tasks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  swarm_project_id UUID NOT NULL REFERENCES swarm_projects(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT,
+  status TEXT NOT NULL DEFAULT 'todo',
+  priority INTEGER DEFAULT 0,
+  version BIGINT NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+### labels (Hive)
+
+Organization-global labels.
+
+```sql
+CREATE TABLE labels (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID NOT NULL REFERENCES organizations(id),
+  name TEXT NOT NULL,
+  color TEXT NOT NULL DEFAULT '#6366f1',
+  icon TEXT,
+  version BIGINT NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(organization_id, name)
+);
+```
+
+### swarm_templates
+
+Organization-global task templates.
+
+```sql
+CREATE TABLE swarm_templates (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID NOT NULL REFERENCES organizations(id),
+  name TEXT NOT NULL,
+  content TEXT NOT NULL,
+  version BIGINT NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(organization_id, name)
+);
+```
+
+## Node Database Schema Additions
+
+### projects
+
+Extended with swarm linking fields:
+
+```sql
+ALTER TABLE projects ADD COLUMN swarm_project_id TEXT;
+-- NULL = local project, UUID = linked to swarm project
+```
+
+### tasks
+
+Extended with swarm linking and sync tracking:
+
+```sql
+ALTER TABLE tasks ADD COLUMN swarm_task_id TEXT;
+ALTER TABLE tasks ADD COLUMN swarm_version INTEGER DEFAULT 1;
+ALTER TABLE tasks ADD COLUMN swarm_synced_at TEXT;
+-- NULL swarm_task_id = local task
+```
+
+### labels
+
+Extended with swarm linking:
+
+```sql
+ALTER TABLE labels ADD COLUMN swarm_label_id TEXT;
+ALTER TABLE labels ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE labels ADD COLUMN synced_at TEXT;
+```
+
+## Sync Protocols
+
+### WebSocket Message Types
+
+Nodes and hive communicate via WebSocket with these message types:
+
+```rust
+enum NodeToHive {
+    // Connection
+    Authenticate { api_key: String },
+    Heartbeat,
+
+    // Project linking
+    LinkProject { swarm_project_id: Uuid, local_project_id: Uuid, git_path: String },
+    UnlinkProject { swarm_project_id: Uuid, local_project_id: Uuid },
+
+    // Task sync
+    TaskCreated { task: SwarmTask },
+    TaskUpdated { task: SwarmTask },
+    TaskDeleted { task_id: Uuid },
+
+    // Label sync
+    LabelSync { labels: Vec<Label> },
+
+    // Execution sync
+    AttemptCreated { attempt: TaskAttempt },
+    AttemptUpdated { attempt: TaskAttempt },
+    LogBatch { logs: Vec<LogEntry> },
+}
+
+enum HiveToNode {
+    // Connection
+    Authenticated { node_id: Uuid },
+    Error { message: String },
+
+    // Task broadcast
+    TaskCreated { task: SwarmTask },
+    TaskUpdated { task: SwarmTask },
+    TaskDeleted { task_id: Uuid },
+
+    // Label broadcast
+    LabelUpdated { label: Label },
+    LabelDeleted { label_id: Uuid },
+
+    // Template broadcast
+    TemplateUpdated { template: SwarmTemplate },
+    TemplateDeleted { template_id: Uuid },
+
+    // Sync state
+    SyncState { projects: Vec<ProjectLink> },
+}
+```
+
+### Task Sync Flow
+
+**Create Task (Node → Hive → All Nodes)**
+
+```text
+┌──────────┐         ┌──────────┐         ┌──────────┐
+│  Node A  │         │   Hive   │         │  Node B  │
+└────┬─────┘         └────┬─────┘         └────┬─────┘
+     │                    │                    │
+     │ TaskCreated(task)  │                    │
+     │───────────────────►│                    │
+     │                    │                    │
+     │   Ack(swarm_id)    │                    │
+     │◄───────────────────│                    │
+     │                    │                    │
+     │                    │ TaskCreated(task)  │
+     │                    │───────────────────►│
+     │                    │                    │
+```
+
+**Update Task (Conflict Resolution)**
+
+```text
+┌──────────┐         ┌──────────┐
+│  Node A  │         │   Hive   │
+└────┬─────┘         └────┬─────┘
+     │                    │
+     │ TaskUpdated        │
+     │ (version: 3)       │
+     │───────────────────►│
+     │                    │
+     │   IF hive.version  │
+     │      == 3          │
+     │   Accept, version  │
+     │      = 4           │
+     │◄───────────────────│
+     │                    │
+     │   ELSE             │
+     │   Conflict, send   │
+     │   current version  │
+     │◄───────────────────│
+```
+
+### Label Sync Flow
+
+Labels sync bidirectionally with version tracking:
+
+1. Node creates/updates label locally
+2. Node sends `LabelSync` message with local labels
+3. Hive compares versions
+4. Hive updates its records (higher version wins)
+5. Hive broadcasts updated labels to all nodes
+6. Nodes update their local cache
+
+### Execution Log Sync
+
+Logs sync via background service (HiveSyncService):
+
+```rust
+// Every 5 seconds
+async fn sync_to_hive() {
+    // 1. Find unsynced task attempts
+    let attempts = db.find_attempts_where(hive_synced_at IS NULL);
+
+    // 2. Sync attempts to hive
+    for attempt in attempts {
+        hive.sync_attempt(attempt).await?;
+        db.mark_attempt_synced(attempt.id).await?;
+    }
+
+    // 3. Find unsynced log entries (batched)
+    let logs = db.find_logs_where(hive_synced_at IS NULL LIMIT 1000);
+
+    // 4. Batch sync logs
+    if !logs.is_empty() {
+        hive.sync_log_batch(logs).await?;
+        db.mark_logs_synced(logs.iter().map(|l| l.id)).await?;
+    }
+}
+```
+
+## Merge Operations
+
+### Project Merge
+
+Merging two swarm projects:
+
+1. Select target project (the one to keep)
+2. Select source project (the one to merge from)
+3. Transfer all node links from source to target
+4. Transfer all tasks from source to target
+5. Delete source project
+
+```sql
+-- Move node links
+UPDATE swarm_project_nodes
+SET swarm_project_id = $target_id
+WHERE swarm_project_id = $source_id;
+
+-- Move tasks
+UPDATE swarm_tasks
+SET swarm_project_id = $target_id
+WHERE swarm_project_id = $source_id;
+
+-- Delete source
+DELETE FROM swarm_projects WHERE id = $source_id;
+```
+
+### Label Merge
+
+Merging two labels:
+
+1. Update all task_labels references from source to target
+2. Update all node local labels linked to source
+3. Delete source label
+
+```sql
+-- Update task labels
+UPDATE task_labels
+SET label_id = $target_id
+WHERE label_id = $source_id;
+
+-- Notify nodes to update local links
+-- (via WebSocket broadcast)
+
+-- Delete source
+DELETE FROM labels WHERE id = $source_id;
+```
+
+### Template Merge
+
+Similar to label merge, updates all references then deletes source.
+
+## Version Conflict Resolution
+
+The swarm uses optimistic concurrency with last-write-wins for most entities:
+
+### Task Versions
+
+```rust
+// On update attempt
+if request.version != db.current_version {
+    return Err(ConflictError {
+        current: db.task.clone(),
+        requested_version: request.version,
+    });
+}
+
+// Accept update, increment version
+db.update_task(request.task, version + 1);
+```
+
+### Label/Template Versions
+
+Labels and templates use higher-version-wins to handle simultaneous updates from multiple nodes:
+
+```rust
+// On sync
+if incoming.version > db.current_version {
+    db.update(incoming);
+} else {
+    // Incoming is stale, send current version back
+    send_current_version_to_node(node_id, db.current);
+}
+```
+
+## Offline Handling
+
+### Node Disconnection
+
+When a node disconnects from the hive:
+
+1. WebSocket connection closes
+2. Node status updated to `offline` on hive
+3. Node continues serving cached data
+4. Write operations blocked (require hive)
+
+### Reconnection
+
+When a node reconnects:
+
+1. Authenticate with API key
+2. Hive sends current sync state
+3. Node reconciles local cache with hive state
+4. Node re-registers all linked projects
+5. Background sync service resumes
+
+### Queued Operations
+
+During disconnection, these operations are queued:
+- Execution logs (stored locally, synced on reconnect)
+- Task attempts (created locally, synced on reconnect)
+
+These operations are blocked until reconnection:
+- Task create/update/delete
+- Label create/update/delete
+- Template create/update/delete
+
+## Performance Considerations
+
+### Batching
+
+- Log entries are synced in batches of up to 1000
+- Label sync sends all labels in one message
+- Task broadcasts are individual for real-time updates
+
+### Caching
+
+- Nodes cache all swarm entities locally
+- Cache is refreshed on reconnection
+- Individual updates maintain cache consistency
+
+### Connection Management
+
+- WebSocket ping/pong for keepalive
+- 60-second timeout for offline detection
+- Automatic reconnection with exponential backoff
+
+## Security
+
+### Authentication
+
+- Nodes authenticate with API keys
+- API keys are scoped to organizations
+- JWT tokens used for direct node connections
+
+### Authorization
+
+- Nodes can only access their organization's data
+- Users must have project access to view logs
+- Admin role required for destructive operations
+
+### Data Validation
+
+- All incoming data validated against schema
+- UUIDs verified to exist and be accessible
+- Version numbers prevent replay attacks
+
+## Related Documentation
+
+- [Swarm/Hive Setup Guide](/swarm-hive-setup) - Configuration instructions
+- [Project Linking](/core-features/project-linking) - User guide for linking
+- [Swarm Management](/core-features/swarm-management) - UI documentation

@@ -26,6 +26,9 @@ pub(crate) mod organization_members;
 mod organizations;
 pub mod projects;
 mod relay;
+pub mod swarm_labels;
+pub mod swarm_projects;
+pub mod swarm_templates;
 pub mod tasks;
 mod tokens;
 
@@ -63,6 +66,9 @@ pub fn router(state: AppState) -> Router {
         .merge(identity::router())
         .merge(activity::router())
         .merge(projects::router())
+        .merge(swarm_projects::router())
+        .merge(swarm_labels::router())
+        .merge(swarm_templates::router())
         .merge(tasks::router())
         .merge(labels::router())
         .merge(organizations::router())

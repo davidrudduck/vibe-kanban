@@ -1,0 +1,252 @@
+---
+title: "Project Linking"
+description: "Link local projects to swarm projects for cross-node task synchronization"
+---
+
+Project linking connects your local Vibe Kanban projects to swarm projects, enabling task synchronization across multiple nodes. Once linked, tasks created on any node are visible and executable on all other nodes linked to the same swarm project.
+
+## Understanding Project Linking
+
+### Linking Model
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                    SWARM PROJECT (Hive)                         │
+│                    "my-web-app"                                 │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+          ┌───────────────────┼───────────────────┐
+          │                   │                   │
+          ▼                   ▼                   ▼
+┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
+│   NODE: Mac     │ │  NODE: Linux    │ │  NODE: Windows  │
+│   "my-app"      │ │   "web-app"     │ │   "frontend"    │
+│   /Users/.../   │ │   /home/.../    │ │   C:\Users\...  │
+└─────────────────┘ └─────────────────┘ └─────────────────┘
+```
+
+Each node maintains its own local project with:
+- Local project name (can differ from swarm project)
+- Local filesystem path to the git repository
+- Local configuration (setup scripts, dev scripts, etc.)
+
+The swarm project provides:
+- Shared task list across all linked nodes
+- Shared labels for task categorization
+- Unified view from the hive
+
+### What Gets Shared
+
+| Data | Shared | Local |
+|------|--------|-------|
+| Tasks | Yes - visible on all linked nodes | |
+| Task attempts | Yes - synced to hive | Execution happens locally |
+| Labels | Yes - swarm labels available | Local labels stay local |
+| Templates | Yes - swarm templates available | Local templates stay local |
+| Project settings | | Fully local (scripts, paths) |
+| Git history | | Each node has its own clone |
+
+## Linking Your Project
+
+### From the Project Menu
+
+1. Open your project in Vibe Kanban
+2. Click the project menu (three dots)
+3. Select **Link to Swarm**
+4. Choose an existing swarm project or create a new one
+5. Confirm the link
+
+### From Swarm Management
+
+1. Navigate to **Settings > Swarm Management**
+2. In the Swarm Projects section, click **Add Project** or select an existing project
+3. Use the **Link Node** action to connect your local project
+
+### First-Time Linking
+
+When you link a project for the first time:
+
+1. **Tasks are migrated** - Existing local tasks are uploaded to the hive and become swarm tasks
+2. **Labels are synced** - Local labels linked to swarm labels become available across nodes
+3. **Node is registered** - The hive tracks your node as linked to this swarm project
+
+<Note>
+Task migration is automatic and preserves all task data including status, labels, and history.
+</Note>
+
+## Managing Linked Projects
+
+### Viewing Link Status
+
+The project card shows link status:
+- **Linked** - Project is connected to a swarm project (shows swarm project name)
+- **Local** - Project is not linked (only visible on this node)
+
+### Viewing Other Nodes
+
+From Swarm Management, expand a swarm project to see all linked nodes:
+- Node name and status (online/offline)
+- Git repository path on each node
+- Operating system
+
+### Updating Link
+
+You cannot change which swarm project a local project is linked to directly. To change the link:
+
+1. Unlink the current project
+2. Link to a different swarm project
+
+## Unlinking a Project
+
+### How to Unlink
+
+1. Open the project menu or go to Swarm Management
+2. Click **Unlink from Swarm**
+3. Choose what happens to tasks:
+   - **Keep in swarm** - Tasks remain on hive, visible to other nodes
+   - **Migrate to local** - Tasks become local-only on this node
+
+### Task Migration Options
+
+When unlinking, you must decide what happens to tasks:
+
+**Keep in Swarm**
+- Tasks remain on the hive
+- Other linked nodes continue to see and work on tasks
+- Your node no longer sees these tasks
+
+**Migrate to Local**
+- Tasks are copied to your local database
+- Tasks become local-only (not shared)
+- Other nodes no longer see these tasks
+
+<Warning>
+If you're the last node linked to a swarm project, tasks are automatically migrated to your local database. You cannot leave tasks orphaned on the hive.
+</Warning>
+
+### After Unlinking
+
+After unlinking:
+- Your project becomes local-only
+- New tasks you create stay local
+- You can link to a different swarm project or the same one again
+
+## Sync Behavior
+
+### Real-Time Task Sync
+
+When connected to the hive:
+- Tasks created on any node appear on all linked nodes within seconds
+- Task updates (status, description, labels) sync immediately
+- Execution logs stream in real-time
+
+### Offline Mode
+
+When your node disconnects:
+- You can continue viewing cached tasks
+- New task creation is blocked (hive required)
+- Task editing is blocked (hive required)
+- Reconnection restores full functionality
+
+<Note>
+Tasks require hive connectivity because the hive is the source of truth. This prevents conflicts when multiple nodes might try to create conflicting tasks.
+</Note>
+
+### Execution Data Sync
+
+Task attempts and execution logs sync via background service:
+- Attempts created locally are synced to hive
+- Logs are batched and synced periodically (every 5 seconds)
+- If hive is unreachable, data is queued and synced on reconnection
+
+## Common Scenarios
+
+### Scenario 1: Adding a Second Machine
+
+You have a project on your MacBook and want to work on it from your Linux desktop too:
+
+1. **On Mac**: Link your existing project to a new swarm project
+2. **On Linux**: Clone the git repository to a local path
+3. **On Linux**: Create a new project pointing to the cloned repo
+4. **On Linux**: Link this project to the same swarm project
+5. Both machines now share tasks
+
+### Scenario 2: Team Collaboration
+
+Multiple team members want to share tasks for a project:
+
+1. **First member**: Creates a swarm project and links their local project
+2. **Other members**: Clone the repo, create local projects, and link to the same swarm project
+3. All team members see and can execute shared tasks
+
+### Scenario 3: Moving to a New Machine
+
+Migrating your work to a new computer:
+
+1. **Old machine**: Note which swarm projects your projects are linked to
+2. **New machine**: Clone repositories, create projects
+3. **New machine**: Link projects to the same swarm projects
+4. All your tasks are immediately available
+
+### Scenario 4: Separating a Project
+
+You want to stop sharing a project with other nodes:
+
+1. Unlink the project, choosing "Migrate to local"
+2. Tasks become local-only
+3. Continue working independently
+
+## Troubleshooting
+
+### Tasks Not Appearing on Other Nodes
+
+1. Verify both projects are linked to the same swarm project
+2. Check that both nodes are online (connected to hive)
+3. Check the project name in the swarm project list matches
+4. Try refreshing the task list
+
+### Link Button Not Available
+
+- Ensure your node is connected to a hive (check `VK_HIVE_URL` environment variable)
+- Verify you're logged in to the hive via OAuth
+- Check that your organization has the project feature enabled
+
+### Unlink Not Working
+
+If you can't unlink a project:
+1. Ensure you have write access to the project
+2. Check for active task attempts - complete or cancel them first
+3. Verify hive connectivity
+
+### Duplicate Tasks After Linking
+
+If you see duplicate tasks:
+1. The same project may have been linked multiple times
+2. Check Swarm Management for duplicate swarm projects
+3. Use the merge functionality to consolidate
+
+## Best Practices
+
+### Project Naming
+
+- Use consistent swarm project names across your organization
+- Include the repository name for easy identification
+- Avoid special characters that might cause issues
+
+### Before Linking
+
+- Ensure your git repository is in a clean state
+- Verify you have the correct hive organization selected
+- Check that the swarm project doesn't already have conflicting data
+
+### Regular Maintenance
+
+- Periodically review linked projects in Swarm Management
+- Merge duplicate swarm projects
+- Unlink nodes that are no longer active
+
+## Related Documentation
+
+- [Swarm Management](/core-features/swarm-management) - Manage all swarm resources
+- [Swarm/Hive Setup Guide](/swarm-hive-setup) - Initial configuration
+- [Swarm Sync Architecture](/architecture/swarm-sync) - Technical sync details
