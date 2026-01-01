@@ -65,7 +65,7 @@ function MobileKanbanBoard({
   // Handle swipe-to-archive for a task
   const handleSwipeArchive = useCallback(
     async (task: TaskWithAttemptStatus) => {
-      if (task.is_remote || task.archived_at) return;
+      if (task.archived_at) return;
 
       try {
         // Apply optimistic update immediately for instant UI feedback
@@ -170,7 +170,7 @@ function MobileKanbanBoard({
                         task={item.task}
                         onArchive={handleSwipeArchive}
                         isArchived={isArchived}
-                        disabled={item.task.is_remote}
+                        disabled={false}
                       >
                         <TaskCard
                           task={item.task}
