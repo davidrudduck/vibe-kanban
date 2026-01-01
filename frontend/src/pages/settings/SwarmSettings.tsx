@@ -23,8 +23,10 @@ import { useAuth } from '@/hooks/auth/useAuth';
 import { LoginRequiredPrompt } from '@/components/dialogs/shared/LoginRequiredPrompt';
 import {
   SwarmProjectsSection,
+  NodeProjectsSection,
   SwarmLabelsSection,
   SwarmTemplatesSection,
+  NodeTemplatesSection,
 } from '@/components/swarm';
 
 export function SwarmSettings() {
@@ -157,11 +159,17 @@ export function SwarmSettings() {
       {/* Swarm Projects Section */}
       {selectedOrg && <SwarmProjectsSection organizationId={selectedOrg.id} />}
 
+      {/* Node Projects Section - Link local projects to swarm */}
+      {selectedOrg && <NodeProjectsSection organizationId={selectedOrg.id} />}
+
       {/* Swarm Labels Section */}
       {selectedOrg && <SwarmLabelsSection organizationId={selectedOrg.id} />}
 
       {/* Swarm Templates Section */}
       {selectedOrg && <SwarmTemplatesSection organizationId={selectedOrg.id} />}
+
+      {/* Node Templates Section - Promote local templates to swarm */}
+      {selectedOrg && <NodeTemplatesSection organizationId={selectedOrg.id} />}
     </div>
   );
 }

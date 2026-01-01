@@ -8,6 +8,9 @@ export { SwarmProjectRow } from './SwarmProjectRow';
 export { SwarmProjectDialog } from './SwarmProjectDialog';
 export { MergeProjectsDialog } from './MergeProjectsDialog';
 
+// Node Projects (for linking to swarm projects)
+export { NodeProjectsSection } from './NodeProjectsSection';
+
 // Swarm Labels
 export { SwarmLabelsSection } from './SwarmLabelsSection';
 export { SwarmLabelDialog } from './SwarmLabelDialog';
@@ -17,3 +20,6 @@ export { MergeLabelsDialog } from './MergeLabelsDialog';
 export { SwarmTemplatesSection } from './SwarmTemplatesSection';
 export { SwarmTemplateDialog } from './SwarmTemplateDialog';
 export { MergeTemplatesDialog } from './MergeTemplatesDialog';
+
+// Node Templates (for promoting to swarm templates)
+export { NodeTemplatesSection } from './NodeTemplatesSection';

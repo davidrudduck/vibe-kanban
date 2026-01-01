@@ -580,14 +580,15 @@ impl LabelRepository<'_> {
         }
 
         // Create new label (or for new labels without shared_label_id)
-        let label = self
-            .create(CreateLabelData {
+        // Use find_or_create to handle race conditions where label already exists
+        let (label, _was_created) = self
+            .find_or_create(CreateLabelData {
                 organization_id: data.organization_id,
                 project_id: data.project_id,
                 origin_node_id: Some(data.origin_node_id),
-                name: data.name,
-                icon: data.icon,
-                color: data.color,
+                name: data.name.clone(),
+                icon: data.icon.clone(),
+                color: data.color.clone(),
             })
             .await?;
 
