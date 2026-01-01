@@ -21,7 +21,11 @@ import { useUserOrganizations } from '@/hooks/useUserOrganizations';
 import { useOrganizationSelection } from '@/hooks/useOrganizationSelection';
 import { useAuth } from '@/hooks/auth/useAuth';
 import { LoginRequiredPrompt } from '@/components/dialogs/shared/LoginRequiredPrompt';
-import { SwarmProjectsSection } from '@/components/swarm';
+import {
+  SwarmProjectsSection,
+  SwarmLabelsSection,
+  SwarmTemplatesSection,
+} from '@/components/swarm';
 
 export function SwarmSettings() {
   const { t } = useTranslation(['settings', 'common']);
@@ -153,39 +157,11 @@ export function SwarmSettings() {
       {/* Swarm Projects Section */}
       {selectedOrg && <SwarmProjectsSection organizationId={selectedOrg.id} />}
 
-      {/* Placeholder for Labels Section (future implementation) */}
-      {selectedOrg && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-muted-foreground">
-              {t('settings.swarm.labels.title', 'Swarm Labels')}
-            </CardTitle>
-            <CardDescription>
-              {t(
-                'settings.swarm.labels.comingSoon',
-                'Organization-wide label management coming soon.'
-              )}
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      )}
+      {/* Swarm Labels Section */}
+      {selectedOrg && <SwarmLabelsSection organizationId={selectedOrg.id} />}
 
-      {/* Placeholder for Templates Section (future implementation) */}
-      {selectedOrg && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-muted-foreground">
-              {t('settings.swarm.templates.title', 'Swarm Templates')}
-            </CardTitle>
-            <CardDescription>
-              {t(
-                'settings.swarm.templates.comingSoon',
-                'Organization-wide template management coming soon.'
-              )}
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      )}
+      {/* Swarm Templates Section */}
+      {selectedOrg && <SwarmTemplatesSection organizationId={selectedOrg.id} />}
     </div>
   );
 }

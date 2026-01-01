@@ -19,36 +19,52 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import type { SwarmProjectWithNodes } from '@/types/swarm';
+import { LabelBadge } from '@/components/labels/LabelBadge';
+import type { SwarmLabel } from '@/types/swarm';
+import type { Label as LabelType } from 'shared/types';
 
-interface MergeProjectsDialogProps {
+// Helper to convert SwarmLabel to local Label format for LabelBadge
+function swarmLabelToLabel(swarmLabel: SwarmLabel): LabelType {
+  return {
+    id: swarmLabel.id,
+    name: swarmLabel.name,
+    color: swarmLabel.color,
+    icon: swarmLabel.icon || 'tag', // Default icon if null
+    project_id: swarmLabel.project_id,
+    version: BigInt(1),
+    created_at: swarmLabel.created_at,
+    updated_at: swarmLabel.updated_at,
+  };
+}
+
+interface MergeLabelsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  projects: SwarmProjectWithNodes[];
-  targetProject: SwarmProjectWithNodes;
+  labels: SwarmLabel[];
+  targetLabel: SwarmLabel;
   onMerge: (sourceId: string) => Promise<void>;
   isMerging: boolean;
 }
 
-export function MergeProjectsDialog({
+export function MergeLabelsDialog({
   open,
   onOpenChange,
-  projects,
-  targetProject,
+  labels,
+  targetLabel,
   onMerge,
   isMerging,
-}: MergeProjectsDialogProps) {
+}: MergeLabelsDialogProps) {
   const { t } = useTranslation(['settings', 'common']);
   const [sourceId, setSourceId] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
 
-  // Filter out the target project from available sources
+  // Filter out the target label from available sources
   const availableSources = useMemo(
-    () => projects.filter((p) => p.id !== targetProject.id),
-    [projects, targetProject.id]
+    () => labels.filter((l) => l.id !== targetLabel.id),
+    [labels, targetLabel.id]
   );
 
-  const selectedSource = availableSources.find((p) => p.id === sourceId);
+  const selectedSource = availableSources.find((l) => l.id === sourceId);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,8 +73,8 @@ export function MergeProjectsDialog({
     if (!sourceId) {
       setError(
         t(
-          'settings.swarm.merge.sourceRequired',
-          'Please select a project to merge'
+          'settings.swarm.labels.merge.sourceRequired',
+          'Please select a label to merge'
         )
       );
       return;
@@ -89,13 +105,12 @@ export function MergeProjectsDialog({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <GitMerge className="h-5 w-5" />
-              {t('settings.swarm.merge.title', 'Merge Projects')}
+              {t('settings.swarm.labels.merge.title', 'Merge Labels')}
             </DialogTitle>
             <DialogDescription>
               {t(
-                'settings.swarm.merge.description',
-                'Merge another project into "{{target}}". All linked nodes will be transferred and the source project will be deleted.',
-                { target: targetProject.name }
+                'settings.swarm.labels.merge.description',
+                'Merge another label into the selected target. All tasks using the source label will be updated to use the target label.'
               )}
             </DialogDescription>
           </DialogHeader>
@@ -111,38 +126,34 @@ export function MergeProjectsDialog({
               <Alert>
                 <AlertDescription>
                   {t(
-                    'settings.swarm.merge.noOtherProjects',
-                    'No other projects available to merge.'
+                    'settings.swarm.labels.merge.noOtherLabels',
+                    'No other labels available to merge.'
                   )}
                 </AlertDescription>
               </Alert>
             ) : (
               <>
                 <div className="space-y-2">
-                  <Label htmlFor="source-project">
-                    {t('settings.swarm.merge.sourceLabel', 'Merge from')}
+                  <Label htmlFor="source-label">
+                    {t('settings.swarm.labels.merge.sourceLabel', 'Merge from')}
                   </Label>
                   <Select value={sourceId} onValueChange={setSourceId}>
-                    <SelectTrigger id="source-project">
+                    <SelectTrigger id="source-label">
                       <SelectValue
                         placeholder={t(
-                          'settings.swarm.merge.selectSource',
-                          'Select a project to merge...'
+                          'settings.swarm.labels.merge.selectSource',
+                          'Select a label to merge...'
                         )}
                       />
                     </SelectTrigger>
                     <SelectContent>
-                      {availableSources.map((project) => (
-                        <SelectItem key={project.id} value={project.id}>
+                      {availableSources.map((label) => (
+                        <SelectItem key={label.id} value={label.id}>
                           <span className="flex items-center gap-2">
-                            <span>{project.name}</span>
-                            <span className="text-muted-foreground text-xs">
-                              ({project.linked_nodes_count}{' '}
-                              {project.linked_nodes_count === 1
-                                ? 'node'
-                                : 'nodes'}
-                              )
-                            </span>
+                            <LabelBadge
+                              label={swarmLabelToLabel(label)}
+                              size="sm"
+                            />
                           </span>
                         </SelectItem>
                       ))}
@@ -155,8 +166,8 @@ export function MergeProjectsDialog({
                     <AlertTriangle className="h-4 w-4" />
                     <AlertDescription>
                       {t(
-                        'settings.swarm.merge.warning',
-                        '"{{source}}" will be deleted after merging. This action cannot be undone.',
+                        'settings.swarm.labels.merge.warning',
+                        '"{{source}}" will be deleted after merging. All tasks with this label will be updated to use the target label.',
                         { source: selectedSource.name }
                       )}
                     </AlertDescription>
@@ -165,17 +176,13 @@ export function MergeProjectsDialog({
 
                 <div className="space-y-2">
                   <Label>
-                    {t('settings.swarm.merge.targetLabel', 'Merge into')}
+                    {t('settings.swarm.labels.merge.targetLabel', 'Merge into')}
                   </Label>
                   <div className="flex items-center gap-2 px-3 py-2 bg-muted rounded-md">
-                    <span className="font-medium">{targetProject.name}</span>
-                    <span className="text-muted-foreground text-sm">
-                      ({targetProject.linked_nodes_count}{' '}
-                      {targetProject.linked_nodes_count === 1
-                        ? 'node'
-                        : 'nodes'}
-                      )
-                    </span>
+                    <LabelBadge
+                      label={swarmLabelToLabel(targetLabel)}
+                      size="md"
+                    />
                   </div>
                 </div>
               </>
@@ -197,7 +204,7 @@ export function MergeProjectsDialog({
               variant="destructive"
             >
               {isMerging && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {t('settings.swarm.merge.confirm', 'Merge Projects')}
+              {t('settings.swarm.labels.merge.confirm', 'Merge Labels')}
             </Button>
           </DialogFooter>
         </form>

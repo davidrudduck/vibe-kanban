@@ -93,10 +93,7 @@ export function SwarmProjectRow({
         </div>
 
         {/* Linked Nodes Count Badge */}
-        <Badge
-          variant="secondary"
-          className="shrink-0 hidden sm:inline-flex"
-        >
+        <Badge variant="secondary" className="shrink-0 hidden sm:inline-flex">
           {project.linked_nodes_count}{' '}
           {project.linked_nodes_count === 1
             ? t('settings.swarm.projects.node', 'node')
@@ -183,9 +180,7 @@ export function SwarmProjectRow({
                       {node.git_repo_path}
                     </div>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      {node.os_type && (
-                        <span>{getOsIcon(node.os_type)}</span>
-                      )}
+                      {node.os_type && <span>{getOsIcon(node.os_type)}</span>}
                       <span>
                         {t('settings.swarm.projects.linkedAt', 'Linked')}{' '}
                         {formatDistanceToNow(new Date(node.linked_at), {
