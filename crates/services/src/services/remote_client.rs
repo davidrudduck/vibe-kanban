@@ -14,6 +14,7 @@ use remote::{
             ListSwarmProjectNodesResponse, ListSwarmProjectsResponse, SwarmProjectNodeResponse,
             SwarmProjectResponse,
         },
+        swarm_templates::{ListSwarmTemplatesResponse, SwarmTemplateResponse},
         tasks::{
             AssignSharedTaskRequest, BulkSharedTasksResponse, CreateSharedTaskRequest,
             DeleteSharedTaskRequest, SharedTaskResponse, TaskStreamConnectionInfoResponse,
@@ -952,6 +953,70 @@ impl RemoteClient {
         )
         .await
     }
+
+    // =====================
+    // Swarm Template APIs
+    // =====================
+
+    /// Lists all swarm templates for an organization.
+    pub async fn list_swarm_templates(
+        &self,
+        organization_id: Uuid,
+    ) -> Result<ListSwarmTemplatesResponse, RemoteClientError> {
+        self.get_authed(&format!(
+            "/v1/swarm/templates?organization_id={organization_id}"
+        ))
+        .await
+    }
+
+    /// Gets a specific swarm template by ID.
+    pub async fn get_swarm_template(
+        &self,
+        template_id: Uuid,
+    ) -> Result<SwarmTemplateResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/swarm/templates/{template_id}"))
+            .await
+    }
+
+    /// Creates a new swarm template.
+    pub async fn create_swarm_template(
+        &self,
+        request: &CreateSwarmTemplateRequest,
+    ) -> Result<SwarmTemplateResponse, RemoteClientError> {
+        self.post_authed("/v1/swarm/templates", Some(request)).await
+    }
+
+    /// Updates an existing swarm template.
+    pub async fn update_swarm_template(
+        &self,
+        template_id: Uuid,
+        request: &UpdateSwarmTemplateRequest,
+    ) -> Result<SwarmTemplateResponse, RemoteClientError> {
+        self.patch_authed(&format!("/v1/swarm/templates/{template_id}"), request)
+            .await
+    }
+
+    /// Deletes a swarm template.
+    pub async fn delete_swarm_template(
+        &self,
+        template_id: Uuid,
+    ) -> Result<(), RemoteClientError> {
+        self.delete_authed(&format!("/v1/swarm/templates/{template_id}"))
+            .await
+    }
+
+    /// Merges two swarm templates by soft-deleting the source.
+    pub async fn merge_swarm_templates(
+        &self,
+        target_id: Uuid,
+        source_id: Uuid,
+    ) -> Result<SwarmTemplateResponse, RemoteClientError> {
+        self.post_authed(
+            &format!("/v1/swarm/templates/{target_id}/merge"),
+            Some(&MergeSwarmTemplatesRequest { source_id }),
+        )
+        .await
+    }
 }
 
 /// Request payload for creating a node API key
@@ -1130,6 +1195,44 @@ pub struct MergeSwarmLabelsRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PromoteToSwarmRequest {
     pub label_id: Uuid,
+}
+
+// =====================
+// Swarm Template Types
+// =====================
+
+/// Request payload for creating a swarm template
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateSwarmTemplateRequest {
+    pub organization_id: Uuid,
+    pub name: String,
+    #[serde(default)]
+    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub metadata: Option<Value>,
+}
+
+/// Request payload for updating a swarm template
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateSwarmTemplateRequest {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub metadata: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub version: Option<i64>,
+}
+
+/// Request payload for merging swarm templates
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MergeSwarmTemplatesRequest {
+    pub source_id: Uuid,
 }
 
 fn map_reqwest_error(e: reqwest::Error) -> RemoteClientError {
