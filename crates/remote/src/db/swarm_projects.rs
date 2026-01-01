@@ -267,10 +267,10 @@ impl SwarmProjectRepository {
         .fetch_one(&mut **tx)
         .await
         .map_err(|e| {
-            if let sqlx::Error::Database(ref db_err) = e {
-                if db_err.constraint() == Some("swarm_projects_organization_id_name_key") {
-                    return SwarmProjectError::NameConflict;
-                }
+            if let sqlx::Error::Database(ref db_err) = e
+                && db_err.constraint() == Some("swarm_projects_organization_id_name_key")
+            {
+                return SwarmProjectError::NameConflict;
             }
             SwarmProjectError::Database(e)
         })?;
@@ -318,10 +318,10 @@ impl SwarmProjectRepository {
         .fetch_one(&mut **tx)
         .await
         .map_err(|e| {
-            if let sqlx::Error::Database(ref db_err) = e {
-                if db_err.constraint() == Some("swarm_projects_organization_id_name_key") {
-                    return SwarmProjectError::NameConflict;
-                }
+            if let sqlx::Error::Database(ref db_err) = e
+                && db_err.constraint() == Some("swarm_projects_organization_id_name_key")
+            {
+                return SwarmProjectError::NameConflict;
             }
             SwarmProjectError::Database(e)
         })?;
