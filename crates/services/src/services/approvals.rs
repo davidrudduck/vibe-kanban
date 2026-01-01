@@ -49,6 +49,7 @@ struct PendingApproval {
     tool_name: String,
     #[allow(dead_code)]
     questions: Option<Vec<Question>>,
+    requested_at: chrono::DateTime<chrono::Utc>,
     response_tx: oneshot::Sender<ApprovalResponseData>,
 }
 
@@ -178,6 +179,7 @@ impl Approvals {
                         execution_process_id: request.execution_process_id,
                         tool_name: request.tool_name.clone(),
                         questions: request.questions.clone(),
+                        requested_at: request.created_at,
                         response_tx: tx,
                     },
                 );
@@ -229,6 +231,7 @@ impl Approvals {
                             execution_process_id: request.execution_process_id,
                             tool_name: request.tool_name.clone(),
                             questions: request.questions.clone(),
+                            requested_at: request.created_at,
                             response_tx: tx,
                         },
                     );
@@ -389,9 +392,11 @@ impl Approvals {
                 };
 
                 if let Some(store) = store {
-                    if let Some(updated_entry) = pending_approval
-                        .entry
-                        .with_tool_status(ToolStatus::TimedOut)
+                    // Use the new timed_out_with_duration to include how long we waited
+                    let timeout_status =
+                        ToolStatus::timed_out_with_duration(pending_approval.requested_at);
+                    if let Some(updated_entry) =
+                        pending_approval.entry.with_tool_status(timeout_status)
                     {
                         store.push_patch(ConversationPatch::replace(
                             pending_approval.entry_index,

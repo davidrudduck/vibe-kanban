@@ -379,7 +379,9 @@ pub async fn create_task_and_start(
 
         // Validate parent has a worktree
         let container_ref = parent_attempt.container_ref.clone().ok_or_else(|| {
-            ApiError::BadRequest("Cannot use parent worktree: parent attempt has no worktree".into())
+            ApiError::BadRequest(
+                "Cannot use parent worktree: parent attempt has no worktree".into(),
+            )
         })?;
 
         // Validate parent worktree not deleted

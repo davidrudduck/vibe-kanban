@@ -1168,7 +1168,7 @@ async fn handle_task_sync(
 
     // Use runtime query to avoid sqlx cache issues
     let project_opt: Result<Option<Project>, sqlx::Error> = sqlx::query_as(
-        "SELECT id, organization_id, name, metadata, created_at FROM projects WHERE id = $1"
+        "SELECT id, organization_id, name, metadata, created_at FROM projects WHERE id = $1",
     )
     .bind(task_sync.remote_project_id)
     .fetch_optional(pool)

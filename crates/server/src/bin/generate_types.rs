@@ -207,6 +207,7 @@ fn generate_types_content() -> String {
         executors::logs::NormalizedEntryError::decl(),
         executors::logs::ToolResult::decl(),
         executors::logs::ToolResultValueType::decl(),
+        executors::logs::DenialSource::decl(),
         executors::logs::ToolStatus::decl(),
         executors::logs::utils::patch::PatchType::decl(),
         utils::approvals::ApprovalStatus::decl(),

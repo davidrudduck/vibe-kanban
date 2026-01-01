@@ -403,17 +403,18 @@ impl HiveSyncService {
             };
 
             // Look up the task attempt to get hive_assignment_id
-            let attempt = match TaskAttempt::find_by_id(&self.pool, execution.task_attempt_id).await? {
-                Some(ta) => ta,
-                None => {
-                    debug!(
-                        execution_id = %execution_id,
-                        task_attempt_id = %execution.task_attempt_id,
-                        "Skipping log sync - task attempt not found"
-                    );
-                    continue;
-                }
-            };
+            let attempt =
+                match TaskAttempt::find_by_id(&self.pool, execution.task_attempt_id).await? {
+                    Some(ta) => ta,
+                    None => {
+                        debug!(
+                            execution_id = %execution_id,
+                            task_attempt_id = %execution.task_attempt_id,
+                            "Skipping log sync - task attempt not found"
+                        );
+                        continue;
+                    }
+                };
 
             // Get the assignment_id from the attempt
             // For locally-started tasks, this will be None and we skip log sync
@@ -542,11 +543,7 @@ impl HiveSyncService {
                 is_update,
             };
 
-            if let Err(e) = self
-                .command_tx
-                .send(NodeMessage::LabelSync(message))
-                .await
-            {
+            if let Err(e) = self.command_tx.send(NodeMessage::LabelSync(message)).await {
                 error!(error = ?e, label_id = %label_id, "Failed to send label sync");
                 return Err(HiveSyncError::Send(e.to_string()));
             }

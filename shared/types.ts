@@ -748,7 +748,12 @@ export type TaskAttempt = { id: string, task_id: string, container_ref: string |
 /**
  * When this attempt was last synced to the Hive. NULL means not yet synced.
  */
-hive_synced_at?: string, };
+hive_synced_at?: string, 
+/**
+ * The assignment ID from the Hive for tasks dispatched by the Hive.
+ * NULL for locally-started tasks until a synthetic assignment is created.
+ */
+hive_assignment_id?: string, };
 
 export type ExecutionProcess = { id: string, task_attempt_id: string, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, 
 /**
@@ -828,7 +833,7 @@ export type ActionType = { "action": "file_read", path: string, } | { "action": 
 
 export type TodoItem = { content: string, status: string, priority: string | null, };
 
-export type NormalizedEntryError = { "type": "setup_required" } | { "type": "other" };
+export type NormalizedEntryError = { "type": "setup_required" } | { "type": "rate_limited" } | { "type": "network_error" } | { "type": "tool_execution_error" } | { "type": "permission_denied" } | { "type": "api_error" } | { "type": "other" };
 
 export type ToolResult = { type: ToolResultValueType, 
 /**
@@ -838,7 +843,17 @@ value: JsonValue, };
 
 export type ToolResultValueType = { "type": "markdown" } | { "type": "json" };
 
-export type ToolStatus = { "status": "created" } | { "status": "success" } | { "status": "failed" } | { "status": "denied", reason: string | null, } | { "status": "pending_approval", approval_id: string, requested_at: string, timeout_at: string, } | { "status": "timed_out" } | { "status": "pending_question", question_id: string, questions: Array<Question>, requested_at: string, timeout_at: string, } | { "status": "answered", 
+export type DenialSource = "user" | "hook" | "policy" | "system";
+
+export type ToolStatus = { "status": "created" } | { "status": "success" } | { "status": "failed" } | { "status": "denied", reason: string | null, 
+/**
+ * Source of the denial
+ */
+source: DenialSource, } | { "status": "pending_approval", approval_id: string, requested_at: string, timeout_at: string, } | { "status": "timed_out", 
+/**
+ * How long the approval was waited for before timing out, in seconds
+ */
+waited_seconds: bigint | null, } | { "status": "pending_question", question_id: string, questions: Array<Question>, requested_at: string, timeout_at: string, } | { "status": "answered", 
 /**
  * Map of question text -> selected answer(s)
  */

@@ -1,0 +1,295 @@
+---
+title: "Executor Log Normalization"
+description: "How Vibe Kanban normalizes AI coding agent logs into a unified format for display and analysis"
+sidebarTitle: "Log Normalization"
+---
+
+## Overview
+
+AI coding agents output logs in vastly different formats - some use JSONL, others plain text, and some use custom streaming protocols. Vibe Kanban's log normalization system transforms these diverse outputs into a unified `NormalizedEntry` format that can be displayed consistently in the UI.
+
+## Architecture
+
+```text
+┌─────────────────┐     ┌──────────────────┐     ┌────────────────┐
+│  Agent Output   │────▶│  Log Normalizer  │────▶│ NormalizedEntry│
+│  (varies)       │     │  (per-executor)  │     │ (unified)      │
+└─────────────────┘     └──────────────────┘     └────────────────┘
+         │                       │
+         │              ┌────────┴────────┐
+         │              │                 │
+         ▼              ▼                 ▼
+    • JSONL         • Claude parser   • Tool calls
+    • Plain text    • Codex parser    • Messages
+    • Stderr        • ACP parser      • Errors
+```
+
+### Key Components
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| `NormalizedEntry` | `crates/executors/src/logs/mod.rs` | Core normalized log structure |
+| `NormalizedEntryType` | `crates/executors/src/logs/mod.rs` | Entry type discriminator |
+| `ToolStatus` | `crates/executors/src/logs/mod.rs` | Tool execution status tracking |
+| `NormalizedEntryError` | `crates/executors/src/logs/mod.rs` | Error classification system |
+| Per-executor normalizers | `crates/executors/src/executors/*/` | Format-specific parsers |
+
+## Normalized Entry Structure
+
+Every log entry is normalized to this structure:
+
+```rust
+pub struct NormalizedEntry {
+    pub timestamp: Option<String>,
+    pub entry_type: NormalizedEntryType,
+    pub content: String,
+    pub metadata: Option<serde_json::Value>,
+}
+```
+
+### Entry Types
+
+The `NormalizedEntryType` enum captures all possible log entry kinds:
+
+| Type | Description |
+|------|-------------|
+| `UserMessage` | User input sent to the agent |
+| `UserFeedback` | User response to tool approval (deny with feedback) |
+| `AssistantMessage` | Agent's text responses |
+| `ToolUse` | Tool invocation with name, action type, and status |
+| `SystemMessage` | System-level messages (model info, configuration) |
+| `ErrorMessage` | Errors with classification |
+| `Thinking` | Agent's reasoning/thought process |
+| `Loading` | Loading/processing indicators |
+| `NextAction` | Agent ready for next instruction |
+| `ExecutionStart` | Execution process started (injected by frontend) |
+| `ExecutionEnd` | Execution process completed (injected by frontend) |
+
+## Tool Status Tracking
+
+Tools go through various states during execution:
+
+```rust
+pub enum ToolStatus {
+    Created,                    // Tool invoked, running
+    Success,                    // Completed successfully
+    Failed,                     // Execution failed
+    Denied { reason, source },  // User/system denied execution
+    PendingApproval { ... },    // Awaiting user approval
+    TimedOut { waited_seconds }, // Approval timed out
+    PendingQuestion { ... },    // Awaiting user answer
+    Answered { answers },       // User answered question
+}
+```
+
+### Denial Sources
+
+When a tool is denied, the source is tracked:
+
+| Source | Description |
+|--------|-------------|
+| `User` | User explicitly denied via UI |
+| `Hook` | Pre-flight hook or check denied |
+| `Policy` | Permission policy denied |
+| `System` | System/executor denied |
+
+### Timeout Context
+
+When approvals time out, the wait duration is captured:
+
+```rust
+ToolStatus::TimedOut {
+    waited_seconds: Some(30),  // How long we waited
+}
+```
+
+## Error Classification
+
+Errors are automatically classified using pattern matching on error messages:
+
+```rust
+pub enum NormalizedEntryError {
+    SetupRequired,      // Authentication/login required
+    RateLimited,        // Rate limits, quotas (429)
+    NetworkError,       // Connection issues, timeouts
+    ToolExecutionError, // Tool/command failures
+    PermissionDenied,   // 403/401 errors
+    ApiError,           // API/model errors (500s)
+    Other,              // Unclassified errors
+}
+```
+
+### Classification Patterns
+
+The `NormalizedEntryError::classify()` method matches error messages:
+
+| Error Type | Example Patterns |
+|------------|------------------|
+| `SetupRequired` | "authentication required", "login required", "not authenticated" |
+| `RateLimited` | "rate limit", "429", "quota exceeded", "throttle" |
+| `NetworkError` | "connection refused", "timeout", "ECONNREFUSED" |
+| `PermissionDenied` | "permission denied", "forbidden", "403" |
+| `ToolExecutionError` | "tool execution failed", "command failed" |
+| `ApiError` | "api error", "500", "503", "service unavailable" |
+
+## Action Types
+
+Tool actions are categorized for rich UI rendering:
+
+```rust
+pub enum ActionType {
+    FileRead { path },
+    FileEdit { path, changes },
+    CommandRun { command, result },
+    Search { query },
+    WebFetch { url },
+    Tool { tool_name, arguments, result },
+    TaskCreate { description },
+    PlanPresentation { plan },
+    TodoManagement { todos, operation },
+    Other { description },
+}
+```
+
+### File Changes
+
+File edit operations include detailed change tracking:
+
+```rust
+pub enum FileChange {
+    Write { content },           // Create/overwrite file
+    Delete,                      // Delete file
+    Rename { new_path },         // Rename file
+    Edit { unified_diff, ... },  // Edit with diff
+}
+```
+
+## Executor-Specific Implementations
+
+### Claude Code
+
+- **Format**: JSON-RPC over stdin/stdout
+- **Parser**: `crates/executors/src/executors/claude/`
+- **Features**: Tool calls, approvals, MCP integration, streaming
+
+### Codex (OpenAI)
+
+- **Format**: JSON-RPC with custom events
+- **Parser**: `crates/executors/src/executors/codex/`
+- **Features**: Tool calls, approvals, sessions, token usage
+
+### ACP (Gemini, Qwen)
+
+- **Format**: Agent Communication Protocol
+- **Parser**: `crates/executors/src/executors/acp/`
+- **Features**: Session management, plans, thoughts, tool calls
+
+### Cursor
+
+- **Format**: JSONL stdout
+- **Parser**: `crates/executors/src/executors/cursor.rs`
+- **Features**: Tool calls, MCP integration
+
+### Copilot
+
+- **Format**: Plain text stdout + log files
+- **Parser**: `crates/executors/src/executors/copilot.rs`
+- **Features**: Log file parsing for model info
+
+### Opencode
+
+- **Format**: Plain text + share bridge for tools
+- **Parser**: `crates/executors/src/executors/opencode.rs`
+- **Features**: Share bridge tool events
+
+## Adding a New Executor
+
+To normalize logs for a new executor:
+
+1. **Create normalizer function** in `crates/executors/src/executors/<name>.rs`:
+
+```rust
+pub async fn normalize_logs(
+    msg_store: &MsgStore,
+    exit_signal: Option<ExitSignalSender>,
+) -> Result<NormalizedConversation> {
+    let mut entries = Vec::new();
+
+    while let Some(msg) = msg_store.recv().await {
+        match parse_message(&msg) {
+            ParsedMessage::UserMessage(content) => {
+                entries.push(NormalizedEntry {
+                    timestamp: Some(Utc::now().to_rfc3339()),
+                    entry_type: NormalizedEntryType::UserMessage,
+                    content,
+                    metadata: None,
+                });
+            }
+            // Handle other message types...
+        }
+    }
+
+    Ok(NormalizedConversation {
+        entries,
+        session_id: None,
+        executor_type: "new_executor".to_string(),
+        prompt: None,
+        summary: None,
+    })
+}
+```
+
+2. **Handle stderr** using the shared processor:
+
+```rust
+use crate::logs::stderr_processor::process_stderr;
+
+// In your normalizer
+tokio::spawn(async move {
+    process_stderr(stderr_rx, normalized_tx).await;
+});
+```
+
+3. **Use automatic error classification**:
+
+```rust
+NormalizedEntryType::ErrorMessage {
+    error_type: NormalizedEntryError::classify(&error_content),
+}
+```
+
+4. **Track tool status** through the lifecycle:
+
+```rust
+// When tool is invoked
+ToolStatus::Created
+
+// When approved and running
+ToolStatus::Success  // or Failed
+
+// When denied
+ToolStatus::denied_with_source(reason, DenialSource::User)
+
+// When timed out
+ToolStatus::timed_out_with_duration(requested_at)
+```
+
+## Frontend Integration
+
+Normalized entries are sent to the frontend via WebSocket and displayed in `ProcessLogsViewer`:
+
+- Virtual scrolling for large log volumes (react-virtuoso)
+- ANSI color code support
+- Expandable tool calls with diff viewing
+- Approval buttons for pending approvals
+- Error highlighting with classification badges
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `crates/executors/src/logs/mod.rs` | Core types and error classification |
+| `crates/executors/src/logs/stderr_processor.rs` | Shared stderr processing |
+| `crates/executors/src/logs/plain_text_processor.rs` | Plain text processing |
+| `frontend/src/components/process/ProcessLogsViewer.tsx` | Log rendering UI |
+| `frontend/src/components/process/NormalizedEntryView.tsx` | Entry rendering |

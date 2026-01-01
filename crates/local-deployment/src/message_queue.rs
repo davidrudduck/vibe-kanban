@@ -68,7 +68,12 @@ impl MessageQueueStore {
         queues.get(&task_attempt_id).cloned().unwrap_or_default()
     }
 
-    pub async fn add(&self, task_attempt_id: Uuid, content: String, variant: Option<String>) -> QueuedMessage {
+    pub async fn add(
+        &self,
+        task_attempt_id: Uuid,
+        content: String,
+        variant: Option<String>,
+    ) -> QueuedMessage {
         let mut queues = self.queues.write().await;
         let queue = queues.entry(task_attempt_id).or_default();
         let position = queue.len();
@@ -84,7 +89,13 @@ impl MessageQueueStore {
         message
     }
 
-    pub async fn update(&self, task_attempt_id: Uuid, message_id: Uuid, content: Option<String>, variant: Option<String>) -> Option<QueuedMessage> {
+    pub async fn update(
+        &self,
+        task_attempt_id: Uuid,
+        message_id: Uuid,
+        content: Option<String>,
+        variant: Option<String>,
+    ) -> Option<QueuedMessage> {
         let mut queues = self.queues.write().await;
         let queue = queues.get_mut(&task_attempt_id)?;
         let message = queue.iter_mut().find(|m| m.id == message_id)?;
@@ -102,7 +113,9 @@ impl MessageQueueStore {
 
     pub async fn remove(&self, task_attempt_id: Uuid, message_id: Uuid) -> bool {
         let mut queues = self.queues.write().await;
-        let Some(queue) = queues.get_mut(&task_attempt_id) else { return false };
+        let Some(queue) = queues.get_mut(&task_attempt_id) else {
+            return false;
+        };
         let initial_len = queue.len();
         queue.retain(|m| m.id != message_id);
         if queue.len() < initial_len {
@@ -115,14 +128,23 @@ impl MessageQueueStore {
         }
     }
 
-    pub async fn reorder(&self, task_attempt_id: Uuid, message_ids: Vec<Uuid>) -> Option<Vec<QueuedMessage>> {
+    pub async fn reorder(
+        &self,
+        task_attempt_id: Uuid,
+        message_ids: Vec<Uuid>,
+    ) -> Option<Vec<QueuedMessage>> {
         let mut queues = self.queues.write().await;
         let queue = queues.get_mut(&task_attempt_id)?;
-        if message_ids.len() != queue.len() { return None }
+        if message_ids.len() != queue.len() {
+            return None;
+        }
         let id_set: std::collections::HashSet<Uuid> = message_ids.iter().copied().collect();
         let queue_ids: std::collections::HashSet<Uuid> = queue.iter().map(|m| m.id).collect();
-        if id_set != queue_ids { return None }
-        let mut msg_map: HashMap<Uuid, QueuedMessage> = queue.drain(..).map(|m| (m.id, m)).collect();
+        if id_set != queue_ids {
+            return None;
+        }
+        let mut msg_map: HashMap<Uuid, QueuedMessage> =
+            queue.drain(..).map(|m| (m.id, m)).collect();
         for (idx, id) in message_ids.into_iter().enumerate() {
             if let Some(mut msg) = msg_map.remove(&id) {
                 msg.position = idx;
@@ -135,7 +157,9 @@ impl MessageQueueStore {
     pub async fn pop_next(&self, task_attempt_id: Uuid) -> Option<QueuedMessage> {
         let mut queues = self.queues.write().await;
         let queue = queues.get_mut(&task_attempt_id)?;
-        if queue.is_empty() { return None }
+        if queue.is_empty() {
+            return None;
+        }
         let message = queue.remove(0);
         for (idx, msg) in queue.iter_mut().enumerate() {
             msg.position = idx;
@@ -178,10 +202,15 @@ mod tests {
     async fn test_update_preserves_variant_when_not_provided() {
         let store = MessageQueueStore::new();
         let attempt_id = Uuid::new_v4();
-        let msg = store.add(attempt_id, "content".to_string(), Some("plan".to_string())).await;
+        let msg = store
+            .add(attempt_id, "content".to_string(), Some("plan".to_string()))
+            .await;
 
         // Update only content, not variant (variant is None)
-        let updated = store.update(attempt_id, msg.id, Some("new content".to_string()), None).await.unwrap();
+        let updated = store
+            .update(attempt_id, msg.id, Some("new content".to_string()), None)
+            .await
+            .unwrap();
 
         // Variant should be preserved
         assert_eq!(updated.variant, Some("plan".to_string()));
@@ -192,10 +221,15 @@ mod tests {
     async fn test_update_clears_variant_when_empty_string() {
         let store = MessageQueueStore::new();
         let attempt_id = Uuid::new_v4();
-        let msg = store.add(attempt_id, "content".to_string(), Some("plan".to_string())).await;
+        let msg = store
+            .add(attempt_id, "content".to_string(), Some("plan".to_string()))
+            .await;
 
         // Explicitly clear variant by passing empty string
-        let updated = store.update(attempt_id, msg.id, None, Some("".to_string())).await.unwrap();
+        let updated = store
+            .update(attempt_id, msg.id, None, Some("".to_string()))
+            .await
+            .unwrap();
 
         // Variant should be cleared
         assert_eq!(updated.variant, None);
@@ -206,10 +240,15 @@ mod tests {
     async fn test_update_changes_variant_when_provided() {
         let store = MessageQueueStore::new();
         let attempt_id = Uuid::new_v4();
-        let msg = store.add(attempt_id, "content".to_string(), Some("plan".to_string())).await;
+        let msg = store
+            .add(attempt_id, "content".to_string(), Some("plan".to_string()))
+            .await;
 
         // Change variant to a new value
-        let updated = store.update(attempt_id, msg.id, None, Some("research".to_string())).await.unwrap();
+        let updated = store
+            .update(attempt_id, msg.id, None, Some("research".to_string()))
+            .await
+            .unwrap();
 
         // Variant should be updated
         assert_eq!(updated.variant, Some("research".to_string()));
@@ -222,7 +261,10 @@ mod tests {
         let msg = store.add(attempt_id, "content".to_string(), None).await;
 
         // Add a variant where there was none
-        let updated = store.update(attempt_id, msg.id, None, Some("plan".to_string())).await.unwrap();
+        let updated = store
+            .update(attempt_id, msg.id, None, Some("plan".to_string()))
+            .await
+            .unwrap();
 
         // Variant should be set
         assert_eq!(updated.variant, Some("plan".to_string()));
