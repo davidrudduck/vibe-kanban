@@ -70,7 +70,7 @@ use crate::{
 };
 
 /// Helper to check if a remote task attempt context is available and online.
-/// Returns Some((node_url, node_id, swarm_task_id)) if we should proxy,
+/// Returns Some((node_url, node_id, shared_task_id)) if we should proxy,
 /// or an Err if the remote node is offline.
 fn check_remote_task_attempt_proxy(
     remote_ctx: Option<&RemoteTaskAttemptContext>,
@@ -210,9 +210,9 @@ pub async fn create_task_attempt(
             .await?
             .ok_or(SqlxError::RowNotFound)?;
 
-        // Need swarm_task_id to route to remote node
-        let swarm_task_id = task.swarm_task_id.ok_or_else(|| {
-            ApiError::BadRequest("Task is not shared (no swarm_task_id)".to_string())
+        // Need shared_task_id to route to remote node
+        let shared_task_id = task.shared_task_id.ok_or_else(|| {
+            ApiError::BadRequest("Task is not shared (no shared_task_id)".to_string())
         })?;
 
         // Query the hive to get node info (URL and status)
@@ -221,11 +221,11 @@ pub async fn create_task_attempt(
             .await?
             .ok_or(SqlxError::RowNotFound)?;
 
-        let swarm_project_id = project
-            .swarm_project_id
+        let remote_project_id = project
+            .remote_project_id
             .ok_or_else(|| ApiError::BadRequest("Project is not linked to hive".to_string()))?;
 
-        let nodes_response = client.list_project_nodes(swarm_project_id).await?;
+        let nodes_response = client.list_project_nodes(remote_project_id).await?;
 
         // Find the target node in the response
         let target_node = nodes_response
@@ -261,11 +261,11 @@ pub async fn create_task_attempt(
             use_parent_worktree: payload.use_parent_worktree,
         };
 
-        let path = format!("/task-attempts/by-task-id/{}/create", swarm_task_id);
+        let path = format!("/task-attempts/by-task-id/{}/create", shared_task_id);
         tracing::info!(
             target_node_id = %target_node_id,
             target_node_name = %target_node.node_name,
-            swarm_task_id = %swarm_task_id,
+            shared_task_id = %shared_task_id,
             "Proxying create_task_attempt to remote node"
         );
 
@@ -278,12 +278,12 @@ pub async fn create_task_attempt(
         if response.is_success()
             && let Ok(client) = deployment.remote_client()
             && let Err(e) = client
-                .set_executing_node(swarm_task_id, Some(target_node_id))
+                .set_executing_node(shared_task_id, Some(target_node_id))
                 .await
         {
             tracing::warn!(
                 error = ?e,
-                swarm_task_id = %swarm_task_id,
+                shared_task_id = %shared_task_id,
                 target_node_id = %target_node_id,
                 "Failed to set executing node in Hive (non-blocking)"
             );
@@ -307,7 +307,7 @@ pub async fn create_task_attempt(
         );
 
         // Sync unarchive to Hive if task is shared
-        if task.swarm_task_id.is_some()
+        if task.shared_task_id.is_some()
             && let Ok(publisher) = deployment.share_publisher()
             && let Some(updated_task) = Task::find_by_id(pool, task.id).await?
         {
@@ -412,7 +412,7 @@ pub async fn create_task_attempt(
 }
 
 /// Create a task attempt via by-task-id route (used for cross-node proxying).
-/// The task is loaded by swarm_task_id from the URL path parameter.
+/// The task is loaded by shared_task_id from the URL path parameter.
 #[axum::debug_handler]
 pub async fn create_task_attempt_by_task_id(
     Extension(task): Extension<Task>,
@@ -477,7 +477,7 @@ pub async fn create_task_attempt_by_task_id(
         TaskAttempt::update_container_ref(pool, task_attempt.id, container_ref).await?;
         tracing::info!(
             task_id = %task.id,
-            swarm_task_id = ?task.swarm_task_id,
+            shared_task_id = ?task.shared_task_id,
             attempt_id = %task_attempt.id,
             container_ref = %container_ref,
             "Using parent worktree for attempt via by-task-id route"
@@ -506,7 +506,7 @@ pub async fn create_task_attempt_by_task_id(
     }
     tracing::info!(
         task_id = %task.id,
-        swarm_task_id = ?task.swarm_task_id,
+        shared_task_id = ?task.shared_task_id,
         attempt_id = %task_attempt.id,
         "Created attempt via by-task-id route"
     );
@@ -558,16 +558,16 @@ pub async fn follow_up(
     Json(payload): Json<CreateFollowUpAttempt>,
 ) -> Result<ResponseJson<ApiResponse<ExecutionProcess>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some((node_url, node_id, swarm_task_id)) =
+    if let Some((node_url, node_id, shared_task_id)) =
         check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
             node_id = %node_id,
-            swarm_task_id = %swarm_task_id,
+            shared_task_id = %shared_task_id,
             "Proxying follow_up to remote node"
         );
 
-        let path = format!("/task-attempts/by-task-id/{}/follow-up", swarm_task_id);
+        let path = format!("/task-attempts/by-task-id/{}/follow-up", shared_task_id);
         let response: ApiResponse<ExecutionProcess> = deployment
             .node_proxy_client()
             .proxy_post(&node_url, &path, &payload, node_id)
@@ -608,7 +608,7 @@ pub async fn follow_up(
         );
 
         // Sync unarchive to Hive if task is shared
-        if task.swarm_task_id.is_some()
+        if task.shared_task_id.is_some()
             && let Ok(publisher) = deployment.share_publisher()
             && let Some(updated_task) = Task::find_by_id(pool, task.id).await?
         {
@@ -895,16 +895,16 @@ pub async fn merge_task_attempt(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some((node_url, node_id, swarm_task_id)) =
+    if let Some((node_url, node_id, shared_task_id)) =
         check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
             node_id = %node_id,
-            swarm_task_id = %swarm_task_id,
+            shared_task_id = %shared_task_id,
             "Proxying merge_task_attempt to remote node"
         );
 
-        let path = format!("/task-attempts/by-task-id/{}/merge", swarm_task_id);
+        let path = format!("/task-attempts/by-task-id/{}/merge", shared_task_id);
         let response: ApiResponse<()> = deployment
             .node_proxy_client()
             .proxy_post(&node_url, &path, &(), node_id)
@@ -1005,16 +1005,16 @@ pub async fn push_task_attempt_branch(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<(), PushError>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some((node_url, node_id, swarm_task_id)) =
+    if let Some((node_url, node_id, shared_task_id)) =
         check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
             node_id = %node_id,
-            swarm_task_id = %swarm_task_id,
+            shared_task_id = %shared_task_id,
             "Proxying push_task_attempt_branch to remote node"
         );
 
-        let path = format!("/task-attempts/by-task-id/{}/push", swarm_task_id);
+        let path = format!("/task-attempts/by-task-id/{}/push", shared_task_id);
         let response: ApiResponse<(), PushError> = deployment
             .node_proxy_client()
             .proxy_post(&node_url, &path, &(), node_id)
@@ -1046,16 +1046,16 @@ pub async fn force_push_task_attempt_branch(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<(), PushError>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some((node_url, node_id, swarm_task_id)) =
+    if let Some((node_url, node_id, shared_task_id)) =
         check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
             node_id = %node_id,
-            swarm_task_id = %swarm_task_id,
+            shared_task_id = %shared_task_id,
             "Proxying force_push_task_attempt_branch to remote node"
         );
 
-        let path = format!("/task-attempts/by-task-id/{}/push/force", swarm_task_id);
+        let path = format!("/task-attempts/by-task-id/{}/push/force", shared_task_id);
         let response: ApiResponse<(), PushError> = deployment
             .node_proxy_client()
             .proxy_post(&node_url, &path, &(), node_id)
@@ -1100,16 +1100,16 @@ pub async fn create_github_pr(
     Json(request): Json<CreateGitHubPrRequest>,
 ) -> Result<ResponseJson<ApiResponse<String, CreatePrError>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some((node_url, node_id, swarm_task_id)) =
+    if let Some((node_url, node_id, shared_task_id)) =
         check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
             node_id = %node_id,
-            swarm_task_id = %swarm_task_id,
+            shared_task_id = %shared_task_id,
             "Proxying create_github_pr to remote node"
         );
 
-        let path = format!("/task-attempts/by-task-id/{}/pr", swarm_task_id);
+        let path = format!("/task-attempts/by-task-id/{}/pr", shared_task_id);
         let response: ApiResponse<String, CreatePrError> = deployment
             .node_proxy_client()
             .proxy_post(&node_url, &path, &request, node_id)
@@ -1347,16 +1347,16 @@ pub async fn get_task_attempt_branch_status(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<BranchStatus>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some((node_url, node_id, swarm_task_id)) =
+    if let Some((node_url, node_id, shared_task_id)) =
         check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
             node_id = %node_id,
-            swarm_task_id = %swarm_task_id,
+            shared_task_id = %shared_task_id,
             "Proxying get_task_attempt_branch_status to remote node"
         );
 
-        let path = format!("/task-attempts/by-task-id/{}/branch-status", swarm_task_id);
+        let path = format!("/task-attempts/by-task-id/{}/branch-status", shared_task_id);
         let response: ApiResponse<BranchStatus> = deployment
             .node_proxy_client()
             .proxy_get(&node_url, &path, node_id)
@@ -1497,18 +1497,18 @@ pub async fn change_target_branch(
     Json(payload): Json<ChangeTargetBranchRequest>,
 ) -> Result<ResponseJson<ApiResponse<ChangeTargetBranchResponse>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some((node_url, node_id, swarm_task_id)) =
+    if let Some((node_url, node_id, shared_task_id)) =
         check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
             node_id = %node_id,
-            swarm_task_id = %swarm_task_id,
+            shared_task_id = %shared_task_id,
             "Proxying change_target_branch to remote node"
         );
 
         let path = format!(
             "/task-attempts/by-task-id/{}/change-target-branch",
-            swarm_task_id
+            shared_task_id
         );
         let response: ApiResponse<ChangeTargetBranchResponse> = deployment
             .node_proxy_client()
@@ -1571,16 +1571,16 @@ pub async fn rename_branch(
     Json(payload): Json<RenameBranchRequest>,
 ) -> Result<ResponseJson<ApiResponse<RenameBranchResponse>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some((node_url, node_id, swarm_task_id)) =
+    if let Some((node_url, node_id, shared_task_id)) =
         check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
             node_id = %node_id,
-            swarm_task_id = %swarm_task_id,
+            shared_task_id = %shared_task_id,
             "Proxying rename_branch to remote node"
         );
 
-        let path = format!("/task-attempts/by-task-id/{}/rename-branch", swarm_task_id);
+        let path = format!("/task-attempts/by-task-id/{}/rename-branch", shared_task_id);
         let response: ApiResponse<RenameBranchResponse> = deployment
             .node_proxy_client()
             .proxy_post(&node_url, &path, &payload, node_id)
@@ -1683,16 +1683,16 @@ pub async fn rebase_task_attempt(
     Json(payload): Json<RebaseTaskAttemptRequest>,
 ) -> Result<ResponseJson<ApiResponse<(), GitOperationError>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some((node_url, node_id, swarm_task_id)) =
+    if let Some((node_url, node_id, shared_task_id)) =
         check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
             node_id = %node_id,
-            swarm_task_id = %swarm_task_id,
+            shared_task_id = %shared_task_id,
             "Proxying rebase_task_attempt to remote node"
         );
 
-        let path = format!("/task-attempts/by-task-id/{}/rebase", swarm_task_id);
+        let path = format!("/task-attempts/by-task-id/{}/rebase", shared_task_id);
         let response: ApiResponse<(), GitOperationError> = deployment
             .node_proxy_client()
             .proxy_post(&node_url, &path, &payload, node_id)
@@ -1780,18 +1780,18 @@ pub async fn abort_conflicts_task_attempt(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some((node_url, node_id, swarm_task_id)) =
+    if let Some((node_url, node_id, shared_task_id)) =
         check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
             node_id = %node_id,
-            swarm_task_id = %swarm_task_id,
+            shared_task_id = %shared_task_id,
             "Proxying abort_conflicts_task_attempt to remote node"
         );
 
         let path = format!(
             "/task-attempts/by-task-id/{}/conflicts/abort",
-            swarm_task_id
+            shared_task_id
         );
         let response: ApiResponse<()> = deployment
             .node_proxy_client()
@@ -1837,18 +1837,18 @@ pub async fn get_dirty_files(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<DirtyFilesResponse>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some((node_url, node_id, swarm_task_id)) =
+    if let Some((node_url, node_id, shared_task_id)) =
         check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
             node_id = %node_id,
-            swarm_task_id = %swarm_task_id,
+            shared_task_id = %shared_task_id,
             "Proxying get_dirty_files to remote node"
         );
 
         let path = format!(
             "/task-attempts/by-task-id/{}/stash/dirty-files",
-            swarm_task_id
+            shared_task_id
         );
         let response: ApiResponse<DirtyFilesResponse> = deployment
             .node_proxy_client()
@@ -1879,16 +1879,16 @@ pub async fn stash_changes(
     Json(payload): Json<StashChangesRequest>,
 ) -> Result<ResponseJson<ApiResponse<StashChangesResponse>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some((node_url, node_id, swarm_task_id)) =
+    if let Some((node_url, node_id, shared_task_id)) =
         check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
             node_id = %node_id,
-            swarm_task_id = %swarm_task_id,
+            shared_task_id = %shared_task_id,
             "Proxying stash_changes to remote node"
         );
 
-        let path = format!("/task-attempts/by-task-id/{}/stash", swarm_task_id);
+        let path = format!("/task-attempts/by-task-id/{}/stash", shared_task_id);
         let response: ApiResponse<StashChangesResponse> = deployment
             .node_proxy_client()
             .proxy_post(&node_url, &path, &payload, node_id)
@@ -1918,16 +1918,16 @@ pub async fn pop_stash(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some((node_url, node_id, swarm_task_id)) =
+    if let Some((node_url, node_id, shared_task_id)) =
         check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
             node_id = %node_id,
-            swarm_task_id = %swarm_task_id,
+            shared_task_id = %shared_task_id,
             "Proxying pop_stash to remote node"
         );
 
-        let path = format!("/task-attempts/by-task-id/{}/stash/pop", swarm_task_id);
+        let path = format!("/task-attempts/by-task-id/{}/stash/pop", shared_task_id);
         let response: ApiResponse<()> = deployment
             .node_proxy_client()
             .proxy_post(&node_url, &path, &(), node_id)
@@ -2047,16 +2047,16 @@ pub async fn stop_task_attempt_execution(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some((node_url, node_id, swarm_task_id)) =
+    if let Some((node_url, node_id, shared_task_id)) =
         check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
             node_id = %node_id,
-            swarm_task_id = %swarm_task_id,
+            shared_task_id = %shared_task_id,
             "Proxying stop_task_attempt_execution to remote node"
         );
 
-        let path = format!("/task-attempts/by-task-id/{}/stop", swarm_task_id);
+        let path = format!("/task-attempts/by-task-id/{}/stop", shared_task_id);
         let response: ApiResponse<()> = deployment
             .node_proxy_client()
             .proxy_post(&node_url, &path, &(), node_id)
@@ -2084,16 +2084,16 @@ pub async fn attach_existing_pr(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<AttachPrResponse>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some((node_url, node_id, swarm_task_id)) =
+    if let Some((node_url, node_id, shared_task_id)) =
         check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
             node_id = %node_id,
-            swarm_task_id = %swarm_task_id,
+            shared_task_id = %shared_task_id,
             "Proxying attach_existing_pr to remote node"
         );
 
-        let path = format!("/task-attempts/by-task-id/{}/pr/attach", swarm_task_id);
+        let path = format!("/task-attempts/by-task-id/{}/pr/attach", shared_task_id);
         let response: ApiResponse<AttachPrResponse> = deployment
             .node_proxy_client()
             .proxy_post(&node_url, &path, &(), node_id)
@@ -2238,22 +2238,22 @@ pub async fn list_worktree_files(
     Query(query): Query<ListFilesQuery>,
 ) -> Result<ResponseJson<ApiResponse<DirectoryListResponse>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some((node_url, node_id, swarm_task_id)) =
+    if let Some((node_url, node_id, shared_task_id)) =
         check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
             node_id = %node_id,
-            swarm_task_id = %swarm_task_id,
+            shared_task_id = %shared_task_id,
             "Proxying list_worktree_files to remote node"
         );
 
         let path = match &query.path {
             Some(p) => format!(
                 "/task-attempts/by-task-id/{}/files?path={}",
-                swarm_task_id,
+                shared_task_id,
                 urlencoding::encode(p)
             ),
-            None => format!("/task-attempts/by-task-id/{}/files", swarm_task_id),
+            None => format!("/task-attempts/by-task-id/{}/files", shared_task_id),
         };
         let response: ApiResponse<DirectoryListResponse> = deployment
             .node_proxy_client()
@@ -2302,19 +2302,19 @@ pub async fn read_worktree_file(
     Path((_, file_path)): Path<(String, String)>,
 ) -> Result<ResponseJson<ApiResponse<FileContentResponse>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some((node_url, node_id, swarm_task_id)) =
+    if let Some((node_url, node_id, shared_task_id)) =
         check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
             node_id = %node_id,
-            swarm_task_id = %swarm_task_id,
+            shared_task_id = %shared_task_id,
             file_path = %file_path,
             "Proxying read_worktree_file to remote node"
         );
 
         let path = format!(
             "/task-attempts/by-task-id/{}/files/{}",
-            swarm_task_id, file_path
+            shared_task_id, file_path
         );
         let response: ApiResponse<FileContentResponse> = deployment
             .node_proxy_client()
@@ -2660,9 +2660,9 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             load_task_attempt_middleware_with_wildcard,
         ));
 
-    // Routes for accessing task attempts by swarm_task_id (used for node-to-node proxying).
+    // Routes for accessing task attempts by shared_task_id (used for node-to-node proxying).
     // These routes allow a proxying node to request data using the Hive shared task ID.
-    // The middleware finds the task by swarm_task_id and loads its most recent attempt.
+    // The middleware finds the task by shared_task_id and loads its most recent attempt.
     let by_task_id_router = Router::new()
         .route("/follow-up", post(follow_up))
         .route("/stop", post(stop_task_attempt_execution))
@@ -2705,7 +2705,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             load_task_attempt_by_task_id_middleware_with_wildcard,
         ));
 
-    // Route for creating task attempts via swarm_task_id (cross-node proxying).
+    // Route for creating task attempts via shared_task_id (cross-node proxying).
     // Uses different middleware that only loads Task (not TaskAttempt).
     let by_task_id_create_router = Router::new()
         .route(

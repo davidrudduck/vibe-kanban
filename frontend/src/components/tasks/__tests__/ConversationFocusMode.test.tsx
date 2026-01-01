@@ -74,7 +74,7 @@ function createMockTask(
     status: 'inprogress',
     project_id: 'project-1',
     parent_task_id: null,
-    swarm_task_id: null,
+    shared_task_id: null,
     archived_at: null,
     created_at: nowStr,
     updated_at: nowStr,

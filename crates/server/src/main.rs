@@ -52,13 +52,13 @@ async fn main() -> Result<(), VibeKanbanError> {
     deployment.spawn_github_sync_service().await;
 
     // Clean up orphaned shared task IDs (tasks shared to Hive but project no longer linked)
-    match Task::clear_orphaned_swarm_task_ids(&deployment.db().pool).await {
+    match Task::clear_orphaned_shared_task_ids(&deployment.db().pool).await {
         Ok(count) if count > 0 => {
-            tracing::info!("Cleared {} orphaned swarm_task_id(s) from tasks", count);
+            tracing::info!("Cleared {} orphaned shared_task_id(s) from tasks", count);
         }
         Ok(_) => {}
         Err(e) => {
-            tracing::warn!("Failed to clear orphaned swarm_task_ids: {}", e);
+            tracing::warn!("Failed to clear orphaned shared_task_ids: {}", e);
         }
     }
 

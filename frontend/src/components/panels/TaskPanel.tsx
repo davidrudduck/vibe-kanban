@@ -173,6 +173,12 @@ const TaskPanel = ({ task }: TaskPanelProps) => {
                     <span>
                       <Button
                         variant="icon"
+                        disabled={task.is_remote}
+                        title={
+                          task.is_remote
+                            ? t('actionsMenu.remoteTaskCannotExecute')
+                            : undefined
+                        }
                         onClick={() =>
                           CreateAttemptDialog.show({
                             taskId: task.id,

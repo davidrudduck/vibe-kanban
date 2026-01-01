@@ -19,7 +19,6 @@ import {
   OrganizationSettings,
   ProjectSettings,
   SettingsLayout,
-  SwarmSettings,
 } from '@/pages/settings/';
 import { UserSystemProvider, useUserSystem } from '@/components/ConfigProvider';
 import { ThemeProvider } from '@/components/ThemeProvider';
@@ -130,7 +129,6 @@ function AppContent() {
                       path="organizations"
                       element={<OrganizationSettings />}
                     />
-                    <Route path="swarm" element={<SwarmSettings />} />
                     <Route path="agents" element={<AgentSettings />} />
                     <Route path="mcp" element={<McpSettings />} />
                     <Route path="backups" element={<BackupSettings />} />

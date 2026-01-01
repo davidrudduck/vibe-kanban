@@ -400,8 +400,8 @@ export function ProjectTasks() {
 
     tasks.forEach((task) => {
       const statusKey = normalizeStatus(task.status);
-      const sharedTask = task.swarm_task_id
-        ? sharedTasksById[task.swarm_task_id]
+      const sharedTask = task.shared_task_id
+        ? sharedTasksById[task.shared_task_id]
         : sharedTasksById[task.id];
 
       if (!matchesSearch(task.title, task.description)) {
@@ -773,8 +773,8 @@ export function ProjectTasks() {
   const getSharedTask = useCallback(
     (task: Task | null | undefined) => {
       if (!task) return undefined;
-      if (task.swarm_task_id) {
-        return sharedTasksById[task.swarm_task_id];
+      if (task.shared_task_id) {
+        return sharedTasksById[task.shared_task_id];
       }
       return sharedTasksById[task.id];
     },

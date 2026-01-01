@@ -8,7 +8,6 @@ import {
   FolderOpen,
   Building2,
   Database,
-  Network,
   ChevronDown,
   Search,
   X,
@@ -40,9 +39,6 @@ const McpSettings = lazy(() =>
 const BackupSettings = lazy(() =>
   import('./BackupSettings').then((m) => ({ default: m.BackupSettings }))
 );
-const SwarmSettings = lazy(() =>
-  import('./SwarmSettings').then((m) => ({ default: m.SwarmSettings }))
-);
 
 interface SettingsSection {
   id: string;
@@ -69,12 +65,6 @@ const settingsSections: SettingsSection[] = [
     path: 'organizations',
     icon: Building2,
     component: OrganizationSettings,
-  },
-  {
-    id: 'swarm',
-    path: 'swarm',
-    icon: Network,
-    component: SwarmSettings,
   },
   {
     id: 'agents',

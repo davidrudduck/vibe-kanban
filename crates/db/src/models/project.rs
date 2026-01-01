@@ -32,7 +32,7 @@ pub struct Project {
     pub copy_files: Option<String>,
     /// When true, setup script runs concurrently with the coding agent
     pub parallel_setup_script: bool,
-    pub swarm_project_id: Option<Uuid>,
+    pub remote_project_id: Option<Uuid>,
     #[ts(type = "Date")]
     pub created_at: DateTime<Utc>,
     #[ts(type = "Date")]
@@ -152,7 +152,7 @@ impl Project {
                       cleanup_script,
                       copy_files,
                       parallel_setup_script as "parallel_setup_script!: bool",
-                      swarm_project_id as "swarm_project_id: Uuid",
+                      remote_project_id as "remote_project_id: Uuid",
                       created_at as "created_at!: DateTime<Utc>",
                       updated_at as "updated_at!: DateTime<Utc>",
                       is_remote as "is_remote!: bool",
@@ -181,7 +181,7 @@ impl Project {
             r#"
             SELECT p.id as "id!: Uuid", p.name, p.git_repo_path, p.setup_script, p.dev_script, p.cleanup_script, p.copy_files,
                    p.parallel_setup_script as "parallel_setup_script!: bool",
-                   p.swarm_project_id as "swarm_project_id: Uuid",
+                   p.remote_project_id as "remote_project_id: Uuid",
                    p.created_at as "created_at!: DateTime<Utc>", p.updated_at as "updated_at!: DateTime<Utc>",
                    p.is_remote as "is_remote!: bool",
                    p.source_node_id as "source_node_id: Uuid",
@@ -219,7 +219,7 @@ impl Project {
                       cleanup_script,
                       copy_files,
                       parallel_setup_script as "parallel_setup_script!: bool",
-                      swarm_project_id as "swarm_project_id: Uuid",
+                      remote_project_id as "remote_project_id: Uuid",
                       created_at as "created_at!: DateTime<Utc>",
                       updated_at as "updated_at!: DateTime<Utc>",
                       is_remote as "is_remote!: bool",
@@ -242,9 +242,9 @@ impl Project {
         .await
     }
 
-    pub async fn find_by_swarm_project_id<'e, E>(
+    pub async fn find_by_remote_project_id<'e, E>(
         executor: E,
-        swarm_project_id: Uuid,
+        remote_project_id: Uuid,
     ) -> Result<Option<Self>, sqlx::Error>
     where
         E: Executor<'e, Database = Sqlite>,
@@ -259,7 +259,7 @@ impl Project {
                       cleanup_script,
                       copy_files,
                       parallel_setup_script as "parallel_setup_script!: bool",
-                      swarm_project_id as "swarm_project_id: Uuid",
+                      remote_project_id as "remote_project_id: Uuid",
                       created_at as "created_at!: DateTime<Utc>",
                       updated_at as "updated_at!: DateTime<Utc>",
                       is_remote as "is_remote!: bool",
@@ -275,9 +275,9 @@ impl Project {
                       github_open_prs as "github_open_prs!: i32",
                       github_last_synced_at as "github_last_synced_at: DateTime<Utc>"
                FROM projects
-               WHERE swarm_project_id = $1
+               WHERE remote_project_id = $1
                LIMIT 1"#,
-            swarm_project_id
+            remote_project_id
         )
         .fetch_optional(executor)
         .await
@@ -297,7 +297,7 @@ impl Project {
                       cleanup_script,
                       copy_files,
                       parallel_setup_script as "parallel_setup_script!: bool",
-                      swarm_project_id as "swarm_project_id: Uuid",
+                      remote_project_id as "remote_project_id: Uuid",
                       created_at as "created_at!: DateTime<Utc>",
                       updated_at as "updated_at!: DateTime<Utc>",
                       is_remote as "is_remote!: bool",
@@ -335,7 +335,7 @@ impl Project {
                       cleanup_script,
                       copy_files,
                       parallel_setup_script as "parallel_setup_script!: bool",
-                      swarm_project_id as "swarm_project_id: Uuid",
+                      remote_project_id as "remote_project_id: Uuid",
                       created_at as "created_at!: DateTime<Utc>",
                       updated_at as "updated_at!: DateTime<Utc>",
                       is_remote as "is_remote!: bool",
@@ -385,7 +385,7 @@ impl Project {
                           cleanup_script,
                           copy_files,
                           parallel_setup_script as "parallel_setup_script!: bool",
-                          swarm_project_id as "swarm_project_id: Uuid",
+                          remote_project_id as "remote_project_id: Uuid",
                           created_at as "created_at!: DateTime<Utc>",
                           updated_at as "updated_at!: DateTime<Utc>",
                           is_remote as "is_remote!: bool",
@@ -443,7 +443,7 @@ impl Project {
                          cleanup_script,
                          copy_files,
                          parallel_setup_script as "parallel_setup_script!: bool",
-                         swarm_project_id as "swarm_project_id: Uuid",
+                         remote_project_id as "remote_project_id: Uuid",
                          created_at as "created_at!: DateTime<Utc>",
                          updated_at as "updated_at!: DateTime<Utc>",
                          is_remote as "is_remote!: bool",
@@ -471,17 +471,17 @@ impl Project {
         .await
     }
 
-    pub async fn set_swarm_project_id(
+    pub async fn set_remote_project_id(
         pool: &SqlitePool,
         id: Uuid,
-        swarm_project_id: Option<Uuid>,
+        remote_project_id: Option<Uuid>,
     ) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"UPDATE projects
-               SET swarm_project_id = $2
+               SET remote_project_id = $2
                WHERE id = $1"#,
             id,
-            swarm_project_id
+            remote_project_id
         )
         .execute(pool)
         .await?;
@@ -489,21 +489,21 @@ impl Project {
         Ok(())
     }
 
-    /// Transaction-compatible version of set_swarm_project_id
-    pub async fn set_swarm_project_id_tx<'e, E>(
+    /// Transaction-compatible version of set_remote_project_id
+    pub async fn set_remote_project_id_tx<'e, E>(
         executor: E,
         id: Uuid,
-        swarm_project_id: Option<Uuid>,
+        remote_project_id: Option<Uuid>,
     ) -> Result<(), sqlx::Error>
     where
         E: Executor<'e, Database = Sqlite>,
     {
         sqlx::query!(
             r#"UPDATE projects
-               SET swarm_project_id = $2
+               SET remote_project_id = $2
                WHERE id = $1"#,
             id,
-            swarm_project_id
+            remote_project_id
         )
         .execute(executor)
         .await?;
@@ -512,7 +512,7 @@ impl Project {
     }
 
     /// Find all local projects that are not linked to a remote project.
-    /// These are projects with is_remote=false and swarm_project_id IS NULL.
+    /// These are projects with is_remote=false and remote_project_id IS NULL.
     pub async fn find_unlinked(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
         sqlx::query_as!(
             Project,
@@ -524,7 +524,7 @@ impl Project {
                       cleanup_script,
                       copy_files,
                       parallel_setup_script as "parallel_setup_script!: bool",
-                      swarm_project_id as "swarm_project_id: Uuid",
+                      remote_project_id as "remote_project_id: Uuid",
                       created_at as "created_at!: DateTime<Utc>",
                       updated_at as "updated_at!: DateTime<Utc>",
                       is_remote as "is_remote!: bool",
@@ -540,7 +540,7 @@ impl Project {
                       github_open_prs as "github_open_prs!: i32",
                       github_last_synced_at as "github_last_synced_at: DateTime<Utc>"
                FROM projects
-               WHERE is_remote = 0 AND swarm_project_id IS NULL
+               WHERE is_remote = 0 AND remote_project_id IS NULL
                ORDER BY created_at DESC"#
         )
         .fetch_all(pool)
@@ -581,7 +581,7 @@ impl Project {
                       cleanup_script,
                       copy_files,
                       parallel_setup_script as "parallel_setup_script!: bool",
-                      swarm_project_id as "swarm_project_id: Uuid",
+                      remote_project_id as "remote_project_id: Uuid",
                       created_at as "created_at!: DateTime<Utc>",
                       updated_at as "updated_at!: DateTime<Utc>",
                       is_remote as "is_remote!: bool",
@@ -616,7 +616,7 @@ impl Project {
                       cleanup_script,
                       copy_files,
                       parallel_setup_script as "parallel_setup_script!: bool",
-                      swarm_project_id as "swarm_project_id: Uuid",
+                      remote_project_id as "remote_project_id: Uuid",
                       created_at as "created_at!: DateTime<Utc>",
                       updated_at as "updated_at!: DateTime<Utc>",
                       is_remote as "is_remote!: bool",
@@ -644,7 +644,7 @@ impl Project {
     pub async fn upsert_remote_project(
         pool: &SqlitePool,
         local_id: Uuid,
-        swarm_project_id: Uuid,
+        remote_project_id: Uuid,
         name: String,
         git_repo_path: String,
         source_node_id: Uuid,
@@ -659,7 +659,7 @@ impl Project {
                     id,
                     name,
                     git_repo_path,
-                    swarm_project_id,
+                    remote_project_id,
                     is_remote,
                     source_node_id,
                     source_node_name,
@@ -669,7 +669,7 @@ impl Project {
                 ) VALUES (
                     $1, $2, $3, $4, 1, $5, $6, $7, $8, $9
                 )
-                ON CONFLICT(swarm_project_id) WHERE swarm_project_id IS NOT NULL DO UPDATE SET
+                ON CONFLICT(remote_project_id) WHERE remote_project_id IS NOT NULL DO UPDATE SET
                     name = excluded.name,
                     git_repo_path = excluded.git_repo_path,
                     source_node_id = excluded.source_node_id,
@@ -686,7 +686,7 @@ impl Project {
                           cleanup_script,
                           copy_files,
                           parallel_setup_script as "parallel_setup_script!: bool",
-                          swarm_project_id as "swarm_project_id: Uuid",
+                          remote_project_id as "remote_project_id: Uuid",
                           created_at as "created_at!: DateTime<Utc>",
                           updated_at as "updated_at!: DateTime<Utc>",
                           is_remote as "is_remote!: bool",
@@ -704,7 +704,7 @@ impl Project {
             local_id,
             name,
             git_repo_path,
-            swarm_project_id,
+            remote_project_id,
             source_node_id,
             source_node_name,
             source_node_public_url,
@@ -742,19 +742,19 @@ impl Project {
     /// instead of O(n) fetch + O(m) deletes.
     pub async fn delete_stale_remote_projects(
         pool: &SqlitePool,
-        active_swarm_project_ids: &[Uuid],
+        active_remote_project_ids: &[Uuid],
     ) -> Result<u64, sqlx::Error> {
         // If the list is empty, don't delete anything (safety check)
-        if active_swarm_project_ids.is_empty() {
+        if active_remote_project_ids.is_empty() {
             return Ok(0);
         }
 
         let mut builder = QueryBuilder::<Sqlite>::new(
-            "DELETE FROM projects WHERE is_remote = 1 AND swarm_project_id IS NOT NULL AND swarm_project_id NOT IN (",
+            "DELETE FROM projects WHERE is_remote = 1 AND remote_project_id IS NOT NULL AND remote_project_id NOT IN (",
         );
         {
             let mut separated = builder.separated(", ");
-            for id in active_swarm_project_ids {
+            for id in active_remote_project_ids {
                 separated.push_bind(id);
             }
         }
@@ -763,17 +763,17 @@ impl Project {
         Ok(result.rows_affected())
     }
 
-    /// Get all swarm_project_ids from local projects (for exclusion during remote sync)
+    /// Get all remote_project_ids from local projects (for exclusion during remote sync)
     ///
     /// This returns the set of project IDs that are already linked to local projects,
     /// so they should be excluded from the remote project list.
-    pub async fn find_local_project_swarm_ids(
+    pub async fn find_local_project_remote_ids(
         pool: &SqlitePool,
     ) -> Result<Vec<Uuid>, sqlx::Error> {
         let rows = sqlx::query_scalar!(
-            r#"SELECT swarm_project_id as "swarm_project_id: Uuid"
+            r#"SELECT remote_project_id as "remote_project_id: Uuid"
                FROM projects
-               WHERE is_remote = 0 AND swarm_project_id IS NOT NULL"#
+               WHERE is_remote = 0 AND remote_project_id IS NOT NULL"#
         )
         .fetch_all(pool)
         .await?;
@@ -781,12 +781,12 @@ impl Project {
         Ok(rows.into_iter().flatten().collect())
     }
 
-    /// Find all local projects that have a swarm_project_id (linked to cloud).
+    /// Find all local projects that have a remote_project_id (linked to cloud).
     ///
     /// This returns all projects where is_remote=false (local projects) AND
-    /// swarm_project_id IS NOT NULL (linked to the hive).
+    /// remote_project_id IS NOT NULL (linked to the hive).
     /// Used for auto-linking projects when a node connects to the hive.
-    pub async fn find_all_with_swarm_id(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
+    pub async fn find_all_with_remote_id(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
         sqlx::query_as!(
             Project,
             r#"SELECT id as "id!: Uuid",
@@ -797,7 +797,7 @@ impl Project {
                       cleanup_script,
                       copy_files,
                       parallel_setup_script as "parallel_setup_script!: bool",
-                      swarm_project_id as "swarm_project_id: Uuid",
+                      remote_project_id as "remote_project_id: Uuid",
                       created_at as "created_at!: DateTime<Utc>",
                       updated_at as "updated_at!: DateTime<Utc>",
                       is_remote as "is_remote!: bool",
@@ -813,7 +813,7 @@ impl Project {
                       github_open_prs as "github_open_prs!: i32",
                       github_last_synced_at as "github_last_synced_at: DateTime<Utc>"
                FROM projects
-               WHERE is_remote = 0 AND swarm_project_id IS NOT NULL
+               WHERE is_remote = 0 AND remote_project_id IS NOT NULL
                ORDER BY name"#
         )
         .fetch_all(pool)
@@ -839,7 +839,7 @@ impl Project {
                 p.cleanup_script,
                 p.copy_files,
                 p.parallel_setup_script as "parallel_setup_script!: bool",
-                p.swarm_project_id as "swarm_project_id: Uuid",
+                p.remote_project_id as "remote_project_id: Uuid",
                 p.created_at as "created_at!: DateTime<Utc>",
                 p.updated_at as "updated_at!: DateTime<Utc>",
                 p.is_remote as "is_remote!: bool",
@@ -878,7 +878,7 @@ impl Project {
                     cleanup_script: row.cleanup_script,
                     copy_files: row.copy_files,
                     parallel_setup_script: row.parallel_setup_script,
-                    swarm_project_id: row.swarm_project_id,
+                    remote_project_id: row.remote_project_id,
                     created_at: row.created_at,
                     updated_at: row.updated_at,
                     is_remote: row.is_remote,
@@ -913,7 +913,7 @@ impl Project {
                       cleanup_script,
                       copy_files,
                       parallel_setup_script as "parallel_setup_script!: bool",
-                      swarm_project_id as "swarm_project_id: Uuid",
+                      remote_project_id as "remote_project_id: Uuid",
                       created_at as "created_at!: DateTime<Utc>",
                       updated_at as "updated_at!: DateTime<Utc>",
                       is_remote as "is_remote!: bool",

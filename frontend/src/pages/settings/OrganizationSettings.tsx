@@ -146,8 +146,8 @@ export function OrganizationSettings() {
   const availableLocalProjects = allProjects.filter((project) => {
     // Project is available if it has no remote link OR if it's linked to a project outside this org
     return (
-      !project.swarm_project_id ||
-      !remoteProjectIds.includes(project.swarm_project_id)
+      !project.remote_project_id ||
+      !remoteProjectIds.includes(project.remote_project_id)
     );
   });
 
@@ -242,7 +242,7 @@ export function OrganizationSettings() {
     setError(null);
     linkToExisting.mutate({
       localProjectId,
-      data: { swarm_project_id: remoteProjectId },
+      data: { remote_project_id: remoteProjectId },
     });
   };
 
@@ -452,7 +452,7 @@ export function OrganizationSettings() {
                 {remoteProjects.map((remoteProject) => {
                   // Find the local project linked to this remote project
                   const linkedLocalProject = allProjects.find(
-                    (p) => p.swarm_project_id === remoteProject.id
+                    (p) => p.remote_project_id === remoteProject.id
                   );
 
                   return (

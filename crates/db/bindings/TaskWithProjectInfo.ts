@@ -4,7 +4,7 @@ import type { TaskStatus } from "./TaskStatus";
 /**
  * Task with project information for the "All Projects" view
  */
-export type TaskWithProjectInfo = { id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_task_id: string | null, swarm_task_id: string | null, created_at: string, updated_at: string, is_remote: boolean, remote_assignee_user_id: string | null, remote_assignee_name: string | null, remote_assignee_username: string | null, remote_version: bigint, remote_last_synced_at: string | null, remote_stream_node_id: string | null, remote_stream_url: string | null, archived_at: Date | null, 
+export type TaskWithProjectInfo = { id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_task_id: string | null, shared_task_id: string | null, created_at: string, updated_at: string, is_remote: boolean, remote_assignee_user_id: string | null, remote_assignee_name: string | null, remote_assignee_username: string | null, remote_version: bigint, remote_last_synced_at: string | null, remote_stream_node_id: string | null, remote_stream_url: string | null, archived_at: Date | null, 
 /**
  * Timestamp of last significant activity (status change, execution start).
  */

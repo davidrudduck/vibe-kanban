@@ -282,7 +282,7 @@ const TaskFormSheetImpl = NiceModal.create<TaskFormSheetProps>((props) => {
             ? (props as { parentTaskId: string }).parentTaskId
             : null,
         image_ids: imageIds,
-        swarm_task_id: null,
+        shared_task_id: null,
       };
       const shouldAutoStart = value.autoStart && !forceCreateOnlyRef.current;
 

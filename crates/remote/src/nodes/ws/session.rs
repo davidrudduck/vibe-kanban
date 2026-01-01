@@ -905,7 +905,7 @@ async fn handle_attempt_sync(
             // First, find the project_id from the shared_task
             let shared_task_repo = SharedTaskRepository::new(pool);
             let shared_task = shared_task_repo
-                .find_by_id(attempt.swarm_task_id)
+                .find_by_id(attempt.shared_task_id)
                 .await
                 .map_err(|e| HandleError::Database(e.to_string()))?;
 
@@ -921,7 +921,7 @@ async fn handle_attempt_sync(
                     // Create or find a synthetic assignment
                     let assignment_repo = TaskAssignmentRepository::new(pool);
                     match assignment_repo
-                        .create_or_find_synthetic(attempt.swarm_task_id, node_id, np.id)
+                        .create_or_find_synthetic(attempt.shared_task_id, node_id, np.id)
                         .await
                     {
                         Ok(assignment) => {
@@ -953,7 +953,7 @@ async fn handle_attempt_sync(
                 }
             } else {
                 tracing::debug!(
-                    swarm_task_id = %attempt.swarm_task_id,
+                    shared_task_id = %attempt.shared_task_id,
                     "shared task not found for synthetic assignment"
                 );
                 None
@@ -965,7 +965,7 @@ async fn handle_attempt_sync(
     repo.upsert(&UpsertNodeTaskAttempt {
         id: attempt.attempt_id,
         assignment_id,
-        swarm_task_id: attempt.swarm_task_id,
+        shared_task_id: attempt.shared_task_id,
         node_id,
         executor: attempt.executor.clone(),
         executor_variant: attempt.executor_variant.clone(),
@@ -983,7 +983,7 @@ async fn handle_attempt_sync(
     tracing::debug!(
         node_id = %node_id,
         attempt_id = %attempt.attempt_id,
-        swarm_task_id = %attempt.swarm_task_id,
+        shared_task_id = %attempt.shared_task_id,
         assignment_id = ?assignment_id,
         "synced task attempt from node"
     );
@@ -1096,9 +1096,9 @@ async fn handle_label_sync(
     // Upsert the label with version-based conflict resolution
     let (label, was_created) = repo
         .upsert_from_node(UpsertLabelFromNodeData {
-            swarm_label_id: label_sync.swarm_label_id,
+            shared_label_id: label_sync.shared_label_id,
             organization_id,
-            project_id: label_sync.swarm_project_id,
+            project_id: label_sync.remote_project_id,
             origin_node_id: node_id,
             name: label_sync.name.clone(),
             icon: label_sync.icon.clone(),
@@ -1120,7 +1120,7 @@ async fn handle_label_sync(
     // Broadcast to all other nodes in the organization
     let broadcast_msg = HiveMessage::LabelSync(LabelSyncBroadcastMessage {
         message_id: Uuid::new_v4(),
-        swarm_label_id: label.id,
+        shared_label_id: label.id,
         project_id: label.project_id,
         origin_node_id: node_id,
         name: label.name,
@@ -1170,7 +1170,7 @@ async fn handle_task_sync(
     let project_opt: Result<Option<Project>, sqlx::Error> = sqlx::query_as(
         "SELECT id, organization_id, name, metadata, created_at FROM projects WHERE id = $1"
     )
-    .bind(task_sync.swarm_project_id)
+    .bind(task_sync.remote_project_id)
     .fetch_optional(pool)
     .await;
 
@@ -1179,7 +1179,7 @@ async fn handle_task_sync(
         _ => {
             let r = TaskSyncResponseMessage {
                 local_task_id: task_sync.local_task_id,
-                swarm_task_id: Uuid::nil(),
+                shared_task_id: Uuid::nil(),
                 success: false,
                 error: Some("Project not found".to_string()),
             };
@@ -1191,8 +1191,7 @@ async fn handle_task_sync(
     let repo = SharedTaskRepository::new(pool);
     match repo
         .upsert_from_node(UpsertTaskFromNodeData {
-            swarm_task_id: task_sync.swarm_task_id,
-            project_id: task_sync.swarm_project_id,
+            project_id: task_sync.remote_project_id,
             organization_id: project.organization_id,
             origin_node_id: node_id,
             title: task_sync.title.clone(),
@@ -1203,10 +1202,10 @@ async fn handle_task_sync(
         .await
     {
         Ok((task, _)) => {
-            tracing::info!(node_id = %node_id, swarm_task_id = %task.id, "synced task");
+            tracing::info!(node_id = %node_id, shared_task_id = %task.id, "synced task");
             let r = TaskSyncResponseMessage {
                 local_task_id: task_sync.local_task_id,
-                swarm_task_id: task.id,
+                shared_task_id: task.id,
                 success: true,
                 error: None,
             };
@@ -1216,7 +1215,7 @@ async fn handle_task_sync(
             tracing::error!(node_id = %node_id, error = ?e, "failed to sync task");
             let r = TaskSyncResponseMessage {
                 local_task_id: task_sync.local_task_id,
-                swarm_task_id: Uuid::nil(),
+                shared_task_id: Uuid::nil(),
                 success: false,
                 error: Some(e.to_string()),
             };

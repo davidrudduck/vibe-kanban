@@ -44,12 +44,12 @@ impl EventService {
             .map(|task| (task.id.to_string(), serde_json::to_value(task).unwrap()))
             .collect();
 
-        let swarm_project_id = Project::find_by_id(&self.db.pool, project_id)
+        let remote_project_id = Project::find_by_id(&self.db.pool, project_id)
             .await?
-            .and_then(|project| project.swarm_project_id);
+            .and_then(|project| project.remote_project_id);
 
-        let shared_tasks = if let Some(swarm_project_id) = swarm_project_id {
-            SharedTask::list_by_swarm_project_id(&self.db.pool, swarm_project_id).await?
+        let shared_tasks = if let Some(remote_project_id) = remote_project_id {
+            SharedTask::list_by_remote_project_id(&self.db.pool, remote_project_id).await?
         } else {
             Vec::new()
         };
@@ -74,7 +74,7 @@ impl EventService {
 
         // Clone necessary data for the async filter
         let db_pool = self.db.pool.clone();
-        let swarm_project_id_filter = swarm_project_id;
+        let remote_project_id_filter = remote_project_id;
 
         // Get filtered event stream using pre-subscribed receiver
         let filtered_stream = BroadcastStream::new(receiver).filter_map(move |msg_result| {
@@ -89,9 +89,9 @@ impl EventService {
                                     json_patch::PatchOperation::Add(op) => {
                                         if let Ok(shared_task) =
                                             serde_json::from_value::<SharedTask>(op.value.clone())
-                                            && swarm_project_id_filter
+                                            && remote_project_id_filter
                                                 .map(|expected| {
-                                                    shared_task.swarm_project_id == expected
+                                                    shared_task.remote_project_id == expected
                                                 })
                                                 .unwrap_or(false)
                                         {
@@ -101,9 +101,9 @@ impl EventService {
                                     json_patch::PatchOperation::Replace(op) => {
                                         if let Ok(shared_task) =
                                             serde_json::from_value::<SharedTask>(op.value.clone())
-                                            && swarm_project_id_filter
+                                            && remote_project_id_filter
                                                 .map(|expected| {
-                                                    shared_task.swarm_project_id == expected
+                                                    shared_task.remote_project_id == expected
                                                 })
                                                 .unwrap_or(false)
                                         {
@@ -172,9 +172,9 @@ impl EventService {
                                         }
                                     }
                                     RecordTypes::SharedTask(shared_task) => {
-                                        if swarm_project_id_filter
+                                        if remote_project_id_filter
                                             .map(|expected| {
-                                                shared_task.swarm_project_id == expected
+                                                shared_task.remote_project_id == expected
                                             })
                                             .unwrap_or(false)
                                         {

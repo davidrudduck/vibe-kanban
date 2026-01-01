@@ -6,7 +6,7 @@ import type { MergedProjectsResponse } from 'shared/types';
  * Hook to fetch merged projects (local and remote combined).
  *
  * Returns a unified list of projects where projects with the same
- * swarm_project_id are merged into a single entry showing all locations.
+ * remote_project_id are merged into a single entry showing all locations.
  */
 export function useMergedProjects() {
   return useQuery<MergedProjectsResponse>({

@@ -8,7 +8,6 @@ import {
   FolderOpen,
   Building2,
   Database,
-  Network,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -31,10 +30,6 @@ const settingsNavigation = [
   {
     path: 'organizations',
     icon: Building2,
-  },
-  {
-    path: 'swarm',
-    icon: Network,
   },
   {
     path: 'agents',

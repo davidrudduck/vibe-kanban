@@ -45,7 +45,7 @@ use crate::{
 };
 
 /// Helper to check if a remote project context is available and online.
-/// Returns Some((node_url, node_id, swarm_project_id)) if we should proxy,
+/// Returns Some((node_url, node_id, remote_project_id)) if we should proxy,
 /// or an Err if the remote node is offline.
 fn check_remote_proxy(
     remote_ctx: Option<&RemoteProjectContext>,
@@ -68,7 +68,7 @@ fn check_remote_proxy(
                 ))
             })?;
 
-            Ok(Some((node_url.clone(), ctx.node_id, ctx.swarm_project_id)))
+            Ok(Some((node_url.clone(), ctx.node_id, ctx.remote_project_id)))
         }
         None => Ok(None),
     }
@@ -79,19 +79,11 @@ fn check_remote_proxy(
 #[derive(Deserialize, TS)]
 pub struct LinkToLocalFolderRequest {
     /// The remote project ID to link to (from the Hive)
-    pub swarm_project_id: Uuid,
+    pub remote_project_id: Uuid,
     /// The local folder path where the project will be created
     pub local_folder_path: String,
     /// Optional project name (defaults to folder name if not provided)
     pub project_name: Option<String>,
-}
-
-/// Request to link an existing local project to a remote swarm project
-#[derive(Deserialize, TS)]
-#[ts(export)]
-pub struct LinkToExistingRequest {
-    /// The remote project ID to link to (from the Hive)
-    pub swarm_project_id: Uuid,
 }
 
 /// A project in the unified view - can be local or from another node
@@ -140,7 +132,7 @@ impl From<Project> for RemoteNodeProject {
         Self {
             id: p.id,
             node_id: p.source_node_id.unwrap_or_default(),
-            project_id: p.swarm_project_id.unwrap_or_default(),
+            project_id: p.remote_project_id.unwrap_or_default(),
             project_name: p.name,
             git_repo_path: p.git_repo_path.to_string_lossy().to_string(),
             last_synced_at: p.remote_last_synced_at,
@@ -161,7 +153,7 @@ pub struct UnifiedProjectsResponse {
     pub remote_by_node: Vec<RemoteNodeGroup>,
 }
 
-/// A project in the merged view - merges local and remote projects by swarm_project_id
+/// A project in the merged view - merges local and remote projects by remote_project_id
 #[derive(Debug, Clone, Serialize, TS)]
 pub struct MergedProject {
     /// Use local project ID if exists, otherwise first remote's ID
@@ -172,7 +164,7 @@ pub struct MergedProject {
     pub created_at: DateTime<Utc>,
 
     /// Linking status - Hive project ID (if linked)
-    pub swarm_project_id: Option<Uuid>,
+    pub remote_project_id: Option<Uuid>,
 
     /// Location info - where the project runs
     pub has_local: bool,
@@ -206,7 +198,7 @@ pub struct NodeLocation {
     pub node_status: CachedNodeStatus,
     pub node_public_url: Option<String>,
     /// The project ID on that node
-    pub swarm_project_id: Uuid,
+    pub remote_project_id: Uuid,
 }
 
 /// Response for the merged projects endpoint
@@ -314,13 +306,13 @@ fn truncate_node_name(name: &str) -> String {
     name.split('.').next().unwrap_or(name).to_string()
 }
 
-/// Get a merged view of all projects: local and remote projects merged by swarm_project_id.
+/// Get a merged view of all projects: local and remote projects merged by remote_project_id.
 ///
-/// Projects with the same swarm_project_id are merged into a single entry showing:
+/// Projects with the same remote_project_id are merged into a single entry showing:
 /// - has_local: true if a local copy exists
 /// - nodes: list of remote nodes that have this project
 ///
-/// Unlinked local projects (no swarm_project_id) appear as standalone entries.
+/// Unlinked local projects (no remote_project_id) appear as standalone entries.
 pub async fn get_merged_projects(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<MergedProjectsResponse>>, ApiError> {
@@ -355,25 +347,25 @@ pub async fn get_merged_projects(
         })
         .collect();
 
-    // Build a map from swarm_project_id -> MergedProject
-    // Key: swarm_project_id (Uuid) -> Value: MergedProject being built
+    // Build a map from remote_project_id -> MergedProject
+    // Key: remote_project_id (Uuid) -> Value: MergedProject being built
     let mut merged_map: HashMap<Uuid, MergedProject> = HashMap::new();
 
-    // Also track local-only projects (those without swarm_project_id)
+    // Also track local-only projects (those without remote_project_id)
     let mut local_only_projects: Vec<MergedProject> = Vec::new();
 
     // Process local projects first
     for (project, last_attempt_at) in local_projects_with_attempts {
-        if let Some(swarm_project_id) = project.swarm_project_id {
+        if let Some(remote_project_id) = project.remote_project_id {
             // This local project is linked to a remote project
             merged_map.insert(
-                swarm_project_id,
+                remote_project_id,
                 MergedProject {
                     id: project.id,
                     name: project.name.clone(),
                     git_repo_path: project.git_repo_path.to_string_lossy().to_string(),
                     created_at: project.created_at,
-                    swarm_project_id: Some(swarm_project_id),
+                    remote_project_id: Some(remote_project_id),
                     has_local: true,
                     local_project_id: Some(project.id),
                     nodes: Vec::new(), // Will be populated from remote projects
@@ -393,7 +385,7 @@ pub async fn get_merged_projects(
                 name: project.name.clone(),
                 git_repo_path: project.git_repo_path.to_string_lossy().to_string(),
                 created_at: project.created_at,
-                swarm_project_id: None,
+                remote_project_id: None,
                 has_local: true,
                 local_project_id: Some(project.id),
                 nodes: Vec::new(),
@@ -410,9 +402,9 @@ pub async fn get_merged_projects(
 
     // Process remote projects - merge into existing or create new entries
     for remote_project in all_remote {
-        let swarm_project_id = match remote_project.swarm_project_id {
+        let remote_project_id = match remote_project.remote_project_id {
             Some(id) => id,
-            None => continue, // Skip remote projects without swarm_project_id (shouldn't happen)
+            None => continue, // Skip remote projects without remote_project_id (shouldn't happen)
         };
 
         let node_location = NodeLocation {
@@ -427,22 +419,22 @@ pub async fn get_merged_projects(
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(CachedNodeStatus::Pending),
             node_public_url: remote_project.source_node_public_url.clone(),
-            swarm_project_id,
+            remote_project_id,
         };
 
-        if let Some(merged) = merged_map.get_mut(&swarm_project_id) {
+        if let Some(merged) = merged_map.get_mut(&remote_project_id) {
             // Add this node to existing merged project
             merged.nodes.push(node_location);
         } else {
             // Create new entry for remote-only project
             merged_map.insert(
-                swarm_project_id,
+                remote_project_id,
                 MergedProject {
                     id: remote_project.id, // Use remote project's local ID
                     name: remote_project.name.clone(),
                     git_repo_path: remote_project.git_repo_path.to_string_lossy().to_string(),
                     created_at: remote_project.created_at,
-                    swarm_project_id: Some(swarm_project_id),
+                    remote_project_id: Some(remote_project_id),
                     has_local: false,
                     local_project_id: None,
                     nodes: vec![node_location],
@@ -503,16 +495,16 @@ pub async fn get_project_branches(
     }
 
     // Fall back to proxy only if no local git repository exists
-    if let Some((node_url, node_id, swarm_project_id)) =
+    if let Some((node_url, node_id, remote_project_id)) =
         check_remote_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
             node_id = %node_id,
-            swarm_project_id = %swarm_project_id,
+            remote_project_id = %remote_project_id,
             "Proxying get_project_branches to remote node"
         );
 
-        let path = format!("/projects/by-remote-id/{}/branches", swarm_project_id);
+        let path = format!("/projects/by-remote-id/{}/branches", remote_project_id);
         let response: ApiResponse<Vec<GitBranch>> = deployment
             .node_proxy_client()
             .proxy_get(&node_url, &path, node_id)
@@ -544,7 +536,7 @@ pub async fn link_to_local_folder(
     {
         // Project already exists at this path - just link it to the remote project
         let client = deployment.remote_client()?;
-        let remote_project = client.get_project(payload.swarm_project_id).await?;
+        let remote_project = client.get_project(payload.remote_project_id).await?;
         let updated_project =
             apply_remote_project_link(&deployment, existing.id, remote_project).await?;
         return Ok(ResponseJson(ApiResponse::success(updated_project)));
@@ -608,13 +600,13 @@ pub async fn link_to_local_folder(
 
     // Now link it to the remote project
     let client = deployment.remote_client()?;
-    let remote_project = client.get_project(payload.swarm_project_id).await?;
+    let remote_project = client.get_project(payload.remote_project_id).await?;
     let updated_project =
         apply_remote_project_link(&deployment, project.id, remote_project).await?;
 
     tracing::info!(
         project_id = %updated_project.id,
-        swarm_project_id = %payload.swarm_project_id,
+        remote_project_id = %payload.remote_project_id,
         path = %path.display(),
         "Created local project and linked to remote"
     );
@@ -624,11 +616,11 @@ pub async fn link_to_local_folder(
 
 pub async fn get_remote_project_by_id(
     State(deployment): State<DeploymentImpl>,
-    Path(swarm_project_id): Path<Uuid>,
+    Path(remote_project_id): Path<Uuid>,
 ) -> Result<ResponseJson<ApiResponse<RemoteProject>>, ApiError> {
     let client = deployment.remote_client()?;
 
-    let remote_project = client.get_project(swarm_project_id).await?;
+    let remote_project = client.get_project(remote_project_id).await?;
 
     Ok(ResponseJson(ApiResponse::success(remote_project)))
 }
@@ -637,13 +629,13 @@ pub async fn get_project_remote_members(
     State(deployment): State<DeploymentImpl>,
     Extension(project): Extension<Project>,
 ) -> Result<ResponseJson<ApiResponse<RemoteProjectMembersResponse>>, ApiError> {
-    let swarm_project_id = project.swarm_project_id.ok_or_else(|| {
+    let remote_project_id = project.remote_project_id.ok_or_else(|| {
         ApiError::Conflict("Project is not linked to a remote project".to_string())
     })?;
 
     let client = deployment.remote_client()?;
 
-    let remote_project = client.get_project(swarm_project_id).await?;
+    let remote_project = client.get_project(remote_project_id).await?;
     let members = client
         .list_members(remote_project.organization_id)
         .await?
@@ -669,7 +661,7 @@ async fn apply_remote_project_link(
         .await?
         .ok_or(ProjectError::ProjectNotFound)?;
 
-    Project::set_swarm_project_id(pool, project_id, Some(remote_project.id)).await?;
+    Project::set_remote_project_id(pool, project_id, Some(remote_project.id)).await?;
 
     let updated_project = Project::find_by_id(pool, project_id)
         .await?
@@ -722,14 +714,14 @@ async fn apply_remote_project_link(
             if let Err(e) = ctx.send_link_project(link_msg).await {
                 tracing::warn!(
                     project_id = %project_id,
-                    swarm_project_id = %remote_project.id,
+                    remote_project_id = %remote_project.id,
                     error = %e,
                     "failed to send link_project to hive"
                 );
             } else {
                 tracing::info!(
                     project_id = %project_id,
-                    swarm_project_id = %remote_project.id,
+                    remote_project_id = %remote_project.id,
                     "sent link_project to hive"
                 );
             }
@@ -737,98 +729,6 @@ async fn apply_remote_project_link(
     }
 
     Ok(updated_project)
-}
-
-/// Link an existing local project to a remote swarm project.
-/// This is used from the Swarm Management UI to connect a local project to a remote one.
-pub async fn link_to_existing(
-    Extension(project): Extension<Project>,
-    State(deployment): State<DeploymentImpl>,
-    Json(payload): Json<LinkToExistingRequest>,
-) -> Result<ResponseJson<ApiResponse<Project>>, ApiError> {
-    // Check if project is already linked
-    if project.swarm_project_id.is_some() {
-        return Ok(ResponseJson(ApiResponse::error(
-            "Project is already linked to a swarm project. Unlink it first.",
-        )));
-    }
-
-    // Get the remote project from the hive
-    let client = deployment.remote_client()?;
-    let remote_project = client.get_project(payload.swarm_project_id).await?;
-
-    // Apply the link
-    let updated_project =
-        apply_remote_project_link(&deployment, project.id, remote_project).await?;
-
-    tracing::info!(
-        project_id = %updated_project.id,
-        swarm_project_id = %payload.swarm_project_id,
-        "Linked local project to remote swarm project"
-    );
-
-    Ok(ResponseJson(ApiResponse::success(updated_project)))
-}
-
-/// Unlink a local project from its remote swarm project.
-/// This clears the swarm_project_id and notifies the hive.
-pub async fn unlink_project(
-    Extension(project): Extension<Project>,
-    State(deployment): State<DeploymentImpl>,
-) -> Result<ResponseJson<ApiResponse<Project>>, ApiError> {
-    let pool = &deployment.db().pool;
-
-    // Check if project is linked
-    let swarm_project_id = match project.swarm_project_id {
-        Some(id) => id,
-        None => {
-            return Ok(ResponseJson(ApiResponse::error(
-                "Project is not linked to any swarm project",
-            )));
-        }
-    };
-
-    // Clear the swarm_project_id
-    Project::set_swarm_project_id(pool, project.id, None).await?;
-
-    // Notify the hive about the unlink if we're connected as a node
-    if let Some(ctx) = deployment.node_runner_context() {
-        use services::services::hive_client::UnlinkProjectMessage;
-
-        if ctx.is_connected().await {
-            let unlink_msg = UnlinkProjectMessage {
-                project_id: swarm_project_id,
-            };
-
-            if let Err(e) = ctx.send_unlink_project(unlink_msg).await {
-                tracing::warn!(
-                    project_id = %project.id,
-                    swarm_project_id = %swarm_project_id,
-                    error = %e,
-                    "failed to send unlink_project to hive"
-                );
-            } else {
-                tracing::info!(
-                    project_id = %project.id,
-                    swarm_project_id = %swarm_project_id,
-                    "sent unlink_project to hive"
-                );
-            }
-        }
-    }
-
-    // Fetch the updated project
-    let updated_project = Project::find_by_id(pool, project.id)
-        .await?
-        .ok_or(ProjectError::ProjectNotFound)?;
-
-    tracing::info!(
-        project_id = %project.id,
-        old_swarm_project_id = %swarm_project_id,
-        "Unlinked local project from remote swarm project"
-    );
-
-    Ok(ResponseJson(ApiResponse::success(updated_project)))
 }
 
 pub async fn create_project(
@@ -1042,7 +942,7 @@ async fn auto_link_project_to_hive(
 
     tracing::info!(
         project_id = %project.id,
-        swarm_project_id = %remote_project.id,
+        remote_project_id = %remote_project.id,
         "Created remote project in hive, now linking"
     );
 
@@ -1051,7 +951,7 @@ async fn auto_link_project_to_hive(
         Ok(updated_project) => {
             tracing::info!(
                 project_id = %updated_project.id,
-                swarm_project_id = ?updated_project.swarm_project_id,
+                remote_project_id = ?updated_project.remote_project_id,
                 path = %path.display(),
                 "Auto-linked new project to hive"
             );
@@ -1210,12 +1110,12 @@ pub async fn search_project_files(
     }
 
     // Check if this is a remote project that should be proxied
-    if let Some((node_url, node_id, swarm_project_id)) =
+    if let Some((node_url, node_id, remote_project_id)) =
         check_remote_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
             node_id = %node_id,
-            swarm_project_id = %swarm_project_id,
+            remote_project_id = %remote_project_id,
             query = %query,
             "Proxying search_project_files to remote node"
         );
@@ -1227,7 +1127,7 @@ pub async fn search_project_files(
         };
         let path = format!(
             "/projects/by-remote-id/{}/search?q={}&mode={}",
-            swarm_project_id,
+            remote_project_id,
             urlencoding::encode(query),
             mode_str
         );
@@ -1466,12 +1366,12 @@ pub async fn list_project_files(
     Query(query): Query<ListProjectFilesQuery>,
 ) -> Result<ResponseJson<ApiResponse<DirectoryListResponse>>, ApiError> {
     // Check if this is a remote project that should be proxied
-    if let Some((node_url, node_id, swarm_project_id)) =
+    if let Some((node_url, node_id, remote_project_id)) =
         check_remote_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
             node_id = %node_id,
-            swarm_project_id = %swarm_project_id,
+            remote_project_id = %remote_project_id,
             path = ?query.path,
             "Proxying list_project_files to remote node"
         );
@@ -1479,10 +1379,10 @@ pub async fn list_project_files(
         let path = match &query.path {
             Some(p) => format!(
                 "/projects/by-remote-id/{}/files?path={}",
-                swarm_project_id,
+                remote_project_id,
                 urlencoding::encode(p)
             ),
-            None => format!("/projects/by-remote-id/{}/files", swarm_project_id),
+            None => format!("/projects/by-remote-id/{}/files", remote_project_id),
         };
         let response: ApiResponse<DirectoryListResponse> = deployment
             .node_proxy_client()
@@ -1530,19 +1430,19 @@ pub async fn read_project_file(
     Path((_project_id, file_path)): Path<(Uuid, String)>,
 ) -> Result<ResponseJson<ApiResponse<FileContentResponse>>, ApiError> {
     // Check if this is a remote project that should be proxied
-    if let Some((node_url, node_id, swarm_project_id)) =
+    if let Some((node_url, node_id, remote_project_id)) =
         check_remote_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
             node_id = %node_id,
-            swarm_project_id = %swarm_project_id,
+            remote_project_id = %remote_project_id,
             file_path = %file_path,
             "Proxying read_project_file to remote node"
         );
 
         let path = format!(
             "/projects/by-remote-id/{}/files/{}",
-            swarm_project_id, file_path
+            remote_project_id, file_path
         );
         let response: ApiResponse<FileContentResponse> = deployment
             .node_proxy_client()
@@ -1592,12 +1492,12 @@ pub async fn read_project_file(
     }
 }
 
-/// Read a file from a project looked up by swarm_project_id.
+/// Read a file from a project looked up by remote_project_id.
 /// This is the by-remote-id variant of read_project_file.
 pub async fn read_project_file_by_remote_id(
     Extension(project): Extension<Project>,
     State(deployment): State<DeploymentImpl>,
-    Path((_swarm_project_id, file_path)): Path<(Uuid, String)>,
+    Path((_remote_project_id, file_path)): Path<(Uuid, String)>,
 ) -> Result<ResponseJson<ApiResponse<FileContentResponse>>, ApiError> {
     match deployment
         .filesystem()
@@ -1767,9 +1667,6 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/open-editor", post(open_project_in_editor))
         // File browser endpoints
         .route("/files", get(list_project_files))
-        // Swarm linking endpoints
-        .route("/link", post(link_to_existing))
-        .route("/unlink", post(unlink_project))
         // GitHub integration endpoints
         .route("/github", post(set_github_enabled))
         .route("/github/counts", get(get_github_counts))
@@ -1789,7 +1686,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             load_project_middleware_with_wildcard,
         ));
 
-    // Routes for accessing projects by swarm_project_id (used for node-to-node proxying)
+    // Routes for accessing projects by remote_project_id (used for node-to-node proxying)
     // These routes allow a proxying node to request data using the Hive project ID
     let by_remote_id_router = Router::new()
         .route("/branches", get(get_project_branches))
@@ -1803,7 +1700,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     // File content route for by-remote-id (wildcard path parameter)
     let by_remote_id_files_router = Router::new()
         .route(
-            "/by-remote-id/{swarm_project_id}/files/{*file_path}",
+            "/by-remote-id/{remote_project_id}/files/{*file_path}",
             get(read_project_file_by_remote_id),
         )
         .layer(from_fn_with_state(
@@ -1817,7 +1714,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/link-local", post(link_to_local_folder))
         .nest("/{id}", project_id_router)
         .merge(project_files_router)
-        .nest("/by-remote-id/{swarm_project_id}", by_remote_id_router)
+        .nest("/by-remote-id/{remote_project_id}", by_remote_id_router)
         .merge(by_remote_id_files_router);
 
     Router::new()
