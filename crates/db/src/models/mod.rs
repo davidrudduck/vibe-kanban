@@ -36,8 +36,6 @@ pub mod template;
 pub mod log_entry;
 
 // === Legacy Sync Models (Deprecated) ===
-// These tables have been dropped from the SQLite database as part of the
-// explicit swarm linking migration. The modules are kept for type definitions
-// only - all database operations will fail at runtime.
+// These are being replaced by Electric-based sync
 pub mod cached_node;
 pub mod shared_task;

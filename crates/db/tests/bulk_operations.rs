@@ -69,20 +69,20 @@ async fn create_test_task(pool: &SqlitePool, project_id: Uuid, title: &str) -> T
         .expect("Failed to create test task")
 }
 
-/// Create a remote task (with swarm_task_id set) for delete_stale tests.
+/// Create a remote task (with shared_task_id set) for delete_stale tests.
 async fn create_remote_task(
     pool: &SqlitePool,
     project_id: Uuid,
     title: &str,
-    swarm_task_id: Uuid,
+    shared_task_id: Uuid,
 ) -> Task {
     let task_id = Uuid::new_v4();
-    let data = CreateTask::from_swarm_task(
+    let data = CreateTask::from_shared_task(
         project_id,
         title.to_string(),
         None,
         TaskStatus::Todo,
-        swarm_task_id,
+        shared_task_id,
     );
 
     // Create the task first
@@ -227,7 +227,7 @@ async fn test_delete_stale_remote_tasks_bulk_delete() {
     let (pool, _temp_dir) = setup_test_pool().await;
     let project = create_test_project(&pool).await;
 
-    // Create 5 remote tasks with swarm_task_ids
+    // Create 5 remote tasks with shared_task_ids
     let shared_id_1 = Uuid::new_v4();
     let shared_id_2 = Uuid::new_v4();
     let shared_id_3 = Uuid::new_v4();
@@ -240,7 +240,7 @@ async fn test_delete_stale_remote_tasks_bulk_delete() {
     let _task4 = create_remote_task(&pool, project.id, "Remote Task 4", shared_id_4).await;
     let task5 = create_remote_task(&pool, project.id, "Remote Task 5", shared_id_5).await;
 
-    // Active swarm_task_ids (these should NOT be deleted)
+    // Active shared_task_ids (these should NOT be deleted)
     let active_ids = vec![shared_id_2, shared_id_3, shared_id_5];
 
     // Delete stale tasks (1 and 4 should be deleted)
@@ -290,7 +290,7 @@ async fn test_delete_stale_remote_tasks_only_affects_remote_tasks() {
     let (pool, _temp_dir) = setup_test_pool().await;
     let project = create_test_project(&pool).await;
 
-    // Create a local task (no swarm_task_id, is_remote = false)
+    // Create a local task (no shared_task_id, is_remote = false)
     let local_task = create_test_task(&pool, project.id, "Local Task").await;
 
     // Create a remote task
@@ -374,14 +374,14 @@ async fn test_delete_stale_remote_tasks_project_isolation() {
 // =============================================================================
 
 /// Create a remote project for testing.
-async fn create_remote_project(pool: &SqlitePool, name: &str, swarm_project_id: Uuid) -> Project {
+async fn create_remote_project(pool: &SqlitePool, name: &str, remote_project_id: Uuid) -> Project {
     let local_id = Uuid::new_v4();
     let source_node_id = Uuid::new_v4();
 
     Project::upsert_remote_project(
         pool,
         local_id,
-        swarm_project_id,
+        remote_project_id,
         name.to_string(),
         format!("/tmp/remote-repo-{}", name),
         source_node_id,
@@ -408,7 +408,7 @@ async fn test_delete_stale_remote_projects_bulk_delete() {
     let _project3 = create_remote_project(&pool, "Remote Project 3", remote_id_3).await;
     let project4 = create_remote_project(&pool, "Remote Project 4", remote_id_4).await;
 
-    // Active swarm_project_ids (these should NOT be deleted)
+    // Active remote_project_ids (these should NOT be deleted)
     let active_ids = vec![remote_id_2, remote_id_4];
 
     // Delete stale projects (1 and 3 should be deleted)

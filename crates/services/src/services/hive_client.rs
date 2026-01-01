@@ -355,7 +355,7 @@ pub struct AttemptSyncMessage {
     /// The assignment ID from the Hive (if this was a dispatched task)
     pub assignment_id: Option<Uuid>,
     /// The shared task ID on the Hive
-    pub swarm_task_id: Uuid,
+    pub shared_task_id: Uuid,
     /// The executor name (e.g., "CLAUDE_CODE", "CODEX")
     pub executor: String,
     /// Optional executor variant
@@ -416,11 +416,11 @@ pub struct LabelSyncMessage {
     /// The local label ID
     pub label_id: Uuid,
     /// The shared label ID on the Hive (None for new labels)
-    pub swarm_label_id: Option<Uuid>,
+    pub shared_label_id: Option<Uuid>,
     /// The project ID if this is a project-specific label, None for global labels
     pub project_id: Option<Uuid>,
     /// Remote project ID if the label is project-specific (for linking on hive side)
-    pub swarm_project_id: Option<Uuid>,
+    pub remote_project_id: Option<Uuid>,
     /// Label name
     pub name: String,
     /// Lucide icon name
@@ -442,9 +442,9 @@ pub struct TaskSyncMessage {
     /// The local task ID on the node
     pub local_task_id: Uuid,
     /// The shared task ID on the Hive (None for new tasks)
-    pub swarm_task_id: Option<Uuid>,
+    pub shared_task_id: Option<Uuid>,
     /// The remote project ID (required for task creation)
-    pub swarm_project_id: Uuid,
+    pub remote_project_id: Uuid,
     /// Task title
     pub title: String,
     /// Task description
@@ -463,14 +463,14 @@ pub struct TaskSyncMessage {
 
 /// Response from Hive after processing a TaskSync message.
 ///
-/// The Hive sends this back to confirm the swarm_task_id, which the node
+/// The Hive sends this back to confirm the shared_task_id, which the node
 /// uses to update its local task record.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskSyncResponseMessage {
     /// The local task ID on the node (echoed back for correlation)
     pub local_task_id: Uuid,
     /// The shared task ID on the Hive
-    pub swarm_task_id: Uuid,
+    pub shared_task_id: Uuid,
     /// Whether the operation was successful
     pub success: bool,
     /// Error message if not successful
@@ -524,7 +524,7 @@ pub enum HiveEvent {
     ProjectSync(ProjectSyncMessage),
     /// Node removed from organization
     NodeRemoved(NodeRemovedMessage),
-    /// Task sync response received (swarm_task_id assigned)
+    /// Task sync response received (shared_task_id assigned)
     TaskSyncResponse(TaskSyncResponseMessage),
     /// Error from hive
     Error { message: String },
@@ -848,7 +848,7 @@ impl HiveClient {
                 if response.success {
                     tracing::info!(
                         local_task_id = %response.local_task_id,
-                        swarm_task_id = %response.swarm_task_id,
+                        shared_task_id = %response.shared_task_id,
                         "received task sync response"
                     );
                 } else {

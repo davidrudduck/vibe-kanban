@@ -27,7 +27,7 @@ impl LabelPublisher {
 
     /// Sync a local label to the Hive.
     ///
-    /// If the label has no `swarm_label_id`, it will be created in the Hive.
+    /// If the label has no `shared_label_id`, it will be created in the Hive.
     /// If it already has one, it will be updated.
     pub async fn sync_label(
         &self,
@@ -39,20 +39,20 @@ impl LabelPublisher {
             .await?
             .ok_or(ShareError::LabelNotFound(label_id))?;
 
-        if let Some(swarm_label_id) = label.swarm_label_id {
+        if let Some(shared_label_id) = label.shared_label_id {
             // Label already synced, update it
-            self.update_label_in_hive(&label, swarm_label_id).await?;
-            Ok(swarm_label_id)
+            self.update_label_in_hive(&label, shared_label_id).await?;
+            Ok(shared_label_id)
         } else {
             // Label not yet synced, create it in Hive
             let hive_label = self
                 .create_label_in_hive(&label, organization_id, node_id)
                 .await?;
-            // Update local label with swarm_label_id
-            Label::set_swarm_label_id(&self.db.pool, label_id, hive_label.id).await?;
+            // Update local label with shared_label_id
+            Label::set_shared_label_id(&self.db.pool, label_id, hive_label.id).await?;
             info!(
                 local_label_id = %label_id,
-                swarm_label_id = %hive_label.id,
+                shared_label_id = %hive_label.id,
                 "Label synced to Hive"
             );
             Ok(hive_label.id)
@@ -88,7 +88,7 @@ impl LabelPublisher {
     async fn update_label_in_hive(
         &self,
         label: &Label,
-        swarm_label_id: Uuid,
+        shared_label_id: Uuid,
     ) -> Result<HiveLabel, ShareError> {
         let request = UpdateLabelRequest {
             name: Some(label.name.clone()),
@@ -97,11 +97,11 @@ impl LabelPublisher {
             version: Some(label.version),
         };
 
-        let response = self.client.update_label(swarm_label_id, &request).await?;
+        let response = self.client.update_label(shared_label_id, &request).await?;
         Label::mark_synced(&self.db.pool, label.id).await?;
         debug!(
             label_name = %label.name,
-            swarm_label_id = %swarm_label_id,
+            shared_label_id = %shared_label_id,
             "Updated label in Hive"
         );
         Ok(response.label)
@@ -113,7 +113,7 @@ impl LabelPublisher {
             .await?
             .ok_or(ShareError::LabelNotFound(label_id))?;
 
-        let Some(swarm_label_id) = label.swarm_label_id else {
+        let Some(shared_label_id) = label.shared_label_id else {
             // Label was never synced to Hive, nothing to do
             debug!(
                 label_id = %label_id,
@@ -128,13 +128,13 @@ impl LabelPublisher {
 
         match self
             .client
-            .delete_label(swarm_label_id, Some(&request))
+            .delete_label(shared_label_id, Some(&request))
             .await
         {
             Ok(_) => {
                 info!(
                     label_id = %label_id,
-                    swarm_label_id = %swarm_label_id,
+                    shared_label_id = %shared_label_id,
                     "Deleted label from Hive"
                 );
                 Ok(())
@@ -142,7 +142,7 @@ impl LabelPublisher {
             Err(e) => {
                 warn!(
                     label_id = %label_id,
-                    swarm_label_id = %swarm_label_id,
+                    shared_label_id = %shared_label_id,
                     error = ?e,
                     "Failed to delete label from Hive"
                 );
@@ -203,8 +203,8 @@ impl LabelPublisher {
 
         let mut synced_count = 0;
         for label in modified {
-            if let Some(swarm_label_id) = label.swarm_label_id {
-                match self.update_label_in_hive(&label, swarm_label_id).await {
+            if let Some(shared_label_id) = label.shared_label_id {
+                match self.update_label_in_hive(&label, shared_label_id).await {
                     Ok(_) => {
                         synced_count += 1;
                     }

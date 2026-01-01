@@ -394,7 +394,7 @@ impl NodeRunnerHandle {
                 if response.success {
                     tracing::info!(
                         local_task_id = %response.local_task_id,
-                        swarm_task_id = %response.swarm_task_id,
+                        shared_task_id = %response.shared_task_id,
                         "task sync response received - task will be updated"
                     );
                 } else {
@@ -603,7 +603,7 @@ pub fn spawn_node_runner<C: ContainerService + Sync + Send + 'static>(
                         tracing::warn!(error = ?e, "Failed to sync remote projects on connect");
                     }
 
-                    // Auto-link local projects that have swarm_project_id but aren't registered with hive
+                    // Auto-link local projects that have remote_project_id but aren't registered with hive
                     if let Err(e) =
                         auto_link_local_projects(&db.pool, &command_tx, &linked_projects).await
                     {
@@ -648,25 +648,25 @@ pub fn spawn_node_runner<C: ContainerService + Sync + Send + 'static>(
                 }
                 Some(HiveEvent::TaskSyncResponse(response)) => {
                     if response.success {
-                        // Update the local task with the swarm_task_id
-                        if let Err(e) = Task::set_swarm_task_id(
+                        // Update the local task with the shared_task_id
+                        if let Err(e) = Task::set_shared_task_id(
                             &db.pool,
                             response.local_task_id,
-                            Some(response.swarm_task_id),
+                            Some(response.shared_task_id),
                         )
                         .await
                         {
                             tracing::error!(
                                 error = ?e,
                                 local_task_id = %response.local_task_id,
-                                swarm_task_id = %response.swarm_task_id,
-                                "failed to update task with swarm_task_id"
+                                shared_task_id = %response.shared_task_id,
+                                "failed to update task with shared_task_id"
                             );
                         } else {
                             tracing::info!(
                                 local_task_id = %response.local_task_id,
-                                swarm_task_id = %response.swarm_task_id,
-                                "updated local task with swarm_task_id"
+                                shared_task_id = %response.shared_task_id,
+                                "updated local task with shared_task_id"
                             );
                         }
                     }
@@ -710,13 +710,13 @@ async fn sync_remote_projects(
 
     // 3. Sync tasks for each remote project
     for project in &remote_projects {
-        if let Some(swarm_project_id) = project.swarm_project_id
+        if let Some(remote_project_id) = project.remote_project_id
             && let Err(e) =
-                sync_remote_project_tasks(pool, remote_client, project.id, swarm_project_id).await
+                sync_remote_project_tasks(pool, remote_client, project.id, remote_project_id).await
         {
             tracing::warn!(
                 error = ?e,
-                project_id = %swarm_project_id,
+                project_id = %remote_project_id,
                 "Failed to sync tasks for remote project"
             );
         }
@@ -735,11 +735,11 @@ async fn sync_remote_project_tasks(
     pool: &SqlitePool,
     remote_client: &RemoteClient,
     local_project_id: Uuid,
-    swarm_project_id: Uuid,
+    remote_project_id: Uuid,
 ) -> Result<(), NodeRunnerError> {
     // Fetch all tasks from Hive
     let snapshot = remote_client
-        .fetch_bulk_snapshot(swarm_project_id)
+        .fetch_bulk_snapshot(remote_project_id)
         .await
         .map_err(|e| NodeRunnerError::SyncError(e.to_string()))?;
 
@@ -779,7 +779,7 @@ async fn sync_remote_project_tasks(
 
     // Handle deleted tasks
     for deleted_id in snapshot.deleted_task_ids {
-        Task::delete_by_swarm_task_id(pool, deleted_id).await?;
+        Task::delete_by_shared_task_id(pool, deleted_id).await?;
     }
 
     // Clean up stale remote tasks for this project
@@ -801,7 +801,7 @@ fn convert_task_status(status: &RemoteTaskStatus) -> TaskStatus {
     }
 }
 
-/// Auto-link all local projects that have swarm_project_id but aren't registered with hive.
+/// Auto-link all local projects that have remote_project_id but aren't registered with hive.
 ///
 /// This function is called on connection to ensure all previously-linked projects
 /// are properly registered with the hive. This handles the case where projects were
@@ -811,12 +811,12 @@ async fn auto_link_local_projects(
     command_tx: &mpsc::Sender<NodeMessage>,
     linked_projects: &[LinkedProjectInfo],
 ) -> Result<(), NodeRunnerError> {
-    // Get all local projects with swarm_project_id set
-    let local_projects = Project::find_all_with_swarm_id(pool).await?;
+    // Get all local projects with remote_project_id set
+    let local_projects = Project::find_all_with_remote_id(pool).await?;
 
     let mut linked_count = 0;
     for project in local_projects {
-        let swarm_project_id = match project.swarm_project_id {
+        let remote_project_id = match project.remote_project_id {
             Some(id) => id,
             None => continue,
         };
@@ -829,7 +829,7 @@ async fn auto_link_local_projects(
 
         if !already_linked {
             let link_msg = LinkProjectMessage {
-                project_id: swarm_project_id,
+                project_id: remote_project_id,
                 local_project_id: project.id,
                 git_repo_path: project.git_repo_path.to_string_lossy().to_string(),
                 default_branch: "main".to_string(), // Default to main
@@ -843,7 +843,7 @@ async fn auto_link_local_projects(
             linked_count += 1;
             tracing::info!(
                 project_id = %project.id,
-                swarm_project_id = %swarm_project_id,
+                remote_project_id = %remote_project_id,
                 name = %project.name,
                 "Auto-linked project to hive"
             );

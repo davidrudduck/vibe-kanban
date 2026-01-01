@@ -14,7 +14,7 @@
 //!
 //! ```ignore
 //! let service = ElectricTaskSyncService::new(pool, electric_url);
-//! service.sync_project_tasks(project_id, swarm_project_id).await?;
+//! service.sync_project_tasks(project_id, remote_project_id).await?;
 //! ```
 
 use db::models::task::{Task, TaskStatus};
@@ -156,7 +156,7 @@ impl ElectricTaskSyncService {
     /// # Arguments
     ///
     /// * `local_project_id` - The local project ID to associate tasks with
-    /// * `swarm_project_id` - The remote project ID to filter tasks by
+    /// * `remote_project_id` - The remote project ID to filter tasks by
     ///
     /// # Returns
     ///
@@ -164,12 +164,12 @@ impl ElectricTaskSyncService {
     pub async fn sync_project_tasks(
         &self,
         local_project_id: Uuid,
-        swarm_project_id: Uuid,
+        remote_project_id: Uuid,
     ) -> Result<SyncResult, ElectricTaskSyncError> {
         let config = ShapeConfig {
             base_url: self.electric_url.clone(),
             table: "shared_tasks".to_string(),
-            where_clause: Some(format!(r#""project_id" = '{}'"#, swarm_project_id)),
+            where_clause: Some(format!(r#""project_id" = '{}'"#, remote_project_id)),
             columns: None,
         };
 
@@ -203,7 +203,7 @@ impl ElectricTaskSyncService {
                     }
                     ShapeOperation::Delete { key } => {
                         if let Some(id) = Self::extract_uuid_from_key(key) {
-                            Task::delete_by_swarm_task_id(&self.pool, id).await?;
+                            Task::delete_by_shared_task_id(&self.pool, id).await?;
                             result.deleted += 1;
                         }
                     }
@@ -214,7 +214,7 @@ impl ElectricTaskSyncService {
                     ShapeOperation::MustRefetch => {
                         // Server restarted, need to refetch from beginning
                         tracing::info!(
-                            project_id = %swarm_project_id,
+                            project_id = %remote_project_id,
                             "Electric server requires refetch, restarting sync"
                         );
                         needs_refetch = true;
@@ -246,7 +246,7 @@ impl ElectricTaskSyncService {
         }
 
         tracing::info!(
-            project_id = %swarm_project_id,
+            project_id = %remote_project_id,
             inserted = result.inserted,
             updated = result.updated,
             deleted = result.deleted,

@@ -87,15 +87,15 @@ impl ActivityProcessor {
     /// Fetch and process activity events until caught up, falling back to bulk syncs when needed.
     pub async fn catch_up_project(
         &self,
-        swarm_project_id: Uuid,
+        remote_project_id: Uuid,
         mut last_seq: Option<i64>,
     ) -> Result<Option<i64>, ShareError> {
         if last_seq.is_none() {
-            last_seq = self.bulk_sync(swarm_project_id).await?;
+            last_seq = self.bulk_sync(remote_project_id).await?;
         }
 
         loop {
-            let events = self.fetch_activity(swarm_project_id, last_seq).await?;
+            let events = self.fetch_activity(remote_project_id, last_seq).await?;
             if events.is_empty() {
                 break;
             }
@@ -105,15 +105,15 @@ impl ActivityProcessor {
                 && let Some(newest) = events.last()
                 && newest.seq.saturating_sub(prev_seq) > self.config.bulk_sync_threshold as i64
             {
-                last_seq = self.bulk_sync(swarm_project_id).await?;
+                last_seq = self.bulk_sync(remote_project_id).await?;
                 continue;
             }
 
             let page_len = events.len();
             for ev in events {
-                if ev.project_id != swarm_project_id {
+                if ev.project_id != remote_project_id {
                     tracing::warn!(
-                        expected = %swarm_project_id,
+                        expected = %remote_project_id,
                         received = %ev.project_id,
                         "received activity for unexpected project; ignoring"
                     );
@@ -134,12 +134,12 @@ impl ActivityProcessor {
     /// Fetch a page of activity events from the remote service.
     async fn fetch_activity(
         &self,
-        swarm_project_id: Uuid,
+        remote_project_id: Uuid,
         after: Option<i64>,
     ) -> Result<Vec<ActivityEvent>, ShareError> {
         let resp = self
             .remote_client
-            .fetch_activity(swarm_project_id, after, self.config.activity_page_limit)
+            .fetch_activity(remote_project_id, after, self.config.activity_page_limit)
             .await?;
         Ok(resp.data)
     }
@@ -147,18 +147,18 @@ impl ActivityProcessor {
     async fn resolve_project(
         &self,
         task_id: Uuid,
-        swarm_project_id: Uuid,
+        remote_project_id: Uuid,
     ) -> Result<Option<Project>, ShareError> {
         if let Some(existing) = SharedTask::find_by_id(&self.db.pool, task_id).await?
             && let Some(project) =
-                Project::find_by_swarm_project_id(&self.db.pool, existing.swarm_project_id)
+                Project::find_by_remote_project_id(&self.db.pool, existing.remote_project_id)
                     .await?
         {
             return Ok(Some(project));
         }
 
         if let Some(project) =
-            Project::find_by_swarm_project_id(&self.db.pool, swarm_project_id).await?
+            Project::find_by_remote_project_id(&self.db.pool, remote_project_id).await?
         {
             return Ok(Some(project));
         }
@@ -182,7 +182,7 @@ impl ActivityProcessor {
                 if project.is_none() {
                     tracing::debug!(
                         task_id = %task.id,
-                        swarm_project_id = %task.project_id,
+                        remote_project_id = %task.project_id,
                         "stored shared task without local project; awaiting link"
                     );
                 }
@@ -279,20 +279,20 @@ impl ActivityProcessor {
                 }
             };
 
-        if let Some(local_task) = Task::find_by_swarm_task_id(tx.as_mut(), task.id).await? {
-            Task::set_swarm_task_id(tx.as_mut(), local_task.id, None).await?;
+        if let Some(local_task) = Task::find_by_shared_task_id(tx.as_mut(), task.id).await? {
+            Task::set_shared_task_id(tx.as_mut(), local_task.id, None).await?;
         }
 
         SharedTask::remove(tx.as_mut(), task.id).await?;
 
         // Also delete from unified tasks table if it exists as a remote task
-        Task::delete_by_swarm_task_id(tx.as_mut(), task.id).await?;
+        Task::delete_by_shared_task_id(tx.as_mut(), task.id).await?;
 
         Ok(())
     }
 
-    async fn bulk_sync(&self, swarm_project_id: Uuid) -> Result<Option<i64>, ShareError> {
-        let bulk_resp = self.fetch_bulk_snapshot(swarm_project_id).await?;
+    async fn bulk_sync(&self, remote_project_id: Uuid) -> Result<Option<i64>, ShareError> {
+        let bulk_resp = self.fetch_bulk_snapshot(remote_project_id).await?;
         let latest_seq = bulk_resp.latest_seq;
 
         let mut keep_ids = HashSet::new();
@@ -300,13 +300,13 @@ impl ActivityProcessor {
 
         for payload in bulk_resp.tasks {
             let project = self
-                .resolve_project(payload.task.id, swarm_project_id)
+                .resolve_project(payload.task.id, remote_project_id)
                 .await?;
 
             if project.is_none() {
                 tracing::debug!(
                     task_id = %payload.task.id,
-                    swarm_project_id = %payload.task.project_id,
+                    remote_project_id = %payload.task.project_id,
                     "storing shared task during bulk sync without local project"
                 );
             }
@@ -338,7 +338,7 @@ impl ActivityProcessor {
         }
 
         let mut stale: HashSet<Uuid> =
-            SharedTask::list_by_swarm_project_id(&self.db.pool, swarm_project_id)
+            SharedTask::list_by_remote_project_id(&self.db.pool, remote_project_id)
                 .await?
                 .into_iter()
                 .filter_map(|task| {
@@ -423,7 +423,7 @@ impl ActivityProcessor {
         }
 
         if let Some(seq) = latest_seq {
-            SharedActivityCursor::upsert(tx.as_mut(), swarm_project_id, seq).await?;
+            SharedActivityCursor::upsert(tx.as_mut(), remote_project_id, seq).await?;
         }
 
         tx.commit().await?;
@@ -440,12 +440,12 @@ impl ActivityProcessor {
         }
 
         for id in ids {
-            if let Some(local_task) = Task::find_by_swarm_task_id(tx.as_mut(), *id).await? {
-                Task::set_swarm_task_id(tx.as_mut(), local_task.id, None).await?;
+            if let Some(local_task) = Task::find_by_shared_task_id(tx.as_mut(), *id).await? {
+                Task::set_shared_task_id(tx.as_mut(), local_task.id, None).await?;
             }
 
             // Also delete from unified tasks table if it exists as a remote task
-            Task::delete_by_swarm_task_id(tx.as_mut(), *id).await?;
+            Task::delete_by_shared_task_id(tx.as_mut(), *id).await?;
         }
 
         SharedTask::remove_many(tx.as_mut(), ids).await?;
@@ -454,11 +454,11 @@ impl ActivityProcessor {
 
     async fn fetch_bulk_snapshot(
         &self,
-        swarm_project_id: Uuid,
+        remote_project_id: Uuid,
     ) -> Result<BulkSharedTasksResponse, ShareError> {
         Ok(self
             .remote_client
-            .fetch_bulk_snapshot(swarm_project_id)
+            .fetch_bulk_snapshot(remote_project_id)
             .await?)
     }
 
@@ -495,8 +495,8 @@ impl ActivityProcessor {
 
         let hive_label = label_payload.label;
 
-        // Check if we already have this label locally (by swarm_label_id)
-        if let Some(existing) = Label::find_by_swarm_label_id(tx.as_mut(), hive_label.id).await? {
+        // Check if we already have this label locally (by shared_label_id)
+        if let Some(existing) = Label::find_by_shared_label_id(tx.as_mut(), hive_label.id).await? {
             // Update existing label if the Hive version is newer
             if hive_label.version > existing.version {
                 Label::update_from_hive(
@@ -510,13 +510,13 @@ impl ActivityProcessor {
                 .await?;
                 debug!(
                     local_label_id = %existing.id,
-                    swarm_label_id = %hive_label.id,
+                    shared_label_id = %hive_label.id,
                     "Updated local label from Hive"
                 );
             } else {
                 debug!(
                     local_label_id = %existing.id,
-                    swarm_label_id = %hive_label.id,
+                    shared_label_id = %hive_label.id,
                     local_version = existing.version,
                     hive_version = hive_label.version,
                     "Skipping label update - local version is newer or equal"
@@ -525,8 +525,8 @@ impl ActivityProcessor {
         } else {
             // Create new local label from Hive
             // Map project_id from remote to local if this is a project-scoped label
-            let local_project_id = if let Some(swarm_project_id) = hive_label.project_id {
-                Project::find_by_swarm_project_id(tx.as_mut(), swarm_project_id)
+            let local_project_id = if let Some(remote_project_id) = hive_label.project_id {
+                Project::find_by_remote_project_id(tx.as_mut(), remote_project_id)
                     .await?
                     .map(|p| p.id)
             } else {
@@ -544,7 +544,7 @@ impl ActivityProcessor {
             )
             .await?;
             debug!(
-                swarm_label_id = %hive_label.id,
+                shared_label_id = %hive_label.id,
                 label_name = %hive_label.name,
                 "Created local label from Hive"
             );
@@ -554,7 +554,7 @@ impl ActivityProcessor {
     }
 
     /// Process a label.deleted event from the Hive.
-    /// This removes the swarm_label_id from the local label (soft unlink).
+    /// This removes the shared_label_id from the local label (soft unlink).
     async fn process_label_deleted_event(
         &self,
         tx: &mut Transaction<'_, Sqlite>,
@@ -582,15 +582,15 @@ impl ActivityProcessor {
 
         let hive_label = label_payload.label;
 
-        // Find local label by swarm_label_id and unlink it
-        if let Some(existing) = Label::find_by_swarm_label_id(tx.as_mut(), hive_label.id).await? {
-            // Clear the swarm_label_id to unlink from Hive
+        // Find local label by shared_label_id and unlink it
+        if let Some(existing) = Label::find_by_shared_label_id(tx.as_mut(), hive_label.id).await? {
+            // Clear the shared_label_id to unlink from Hive
             // We don't delete the local label - just unlink it
-            Label::clear_swarm_label_id(tx.as_mut(), existing.id).await?;
+            Label::clear_shared_label_id(tx.as_mut(), existing.id).await?;
 
             debug!(
                 local_label_id = %existing.id,
-                swarm_label_id = %hive_label.id,
+                shared_label_id = %hive_label.id,
                 "Unlinked local label from deleted Hive label"
             );
         }

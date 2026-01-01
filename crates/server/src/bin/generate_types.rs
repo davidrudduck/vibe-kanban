@@ -24,7 +24,6 @@ fn generate_types_content() -> String {
         db::models::project::ScanConfigRequest::decl(),
         db::models::project::ScanConfigResponse::decl(),
         server::routes::projects::LinkToLocalFolderRequest::decl(),
-        server::routes::projects::LinkToExistingRequest::decl(),
         server::routes::projects::UnifiedProject::decl(),
         server::routes::projects::RemoteNodeProject::decl(),
         server::routes::projects::UnifiedProjectsResponse::decl(),

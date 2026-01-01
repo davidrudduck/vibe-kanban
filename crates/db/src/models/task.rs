@@ -30,13 +30,10 @@ pub struct Task {
     pub description: Option<String>,
     pub status: TaskStatus,
     pub parent_task_id: Option<Uuid>, // Foreign key to parent Task
-    pub swarm_task_id: Option<Uuid>,
+    pub shared_task_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     // Remote task fields (Phase 1F)
-    /// DEPRECATED: Use swarm_task_id to determine if task is linked to swarm.
-    /// This field is kept for backwards compatibility but will be removed in a future release.
-    /// Tasks with swarm_task_id != NULL are swarm-linked and editable (changes sync to hive).
     pub is_remote: bool,
     pub remote_assignee_user_id: Option<Uuid>,
     pub remote_assignee_name: Option<String>,
@@ -93,7 +90,7 @@ pub struct CreateTask {
     pub status: Option<TaskStatus>,
     pub parent_task_id: Option<Uuid>,
     pub image_ids: Option<Vec<Uuid>>,
-    pub swarm_task_id: Option<Uuid>,
+    pub shared_task_id: Option<Uuid>,
 }
 
 impl CreateTask {
@@ -109,16 +106,16 @@ impl CreateTask {
             status: Some(TaskStatus::Todo),
             parent_task_id: None,
             image_ids: None,
-            swarm_task_id: None,
+            shared_task_id: None,
         }
     }
 
-    pub fn from_swarm_task(
+    pub fn from_shared_task(
         project_id: Uuid,
         title: String,
         description: Option<String>,
         status: TaskStatus,
-        swarm_task_id: Uuid,
+        shared_task_id: Uuid,
     ) -> Self {
         Self {
             project_id,
@@ -127,14 +124,14 @@ impl CreateTask {
             status: Some(status),
             parent_task_id: None,
             image_ids: None,
-            swarm_task_id: Some(swarm_task_id),
+            shared_task_id: Some(shared_task_id),
         }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct SyncTask {
-    pub swarm_task_id: Uuid,
+    pub shared_task_id: Uuid,
     pub project_id: Uuid,
     pub title: String,
     pub description: Option<String>,
@@ -177,7 +174,7 @@ impl Task {
   t.description,
   t.status                        AS "status!: TaskStatus",
   t.parent_task_id                AS "parent_task_id: Uuid",
-  t.swarm_task_id                AS "swarm_task_id: Uuid",
+  t.shared_task_id                AS "shared_task_id: Uuid",
   t.created_at                    AS "created_at!: DateTime<Utc>",
   t.updated_at                    AS "updated_at!: DateTime<Utc>",
   t.is_remote                     AS "is_remote!: bool",
@@ -241,7 +238,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                     description: rec.description,
                     status: rec.status,
                     parent_task_id: rec.parent_task_id,
-                    swarm_task_id: rec.swarm_task_id,
+                    shared_task_id: rec.shared_task_id,
                     created_at: rec.created_at,
                     updated_at: rec.updated_at,
                     is_remote: rec.is_remote,
@@ -268,7 +265,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
     pub async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error> {
         sqlx::query_as!(
             Task,
-            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", swarm_task_id as "swarm_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
+            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", shared_task_id as "shared_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
                       is_remote as "is_remote!: bool",
                       remote_assignee_user_id as "remote_assignee_user_id: Uuid",
                       remote_assignee_name,
@@ -290,7 +287,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
     pub async fn find_by_rowid(pool: &SqlitePool, rowid: i64) -> Result<Option<Self>, sqlx::Error> {
         sqlx::query_as!(
             Task,
-            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", swarm_task_id as "swarm_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
+            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", shared_task_id as "shared_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
                       is_remote as "is_remote!: bool",
                       remote_assignee_user_id as "remote_assignee_user_id: Uuid",
                       remote_assignee_name,
@@ -316,7 +313,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
     ) -> Result<Option<Self>, sqlx::Error> {
         sqlx::query_as!(
             Task,
-            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", swarm_task_id as "swarm_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
+            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", shared_task_id as "shared_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
                       is_remote as "is_remote!: bool",
                       remote_assignee_user_id as "remote_assignee_user_id: Uuid",
                       remote_assignee_name,
@@ -336,16 +333,16 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
         .await
     }
 
-    pub async fn find_by_swarm_task_id<'e, E>(
+    pub async fn find_by_shared_task_id<'e, E>(
         executor: E,
-        swarm_task_id: Uuid,
+        shared_task_id: Uuid,
     ) -> Result<Option<Self>, sqlx::Error>
     where
         E: Executor<'e, Database = Sqlite>,
     {
         sqlx::query_as!(
             Task,
-            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", swarm_task_id as "swarm_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
+            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", shared_task_id as "shared_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
                       is_remote as "is_remote!: bool",
                       remote_assignee_user_id as "remote_assignee_user_id: Uuid",
                       remote_assignee_name,
@@ -357,9 +354,9 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                       archived_at as "archived_at: DateTime<Utc>",
                       activity_at as "activity_at: DateTime<Utc>"
                FROM tasks
-               WHERE swarm_task_id = $1
+               WHERE shared_task_id = $1
                LIMIT 1"#,
-            swarm_task_id
+            shared_task_id
         )
         .fetch_optional(executor)
         .await
@@ -373,9 +370,9 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
         let status = data.status.clone().unwrap_or_default();
         sqlx::query_as!(
             Task,
-            r#"INSERT INTO tasks (id, project_id, title, description, status, parent_task_id, swarm_task_id)
+            r#"INSERT INTO tasks (id, project_id, title, description, status, parent_task_id, shared_task_id)
                VALUES ($1, $2, $3, $4, $5, $6, $7)
-               RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", swarm_task_id as "swarm_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
+               RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", shared_task_id as "shared_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
                          is_remote as "is_remote!: bool",
                          remote_assignee_user_id as "remote_assignee_user_id: Uuid",
                          remote_assignee_name,
@@ -392,7 +389,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
             data.description,
             status,
             data.parent_task_id,
-            data.swarm_task_id
+            data.shared_task_id
         )
         .fetch_one(pool)
         .await
@@ -412,7 +409,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
             r#"UPDATE tasks
                SET title = $3, description = $4, status = $5, parent_task_id = $6
                WHERE id = $1 AND project_id = $2
-               RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", swarm_task_id as "swarm_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
+               RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", shared_task_id as "shared_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
                          is_remote as "is_remote!: bool",
                          remote_assignee_user_id as "remote_assignee_user_id: Uuid",
                          remote_assignee_name,
@@ -434,7 +431,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
         .await
     }
 
-    pub async fn sync_from_swarm_task<'e, E>(
+    pub async fn sync_from_shared_task<'e, E>(
         executor: E,
         data: SyncTask,
         create_if_not_exists: bool,
@@ -452,7 +449,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                 title,
                 description,
                 status,
-                swarm_task_id,
+                shared_task_id,
                 activity_at
             )
             SELECT
@@ -465,9 +462,9 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                 $7
             WHERE $8
                OR EXISTS (
-                    SELECT 1 FROM tasks WHERE swarm_task_id = $6
+                    SELECT 1 FROM tasks WHERE shared_task_id = $6
                )
-            ON CONFLICT(swarm_task_id) WHERE swarm_task_id IS NOT NULL DO UPDATE SET
+            ON CONFLICT(shared_task_id) WHERE shared_task_id IS NOT NULL DO UPDATE SET
                 project_id = excluded.project_id,
                 title = excluded.title,
                 description = excluded.description,
@@ -480,7 +477,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
             data.title,
             data.description,
             data.status,
-            data.swarm_task_id,
+            data.shared_task_id,
             data.activity_at,
             create_if_not_exists
         )
@@ -527,22 +524,22 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
         Ok(result.rows_affected())
     }
 
-    /// Clear swarm_task_id for all tasks that belong to a project being unlinked
-    /// This breaks the link between local tasks and swarm tasks when a project is unlinked
-    pub async fn clear_swarm_task_ids_for_swarm_project<'e, E>(
+    /// Clear shared_task_id for all tasks that reference shared tasks belonging to a remote project
+    /// This breaks the link between local tasks and shared tasks when a project is unlinked
+    pub async fn clear_shared_task_ids_for_remote_project<'e, E>(
         executor: E,
-        swarm_project_id: Uuid,
+        remote_project_id: Uuid,
     ) -> Result<u64, sqlx::Error>
     where
         E: Executor<'e, Database = Sqlite>,
     {
         let result = sqlx::query!(
             r#"UPDATE tasks
-               SET swarm_task_id = NULL
-               WHERE project_id IN (
-                   SELECT id FROM projects WHERE swarm_project_id = $1
+               SET shared_task_id = NULL
+               WHERE shared_task_id IN (
+                   SELECT id FROM shared_tasks WHERE remote_project_id = $1
                )"#,
-            swarm_project_id
+            remote_project_id
         )
         .execute(executor)
         .await?;
@@ -559,18 +556,18 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
         Ok(result.rows_affected())
     }
 
-    pub async fn set_swarm_task_id<'e, E>(
+    pub async fn set_shared_task_id<'e, E>(
         executor: E,
         id: Uuid,
-        swarm_task_id: Option<Uuid>,
+        shared_task_id: Option<Uuid>,
     ) -> Result<(), sqlx::Error>
     where
         E: Executor<'e, Database = Sqlite>,
     {
         sqlx::query!(
-            "UPDATE tasks SET swarm_task_id = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+            "UPDATE tasks SET shared_task_id = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1",
             id,
-            swarm_task_id
+            shared_task_id
         )
         .execute(executor)
         .await?;
@@ -599,7 +596,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
         // Find only child tasks that have this task as their parent
         sqlx::query_as!(
             Task,
-            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", swarm_task_id as "swarm_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
+            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", shared_task_id as "shared_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
                       is_remote as "is_remote!: bool",
                       remote_assignee_user_id as "remote_assignee_user_id: Uuid",
                       remote_assignee_name,
@@ -652,7 +649,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
     ) -> Result<Vec<Self>, sqlx::Error> {
         sqlx::query_as!(
             Task,
-            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", swarm_task_id as "swarm_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
+            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", shared_task_id as "shared_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
                       is_remote as "is_remote!: bool",
                       remote_assignee_user_id as "remote_assignee_user_id: Uuid",
                       remote_assignee_name,
@@ -678,7 +675,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
         executor: E,
         local_id: Uuid,
         project_id: Uuid,
-        swarm_task_id: Uuid,
+        shared_task_id: Uuid,
         title: String,
         description: Option<String>,
         status: TaskStatus,
@@ -701,7 +698,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                     title,
                     description,
                     status,
-                    swarm_task_id,
+                    shared_task_id,
                     is_remote,
                     remote_assignee_user_id,
                     remote_assignee_name,
@@ -713,7 +710,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                 ) VALUES (
                     $1, $2, $3, $4, $5, $6, 1, $7, $8, $9, $10, $11, $12, $13
                 )
-                ON CONFLICT(swarm_task_id) WHERE swarm_task_id IS NOT NULL DO UPDATE SET
+                ON CONFLICT(shared_task_id) WHERE shared_task_id IS NOT NULL DO UPDATE SET
                     title = excluded.title,
                     description = excluded.description,
                     status = excluded.status,
@@ -727,7 +724,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                     activity_at = excluded.activity_at,
                     archived_at = excluded.archived_at,
                     updated_at = datetime('now', 'subsec')
-                RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", swarm_task_id as "swarm_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
+                RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", shared_task_id as "shared_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
                           is_remote as "is_remote!: bool",
                           remote_assignee_user_id as "remote_assignee_user_id: Uuid",
                           remote_assignee_name,
@@ -743,7 +740,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
             title,
             description,
             status,
-            swarm_task_id,
+            shared_task_id,
             remote_assignee_user_id,
             remote_assignee_name,
             remote_assignee_username,
@@ -764,7 +761,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
             r#"UPDATE tasks
                SET archived_at = datetime('now', 'subsec'), updated_at = datetime('now', 'subsec')
                WHERE id = $1
-               RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", swarm_task_id as "swarm_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
+               RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", shared_task_id as "shared_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
                          is_remote as "is_remote!: bool",
                          remote_assignee_user_id as "remote_assignee_user_id: Uuid",
                          remote_assignee_name,
@@ -789,7 +786,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
             r#"UPDATE tasks
                SET archived_at = NULL, updated_at = datetime('now', 'subsec')
                WHERE id = $1
-               RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", swarm_task_id as "swarm_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
+               RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", shared_task_id as "shared_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
                          is_remote as "is_remote!: bool",
                          remote_assignee_user_id as "remote_assignee_user_id: Uuid",
                          remote_assignee_name,
@@ -873,20 +870,20 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
     pub async fn delete_stale_remote_tasks(
         pool: &SqlitePool,
         project_id: Uuid,
-        active_swarm_task_ids: &[Uuid],
+        active_shared_task_ids: &[Uuid],
     ) -> Result<u64, sqlx::Error> {
         // If the list is empty, don't delete anything (safety check)
-        if active_swarm_task_ids.is_empty() {
+        if active_shared_task_ids.is_empty() {
             return Ok(0);
         }
 
         let mut builder = QueryBuilder::<Sqlite>::new("DELETE FROM tasks WHERE project_id = ");
         builder.push_bind(project_id);
         builder
-            .push(" AND is_remote = 1 AND swarm_task_id IS NOT NULL AND swarm_task_id NOT IN (");
+            .push(" AND is_remote = 1 AND shared_task_id IS NOT NULL AND shared_task_id NOT IN (");
         {
             let mut separated = builder.separated(", ");
-            for id in active_swarm_task_ids {
+            for id in active_shared_task_ids {
                 separated.push_bind(id);
             }
         }
@@ -895,36 +892,36 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
         Ok(result.rows_affected())
     }
 
-    /// Delete a task by its swarm_task_id
+    /// Delete a task by its shared_task_id
     ///
     /// Used when syncing remote tasks and a task has been deleted on the Hive.
-    pub async fn delete_by_swarm_task_id<'e, E>(
+    pub async fn delete_by_shared_task_id<'e, E>(
         executor: E,
-        swarm_task_id: Uuid,
+        shared_task_id: Uuid,
     ) -> Result<(), sqlx::Error>
     where
         E: Executor<'e, Database = Sqlite>,
     {
-        sqlx::query!("DELETE FROM tasks WHERE swarm_task_id = ?", swarm_task_id)
+        sqlx::query!("DELETE FROM tasks WHERE shared_task_id = ?", shared_task_id)
             .execute(executor)
             .await?;
         Ok(())
     }
 
-    /// Clear swarm_task_id for orphaned tasks.
+    /// Clear shared_task_id for orphaned tasks.
     ///
-    /// An orphaned task is one that has a swarm_task_id but belongs to a project
-    /// that is not linked to the Hive (swarm_project_id IS NULL).
+    /// An orphaned task is one that has a shared_task_id but belongs to a project
+    /// that is not linked to the Hive (remote_project_id IS NULL).
     /// This can happen if a project was previously linked but then unlinked.
     ///
-    /// Returns the number of tasks that had their swarm_task_id cleared.
-    pub async fn clear_orphaned_swarm_task_ids(pool: &SqlitePool) -> Result<u64, sqlx::Error> {
+    /// Returns the number of tasks that had their shared_task_id cleared.
+    pub async fn clear_orphaned_shared_task_ids(pool: &SqlitePool) -> Result<u64, sqlx::Error> {
         let result = sqlx::query(
             r#"UPDATE tasks
-               SET swarm_task_id = NULL, updated_at = CURRENT_TIMESTAMP
-               WHERE swarm_task_id IS NOT NULL
+               SET shared_task_id = NULL, updated_at = CURRENT_TIMESTAMP
+               WHERE shared_task_id IS NOT NULL
                AND project_id IN (
-                   SELECT id FROM projects WHERE swarm_project_id IS NULL AND is_remote = 0
+                   SELECT id FROM projects WHERE remote_project_id IS NULL AND is_remote = 0
                )"#,
         )
         .execute(pool)
@@ -936,13 +933,13 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
     /// Find tasks that need to be synced to the Hive.
     ///
     /// A task needs syncing if:
-    /// 1. It has no `swarm_task_id` (not yet synced to Hive)
+    /// 1. It has no `shared_task_id` (not yet synced to Hive)
     /// 2. It has task attempts with no `hive_synced_at` (unsynced attempts)
-    /// 3. Its project has a `swarm_project_id` (project is linked to Hive)
+    /// 3. Its project has a `remote_project_id` (project is linked to Hive)
     /// 4. It is not a remote task (`is_remote = 0`)
     ///
     /// This query ensures we sync tasks before their attempts, so the attempts
-    /// can reference a valid `swarm_task_id`.
+    /// can reference a valid `shared_task_id`.
     pub async fn find_needing_sync(pool: &SqlitePool, limit: i64) -> Result<Vec<Self>, sqlx::Error> {
         // Use runtime query to avoid sqlx cache issues
         sqlx::query_as::<_, Self>(
@@ -953,7 +950,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                 t.description,
                 t.status,
                 t.parent_task_id,
-                t.swarm_task_id,
+                t.shared_task_id,
                 t.created_at,
                 t.updated_at,
                 t.is_remote,
@@ -969,9 +966,9 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
             FROM tasks t
             INNER JOIN task_attempts ta ON ta.task_id = t.id
             INNER JOIN projects p ON p.id = t.project_id
-            WHERE t.swarm_task_id IS NULL
+            WHERE t.shared_task_id IS NULL
               AND t.is_remote = 0
-              AND p.swarm_project_id IS NOT NULL
+              AND p.remote_project_id IS NOT NULL
               AND ta.hive_synced_at IS NULL
             ORDER BY t.created_at ASC
             LIMIT ?"#,

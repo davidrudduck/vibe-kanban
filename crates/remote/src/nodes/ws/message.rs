@@ -436,7 +436,7 @@ pub struct AttemptSyncMessage {
     /// Assignment ID if this attempt was dispatched via hive
     pub assignment_id: Option<Uuid>,
     /// Shared task ID in the hive
-    pub swarm_task_id: Uuid,
+    pub shared_task_id: Uuid,
     /// Executor name (e.g., "CLAUDE_CODE", "GEMINI")
     pub executor: String,
     /// Executor variant (e.g., "opus", "sonnet")
@@ -528,11 +528,11 @@ pub struct LabelSyncMessage {
     /// The local label ID on the node
     pub label_id: Uuid,
     /// The shared label ID on the Hive (None for new labels)
-    pub swarm_label_id: Option<Uuid>,
+    pub shared_label_id: Option<Uuid>,
     /// The project ID if this is a project-specific label, None for global labels
     pub project_id: Option<Uuid>,
     /// Remote project ID if the label is project-specific (for linking on hive side)
-    pub swarm_project_id: Option<Uuid>,
+    pub remote_project_id: Option<Uuid>,
     /// Label name
     pub name: String,
     /// Lucide icon name
@@ -554,7 +554,7 @@ pub struct LabelSyncBroadcastMessage {
     /// Unique message ID for acknowledgement
     pub message_id: Uuid,
     /// The shared label ID on the Hive
-    pub swarm_label_id: Uuid,
+    pub shared_label_id: Uuid,
     /// The project ID if this is a project-specific label, None for global labels
     pub project_id: Option<Uuid>,
     /// ID of the node that owns/created this label
@@ -580,9 +580,9 @@ pub struct TaskSyncMessage {
     /// The local task ID on the node
     pub local_task_id: Uuid,
     /// The shared task ID on the Hive (None for new tasks)
-    pub swarm_task_id: Option<Uuid>,
+    pub shared_task_id: Option<Uuid>,
     /// The remote project ID (required for task creation)
-    pub swarm_project_id: Uuid,
+    pub remote_project_id: Uuid,
     /// Task title
     pub title: String,
     /// Task description
@@ -601,13 +601,13 @@ pub struct TaskSyncMessage {
 
 /// Response to a task sync request.
 ///
-/// Sent by the hive to confirm the swarm_task_id for a synced task.
+/// Sent by the hive to confirm the shared_task_id for a synced task.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskSyncResponseMessage {
     /// The local task ID on the node (echoed back for correlation)
     pub local_task_id: Uuid,
     /// The shared task ID on the Hive
-    pub swarm_task_id: Uuid,
+    pub shared_task_id: Uuid,
     /// Whether the operation was successful
     pub success: bool,
     /// Error message if not successful

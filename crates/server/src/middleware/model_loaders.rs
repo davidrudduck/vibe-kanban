@@ -50,7 +50,7 @@ pub struct RemoteProjectContext {
     /// Current status of the remote node ("online", "offline", etc.)
     pub node_status: Option<String>,
     /// The Hive project ID used for cross-node identification
-    pub swarm_project_id: Uuid,
+    pub remote_project_id: Uuid,
 }
 
 impl RemoteProjectContext {
@@ -78,7 +78,7 @@ pub struct RemoteTaskAttemptContext {
     pub node_url: Option<String>,
     /// Current status of the remote node ("online", "offline", etc.)
     pub node_status: Option<String>,
-    /// The swarm_task_id used for cross-node routing
+    /// The shared_task_id used for cross-node routing
     pub task_id: Uuid,
 }
 
@@ -137,7 +137,7 @@ async fn load_project_impl(
     // For local projects linked to Hive, populate source_node_name for symmetric display.
     // This ensures task cards show the node indicator on all nodes, not just remote ones.
     if !project.is_remote
-        && project.swarm_project_id.is_some()
+        && project.remote_project_id.is_some()
         && project.source_node_name.is_none()
     {
         project.source_node_name = Some(gethostname::gethostname().to_string_lossy().to_string());
@@ -147,19 +147,19 @@ async fn load_project_impl(
 
     // If project is remote, inject RemoteProjectContext for proxy routing
     if project.is_remote {
-        if let (Some(node_id), Some(swarm_project_id)) =
-            (project.source_node_id, project.swarm_project_id)
+        if let (Some(node_id), Some(remote_project_id)) =
+            (project.source_node_id, project.remote_project_id)
         {
             let remote_ctx = RemoteProjectContext {
                 node_id,
                 node_url: project.source_node_public_url.clone(),
                 node_status: project.source_node_status.clone(),
-                swarm_project_id,
+                remote_project_id,
             };
             tracing::debug!(
                 project_id = %project_id,
                 node_id = %node_id,
-                swarm_project_id = %swarm_project_id,
+                remote_project_id = %remote_project_id,
                 node_status = ?remote_ctx.node_status,
                 "Loaded remote project context"
             );
@@ -167,7 +167,7 @@ async fn load_project_impl(
         } else {
             tracing::warn!(
                 project_id = %project_id,
-                "Remote project missing source_node_id or swarm_project_id"
+                "Remote project missing source_node_id or remote_project_id"
             );
         }
     }
@@ -181,7 +181,7 @@ async fn load_project_impl(
 
 /// Middleware to load a project by its remote (Hive) project ID.
 ///
-/// Used for the `/projects/by-remote-id/{swarm_project_id}` routes
+/// Used for the `/projects/by-remote-id/{remote_project_id}` routes
 /// that receive proxied requests from other nodes.
 ///
 /// This middleware also validates the proxy token if one is provided via
@@ -189,7 +189,7 @@ async fn load_project_impl(
 /// validator is enabled, the request is rejected.
 pub async fn load_project_by_remote_id_middleware(
     State(deployment): State<DeploymentImpl>,
-    Path(swarm_project_id): Path<Uuid>,
+    Path(remote_project_id): Path<Uuid>,
     request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
@@ -200,7 +200,7 @@ pub async fn load_project_by_remote_id_middleware(
     if validator.is_enabled() {
         let token = extract_bearer_token(request.headers()).ok_or_else(|| {
             tracing::warn!(
-                swarm_project_id = %swarm_project_id,
+                remote_project_id = %remote_project_id,
                 "Missing Authorization header for by-remote-id route"
             );
             StatusCode::UNAUTHORIZED
@@ -211,7 +211,7 @@ pub async fn load_project_by_remote_id_middleware(
                 tracing::debug!(
                     source_node_id = %proxy_token.source_node_id,
                     target_node_id = %proxy_token.target_node_id,
-                    swarm_project_id = %swarm_project_id,
+                    remote_project_id = %remote_project_id,
                     "Validated proxy token"
                 );
                 request.extensions_mut().insert(ProxyRequestContext {
@@ -220,7 +220,7 @@ pub async fn load_project_by_remote_id_middleware(
             }
             Err(e) => {
                 tracing::warn!(
-                    swarm_project_id = %swarm_project_id,
+                    remote_project_id = %remote_project_id,
                     error = ?e,
                     "Invalid proxy token"
                 );
@@ -229,22 +229,22 @@ pub async fn load_project_by_remote_id_middleware(
         }
     }
 
-    // Load the project by its swarm_project_id
+    // Load the project by its remote_project_id
     let project =
-        match Project::find_by_swarm_project_id(&deployment.db().pool, swarm_project_id).await {
+        match Project::find_by_remote_project_id(&deployment.db().pool, remote_project_id).await {
             Ok(Some(project)) => project,
             Ok(None) => {
                 tracing::warn!(
-                    swarm_project_id = %swarm_project_id,
-                    "Project not found by swarm_project_id"
+                    remote_project_id = %remote_project_id,
+                    "Project not found by remote_project_id"
                 );
                 return Err(StatusCode::NOT_FOUND);
             }
             Err(e) => {
                 tracing::error!(
-                    swarm_project_id = %swarm_project_id,
+                    remote_project_id = %remote_project_id,
                     error = %e,
-                    "Failed to fetch project by swarm_project_id"
+                    "Failed to fetch project by remote_project_id"
                 );
                 return Err(StatusCode::INTERNAL_SERVER_ERROR);
             }
@@ -252,8 +252,8 @@ pub async fn load_project_by_remote_id_middleware(
 
     tracing::debug!(
         local_project_id = %project.id,
-        swarm_project_id = %swarm_project_id,
-        "Loaded project by swarm_project_id"
+        remote_project_id = %remote_project_id,
+        "Loaded project by remote_project_id"
     );
 
     // Insert the project as an extension
@@ -372,18 +372,18 @@ async fn load_task_attempt_impl(
 
     // If project is remote, inject RemoteTaskAttemptContext for proxy routing
     if project.is_remote {
-        if let (Some(node_id), Some(swarm_task_id)) = (project.source_node_id, task.swarm_task_id)
+        if let (Some(node_id), Some(shared_task_id)) = (project.source_node_id, task.shared_task_id)
         {
             let remote_ctx = RemoteTaskAttemptContext {
                 node_id,
                 node_url: project.source_node_public_url.clone(),
                 node_status: project.source_node_status.clone(),
-                task_id: swarm_task_id,
+                task_id: shared_task_id,
             };
             tracing::debug!(
                 task_attempt_id = %task_attempt_id,
                 task_id = %task.id,
-                swarm_task_id = %swarm_task_id,
+                shared_task_id = %shared_task_id,
                 node_id = %node_id,
                 node_status = ?remote_ctx.node_status,
                 "Loaded remote task attempt context"
@@ -394,7 +394,7 @@ async fn load_task_attempt_impl(
                 task_attempt_id = %task_attempt_id,
                 task_id = %task.id,
                 project_id = %project.id,
-                "Remote project missing source_node_id or task missing swarm_task_id"
+                "Remote project missing source_node_id or task missing shared_task_id"
             );
         }
     }
@@ -406,10 +406,10 @@ async fn load_task_attempt_impl(
     Ok(next.run(request).await)
 }
 
-/// Middleware to load a task attempt by the task's swarm_task_id.
+/// Middleware to load a task attempt by the task's shared_task_id.
 ///
 /// Used for the `/task-attempts/by-task-id/{task_id}` routes that receive
-/// proxied requests from other nodes. This finds the task by swarm_task_id,
+/// proxied requests from other nodes. This finds the task by shared_task_id,
 /// then loads its most recent attempt.
 ///
 /// This middleware also validates the proxy token if one is provided via
@@ -417,27 +417,27 @@ async fn load_task_attempt_impl(
 /// validator is enabled, the request is rejected.
 pub async fn load_task_attempt_by_task_id_middleware(
     State(deployment): State<DeploymentImpl>,
-    Path(swarm_task_id): Path<Uuid>,
+    Path(shared_task_id): Path<Uuid>,
     request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    load_task_attempt_by_task_id_impl(deployment, swarm_task_id, request, next).await
+    load_task_attempt_by_task_id_impl(deployment, shared_task_id, request, next).await
 }
 
 /// Variant for routes with wildcard path params like `/{task_id}/files/{*file_path}`.
 pub async fn load_task_attempt_by_task_id_middleware_with_wildcard(
     State(deployment): State<DeploymentImpl>,
-    Path((swarm_task_id, _file_path)): Path<(Uuid, String)>,
+    Path((shared_task_id, _file_path)): Path<(Uuid, String)>,
     request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    load_task_attempt_by_task_id_impl(deployment, swarm_task_id, request, next).await
+    load_task_attempt_by_task_id_impl(deployment, shared_task_id, request, next).await
 }
 
-/// Internal implementation for loading task attempt by swarm_task_id.
+/// Internal implementation for loading task attempt by shared_task_id.
 async fn load_task_attempt_by_task_id_impl(
     deployment: DeploymentImpl,
-    swarm_task_id: Uuid,
+    shared_task_id: Uuid,
     mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
@@ -446,7 +446,7 @@ async fn load_task_attempt_by_task_id_impl(
     if validator.is_enabled() {
         let token = extract_bearer_token(request.headers()).ok_or_else(|| {
             tracing::warn!(
-                swarm_task_id = %swarm_task_id,
+                shared_task_id = %shared_task_id,
                 "Missing Authorization header for by-task-id route"
             );
             StatusCode::UNAUTHORIZED
@@ -457,7 +457,7 @@ async fn load_task_attempt_by_task_id_impl(
                 tracing::debug!(
                     source_node_id = %proxy_token.source_node_id,
                     target_node_id = %proxy_token.target_node_id,
-                    swarm_task_id = %swarm_task_id,
+                    shared_task_id = %shared_task_id,
                     "Validated proxy token for by-task-id route"
                 );
                 request.extensions_mut().insert(ProxyRequestContext {
@@ -466,7 +466,7 @@ async fn load_task_attempt_by_task_id_impl(
             }
             Err(e) => {
                 tracing::warn!(
-                    swarm_task_id = %swarm_task_id,
+                    shared_task_id = %shared_task_id,
                     error = ?e,
                     "Invalid proxy token for by-task-id route"
                 );
@@ -475,21 +475,21 @@ async fn load_task_attempt_by_task_id_impl(
         }
     }
 
-    // Find the task by swarm_task_id
-    let task = match Task::find_by_swarm_task_id(&deployment.db().pool, swarm_task_id).await {
+    // Find the task by shared_task_id
+    let task = match Task::find_by_shared_task_id(&deployment.db().pool, shared_task_id).await {
         Ok(Some(task)) => task,
         Ok(None) => {
             tracing::warn!(
-                swarm_task_id = %swarm_task_id,
-                "Task not found by swarm_task_id"
+                shared_task_id = %shared_task_id,
+                "Task not found by shared_task_id"
             );
             return Err(StatusCode::NOT_FOUND);
         }
         Err(e) => {
             tracing::error!(
-                swarm_task_id = %swarm_task_id,
+                shared_task_id = %shared_task_id,
                 error = %e,
-                "Failed to fetch task by swarm_task_id"
+                "Failed to fetch task by shared_task_id"
             );
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
@@ -501,7 +501,7 @@ async fn load_task_attempt_by_task_id_impl(
         Err(e) => {
             tracing::error!(
                 task_id = %task.id,
-                swarm_task_id = %swarm_task_id,
+                shared_task_id = %shared_task_id,
                 error = %e,
                 "Failed to fetch task attempts"
             );
@@ -514,7 +514,7 @@ async fn load_task_attempt_by_task_id_impl(
         None => {
             tracing::warn!(
                 task_id = %task.id,
-                swarm_task_id = %swarm_task_id,
+                shared_task_id = %shared_task_id,
                 "No task attempts found for task"
             );
             return Err(StatusCode::NOT_FOUND);
@@ -524,8 +524,8 @@ async fn load_task_attempt_by_task_id_impl(
     tracing::debug!(
         attempt_id = %attempt.id,
         task_id = %task.id,
-        swarm_task_id = %swarm_task_id,
-        "Loaded task attempt by swarm_task_id"
+        shared_task_id = %shared_task_id,
+        "Loaded task attempt by shared_task_id"
     );
 
     // Insert the attempt into extensions
@@ -535,21 +535,21 @@ async fn load_task_attempt_by_task_id_impl(
     Ok(next.run(request).await)
 }
 
-/// Middleware that loads a Task by swarm_task_id for routes that don't need an existing attempt.
+/// Middleware that loads a Task by shared_task_id for routes that don't need an existing attempt.
 /// Used for creating new task attempts via cross-node proxying.
 pub async fn load_task_by_task_id_middleware(
     State(deployment): State<DeploymentImpl>,
-    Path(swarm_task_id): Path<Uuid>,
+    Path(shared_task_id): Path<Uuid>,
     request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    load_task_by_task_id_impl(deployment, swarm_task_id, request, next).await
+    load_task_by_task_id_impl(deployment, shared_task_id, request, next).await
 }
 
-/// Internal implementation for loading task by swarm_task_id (without attempt lookup).
+/// Internal implementation for loading task by shared_task_id (without attempt lookup).
 async fn load_task_by_task_id_impl(
     deployment: DeploymentImpl,
-    swarm_task_id: Uuid,
+    shared_task_id: Uuid,
     mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
@@ -558,7 +558,7 @@ async fn load_task_by_task_id_impl(
     if validator.is_enabled() {
         let token = extract_bearer_token(request.headers()).ok_or_else(|| {
             tracing::warn!(
-                swarm_task_id = %swarm_task_id,
+                shared_task_id = %shared_task_id,
                 "Missing Authorization header for by-task-id route"
             );
             StatusCode::UNAUTHORIZED
@@ -574,7 +574,7 @@ async fn load_task_by_task_id_impl(
             }
             Err(e) => {
                 tracing::warn!(
-                    swarm_task_id = %swarm_task_id,
+                    shared_task_id = %shared_task_id,
                     error = ?e,
                     "Invalid proxy token for by-task-id route"
                 );
@@ -583,21 +583,21 @@ async fn load_task_by_task_id_impl(
         }
     }
 
-    // Find the task by swarm_task_id
-    let task = match Task::find_by_swarm_task_id(&deployment.db().pool, swarm_task_id).await {
+    // Find the task by shared_task_id
+    let task = match Task::find_by_shared_task_id(&deployment.db().pool, shared_task_id).await {
         Ok(Some(task)) => task,
         Ok(None) => {
             tracing::warn!(
-                swarm_task_id = %swarm_task_id,
-                "Task not found by swarm_task_id"
+                shared_task_id = %shared_task_id,
+                "Task not found by shared_task_id"
             );
             return Err(StatusCode::NOT_FOUND);
         }
         Err(e) => {
             tracing::error!(
-                swarm_task_id = %swarm_task_id,
+                shared_task_id = %shared_task_id,
                 error = %e,
-                "Failed to fetch task by swarm_task_id"
+                "Failed to fetch task by shared_task_id"
             );
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }

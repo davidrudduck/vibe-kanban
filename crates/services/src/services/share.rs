@@ -359,9 +359,9 @@ impl RemoteSync {
     async fn linked_remote_projects(&self) -> Result<Vec<Uuid>, ShareError> {
         let rows = sqlx::query_scalar::<_, Uuid>(
             r#"
-            SELECT swarm_project_id
+            SELECT remote_project_id
             FROM projects
-            WHERE swarm_project_id IS NOT NULL
+            WHERE remote_project_id IS NOT NULL
             "#,
         )
         .fetch_all(&self.db.pool)
@@ -407,7 +407,7 @@ impl RemoteSync {
 struct SharedWsHandler {
     processor: ActivityProcessor,
     close_tx: Option<oneshot::Sender<()>>,
-    swarm_project_id: Uuid,
+    remote_project_id: Uuid,
 }
 
 #[async_trait]
@@ -417,9 +417,9 @@ impl WsHandler for SharedWsHandler {
             match serde_json::from_str::<ServerMessage>(&txt) {
                 Ok(ServerMessage::Activity(event)) => {
                     let seq = event.seq;
-                    if event.project_id != self.swarm_project_id {
+                    if event.project_id != self.remote_project_id {
                         tracing::warn!(
-                            expected = %self.swarm_project_id,
+                            expected = %self.remote_project_id,
                             received = %event.project_id,
                             "received activity for unexpected project via websocket"
                         );
@@ -462,7 +462,7 @@ async fn spawn_shared_remote(
     remote_client: RemoteClient,
     url: Url,
     close_tx: oneshot::Sender<()>,
-    swarm_project_id: Uuid,
+    remote_project_id: Uuid,
 ) -> Result<WsClient, ShareError> {
     let remote_client_clone = remote_client.clone();
     let ws_config = WsConfig {
@@ -488,7 +488,7 @@ async fn spawn_shared_remote(
     let handler = SharedWsHandler {
         processor,
         close_tx: Some(close_tx),
-        swarm_project_id,
+        remote_project_id,
     };
     let client = run_ws_client(handler, ws_config)
         .await
@@ -504,7 +504,7 @@ async fn project_watcher_task(
     config: ShareConfig,
     auth_ctx: AuthContext,
     remote_client: RemoteClient,
-    swarm_project_id: Uuid,
+    remote_project_id: Uuid,
     mut shutdown_rx: oneshot::Receiver<()>,
 ) -> Result<(), ShareError> {
     let mut backoff = Backoff::new();
@@ -514,7 +514,7 @@ async fn project_watcher_task(
         // Check if we've exceeded max failures - give up and let reconcile restart us later
         if backoff.should_give_up() {
             tracing::warn!(
-                %swarm_project_id,
+                %remote_project_id,
                 failures = backoff.failure_count,
                 "too many consecutive failures, watcher exiting"
             );
@@ -525,14 +525,14 @@ async fn project_watcher_task(
             auth_wait_count += 1;
             if auth_wait_count > AUTH_WAIT_MAX_RETRIES {
                 tracing::warn!(
-                    %swarm_project_id,
+                    %remote_project_id,
                     attempts = auth_wait_count,
                     "auth wait timeout exceeded, watcher exiting"
                 );
                 return Err(ShareError::MissingAuth);
             }
             tracing::debug!(
-                %swarm_project_id,
+                %remote_project_id,
                 attempt = auth_wait_count,
                 max_attempts = AUTH_WAIT_MAX_RETRIES,
                 "waiting for authentication before syncing project"
@@ -546,19 +546,19 @@ async fn project_watcher_task(
         // Reset auth wait count on successful auth
         auth_wait_count = 0;
 
-        let mut last_seq = SharedActivityCursor::get(&db.pool, swarm_project_id)
+        let mut last_seq = SharedActivityCursor::get(&db.pool, remote_project_id)
             .await?
             .map(|cursor| cursor.last_seq);
 
         match processor
-            .catch_up_project(swarm_project_id, last_seq)
+            .catch_up_project(remote_project_id, last_seq)
             .await
         {
             Ok(seq) => {
                 last_seq = seq;
             }
             Err(ShareError::MissingAuth) => {
-                tracing::debug!(%swarm_project_id, "missing auth during catch-up; retrying after backoff");
+                tracing::debug!(%remote_project_id, "missing auth during catch-up; retrying after backoff");
                 tokio::select! {
                     _ = &mut shutdown_rx => return Ok(()),
                     _ = backoff.wait() => {}
@@ -568,7 +568,7 @@ async fn project_watcher_task(
             Err(err) => return Err(err),
         }
 
-        let ws_url = match config.websocket_endpoint(swarm_project_id, last_seq) {
+        let ws_url = match config.websocket_endpoint(remote_project_id, last_seq) {
             Ok(url) => url,
             Err(err) => return Err(ShareError::Url(err)),
         };
@@ -579,7 +579,7 @@ async fn project_watcher_task(
             remote_client.clone(),
             ws_url,
             close_tx,
-            swarm_project_id,
+            remote_project_id,
         )
         .await
         {
@@ -588,7 +588,7 @@ async fn project_watcher_task(
                 conn
             }
             Err(ShareError::MissingAuth) => {
-                tracing::debug!(%swarm_project_id, "missing auth during websocket connect; retrying");
+                tracing::debug!(%remote_project_id, "missing auth during websocket connect; retrying");
                 tokio::select! {
                     _ = &mut shutdown_rx => return Ok(()),
                     _ = backoff.wait() => {}
@@ -596,7 +596,7 @@ async fn project_watcher_task(
                 continue;
             }
             Err(err) => {
-                tracing::error!(%swarm_project_id, ?err, "failed to establish websocket; retrying");
+                tracing::error!(%remote_project_id, ?err, "failed to establish websocket; retrying");
                 tokio::select! {
                     _ = &mut shutdown_rx => return Ok(()),
                     _ = backoff.wait() => {}
@@ -607,27 +607,27 @@ async fn project_watcher_task(
 
         tokio::select! {
             _ = &mut shutdown_rx => {
-                tracing::info!(%swarm_project_id, "shutdown signal received for project watcher");
+                tracing::info!(%remote_project_id, "shutdown signal received for project watcher");
                 if let Err(err) = ws_connection.close() {
-                    tracing::debug!(?err, %swarm_project_id, "failed to close websocket during shutdown");
+                    tracing::debug!(?err, %remote_project_id, "failed to close websocket during shutdown");
                 }
                 return Ok(());
             }
             res = close_rx => {
                 match res {
                     Ok(()) => {
-                        tracing::info!(%swarm_project_id, "project websocket closed; scheduling reconnect");
+                        tracing::info!(%remote_project_id, "project websocket closed; scheduling reconnect");
                     }
                     Err(_) => {
-                        tracing::warn!(%swarm_project_id, "project websocket close signal dropped");
+                        tracing::warn!(%remote_project_id, "project websocket close signal dropped");
                     }
                 }
                 if let Err(err) = ws_connection.close() {
-                    tracing::debug!(?err, %swarm_project_id, "project websocket already closed when reconnecting");
+                    tracing::debug!(?err, %remote_project_id, "project websocket already closed when reconnecting");
                 }
                 tokio::select! {
                     _ = &mut shutdown_rx => {
-                        tracing::info!(%swarm_project_id, "shutdown received during reconnect wait");
+                        tracing::info!(%remote_project_id, "shutdown received during reconnect wait");
                         return Ok(());
                     }
                     _ = backoff.wait() => {}
@@ -743,7 +743,7 @@ pub(super) fn convert_remote_task(
 ) -> SharedTaskInput {
     SharedTaskInput {
         id: task.id,
-        swarm_project_id: task.project_id,
+        remote_project_id: task.project_id,
         title: task.title.clone(),
         description: task.description.clone(),
         status: status::from_remote(&task.status),
@@ -784,10 +784,10 @@ where
             && !(creator_is_current_user && SHARED_TASK_LINKING_LOCK.lock().unwrap().is_locked())
     };
 
-    Task::sync_from_swarm_task(
+    Task::sync_from_shared_task(
         executor,
         SyncTask {
-            swarm_task_id: shared_task.id,
+            shared_task_id: shared_task.id,
             project_id,
             title: shared_task.title.clone(),
             description: shared_task.description.clone(),
@@ -805,9 +805,9 @@ pub async fn link_shared_tasks_to_project(
     pool: &SqlitePool,
     current_user_id: Option<uuid::Uuid>,
     project_id: Uuid,
-    swarm_project_id: Uuid,
+    remote_project_id: Uuid,
 ) -> Result<(), ShareError> {
-    let tasks = SharedTask::list_by_swarm_project_id(pool, swarm_project_id).await?;
+    let tasks = SharedTask::list_by_remote_project_id(pool, remote_project_id).await?;
 
     if tasks.is_empty() {
         return Ok(());
@@ -832,11 +832,11 @@ pub async fn sync_all_hive_linked_projects(
 ) -> Result<(usize, usize), ShareError> {
     use db::models::project::Project;
 
-    // Find all projects that are linked to the Hive (have swarm_project_id)
+    // Find all projects that are linked to the Hive (have remote_project_id)
     let all_projects = Project::find_all(pool).await?;
     let linked_projects: Vec<_> = all_projects
         .into_iter()
-        .filter(|p| p.swarm_project_id.is_some())
+        .filter(|p| p.remote_project_id.is_some())
         .collect();
 
     if linked_projects.is_empty() {
@@ -881,7 +881,7 @@ pub async fn sync_all_hive_linked_projects(
 }
 
 /// Auto-link all unlinked local projects to the Hive.
-/// This creates remote projects on the Hive for any local projects that don't have a swarm_project_id.
+/// This creates remote projects on the Hive for any local projects that don't have a remote_project_id.
 pub async fn migrate_unlinked_projects(
     pool: &SqlitePool,
     publisher: &SharePublisher,
@@ -903,11 +903,11 @@ pub async fn migrate_unlinked_projects(
     let mut linked_count = 0;
     for project in unlinked_projects {
         match publisher.ensure_project_linked_public(&project).await {
-            Ok(swarm_project_id) => {
+            Ok(remote_project_id) => {
                 tracing::info!(
                     project_id = %project.id,
                     project_name = %project.name,
-                    swarm_project_id = %swarm_project_id,
+                    remote_project_id = %remote_project_id,
                     "Migrated unlinked project to Hive"
                 );
                 linked_count += 1;
@@ -1001,15 +1001,15 @@ pub async fn share_existing_tasks_to_hive(
         let task = task_with_status.task;
 
         // Skip tasks that are already shared
-        if task.swarm_task_id.is_some() {
+        if task.shared_task_id.is_some() {
             continue;
         }
 
         match publisher.share_task(task.id, user_id).await {
-            Ok(swarm_task_id) => {
+            Ok(shared_task_id) => {
                 tracing::info!(
                     task_id = %task.id,
-                    swarm_task_id = %swarm_task_id,
+                    shared_task_id = %shared_task_id,
                     "Shared existing task to Hive during project linking"
                 );
                 shared_count += 1;

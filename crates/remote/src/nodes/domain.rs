@@ -170,7 +170,7 @@ pub struct UpdateAssignmentData {
 pub struct NodeTaskAttempt {
     pub id: Uuid,
     pub assignment_id: Option<Uuid>,
-    pub swarm_task_id: Uuid,
+    pub shared_task_id: Uuid,
     pub node_id: Uuid,
     pub executor: String,
     pub executor_variant: Option<String>,

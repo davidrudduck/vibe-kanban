@@ -62,7 +62,7 @@ export function ProjectList() {
     refetch: refetchMerged,
   } = useMergedProjects();
 
-  const projects = useMemo(() => mergedData?.projects ?? [], [mergedData?.projects]);
+  const projects = mergedData?.projects ?? [];
 
   const sortedProjects = useMemo(() => {
     return sortProjects(projects, sortOption);

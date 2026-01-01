@@ -63,10 +63,9 @@ function MobileKanbanBoard({
   const currentStatus = COLUMN_ORDER[currentColumnIndex];
 
   // Handle swipe-to-archive for a task
-  // Swarm-linked tasks (swarm_task_id != null) are editable - changes sync to hive
   const handleSwipeArchive = useCallback(
     async (task: TaskWithAttemptStatus) => {
-      if (task.archived_at) return;
+      if (task.is_remote || task.archived_at) return;
 
       try {
         // Apply optimistic update immediately for instant UI feedback
@@ -171,7 +170,7 @@ function MobileKanbanBoard({
                         task={item.task}
                         onArchive={handleSwipeArchive}
                         isArchived={isArchived}
-                        disabled={false}
+                        disabled={item.task.is_remote}
                       >
                         <TaskCard
                           task={item.task}

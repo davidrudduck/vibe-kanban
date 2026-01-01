@@ -21,7 +21,7 @@ pub enum NodeProxyError {
     NodeOffline,
     #[error("Remote node URL not configured")]
     NoNodeUrl,
-    #[error("Project not linked to hive (no swarm_project_id)")]
+    #[error("Project not linked to hive (no remote_project_id)")]
     NoRemoteProjectId,
     #[error("Connection token secret not configured")]
     NoTokenSecret,

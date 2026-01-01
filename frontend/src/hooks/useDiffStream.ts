@@ -20,7 +20,7 @@ export interface UseDiffStreamOptions {
  * Contains the local task ID used to fetch connection info from the hive.
  */
 export interface RemoteStreamInfo {
-  /** Local task ID (which has swarm_task_id) for fetching connection info */
+  /** Local task ID (which has shared_task_id) for fetching connection info */
   taskId: string;
 }
 
