@@ -1,0 +1,256 @@
+---
+title: "Swarm Management"
+description: "Manage projects, labels, and templates across multiple nodes in your swarm organization"
+---
+
+The Swarm Management settings page provides centralized control over shared resources across your swarm network. From here, you can manage projects, labels, and templates that are synchronized across all connected nodes.
+
+<Frame>
+<img src="/images/swarm-settings.png" alt="Swarm Management settings page showing projects, labels, and templates sections" />
+</Frame>
+
+## Overview
+
+Swarm Management enables:
+- **Centralized project coordination** - Link local projects to swarm projects visible across all nodes
+- **Shared labels** - Create organization-wide labels available on all nodes
+- **Shared templates** - Define task templates usable across your entire swarm
+- **Data consistency** - Merge duplicate entries and maintain clean data
+
+<Note>
+Swarm Management requires your node to be connected to a hive server. See the [Swarm/Hive Setup Guide](/swarm-hive-setup) for configuration instructions.
+</Note>
+
+## Accessing Swarm Management
+
+Navigate to **Settings > Swarm Management** from the settings menu. This page is only available when your node is configured to connect to a hive.
+
+## Swarm Projects Section
+
+The Swarm Projects section displays all projects registered with your organization's hive.
+
+### Viewing Projects
+
+Each project row shows:
+- **Project name** - The swarm project identifier
+- **Linked nodes** - Number of nodes that have linked local projects
+- **Git repository path** - The repository location on each linked node
+- **OS type** - Operating system of each linked node
+
+Click a project row to expand and see all linked nodes.
+
+### Creating a Swarm Project
+
+1. Click **Add Project** in the section header
+2. Enter a unique project name
+3. Optionally provide a description
+4. Click **Create**
+
+The new swarm project is available for nodes to link their local projects to.
+
+### Editing a Swarm Project
+
+1. Click the edit icon on the project row
+2. Modify the project name or description
+3. Click **Save**
+
+### Merging Duplicate Projects
+
+If you have duplicate swarm projects (e.g., created on different nodes before linking), you can merge them:
+
+1. Click **Merge** on the project you want to keep
+2. Select the source project to merge from
+3. Confirm the merge
+
+All node links and tasks from the source project are transferred to the target project. The source project is then deleted.
+
+<Warning>
+Merging projects is irreversible. All tasks from the source project will be reassigned to the target project.
+</Warning>
+
+### Deleting a Swarm Project
+
+1. Click the delete icon on the project row
+2. Confirm deletion
+
+<Warning>
+Deleting a swarm project removes all associated tasks from the hive. Linked nodes will have their projects unlinked automatically.
+</Warning>
+
+## Swarm Labels Section
+
+Labels help categorize and filter tasks. Swarm labels are available across all nodes in your organization.
+
+### Viewing Labels
+
+Each label shows:
+- **Preview** - How the label appears with its color and icon
+- **Name** - The label identifier
+- **Icon** - Optional icon from the icon library
+- **Color** - The label's display color
+
+### Creating a Label
+
+1. Click **Add Label** in the section header
+2. Enter a unique label name
+3. Choose a color from the color picker
+4. Optionally select an icon
+5. Click **Create**
+
+The label is immediately available on all connected nodes.
+
+### Editing a Label
+
+1. Click the edit icon on the label row
+2. Modify the name, color, or icon
+3. Click **Save**
+
+Changes sync to all nodes automatically.
+
+### Merging Labels
+
+Merge duplicate labels to consolidate task categorization:
+
+1. Click **Merge** on the label you want to keep
+2. Select the source label to merge from
+3. Confirm the merge
+
+All tasks with the source label are updated to use the target label.
+
+### Promoting a Local Label
+
+If you have a local label on your node that you want to share across the swarm:
+
+1. Click the **Promote** icon on a local label
+2. Confirm the promotion
+
+The label becomes a swarm label visible to all nodes.
+
+<Note>
+Only unlinked local labels can be promoted. Labels already linked to a swarm label cannot be promoted.
+</Note>
+
+## Swarm Templates Section
+
+Templates define reusable task descriptions with variable substitution. Swarm templates are available across all nodes.
+
+### Viewing Templates
+
+Each template shows:
+- **Name** - Template identifier (displayed with @ prefix)
+- **Content preview** - First few lines of the template content
+- **Variable placeholders** - Variables like `$VAR` or `${VAR}` that will be expanded
+
+### Creating a Template
+
+1. Click **Add Template** in the section header
+2. Enter a template name (without the @ prefix)
+3. Write the template content
+4. Click **Create**
+
+Use `$VAR` or `${VAR}` syntax for variable placeholders that will be replaced when the template is used.
+
+### Template Variables
+
+Templates support variable substitution:
+
+```text
+Implement the feature described in $FEATURE_DOC
+
+Requirements:
+- Follow the coding standards in ${PROJECT_STANDARDS}
+- Add tests for all new functionality
+- Update documentation as needed
+
+Branch: $BASE_BRANCH
+```
+
+When a task uses this template, variables are replaced with their defined values from the task or project settings.
+
+### Editing a Template
+
+1. Click the edit icon on the template row
+2. Modify the name or content
+3. Click **Save**
+
+### Merging Templates
+
+Merge duplicate templates:
+
+1. Click **Merge** on the template you want to keep
+2. Select the source template to merge from
+3. Confirm the merge
+
+Tasks using the source template reference are updated to use the target template.
+
+## Sync Behavior
+
+### Automatic Synchronization
+
+Swarm data synchronizes automatically:
+- Changes made on any node propagate to all other nodes
+- New labels and templates appear on all nodes within seconds
+- Project links are maintained even when nodes disconnect and reconnect
+
+### Offline Behavior
+
+When a node is disconnected from the hive:
+- Local changes to swarm entities are queued
+- Changes sync when the connection is restored
+- Conflicts are resolved using last-write-wins semantics
+
+### Version Tracking
+
+All swarm entities have version numbers:
+- The hive tracks the authoritative version
+- Nodes cache versions for offline access
+- Sync operations use versions to detect conflicts
+
+## Best Practices
+
+### Project Organization
+
+- Use descriptive project names that identify the repository
+- Link all nodes working on the same codebase to the same swarm project
+- Periodically check for duplicate projects and merge them
+
+### Label Strategy
+
+- Create a consistent set of labels across your organization
+- Use colors to indicate priority or category
+- Merge similar labels to maintain clarity
+
+### Template Management
+
+- Create templates for common task types
+- Use variables for project-specific values
+- Keep templates focused and concise
+
+## Troubleshooting
+
+### Changes Not Syncing
+
+1. Check node connection status (should show "Connected" in header)
+2. Verify hive server is running and accessible
+3. Check browser console for WebSocket errors
+4. Try refreshing the page
+
+### Duplicate Entries
+
+Duplicates can occur when:
+- Multiple nodes create the same entity while disconnected
+- Network issues during creation cause retries
+
+Use the merge functionality to consolidate duplicates.
+
+### Permission Errors
+
+- Verify your user has access to the organization
+- Check that your node's API key is valid
+- Ensure you're logged in with the correct account
+
+## Related Documentation
+
+- [Swarm/Hive Setup Guide](/swarm-hive-setup) - Configure your node for swarm connectivity
+- [Project Linking](/core-features/project-linking) - Link local projects to the swarm
+- [Swarm Sync Architecture](/architecture/swarm-sync) - Technical details of sync behavior
