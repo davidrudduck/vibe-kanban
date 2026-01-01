@@ -9,6 +9,10 @@ use remote::{
     nodes::{Node, NodeApiKey, NodeProject},
     routes::{
         projects::ListProjectNodesResponse,
+        swarm_projects::{
+            ListSwarmProjectNodesResponse, ListSwarmProjectsResponse, SwarmProjectNodeResponse,
+            SwarmProjectResponse,
+        },
         tasks::{
             AssignSharedTaskRequest, BulkSharedTasksResponse, CreateSharedTaskRequest,
             DeleteSharedTaskRequest, SharedTaskResponse, TaskStreamConnectionInfoResponse,
@@ -722,6 +726,100 @@ impl RemoteClient {
     }
 
     // =====================
+    // Swarm Project APIs
+    // =====================
+
+    /// Lists all swarm projects for an organization.
+    pub async fn list_swarm_projects(
+        &self,
+        organization_id: Uuid,
+    ) -> Result<ListSwarmProjectsResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/swarm/projects?organization_id={organization_id}"))
+            .await
+    }
+
+    /// Gets a specific swarm project by ID.
+    pub async fn get_swarm_project(
+        &self,
+        project_id: Uuid,
+    ) -> Result<SwarmProjectResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/swarm/projects/{project_id}"))
+            .await
+    }
+
+    /// Creates a new swarm project.
+    pub async fn create_swarm_project(
+        &self,
+        request: &CreateSwarmProjectRequest,
+    ) -> Result<SwarmProjectResponse, RemoteClientError> {
+        self.post_authed("/v1/swarm/projects", Some(request)).await
+    }
+
+    /// Updates an existing swarm project.
+    pub async fn update_swarm_project(
+        &self,
+        project_id: Uuid,
+        request: &UpdateSwarmProjectRequest,
+    ) -> Result<SwarmProjectResponse, RemoteClientError> {
+        self.patch_authed(&format!("/v1/swarm/projects/{project_id}"), request)
+            .await
+    }
+
+    /// Deletes a swarm project.
+    pub async fn delete_swarm_project(
+        &self,
+        project_id: Uuid,
+    ) -> Result<(), RemoteClientError> {
+        self.delete_authed(&format!("/v1/swarm/projects/{project_id}"))
+            .await
+    }
+
+    /// Merges two swarm projects by moving all node links from source to target.
+    pub async fn merge_swarm_projects(
+        &self,
+        target_id: Uuid,
+        source_id: Uuid,
+    ) -> Result<SwarmProjectResponse, RemoteClientError> {
+        self.post_authed(
+            &format!("/v1/swarm/projects/{target_id}/merge"),
+            Some(&MergeSwarmProjectsRequest { source_id }),
+        )
+        .await
+    }
+
+    /// Lists all node links for a swarm project.
+    pub async fn list_swarm_project_nodes(
+        &self,
+        project_id: Uuid,
+    ) -> Result<ListSwarmProjectNodesResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/swarm/projects/{project_id}/nodes"))
+            .await
+    }
+
+    /// Links a node project to a swarm project.
+    pub async fn link_swarm_project_node(
+        &self,
+        project_id: Uuid,
+        request: &LinkSwarmProjectNodeRequest,
+    ) -> Result<SwarmProjectNodeResponse, RemoteClientError> {
+        self.post_authed(
+            &format!("/v1/swarm/projects/{project_id}/nodes"),
+            Some(request),
+        )
+        .await
+    }
+
+    /// Unlinks a node from a swarm project.
+    pub async fn unlink_swarm_project_node(
+        &self,
+        project_id: Uuid,
+        node_id: Uuid,
+    ) -> Result<(), RemoteClientError> {
+        self.delete_authed(&format!("/v1/swarm/projects/{project_id}/nodes/{node_id}"))
+            .await
+    }
+
+    // =====================
     // Label APIs
     // =====================
 
@@ -802,6 +900,48 @@ pub struct CreateRemoteProjectPayload {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Value>,
+}
+
+// =====================
+// Swarm Project Types
+// =====================
+
+/// Request payload for creating a swarm project
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateSwarmProjectRequest {
+    pub organization_id: Uuid,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub metadata: Option<Value>,
+}
+
+/// Request payload for updating a swarm project
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateSwarmProjectRequest {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub metadata: Option<Value>,
+}
+
+/// Request payload for merging swarm projects
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MergeSwarmProjectsRequest {
+    pub source_id: Uuid,
+}
+
+/// Request payload for linking a node to a swarm project
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LinkSwarmProjectNodeRequest {
+    pub node_id: Uuid,
+    pub local_project_id: Uuid,
+    pub git_repo_path: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub os_type: Option<String>,
 }
 
 // =====================

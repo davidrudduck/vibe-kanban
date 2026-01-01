@@ -29,6 +29,7 @@ pub mod organizations;
 pub mod processes;
 pub mod projects;
 pub mod shared_tasks;
+pub mod swarm_projects;
 pub mod task_attempts;
 pub mod task_variables;
 pub mod tasks;
@@ -59,6 +60,7 @@ pub async fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(oauth::router())
         .merge(organizations::router())
         .merge(nodes::router())
+        .merge(swarm_projects::router())
         .merge(filesystem::router())
         .merge(events::router(&deployment))
         .merge(approvals::router())
