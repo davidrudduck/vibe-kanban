@@ -41,7 +41,7 @@ async fn setup_db() -> (SqlitePool, TempDir) {
             git_repo_path            TEXT,
             default_branch           TEXT,
             is_remote                INTEGER NOT NULL DEFAULT 0,
-            remote_project_id        BLOB,
+            swarm_project_id        BLOB,
             remote_organization_id   BLOB,
             remote_name              TEXT,
             remote_last_synced_at    TEXT,
@@ -65,7 +65,7 @@ async fn setup_db() -> (SqlitePool, TempDir) {
             status                      TEXT NOT NULL DEFAULT 'todo'
                                         CHECK (status IN ('todo','inprogress','done','cancelled','inreview')),
             parent_task_id              BLOB REFERENCES tasks(id) ON DELETE SET NULL,
-            shared_task_id              BLOB,
+            swarm_task_id              BLOB,
             is_remote                   INTEGER NOT NULL DEFAULT 0,
             remote_assignee_user_id     BLOB,
             remote_assignee_name        TEXT,
@@ -85,12 +85,12 @@ async fn setup_db() -> (SqlitePool, TempDir) {
     .await
     .unwrap();
 
-    // Index on shared_task_id for upsert operations
+    // Index on swarm_task_id for upsert operations
     sqlx::query(
         r#"
         CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_shared_task_unique
-            ON tasks(shared_task_id)
-            WHERE shared_task_id IS NOT NULL
+            ON tasks(swarm_task_id)
+            WHERE swarm_task_id IS NOT NULL
         "#,
     )
     .execute(&pool)
@@ -380,14 +380,14 @@ async fn test_apply_insert_creates_task() {
         .await
         .unwrap();
 
-    let shared_task_id = Uuid::new_v4();
+    let swarm_task_id = Uuid::new_v4();
 
     // Apply insert operation
     Task::upsert_remote_task(
         &pool,
         Uuid::new_v4(),
         project_id,
-        shared_task_id,
+        swarm_task_id,
         "New Task".to_string(),
         None,
         db::models::task::TaskStatus::Todo,
@@ -402,13 +402,13 @@ async fn test_apply_insert_creates_task() {
     .unwrap();
 
     // Verify task was created
-    let task = Task::find_by_shared_task_id(&pool, shared_task_id)
+    let task = Task::find_by_swarm_task_id(&pool, swarm_task_id)
         .await
         .unwrap()
         .unwrap();
 
     assert_eq!(task.title, "New Task");
-    assert_eq!(task.shared_task_id, Some(shared_task_id));
+    assert_eq!(task.swarm_task_id, Some(swarm_task_id));
     assert!(task.is_remote);
 }
 
@@ -425,14 +425,14 @@ async fn test_apply_update_modifies_task() {
         .await
         .unwrap();
 
-    let shared_task_id = Uuid::new_v4();
+    let swarm_task_id = Uuid::new_v4();
 
     // Create initial task
     Task::upsert_remote_task(
         &pool,
         Uuid::new_v4(),
         project_id,
-        shared_task_id,
+        swarm_task_id,
         "Original".to_string(),
         None,
         db::models::task::TaskStatus::Todo,
@@ -451,7 +451,7 @@ async fn test_apply_update_modifies_task() {
         &pool,
         Uuid::new_v4(),
         project_id,
-        shared_task_id,
+        swarm_task_id,
         "Updated".to_string(),
         Some("Description".to_string()),
         db::models::task::TaskStatus::InProgress,
@@ -466,7 +466,7 @@ async fn test_apply_update_modifies_task() {
     .unwrap();
 
     // Verify update applied
-    let task = Task::find_by_shared_task_id(&pool, shared_task_id)
+    let task = Task::find_by_swarm_task_id(&pool, swarm_task_id)
         .await
         .unwrap()
         .unwrap();
@@ -489,14 +489,14 @@ async fn test_apply_delete_removes_task() {
         .await
         .unwrap();
 
-    let shared_task_id = Uuid::new_v4();
+    let swarm_task_id = Uuid::new_v4();
 
     // Create task
     Task::upsert_remote_task(
         &pool,
         Uuid::new_v4(),
         project_id,
-        shared_task_id,
+        swarm_task_id,
         "To Delete".to_string(),
         None,
         db::models::task::TaskStatus::Todo,
@@ -510,13 +510,13 @@ async fn test_apply_delete_removes_task() {
     .await
     .unwrap();
 
-    // Delete via shared_task_id
-    Task::delete_by_shared_task_id(&pool, shared_task_id)
+    // Delete via swarm_task_id
+    Task::delete_by_swarm_task_id(&pool, swarm_task_id)
         .await
         .unwrap();
 
     // Verify deleted
-    let task = Task::find_by_shared_task_id(&pool, shared_task_id)
+    let task = Task::find_by_swarm_task_id(&pool, swarm_task_id)
         .await
         .unwrap();
 
@@ -649,7 +649,7 @@ async fn test_full_sync_cycle() {
             }
             ShapeOperation::Delete { key } => {
                 if let Some(id) = extract_uuid_from_key(&key) {
-                    Task::delete_by_shared_task_id(&pool, id).await.unwrap();
+                    Task::delete_by_swarm_task_id(&pool, id).await.unwrap();
                 }
             }
             ShapeOperation::UpToDate | ShapeOperation::MustRefetch => {}
@@ -657,11 +657,11 @@ async fn test_full_sync_cycle() {
     }
 
     // Verify initial sync
-    let task1 = Task::find_by_shared_task_id(&pool, task1_id)
+    let task1 = Task::find_by_swarm_task_id(&pool, task1_id)
         .await
         .unwrap()
         .unwrap();
-    let task2 = Task::find_by_shared_task_id(&pool, task2_id)
+    let task2 = Task::find_by_swarm_task_id(&pool, task2_id)
         .await
         .unwrap()
         .unwrap();
@@ -727,7 +727,7 @@ async fn test_full_sync_cycle() {
             }
             ShapeOperation::Delete { key } => {
                 if let Some(id) = extract_uuid_from_key(&key) {
-                    Task::delete_by_shared_task_id(&pool, id).await.unwrap();
+                    Task::delete_by_swarm_task_id(&pool, id).await.unwrap();
                 }
             }
             ShapeOperation::UpToDate | ShapeOperation::MustRefetch => {}
@@ -735,11 +735,11 @@ async fn test_full_sync_cycle() {
     }
 
     // Verify incremental update
-    let task1 = Task::find_by_shared_task_id(&pool, task1_id)
+    let task1 = Task::find_by_swarm_task_id(&pool, task1_id)
         .await
         .unwrap()
         .unwrap();
-    let task2 = Task::find_by_shared_task_id(&pool, task2_id).await.unwrap();
+    let task2 = Task::find_by_swarm_task_id(&pool, task2_id).await.unwrap();
 
     assert_eq!(task1.title, "Task 1 Updated");
     assert_eq!(task1.status, db::models::task::TaskStatus::InProgress);

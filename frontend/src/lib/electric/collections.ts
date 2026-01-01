@@ -67,12 +67,12 @@ export type ElectricNodeProject = ElectricRow & {
  * that may not be in the base type, plus Row compatibility.
  *
  * Note: The Electric sync returns raw PostgreSQL data, which includes:
- * - project_id (UUID from PostgreSQL) - use this instead of remote_project_id
+ * - project_id (UUID from PostgreSQL) - use this instead of swarm_project_id
  * - deleted_at instead of archived_at
  */
 export type ElectricSharedTask = ElectricRow &
-  Omit<SharedTaskType, 'remote_project_id'> & {
-    /** PostgreSQL project_id (maps to remote_project_id in local type) */
+  Omit<SharedTaskType, 'swarm_project_id'> & {
+    /** PostgreSQL project_id (maps to swarm_project_id in local type) */
     project_id: string;
     /** Organization this task belongs to */
     organization_id: string;
@@ -85,7 +85,7 @@ export type ElectricSharedTask = ElectricRow &
     /** When the task was shared to the hive */
     shared_at: string | null;
     /** For backwards compatibility with existing code */
-    remote_project_id?: string;
+    swarm_project_id?: string;
     /** Archived at (alias for deleted_at for compatibility) */
     archived_at?: string | null;
   };

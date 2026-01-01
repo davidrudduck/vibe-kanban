@@ -217,10 +217,10 @@ impl<'a> NodeCacheSyncer<'a> {
         debug!(node_id = %node.id, project_count = projects.len(), "fetched projects for node");
 
         let mut synced_count = 0;
-        let mut synced_remote_project_ids = Vec::with_capacity(projects.len());
+        let mut synced_swarm_project_ids = Vec::with_capacity(projects.len());
 
         for project in projects {
-            synced_remote_project_ids.push(project.project_id);
+            synced_swarm_project_ids.push(project.project_id);
 
             // Extract project name from git repo path
             let project_name = std::path::Path::new(&project.git_repo_path)
@@ -277,7 +277,7 @@ impl<'a> NodeCacheSyncer<'a> {
         // Note: We pass all synced project IDs across all nodes to avoid
         // accidentally deleting projects from other nodes
         let removed =
-            Project::delete_stale_remote_projects(self.pool, &synced_remote_project_ids).await?;
+            Project::delete_stale_remote_projects(self.pool, &synced_swarm_project_ids).await?;
 
         Ok((synced_count, removed as usize))
     }

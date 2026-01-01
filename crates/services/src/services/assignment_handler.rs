@@ -77,7 +77,7 @@ impl<C: ContainerService + Sync> AssignmentHandler<C> {
                 status: Some(TaskStatus::InProgress),
                 parent_task_id: None,
                 image_ids: None,
-                shared_task_id: Some(assignment.task_id), // Link to the shared task
+                swarm_task_id: Some(assignment.task_id), // Link to the shared task
             },
             task_id,
         )

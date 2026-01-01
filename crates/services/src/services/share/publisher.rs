@@ -36,7 +36,7 @@ impl SharePublisher {
             .await?
             .ok_or(ShareError::TaskNotFound(task_id))?;
 
-        if task.shared_task_id.is_some() {
+        if task.swarm_task_id.is_some() {
             return Err(ShareError::AlreadyShared(task.id));
         }
 
@@ -45,13 +45,13 @@ impl SharePublisher {
             .ok_or(ShareError::ProjectNotFound(task.project_id))?;
 
         // Auto-link the project if it's not already linked
-        let remote_project_id = match project.remote_project_id {
+        let swarm_project_id = match project.swarm_project_id {
             Some(id) => id,
             None => self.ensure_project_linked(&project).await?,
         };
 
         let payload = CreateSharedTaskRequest {
-            project_id: remote_project_id,
+            project_id: swarm_project_id,
             title: task.title.clone(),
             description: task.description.clone(),
             status: Some(status::to_remote(&task.status)),
@@ -67,7 +67,7 @@ impl SharePublisher {
 
     pub async fn update_shared_task(&self, task: &Task) -> Result<(), ShareError> {
         // early exit if task has not been shared
-        let Some(shared_task_id) = task.shared_task_id else {
+        let Some(swarm_task_id) = task.swarm_task_id else {
             return Ok(());
         };
 
@@ -82,7 +82,7 @@ impl SharePublisher {
 
         let remote_task = self
             .client
-            .update_shared_task(shared_task_id, &payload)
+            .update_shared_task(swarm_task_id, &payload)
             .await?;
 
         self.sync_shared_task(task, &remote_task).await?;
@@ -137,10 +137,10 @@ impl SharePublisher {
     ///
     /// This is a convenience method that looks up the shared task and assigns it.
     /// Used for auto-assigning unassigned tasks during startup.
-    pub async fn assign_task(&self, shared_task_id: Uuid, user_id: Uuid) -> Result<(), ShareError> {
-        let shared_task = SharedTask::find_by_id(&self.db.pool, shared_task_id)
+    pub async fn assign_task(&self, swarm_task_id: Uuid, user_id: Uuid) -> Result<(), ShareError> {
+        let shared_task = SharedTask::find_by_id(&self.db.pool, swarm_task_id)
             .await?
-            .ok_or(ShareError::TaskNotFound(shared_task_id))?;
+            .ok_or(ShareError::TaskNotFound(swarm_task_id))?;
 
         self.assign_shared_task(&shared_task, Some(user_id.to_string()), None)
             .await?;
@@ -148,10 +148,10 @@ impl SharePublisher {
         Ok(())
     }
 
-    pub async fn delete_shared_task(&self, shared_task_id: Uuid) -> Result<(), ShareError> {
-        let shared_task = SharedTask::find_by_id(&self.db.pool, shared_task_id)
+    pub async fn delete_shared_task(&self, swarm_task_id: Uuid) -> Result<(), ShareError> {
+        let shared_task = SharedTask::find_by_id(&self.db.pool, swarm_task_id)
             .await?
-            .ok_or(ShareError::TaskNotFound(shared_task_id))?;
+            .ok_or(ShareError::TaskNotFound(swarm_task_id))?;
 
         let payload = DeleteSharedTaskRequest {
             version: Some(shared_task.version),
@@ -162,9 +162,9 @@ impl SharePublisher {
             .await?;
 
         if let Some(local_task) =
-            Task::find_by_shared_task_id(&self.db.pool, shared_task.id).await?
+            Task::find_by_swarm_task_id(&self.db.pool, shared_task.id).await?
         {
-            Task::set_shared_task_id(&self.db.pool, local_task.id, None).await?;
+            Task::set_swarm_task_id(&self.db.pool, local_task.id, None).await?;
         }
 
         SharedTask::remove(&self.db.pool, shared_task.id).await?;
@@ -209,11 +209,11 @@ impl SharePublisher {
             .await?;
 
         // Link the local project to the remote project
-        Project::set_remote_project_id(&self.db.pool, project.id, Some(remote_project.id)).await?;
+        Project::set_swarm_project_id(&self.db.pool, project.id, Some(remote_project.id)).await?;
 
         info!(
             project_id = %project.id,
-            remote_project_id = %remote_project.id,
+            swarm_project_id = %remote_project.id,
             "Auto-linked local project to remote project"
         );
 
@@ -242,7 +242,7 @@ impl SharePublisher {
             Some(remote_task.updated_at),
         );
         SharedTask::upsert(&self.db.pool, input).await?;
-        Task::set_shared_task_id(&self.db.pool, task.id, Some(remote_task.id)).await?;
+        Task::set_swarm_task_id(&self.db.pool, task.id, Some(remote_task.id)).await?;
         Ok(())
     }
 }

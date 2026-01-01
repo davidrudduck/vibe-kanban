@@ -96,7 +96,7 @@ const LinkToLocalFolderDialogImpl =
         setError(null);
 
         linkLocalFolder.mutate({
-          remote_project_id: remoteProjectId,
+          swarm_project_id: remoteProjectId,
           local_folder_path: localFolderPath.trim(),
           project_name: customProjectName.trim() || null,
         });

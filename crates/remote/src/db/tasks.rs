@@ -108,6 +108,8 @@ pub struct DeleteTaskData {
 /// Unlike `CreateSharedTaskData`, this doesn't require a user ID.
 #[derive(Debug, Clone)]
 pub struct UpsertTaskFromNodeData {
+    /// Swarm task ID (if updating an existing task)
+    pub swarm_task_id: Option<Uuid>,
     /// Remote project ID
     pub project_id: Uuid,
     /// Organization ID (from the project)
@@ -264,17 +266,86 @@ impl<'a> SharedTaskRepository<'a> {
         Ok(SharedTaskWithUser::new(task, user))
     }
 
-    /// Create a shared task from a node.
+    /// Upsert a shared task from a node with version-based conflict resolution.
     ///
-    /// Unlike `create()`, this method doesn't require a user ID.
-    /// Returns the created task.
+    /// If the task is new (swarm_task_id is None), creates a new task.
+    /// If the task exists, updates it only if the incoming version is higher.
+    /// Returns the task and whether it was created (true) or updated (false).
     pub async fn upsert_from_node(
         &self,
         data: UpsertTaskFromNodeData,
     ) -> Result<(SharedTask, bool), SharedTaskError> {
         ensure_text_size(&data.title, data.description.as_deref())?;
 
-        // Use runtime query to avoid sqlx cache issues
+        // If swarm_task_id is provided, try to update existing task
+        if let Some(swarm_task_id) = data.swarm_task_id {
+            // Update only if incoming version is higher
+            let updated: Option<SharedTask> = sqlx::query_as(
+                r#"
+                UPDATE shared_tasks AS t
+                SET title             = $2,
+                    description       = $3,
+                    status            = $4::task_status,
+                    version           = $5,
+                    executing_node_id = $6,
+                    updated_at        = NOW()
+                WHERE t.id = $1
+                  AND t.version < $5
+                  AND t.deleted_at IS NULL
+                RETURNING t.id,
+                          t.organization_id,
+                          t.project_id,
+                          t.creator_user_id,
+                          t.assignee_user_id,
+                          t.deleted_by_user_id,
+                          t.executing_node_id,
+                          t.title,
+                          t.description,
+                          t.status,
+                          t.version,
+                          t.deleted_at,
+                          t.shared_at,
+                          t.archived_at,
+                          t.created_at,
+                          t.updated_at
+                "#,
+            )
+            .bind(swarm_task_id)
+            .bind(&data.title)
+            .bind(&data.description)
+            .bind(data.status)
+            .bind(data.version)
+            .bind(data.origin_node_id)
+            .fetch_optional(self.pool)
+            .await?;
+
+            if let Some(task) = updated {
+                tracing::debug!(
+                    task_id = %task.id,
+                    project_id = %task.project_id,
+                    version = %task.version,
+                    "updated shared task from node"
+                );
+                return Ok((task, false));
+            }
+
+            // If no update occurred, the task might have a higher version or doesn't exist
+            // Try to fetch it
+            if let Some(task) = self.find_by_id(swarm_task_id).await? {
+                // Task exists with same or higher version, no update needed
+                tracing::debug!(
+                    task_id = %task.id,
+                    local_version = %data.version,
+                    remote_version = %task.version,
+                    "shared task has same or higher version, skipping update"
+                );
+                return Ok((task, false));
+            }
+
+            // Task doesn't exist, fall through to create
+        }
+
+        // Create new task (for new tasks without swarm_task_id)
         let task: SharedTask = sqlx::query_as(
             r#"
             INSERT INTO shared_tasks (

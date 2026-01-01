@@ -75,7 +75,7 @@ async fn create_test_task(
         status: None,
         parent_task_id,
         image_ids: None,
-        shared_task_id: None,
+        swarm_task_id: None,
     };
     Task::create(pool, &data, task_id)
         .await

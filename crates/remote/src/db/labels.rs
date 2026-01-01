@@ -309,7 +309,7 @@ impl<'a> LabelRepository<'a> {
     }
 
     /// Get all labels for a shared task
-    pub async fn find_by_task(&self, shared_task_id: Uuid) -> Result<Vec<Label>, LabelError> {
+    pub async fn find_by_task(&self, swarm_task_id: Uuid) -> Result<Vec<Label>, LabelError> {
         let labels = sqlx::query_as!(
             Label,
             r#"
@@ -331,7 +331,7 @@ impl<'a> LabelRepository<'a> {
               AND l.deleted_at IS NULL
             ORDER BY l.name ASC
             "#,
-            shared_task_id
+            swarm_task_id
         )
         .fetch_all(self.pool)
         .await?;
@@ -342,7 +342,7 @@ impl<'a> LabelRepository<'a> {
     /// Set labels for a shared task (replaces existing)
     pub async fn set_task_labels(
         &self,
-        shared_task_id: Uuid,
+        swarm_task_id: Uuid,
         label_ids: &[Uuid],
     ) -> Result<Vec<Label>, LabelError> {
         let mut tx = self.pool.begin().await?;
@@ -350,7 +350,7 @@ impl<'a> LabelRepository<'a> {
         // Delete existing task labels
         sqlx::query!(
             "DELETE FROM shared_task_labels WHERE shared_task_id = $1",
-            shared_task_id
+            swarm_task_id
         )
         .execute(&mut *tx)
         .await?;
@@ -359,7 +359,7 @@ impl<'a> LabelRepository<'a> {
         for label_id in label_ids {
             sqlx::query!(
                 "INSERT INTO shared_task_labels (shared_task_id, label_id) VALUES ($1, $2)",
-                shared_task_id,
+                swarm_task_id,
                 label_id
             )
             .execute(&mut *tx)
@@ -369,13 +369,13 @@ impl<'a> LabelRepository<'a> {
         tx.commit().await?;
 
         // Return the newly set labels
-        self.find_by_task(shared_task_id).await
+        self.find_by_task(swarm_task_id).await
     }
 
     /// Add a label to a shared task
     pub async fn attach_to_task(
         &self,
-        shared_task_id: Uuid,
+        swarm_task_id: Uuid,
         label_id: Uuid,
     ) -> Result<(), LabelError> {
         sqlx::query!(
@@ -384,7 +384,7 @@ impl<'a> LabelRepository<'a> {
             VALUES ($1, $2)
             ON CONFLICT (shared_task_id, label_id) DO NOTHING
             "#,
-            shared_task_id,
+            swarm_task_id,
             label_id
         )
         .execute(self.pool)
@@ -396,12 +396,12 @@ impl<'a> LabelRepository<'a> {
     /// Remove a label from a shared task
     pub async fn detach_from_task(
         &self,
-        shared_task_id: Uuid,
+        swarm_task_id: Uuid,
         label_id: Uuid,
     ) -> Result<u64, LabelError> {
         let result = sqlx::query!(
             "DELETE FROM shared_task_labels WHERE shared_task_id = $1 AND label_id = $2",
-            shared_task_id,
+            swarm_task_id,
             label_id
         )
         .execute(self.pool)
@@ -456,7 +456,7 @@ impl<'a> LabelRepository<'a> {
 #[derive(Debug, Clone)]
 pub struct UpsertLabelFromNodeData {
     /// Shared label ID (if updating an existing label)
-    pub shared_label_id: Option<Uuid>,
+    pub swarm_label_id: Option<Uuid>,
     pub organization_id: Uuid,
     pub project_id: Option<Uuid>,
     pub origin_node_id: Uuid,
@@ -486,15 +486,15 @@ impl LabelRepository<'_> {
 
     /// Upsert a label from a node with version-based conflict resolution.
     ///
-    /// If the label is new (shared_label_id is None), creates a new label.
+    /// If the label is new (swarm_label_id is None), creates a new label.
     /// If the label exists, updates it only if the incoming version is higher.
     /// Returns the label and whether it was created (true) or updated (false).
     pub async fn upsert_from_node(
         &self,
         data: UpsertLabelFromNodeData,
     ) -> Result<(Label, bool), LabelError> {
-        // If shared_label_id is provided, try to update existing label
-        if let Some(shared_label_id) = data.shared_label_id {
+        // If swarm_label_id is provided, try to update existing label
+        if let Some(swarm_label_id) = data.swarm_label_id {
             // Update only if incoming version is higher or equal
             let updated = sqlx::query_as!(
                 Label,
@@ -522,7 +522,7 @@ impl LabelRepository<'_> {
                     l.created_at      AS "created_at!",
                     l.updated_at      AS "updated_at!"
                 "#,
-                shared_label_id,
+                swarm_label_id,
                 data.name,
                 data.icon,
                 data.color,
@@ -538,7 +538,7 @@ impl LabelRepository<'_> {
 
             // If no update, label might have higher version already or doesn't exist
             // Try to fetch it
-            if let Some(label) = self.find_by_id(shared_label_id).await? {
+            if let Some(label) = self.find_by_id(swarm_label_id).await? {
                 // Label exists with same or higher version, no update needed
                 return Ok((label, false));
             }
@@ -546,17 +546,62 @@ impl LabelRepository<'_> {
             // Label doesn't exist, fall through to create
         }
 
-        // Create new label (or for new labels without shared_label_id)
-        let label = self
-            .create(CreateLabelData {
+        // Create new label (or for new labels without swarm_label_id)
+        // Use find_or_create to handle potential UNIQUE constraint conflicts
+        let (label, was_created) = self
+            .find_or_create(CreateLabelData {
                 organization_id: data.organization_id,
                 project_id: data.project_id,
                 origin_node_id: Some(data.origin_node_id),
-                name: data.name,
-                icon: data.icon,
-                color: data.color,
+                name: data.name.clone(),
+                icon: data.icon.clone(),
+                color: data.color.clone(),
             })
             .await?;
+
+        // If label already existed, update it with the incoming data if version is higher
+        if !was_created && label.version < data.version {
+            // Use runtime query to avoid SQLx cache issues
+            let updated: Label = sqlx::query_as(
+                r#"
+                UPDATE labels AS l
+                SET name           = $2,
+                    icon           = $3,
+                    color          = $4,
+                    version        = $5,
+                    origin_node_id = $6,
+                    updated_at     = NOW()
+                WHERE l.id = $1
+                  AND l.deleted_at IS NULL
+                RETURNING
+                    l.id,
+                    l.organization_id,
+                    l.project_id,
+                    l.origin_node_id,
+                    l.name,
+                    l.icon,
+                    l.color,
+                    l.version,
+                    l.deleted_at,
+                    l.created_at,
+                    l.updated_at
+                "#,
+            )
+            .bind(label.id)
+            .bind(&data.name)
+            .bind(&data.icon)
+            .bind(&data.color)
+            .bind(data.version)
+            .bind(data.origin_node_id)
+            .fetch_one(self.pool)
+            .await?;
+            return Ok((updated, false));
+        }
+
+        // If label already existed but has same or higher version, just return it
+        if !was_created {
+            return Ok((label, false));
+        }
 
         // Update the version to match the node's version
         let label = sqlx::query_as!(
