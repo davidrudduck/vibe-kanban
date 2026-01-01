@@ -2,7 +2,13 @@ import { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, FolderGit2, Loader2, GitMerge, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { SwarmProjectRow } from './SwarmProjectRow';
@@ -240,9 +246,7 @@ export function SwarmProjectsSection({
                 <SwarmProjectRow
                   key={project.id}
                   project={project}
-                  nodes={
-                    expandedProjectId === project.id ? expandedNodes : []
-                  }
+                  nodes={expandedProjectId === project.id ? expandedNodes : []}
                   isLoadingNodes={
                     expandedProjectId === project.id && isLoadingNodes
                   }
@@ -271,7 +275,10 @@ export function SwarmProjectsSection({
                     onClick={() => setMergingProject(projects[0])}
                   >
                     <GitMerge className="h-4 w-4 mr-2" />
-                    {t('settings.swarm.projects.mergeProjects', 'Merge Projects')}
+                    {t(
+                      'settings.swarm.projects.mergeProjects',
+                      'Merge Projects'
+                    )}
                   </Button>
                 </div>
               )}

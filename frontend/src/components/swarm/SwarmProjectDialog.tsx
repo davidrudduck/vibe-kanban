@@ -74,8 +74,7 @@ export function SwarmProjectDialog({
       });
       onOpenChange(false);
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : 'An error occurred';
+      const message = err instanceof Error ? err.message : 'An error occurred';
       setError(message);
     }
   };

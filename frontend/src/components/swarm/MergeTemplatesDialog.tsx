@@ -19,36 +19,36 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import type { SwarmProjectWithNodes } from '@/types/swarm';
+import type { SwarmTemplate } from '@/types/swarm';
 
-interface MergeProjectsDialogProps {
+interface MergeTemplatesDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  projects: SwarmProjectWithNodes[];
-  targetProject: SwarmProjectWithNodes;
+  templates: SwarmTemplate[];
+  targetTemplate: SwarmTemplate;
   onMerge: (sourceId: string) => Promise<void>;
   isMerging: boolean;
 }
 
-export function MergeProjectsDialog({
+export function MergeTemplatesDialog({
   open,
   onOpenChange,
-  projects,
-  targetProject,
+  templates,
+  targetTemplate,
   onMerge,
   isMerging,
-}: MergeProjectsDialogProps) {
+}: MergeTemplatesDialogProps) {
   const { t } = useTranslation(['settings', 'common']);
   const [sourceId, setSourceId] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
 
-  // Filter out the target project from available sources
+  // Filter out the target template from available sources
   const availableSources = useMemo(
-    () => projects.filter((p) => p.id !== targetProject.id),
-    [projects, targetProject.id]
+    () => templates.filter((t) => t.id !== targetTemplate.id),
+    [templates, targetTemplate.id]
   );
 
-  const selectedSource = availableSources.find((p) => p.id === sourceId);
+  const selectedSource = availableSources.find((t) => t.id === sourceId);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,8 +57,8 @@ export function MergeProjectsDialog({
     if (!sourceId) {
       setError(
         t(
-          'settings.swarm.merge.sourceRequired',
-          'Please select a project to merge'
+          'settings.swarm.templates.merge.sourceRequired',
+          'Please select a template to merge'
         )
       );
       return;
@@ -82,6 +82,12 @@ export function MergeProjectsDialog({
     onOpenChange(isOpen);
   };
 
+  // Helper to truncate content for display
+  const truncateContent = (content: string, maxLength = 50) => {
+    if (content.length <= maxLength) return content;
+    return content.substring(0, maxLength).trim() + '...';
+  };
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -89,13 +95,12 @@ export function MergeProjectsDialog({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <GitMerge className="h-5 w-5" />
-              {t('settings.swarm.merge.title', 'Merge Projects')}
+              {t('settings.swarm.templates.merge.title', 'Merge Templates')}
             </DialogTitle>
             <DialogDescription>
               {t(
-                'settings.swarm.merge.description',
-                'Merge another project into "{{target}}". All linked nodes will be transferred and the source project will be deleted.',
-                { target: targetProject.name }
+                'settings.swarm.templates.merge.description',
+                'Merge another template into the selected target. The source template will be deleted.'
               )}
             </DialogDescription>
           </DialogHeader>
@@ -111,37 +116,38 @@ export function MergeProjectsDialog({
               <Alert>
                 <AlertDescription>
                   {t(
-                    'settings.swarm.merge.noOtherProjects',
-                    'No other projects available to merge.'
+                    'settings.swarm.templates.merge.noOtherTemplates',
+                    'No other templates available to merge.'
                   )}
                 </AlertDescription>
               </Alert>
             ) : (
               <>
                 <div className="space-y-2">
-                  <Label htmlFor="source-project">
-                    {t('settings.swarm.merge.sourceLabel', 'Merge from')}
+                  <Label htmlFor="source-template">
+                    {t(
+                      'settings.swarm.templates.merge.sourceLabel',
+                      'Merge from'
+                    )}
                   </Label>
                   <Select value={sourceId} onValueChange={setSourceId}>
-                    <SelectTrigger id="source-project">
+                    <SelectTrigger id="source-template">
                       <SelectValue
                         placeholder={t(
-                          'settings.swarm.merge.selectSource',
-                          'Select a project to merge...'
+                          'settings.swarm.templates.merge.selectSource',
+                          'Select a template to merge...'
                         )}
                       />
                     </SelectTrigger>
                     <SelectContent>
-                      {availableSources.map((project) => (
-                        <SelectItem key={project.id} value={project.id}>
-                          <span className="flex items-center gap-2">
-                            <span>{project.name}</span>
-                            <span className="text-muted-foreground text-xs">
-                              ({project.linked_nodes_count}{' '}
-                              {project.linked_nodes_count === 1
-                                ? 'node'
-                                : 'nodes'}
-                              )
+                      {availableSources.map((template) => (
+                        <SelectItem key={template.id} value={template.id}>
+                          <span className="flex flex-col items-start">
+                            <span className="font-medium">
+                              @{template.name}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {truncateContent(template.content)}
                             </span>
                           </span>
                         </SelectItem>
@@ -155,8 +161,8 @@ export function MergeProjectsDialog({
                     <AlertTriangle className="h-4 w-4" />
                     <AlertDescription>
                       {t(
-                        'settings.swarm.merge.warning',
-                        '"{{source}}" will be deleted after merging. This action cannot be undone.',
+                        'settings.swarm.templates.merge.warning',
+                        '"@{{source}}" will be deleted after merging. This action cannot be undone.',
                         { source: selectedSource.name }
                       )}
                     </AlertDescription>
@@ -165,16 +171,15 @@ export function MergeProjectsDialog({
 
                 <div className="space-y-2">
                   <Label>
-                    {t('settings.swarm.merge.targetLabel', 'Merge into')}
+                    {t(
+                      'settings.swarm.templates.merge.targetLabel',
+                      'Merge into'
+                    )}
                   </Label>
-                  <div className="flex items-center gap-2 px-3 py-2 bg-muted rounded-md">
-                    <span className="font-medium">{targetProject.name}</span>
-                    <span className="text-muted-foreground text-sm">
-                      ({targetProject.linked_nodes_count}{' '}
-                      {targetProject.linked_nodes_count === 1
-                        ? 'node'
-                        : 'nodes'}
-                      )
+                  <div className="flex flex-col gap-1 px-3 py-2 bg-muted rounded-md">
+                    <span className="font-medium">@{targetTemplate.name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {truncateContent(targetTemplate.content)}
                     </span>
                   </div>
                 </div>
@@ -197,7 +202,7 @@ export function MergeProjectsDialog({
               variant="destructive"
             >
               {isMerging && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {t('settings.swarm.merge.confirm', 'Merge Projects')}
+              {t('settings.swarm.templates.merge.confirm', 'Merge Templates')}
             </Button>
           </DialogFooter>
         </form>
