@@ -540,11 +540,82 @@
       },
       "labels": {
         "title": "Swarm Labels",
-        "comingSoon": "Organization-wide label management coming soon."
+        "description": "Manage organization-wide labels that can be used across all swarm projects.",
+        "noOrganization": "Please select an organization to manage swarm labels.",
+        "loading": "Loading swarm labels...",
+        "error": "Failed to load swarm labels. Please try again.",
+        "empty": "No swarm labels yet. Create labels to categorize tasks across your organization.",
+        "createFirst": "Create your first label",
+        "add": "Add Label",
+        "addShort": "Add",
+        "refresh": "Refresh",
+        "mergeLabels": "Merge Labels",
+        "edit": "Edit",
+        "delete": "Delete",
+        "projectSpecific": "Project-specific",
+        "deleteConfirm": "Are you sure you want to delete the label \"{{name}}\"? This action cannot be undone.",
+        "dialog": {
+          "createTitle": "Create Swarm Label",
+          "createDescription": "Create a new organization-wide label.",
+          "editTitle": "Edit Swarm Label",
+          "editDescription": "Update the label details.",
+          "nameLabel": "Name",
+          "namePlaceholder": "e.g., Bug, Feature, Documentation",
+          "nameRequired": "Label name is required",
+          "colorLabel": "Color",
+          "iconLabel": "Icon",
+          "preview": "Preview",
+          "previewPlaceholder": "Label preview will appear here",
+          "save": "Save Changes",
+          "create": "Create Label"
+        },
+        "merge": {
+          "title": "Merge Labels",
+          "description": "Merge another label into \"{{target}}\". All tasks using the source label will be updated to use the target label.",
+          "sourceLabel": "Merge from",
+          "selectSource": "Select a label to merge...",
+          "warning": "\"{{source}}\" will be deleted after merging. This action cannot be undone.",
+          "confirm": "Merge Labels"
+        }
       },
       "templates": {
         "title": "Swarm Templates",
-        "comingSoon": "Organization-wide template management coming soon."
+        "description": "Manage organization-wide templates for task descriptions using @mentions.",
+        "noOrganization": "Please select an organization to manage swarm templates.",
+        "loading": "Loading swarm templates...",
+        "error": "Failed to load swarm templates. Please try again.",
+        "empty": "No swarm templates yet. Create templates to reuse common task descriptions.",
+        "createFirst": "Create your first template",
+        "add": "Add Template",
+        "addShort": "Add",
+        "refresh": "Refresh",
+        "mergeTemplates": "Merge Templates",
+        "edit": "Edit",
+        "delete": "Delete",
+        "deleteConfirm": "Are you sure you want to delete the template \"{{name}}\"? This action cannot be undone.",
+        "dialog": {
+          "createTitle": "Create Swarm Template",
+          "createDescription": "Create a new organization-wide template.",
+          "editTitle": "Edit Swarm Template",
+          "editDescription": "Update the template details.",
+          "nameLabel": "Name",
+          "namePlaceholder": "e.g., bug_fix, test_plan",
+          "nameHelper": "Use this name with @ in task descriptions: @{{name}}",
+          "nameRequired": "Template name is required",
+          "contentLabel": "Content",
+          "contentPlaceholder": "Enter the template content...",
+          "contentHelper": "This text will be inserted when you use @template_name in task descriptions.",
+          "save": "Save Changes",
+          "create": "Create Template"
+        },
+        "merge": {
+          "title": "Merge Templates",
+          "description": "Merge another template into \"{{target}}\". The source template content will be appended.",
+          "sourceLabel": "Merge from",
+          "selectSource": "Select a template to merge...",
+          "warning": "\"{{source}}\" will be deleted after merging. This action cannot be undone.",
+          "confirm": "Merge Templates"
+        }
       }
     },
     "projects": {

@@ -1,6 +1,8 @@
 {
   "back": "戻る",
   "close": "閉じる",
+  "optional": "任意",
+  "cancel": "キャンセル",
   "branchSelector": {
     "badges": {
       "current": "現在",
