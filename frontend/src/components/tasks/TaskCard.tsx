@@ -86,11 +86,8 @@ export function TaskCard({
     taskOptimisticContext?.updateTaskArchivedOptimistically ??
     getArchivedCallback(projectId);
 
-  // Fetch labels for this task (only for local tasks, not remote)
-  const { data: labels } = useTaskLabels(
-    task.is_remote ? undefined : task.id,
-    !task.is_remote
-  );
+  // Fetch labels for this task
+  const { data: labels } = useTaskLabels(task.id, true);
 
   // Get owner name from shared task or remote task
   const ownerName =
@@ -136,7 +133,7 @@ export function TaskCard({
   const [isArchiving, setIsArchiving] = useState(false);
 
   const handleArchive = useCallback(async () => {
-    if (isArchiving || task.is_remote) return;
+    if (isArchiving) return;
     setIsArchiving(true);
     try {
       // Apply optimistic update immediately for instant UI feedback
@@ -153,10 +150,10 @@ export function TaskCard({
     } finally {
       setIsArchiving(false);
     }
-  }, [task.id, task.is_remote, isArchiving, updateTaskArchivedOptimistically]);
+  }, [task.id, isArchiving, updateTaskArchivedOptimistically]);
 
   const handleUnarchive = useCallback(async () => {
-    if (isArchiving || task.is_remote) return;
+    if (isArchiving) return;
     setIsArchiving(true);
     const previousArchivedAt = task.archived_at;
     try {
@@ -179,13 +176,7 @@ export function TaskCard({
     } finally {
       setIsArchiving(false);
     }
-  }, [
-    task.id,
-    task.is_remote,
-    task.archived_at,
-    isArchiving,
-    updateTaskArchivedOptimistically,
-  ]);
+  }, [task.id, task.archived_at, isArchiving, updateTaskArchivedOptimistically]);
 
   // Get status strip color - remote tasks use purple, shared tasks use their own color
   const statusStripClass = task.is_remote
@@ -301,7 +292,7 @@ export function TaskCard({
               isArchived={isArchived}
               onArchive={handleArchive}
               onUnarchive={handleUnarchive}
-              disabled={task.is_remote || isArchiving}
+              disabled={isArchiving}
             />
           </div>
         </div>
