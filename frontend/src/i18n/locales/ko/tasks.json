@@ -206,7 +206,12 @@
     "saveError": "변경 사항 저장에 실패했습니다",
     "confirmRemove": "이 메시지를 대기열에서 제거하시겠습니까?",
     "removeError": "메시지 삭제에 실패했습니다",
-    "injectingMessage": "메시지 전송 중..."
+    "injectingMessage": "메시지 전송 중...",
+    "badgeLabel": "{{count}}개의 메시지가 대기 중",
+    "badgeText": "메시지",
+    "moveUp": "메시지를 위로 이동",
+    "moveDown": "메시지를 아래로 이동",
+    "remove": "메시지 삭제"
   },
   "git": {
     "branch": {

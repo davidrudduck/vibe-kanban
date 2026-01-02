@@ -1,19 +1,24 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  ChevronDown,
-  ChevronRight,
+  MessageSquareDashed,
   Trash2,
+  ChevronRight,
   GripVertical,
   X,
   Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import type { QueuedMessage } from 'shared/types';
 
-type Props = {
+interface MessageQueueBadgeProps {
   queue: QueuedMessage[];
   isLoading: boolean;
   onUpdate: (messageId: string, content: string | null) => Promise<void>;
@@ -22,7 +27,8 @@ type Props = {
   onClear: () => Promise<void>;
   isRemoving?: boolean;
   isClearing?: boolean;
-};
+  className?: string;
+}
 
 function MessageQueueItem({
   message,
@@ -65,7 +71,6 @@ function MessageQueueItem({
     } catch (error) {
       console.error('Failed to save message:', error);
       setSaveError(t('messageQueue.saveError'));
-      // Stay in edit mode on error
     } finally {
       setIsSaving(false);
     }
@@ -98,16 +103,18 @@ function MessageQueueItem({
           className="h-5 w-5"
           onClick={onMoveUp}
           disabled={index === 0}
+          aria-label={t('messageQueue.moveUp')}
         >
           <ChevronRight className="h-3 w-3 -rotate-90" />
         </Button>
-        <GripVertical className="h-4 w-4 text-muted-foreground" />
+        <GripVertical className="h-4 w-4 text-muted-foreground" aria-hidden />
         <Button
           variant="ghost"
           size="icon"
           className="h-5 w-5"
           onClick={onMoveDown}
           disabled={index === total - 1}
+          aria-label={t('messageQueue.moveDown')}
         >
           <ChevronRight className="h-3 w-3 rotate-90" />
         </Button>
@@ -142,6 +149,13 @@ function MessageQueueItem({
           <div
             className="text-sm whitespace-pre-wrap break-words cursor-pointer hover:text-foreground/80"
             onClick={() => setIsEditing(true)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                setIsEditing(true);
+              }
+            }}
           >
             {message.content}
           </div>
@@ -162,6 +176,7 @@ function MessageQueueItem({
         className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
         onClick={handleRemove}
         disabled={isRemoving}
+        aria-label={t('messageQueue.remove')}
       >
         <X className="h-4 w-4" />
       </Button>
@@ -169,7 +184,12 @@ function MessageQueueItem({
   );
 }
 
-function MessageQueuePanel({
+/**
+ * Compact badge showing message queue count with popover for full list.
+ * Designed for the toolbar above the input area.
+ * Always renders (even with 0 messages) for consistent layout.
+ */
+export function MessageQueueBadge({
   queue,
   isLoading,
   onUpdate,
@@ -178,9 +198,9 @@ function MessageQueuePanel({
   onClear,
   isRemoving,
   isClearing,
-}: Props) {
+  className,
+}: MessageQueueBadgeProps) {
   const { t } = useTranslation('tasks');
-  const [isExpanded, setIsExpanded] = useState(true);
 
   const handleMoveUp = (index: number) => {
     if (index === 0) return;
@@ -202,56 +222,63 @@ function MessageQueuePanel({
     onReorder(newOrder.map((m) => m.id));
   };
 
-  if (isLoading) {
-    return (
-      <div className="p-3 text-sm text-muted-foreground">
-        {t('messageQueue.loadingQueue')}
-      </div>
-    );
-  }
-
   return (
-    <div className="border rounded-lg overflow-hidden">
-      <button
-        className={cn(
-          'w-full flex items-center justify-between px-3 py-2 bg-muted/50 hover:bg-muted transition-colors',
-          'text-sm font-medium'
-        )}
-        onClick={() => setIsExpanded(!isExpanded)}
-      >
-        <div className="flex items-center gap-2">
-          {isExpanded ? (
-            <ChevronDown className="h-4 w-4" />
-          ) : (
-            <ChevronRight className="h-4 w-4" />
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className={cn(
+            'h-8 px-2 text-xs font-medium tabular-nums min-h-[44px] min-w-[44px]',
+            queue.length > 0 && 'text-amber-600 dark:text-amber-500',
+            className
           )}
-          <span>{t('messageQueue.title')}</span>
-          {queue.length > 0 && (
-            <span className="px-1.5 py-0.5 text-xs rounded-full bg-primary/10 text-primary">
-              {queue.length}
+          aria-label={t('messageQueue.badgeLabel', { count: queue.length })}
+        >
+          <span className="flex items-center gap-1">
+            <MessageSquareDashed className="h-3.5 w-3.5" aria-hidden />
+            <span className="hidden sm:inline ml-1">
+              {t('messageQueue.badgeText')}
             </span>
+            <span className="font-mono text-xs">({queue.length})</span>
+          </span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-72 sm:w-80 lg:w-96 p-0"
+        align="start"
+        sideOffset={4}
+      >
+        <div className="flex items-center justify-between px-3 py-2 border-b">
+          <h4 className="text-sm font-medium">
+            {t('messageQueue.title')} ({queue.length})
+          </h4>
+          {queue.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-xs"
+              onClick={onClear}
+              disabled={isClearing}
+            >
+              {isClearing ? (
+                <Loader2 className="h-3 w-3 animate-spin mr-1" />
+              ) : (
+                <Trash2 className="h-3 w-3 mr-1" />
+              )}
+              {t('messageQueue.clear')}
+            </Button>
           )}
         </div>
-        {queue.length > 0 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 px-2 text-xs"
-            onClick={(e) => {
-              e.stopPropagation();
-              onClear();
-            }}
-            disabled={isClearing}
-          >
-            <Trash2 className="h-3 w-3 mr-1" />
-            {t('messageQueue.clear')}
-          </Button>
-        )}
-      </button>
-
-      {isExpanded && (
-        <div className="p-2 space-y-2">
-          {queue.length === 0 ? (
+        <div className="max-h-64 overflow-y-auto p-2 space-y-2">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              <span className="text-sm text-muted-foreground">
+                {t('messageQueue.loadingQueue')}
+              </span>
+            </div>
+          ) : queue.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
               {t('messageQueue.emptyState')}
             </p>
@@ -274,9 +301,9 @@ function MessageQueuePanel({
             ))
           )}
         </div>
-      )}
-    </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
-export default MessageQueuePanel;
+export default MessageQueueBadge;

@@ -41,15 +41,28 @@ describe('useMessageQueue', () => {
   describe('fetching queue', () => {
     it('fetches queue on mount when attemptId provided', async () => {
       const mockMessages = [
-        { id: '1', task_attempt_id: testAttemptId, content: 'Message 1', variant: null, position: 0, created_at: '2024-01-01' },
-        { id: '2', task_attempt_id: testAttemptId, content: 'Message 2', variant: null, position: 1, created_at: '2024-01-01' },
+        {
+          id: '1',
+          task_attempt_id: testAttemptId,
+          content: 'Message 1',
+          variant: null,
+          position: 0,
+          created_at: '2024-01-01',
+        },
+        {
+          id: '2',
+          task_attempt_id: testAttemptId,
+          content: 'Message 2',
+          variant: null,
+          position: 1,
+          created_at: '2024-01-01',
+        },
       ];
       mockApi.list.mockResolvedValue(mockMessages);
 
-      const { result } = renderHook(
-        () => useMessageQueue(testAttemptId),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => useMessageQueue(testAttemptId), {
+        wrapper: createWrapper(),
+      });
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false);
@@ -60,10 +73,9 @@ describe('useMessageQueue', () => {
     });
 
     it('does not fetch when attemptId is undefined', () => {
-      renderHook(
-        () => useMessageQueue(undefined),
-        { wrapper: createWrapper() }
-      );
+      renderHook(() => useMessageQueue(undefined), {
+        wrapper: createWrapper(),
+      });
 
       expect(mockApi.list).not.toHaveBeenCalled();
     });
@@ -72,17 +84,30 @@ describe('useMessageQueue', () => {
   describe('addMessage', () => {
     it('calls POST and updates cache', async () => {
       const existingMessages = [
-        { id: '1', task_attempt_id: testAttemptId, content: 'Message 1', variant: null, position: 0, created_at: '2024-01-01' },
+        {
+          id: '1',
+          task_attempt_id: testAttemptId,
+          content: 'Message 1',
+          variant: null,
+          position: 0,
+          created_at: '2024-01-01',
+        },
       ];
-      const newMessage = { id: '2', task_attempt_id: testAttemptId, content: 'New message', variant: 'plan', position: 1, created_at: '2024-01-01' };
+      const newMessage = {
+        id: '2',
+        task_attempt_id: testAttemptId,
+        content: 'New message',
+        variant: 'plan',
+        position: 1,
+        created_at: '2024-01-01',
+      };
 
       mockApi.list.mockResolvedValue(existingMessages);
       mockApi.add.mockResolvedValue(newMessage);
 
-      const { result } = renderHook(
-        () => useMessageQueue(testAttemptId),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => useMessageQueue(testAttemptId), {
+        wrapper: createWrapper(),
+      });
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false);
@@ -92,24 +117,41 @@ describe('useMessageQueue', () => {
         await result.current.addMessage('New message', 'plan');
       });
 
-      expect(mockApi.add).toHaveBeenCalledWith(testAttemptId, 'New message', 'plan');
+      expect(mockApi.add).toHaveBeenCalledWith(
+        testAttemptId,
+        'New message',
+        'plan'
+      );
     });
   });
 
   describe('removeMessage', () => {
     it('performs optimistic update', async () => {
       const initialMessages = [
-        { id: '1', task_attempt_id: testAttemptId, content: 'Message 1', variant: null, position: 0, created_at: '2024-01-01' },
-        { id: '2', task_attempt_id: testAttemptId, content: 'Message 2', variant: null, position: 1, created_at: '2024-01-01' },
+        {
+          id: '1',
+          task_attempt_id: testAttemptId,
+          content: 'Message 1',
+          variant: null,
+          position: 0,
+          created_at: '2024-01-01',
+        },
+        {
+          id: '2',
+          task_attempt_id: testAttemptId,
+          content: 'Message 2',
+          variant: null,
+          position: 1,
+          created_at: '2024-01-01',
+        },
       ];
 
       mockApi.list.mockResolvedValue(initialMessages);
       mockApi.remove.mockResolvedValue(undefined);
 
-      const { result } = renderHook(
-        () => useMessageQueue(testAttemptId),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => useMessageQueue(testAttemptId), {
+        wrapper: createWrapper(),
+      });
 
       await waitFor(() => {
         expect(result.current.queue).toHaveLength(2);
@@ -126,17 +168,26 @@ describe('useMessageQueue', () => {
   describe('updateMessage', () => {
     it('calls update API with content', async () => {
       const initialMessages = [
-        { id: '1', task_attempt_id: testAttemptId, content: 'Message 1', variant: null, position: 0, created_at: '2024-01-01' },
+        {
+          id: '1',
+          task_attempt_id: testAttemptId,
+          content: 'Message 1',
+          variant: null,
+          position: 0,
+          created_at: '2024-01-01',
+        },
       ];
-      const updatedMessage = { ...initialMessages[0], content: 'Updated message' };
+      const updatedMessage = {
+        ...initialMessages[0],
+        content: 'Updated message',
+      };
 
       mockApi.list.mockResolvedValue(initialMessages);
       mockApi.update.mockResolvedValue(updatedMessage);
 
-      const { result } = renderHook(
-        () => useMessageQueue(testAttemptId),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => useMessageQueue(testAttemptId), {
+        wrapper: createWrapper(),
+      });
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false);
@@ -146,25 +197,43 @@ describe('useMessageQueue', () => {
         await result.current.updateMessage('1', 'Updated message');
       });
 
-      expect(mockApi.update).toHaveBeenCalledWith(testAttemptId, '1', 'Updated message', undefined);
+      expect(mockApi.update).toHaveBeenCalledWith(
+        testAttemptId,
+        '1',
+        'Updated message',
+        undefined
+      );
     });
   });
 
   describe('reorderMessages', () => {
     it('calls reorder API with new order', async () => {
       const initialMessages = [
-        { id: '1', task_attempt_id: testAttemptId, content: 'Message 1', variant: null, position: 0, created_at: '2024-01-01' },
-        { id: '2', task_attempt_id: testAttemptId, content: 'Message 2', variant: null, position: 1, created_at: '2024-01-01' },
+        {
+          id: '1',
+          task_attempt_id: testAttemptId,
+          content: 'Message 1',
+          variant: null,
+          position: 0,
+          created_at: '2024-01-01',
+        },
+        {
+          id: '2',
+          task_attempt_id: testAttemptId,
+          content: 'Message 2',
+          variant: null,
+          position: 1,
+          created_at: '2024-01-01',
+        },
       ];
       const reorderedMessages = [initialMessages[1], initialMessages[0]];
 
       mockApi.list.mockResolvedValue(initialMessages);
       mockApi.reorder.mockResolvedValue(reorderedMessages);
 
-      const { result } = renderHook(
-        () => useMessageQueue(testAttemptId),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => useMessageQueue(testAttemptId), {
+        wrapper: createWrapper(),
+      });
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false);
@@ -181,16 +250,22 @@ describe('useMessageQueue', () => {
   describe('clearQueue', () => {
     it('calls clear API', async () => {
       const initialMessages = [
-        { id: '1', task_attempt_id: testAttemptId, content: 'Message 1', variant: null, position: 0, created_at: '2024-01-01' },
+        {
+          id: '1',
+          task_attempt_id: testAttemptId,
+          content: 'Message 1',
+          variant: null,
+          position: 0,
+          created_at: '2024-01-01',
+        },
       ];
 
       mockApi.list.mockResolvedValue(initialMessages);
       mockApi.clear.mockResolvedValue(undefined);
 
-      const { result } = renderHook(
-        () => useMessageQueue(testAttemptId),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => useMessageQueue(testAttemptId), {
+        wrapper: createWrapper(),
+      });
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false);

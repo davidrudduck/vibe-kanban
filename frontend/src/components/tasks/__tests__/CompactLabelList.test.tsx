@@ -18,7 +18,6 @@ function createMockLabel(id: string, name: string): Label {
 }
 
 describe('CompactLabelList', () => {
-
   it('returns null for undefined labels', () => {
     const { container } = render(<CompactLabelList labels={undefined} />);
     expect(container.firstChild).toBeNull();
@@ -30,7 +29,10 @@ describe('CompactLabelList', () => {
   });
 
   it('shows all labels when count <= maxVisible', () => {
-    const labels = [createMockLabel('1', 'Bug'), createMockLabel('2', 'Feature')];
+    const labels = [
+      createMockLabel('1', 'Bug'),
+      createMockLabel('2', 'Feature'),
+    ];
     render(<CompactLabelList labels={labels} maxVisible={2} />);
 
     expect(screen.getByText('Bug')).toBeInTheDocument();

@@ -16,7 +16,11 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { imagesApi } from '@/lib/api.ts';
 import type { TaskWithAttemptStatus } from 'shared/types';
-import { useBranchStatus, useSessionError, useMessageQueueInjection } from '@/hooks';
+import {
+  useBranchStatus,
+  useSessionError,
+  useMessageQueueInjection,
+} from '@/hooks';
 import { useAttemptExecution } from '@/hooks/useAttemptExecution';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { cn } from '@/lib/utils';
@@ -44,7 +48,6 @@ import { useDefaultVariant } from '@/hooks/follow-up/useDefaultVariant';
 import { buildResolveConflictsInstructions } from '@/lib/conflicts';
 import { insertImageMarkdownAtPosition } from '@/utils/markdownImages';
 import { useTranslation } from 'react-i18next';
-import { MessageQueuePanel } from '@/components/tasks/message-queue';
 
 interface TaskFollowUpSectionProps {
   task: TaskWithAttemptStatus;
@@ -74,18 +77,11 @@ export function TaskFollowUpSection({
     return processes.find((p) => p.status === 'running')?.id;
   }, [processes]);
 
-  // Message queue for queuing multiple messages (with live injection support)
+  // Message queue for adding messages with live injection support
+  // Note: Queue UI is now in MobileConversationLayout via MessageQueueBadge
   const {
-    queue: messageQueue,
-    isLoading: isMessageQueueLoading,
     addAndInject,
-    updateMessage: updateQueuedMessage,
-    removeMessage: removeFromQueue,
-    reorderMessages: reorderQueue,
-    clearQueue,
     isAdding: isAddingToQueue,
-    isRemoving: isRemovingFromQueue,
-    isClearing: isClearingQueue,
     isInjecting,
   } = useMessageQueueInjection(selectedAttemptId, runningProcessId);
   const { comments, generateReviewMarkdown, clearComments } = useReview();
@@ -541,22 +537,6 @@ export function TaskFollowUpSection({
                 />
               )}
 
-              {/* Message Queue Panel */}
-              <MessageQueuePanel
-                queue={messageQueue}
-                isLoading={isMessageQueueLoading}
-                onUpdate={async (messageId, content) => {
-                  await updateQueuedMessage(messageId, content);
-                }}
-                onRemove={removeFromQueue}
-                onReorder={async (ids) => {
-                  await reorderQueue(ids);
-                }}
-                onClear={clearQueue}
-                isRemoving={isRemovingFromQueue}
-                isClearing={isClearingQueue}
-              />
-
               <div className="flex flex-col gap-2">
                 <FollowUpEditorCard
                   placeholder={
@@ -703,7 +683,10 @@ export function TaskFollowUpSection({
                 <Button
                   onClick={async () => {
                     if (followUpMessage.trim()) {
-                      await addAndInject(followUpMessage.trim(), selectedVariant);
+                      await addAndInject(
+                        followUpMessage.trim(),
+                        selectedVariant
+                      );
                       setFollowUpMessage('');
                     }
                   }}
@@ -721,12 +704,16 @@ export function TaskFollowUpSection({
                   {isAddingToQueue || isInjecting ? (
                     <>
                       <Loader2 className="animate-spin h-4 w-4 mr-1" />
-                      <span className="hidden sm:inline">{t('messageQueue.injectingMessage')}</span>
+                      <span className="hidden sm:inline">
+                        {t('messageQueue.injectingMessage')}
+                      </span>
                     </>
                   ) : (
                     <>
                       <ListPlus className="h-4 w-4 mr-1" />
-                      <span className="hidden sm:inline">{t('messageQueue.addToQueue')}</span>
+                      <span className="hidden sm:inline">
+                        {t('messageQueue.addToQueue')}
+                      </span>
                     </>
                   )}
                 </Button>

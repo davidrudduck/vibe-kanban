@@ -38,7 +38,12 @@ describe('MessageQueuePanel', () => {
     onClear: mockOnClear,
   };
 
-  const createMessage = (id: string, content: string, position: number, variant: string | null = null): QueuedMessage => ({
+  const createMessage = (
+    id: string,
+    content: string,
+    position: number,
+    variant: string | null = null
+  ): QueuedMessage => ({
     id,
     task_attempt_id: 'attempt-1',
     content,
@@ -120,7 +125,13 @@ describe('MessageQueuePanel', () => {
     });
 
     it('disables Clear button when isClearing is true', () => {
-      render(<MessageQueuePanel {...defaultProps} queue={messages} isClearing={true} />);
+      render(
+        <MessageQueuePanel
+          {...defaultProps}
+          queue={messages}
+          isClearing={true}
+        />
+      );
 
       const clearButton = screen.getByText('Clear').closest('button');
       expect(clearButton).toBeDisabled();
@@ -135,17 +146,23 @@ describe('MessageQueuePanel', () => {
       render(<MessageQueuePanel {...defaultProps} queue={messages} />);
 
       // Hover to show the X button
-      const messageContainer = screen.getByText('Test message').closest('.group');
+      const messageContainer = screen
+        .getByText('Test message')
+        .closest('.group');
       if (messageContainer) {
         fireEvent.mouseEnter(messageContainer);
       }
 
       // Find and click the delete button (X icon button)
       const deleteButtons = screen.getAllByRole('button');
-      const deleteButton = deleteButtons.find(btn => btn.querySelector('svg.lucide-x'));
+      const deleteButton = deleteButtons.find((btn) =>
+        btn.querySelector('svg.lucide-x')
+      );
       if (deleteButton) {
         fireEvent.click(deleteButton);
-        expect(confirmSpy).toHaveBeenCalledWith('Remove this message from the queue?');
+        expect(confirmSpy).toHaveBeenCalledWith(
+          'Remove this message from the queue?'
+        );
         expect(mockOnRemove).toHaveBeenCalledWith('1');
       }
       confirmSpy.mockRestore();
@@ -157,7 +174,9 @@ describe('MessageQueuePanel', () => {
 
       // Find and click the delete button (X icon button)
       const deleteButtons = screen.getAllByRole('button');
-      const deleteButton = deleteButtons.find(btn => btn.querySelector('svg.lucide-x'));
+      const deleteButton = deleteButtons.find((btn) =>
+        btn.querySelector('svg.lucide-x')
+      );
       if (deleteButton) {
         fireEvent.click(deleteButton);
         expect(confirmSpy).toHaveBeenCalled();
@@ -179,9 +198,10 @@ describe('MessageQueuePanel', () => {
       // Find move down buttons (ChevronRight rotated 90 degrees)
       const buttons = screen.getAllByRole('button');
       // The first move-down button should be for the first item
-      const moveDownButton = buttons.find(btn =>
-        btn.querySelector('svg.lucide-chevron-right.rotate-90') &&
-        !btn.hasAttribute('disabled')
+      const moveDownButton = buttons.find(
+        (btn) =>
+          btn.querySelector('svg.lucide-chevron-right.rotate-90') &&
+          !btn.hasAttribute('disabled')
       );
 
       if (moveDownButton) {
@@ -195,7 +215,7 @@ describe('MessageQueuePanel', () => {
 
       const buttons = screen.getAllByRole('button');
       // First move-up button should be disabled
-      const moveUpButtons = buttons.filter(btn =>
+      const moveUpButtons = buttons.filter((btn) =>
         btn.querySelector('svg.lucide-chevron-right.-rotate-90')
       );
 
@@ -209,7 +229,7 @@ describe('MessageQueuePanel', () => {
 
       const buttons = screen.getAllByRole('button');
       // Last move-down button should be disabled
-      const moveDownButtons = buttons.filter(btn =>
+      const moveDownButtons = buttons.filter((btn) =>
         btn.querySelector('svg.lucide-chevron-right.rotate-90')
       );
 
@@ -274,7 +294,13 @@ describe('MessageQueuePanel', () => {
 
     it('stays in edit mode when save fails', async () => {
       const failingUpdate = vi.fn().mockRejectedValue(new Error('Save failed'));
-      render(<MessageQueuePanel {...defaultProps} queue={messages} onUpdate={failingUpdate} />);
+      render(
+        <MessageQueuePanel
+          {...defaultProps}
+          queue={messages}
+          onUpdate={failingUpdate}
+        />
+      );
 
       // Enter edit mode
       const messageContent = screen.getByText('Original message');
@@ -298,7 +324,13 @@ describe('MessageQueuePanel', () => {
 
     it('clears error when cancel clicked after error', async () => {
       const failingUpdate = vi.fn().mockRejectedValue(new Error('Save failed'));
-      render(<MessageQueuePanel {...defaultProps} queue={messages} onUpdate={failingUpdate} />);
+      render(
+        <MessageQueuePanel
+          {...defaultProps}
+          queue={messages}
+          onUpdate={failingUpdate}
+        />
+      );
 
       // Enter edit mode and trigger error
       const messageContent = screen.getByText('Original message');
@@ -319,7 +351,9 @@ describe('MessageQueuePanel', () => {
       fireEvent.click(cancelButton);
 
       // Error should be cleared and should exit edit mode
-      expect(screen.queryByText('Failed to save changes')).not.toBeInTheDocument();
+      expect(
+        screen.queryByText('Failed to save changes')
+      ).not.toBeInTheDocument();
       expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     });
   });

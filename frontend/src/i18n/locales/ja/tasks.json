@@ -206,7 +206,12 @@
     "saveError": "変更の保存に失敗しました",
     "confirmRemove": "このメッセージをキューから削除しますか？",
     "removeError": "メッセージの削除に失敗しました",
-    "injectingMessage": "メッセージを送信中..."
+    "injectingMessage": "メッセージを送信中...",
+    "badgeLabel": "{{count}}件のメッセージがキューにあります",
+    "badgeText": "メッセージ",
+    "moveUp": "メッセージを上に移動",
+    "moveDown": "メッセージを下に移動",
+    "remove": "メッセージを削除"
   },
   "git": {
     "branch": {
