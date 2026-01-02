@@ -95,6 +95,10 @@ remote-frontend/dist
 
 # Worktree progress tracking (branch-specific, not carried forward)
 .vk_progress.md
+vks-progress.md
+
+# Development initialization script (branch-specific)
+init.sh
 
 # Playwright MCP screenshots and development artifacts
 .playwright-mcp/
