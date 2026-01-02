@@ -1,20 +1,15 @@
--- Drop is_remote column from tasks table (SAFE VERSION)
+-- Drop is_remote column from tasks table
 --
 -- SQLite requires table recreation to drop columns.
 -- This migration is part of the legacy task sync cleanup.
 --
--- CRITICAL: Uses PRAGMA foreign_keys = OFF to prevent CASCADE deletes.
--- The original version of this migration (without this pragma) caused data loss
--- by accidentally triggering ON DELETE CASCADE on task_attempts.task_id when
--- the tasks table was dropped.
+-- NOTE: Foreign key enforcement is disabled at the connection level in Rust code
+-- (see run_migrations_with_fk_disabled) before migrations run. This prevents
+-- CASCADE deletes when DROP TABLE is executed.
 --
--- This safe version:
--- 1. Disables foreign key enforcement before table recreation
--- 2. Recreates the table without is_remote column
--- 3. Re-enables foreign key enforcement after
-
--- Step 0: Disable foreign keys to prevent CASCADE deletes during table swap
-PRAGMA foreign_keys = OFF;
+-- PRAGMA foreign_keys = OFF/ON cannot be used here because SQLite does not allow
+-- changing the foreign_keys pragma inside a transaction, and SQLx wraps migrations
+-- in transactions.
 
 -- Step 1: Create new tasks table without is_remote
 CREATE TABLE IF NOT EXISTS tasks_new (
@@ -55,7 +50,7 @@ SELECT
     remote_stream_node_id, remote_stream_url, archived_at, activity_at
 FROM tasks;
 
--- Step 3: Drop old table (safe now because foreign_keys = OFF)
+-- Step 3: Drop old table (safe because FK enforcement is disabled at connection level)
 DROP TABLE IF EXISTS tasks;
 
 -- Step 4: Rename new table
@@ -72,6 +67,3 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_shared_task_id ON tasks(shared_task_
 -- Recreate activity_at composite indexes
 CREATE INDEX IF NOT EXISTS idx_tasks_activity_at_created_at ON tasks(COALESCE(activity_at, created_at) DESC);
 CREATE INDEX IF NOT EXISTS idx_tasks_project_activity ON tasks(project_id, COALESCE(activity_at, created_at) DESC);
-
--- Step 6: Re-enable foreign keys
-PRAGMA foreign_keys = ON;

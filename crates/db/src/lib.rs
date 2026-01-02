@@ -241,7 +241,10 @@ impl DBService {
             warn!(error = ?e, "Failed to cleanup old backups");
         }
 
-        sqlx::migrate!("./migrations").run(&pool).await?;
+        // Run migrations with foreign keys disabled to prevent CASCADE deletes during table recreation.
+        // IMPORTANT: PRAGMA foreign_keys cannot be changed inside a transaction, and SQLx wraps
+        // migrations in transactions. We use a dedicated connection with FK off for migrations.
+        run_migrations_with_fk_disabled(&database_url).await?;
 
         let metrics = DbMetrics::new();
         Ok(DBService { pool, metrics })
@@ -335,7 +338,47 @@ impl DBService {
             warn!(error = ?e, "Failed to cleanup old backups");
         }
 
-        sqlx::migrate!("./migrations").run(&pool).await?;
+        // Run migrations with foreign keys disabled to prevent CASCADE deletes during table recreation.
+        run_migrations_with_fk_disabled(&database_url).await?;
+
         Ok(pool)
     }
+}
+
+/// Run migrations with foreign keys disabled.
+///
+/// SQLite's PRAGMA foreign_keys cannot be changed inside a transaction, and SQLx wraps
+/// migrations in transactions. To prevent CASCADE deletes during table recreation migrations,
+/// we must disable foreign keys at the connection level BEFORE running migrations.
+///
+/// This function:
+/// 1. Creates a single-connection pool with FK disabled via after_connect
+/// 2. Runs all pending migrations
+/// 3. Pool is dropped after migrations complete
+async fn run_migrations_with_fk_disabled(database_url: &str) -> Result<(), Error> {
+    let options = SqliteConnectOptions::from_str(database_url)?
+        .create_if_missing(true)
+        .journal_mode(SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal)
+        .busy_timeout(Duration::from_secs(DEFAULT_ACQUIRE_TIMEOUT_SECS));
+
+    // Create a single-connection pool with FK disabled for migrations
+    let migration_pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .min_connections(1)
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                // Disable foreign keys for this connection
+                conn.execute("PRAGMA foreign_keys = OFF").await?;
+                Ok(())
+            })
+        })
+        .connect_with(options)
+        .await?;
+
+    // Run migrations with FK disabled
+    sqlx::migrate!("./migrations").run(&migration_pool).await?;
+
+    // Pool is dropped here, connection closed
+    Ok(())
 }
