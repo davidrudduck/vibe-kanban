@@ -44,7 +44,6 @@ import { useDefaultVariant } from '@/hooks/follow-up/useDefaultVariant';
 import { buildResolveConflictsInstructions } from '@/lib/conflicts';
 import { insertImageMarkdownAtPosition } from '@/utils/markdownImages';
 import { useTranslation } from 'react-i18next';
-import { MessageQueuePanel } from '@/components/tasks/message-queue';
 
 interface TaskFollowUpSectionProps {
   task: TaskWithAttemptStatus;
@@ -74,18 +73,11 @@ export function TaskFollowUpSection({
     return processes.find((p) => p.status === 'running')?.id;
   }, [processes]);
 
-  // Message queue for queuing multiple messages (with live injection support)
+  // Message queue for adding messages with live injection support
+  // Note: Queue UI is now in MobileConversationLayout via MessageQueueBadge
   const {
-    queue: messageQueue,
-    isLoading: isMessageQueueLoading,
     addAndInject,
-    updateMessage: updateQueuedMessage,
-    removeMessage: removeFromQueue,
-    reorderMessages: reorderQueue,
-    clearQueue,
     isAdding: isAddingToQueue,
-    isRemoving: isRemovingFromQueue,
-    isClearing: isClearingQueue,
     isInjecting,
   } = useMessageQueueInjection(selectedAttemptId, runningProcessId);
   const { comments, generateReviewMarkdown, clearComments } = useReview();
@@ -540,22 +532,6 @@ export function TaskFollowUpSection({
                   onFixed={invalidateSessionError}
                 />
               )}
-
-              {/* Message Queue Panel */}
-              <MessageQueuePanel
-                queue={messageQueue}
-                isLoading={isMessageQueueLoading}
-                onUpdate={async (messageId, content) => {
-                  await updateQueuedMessage(messageId, content);
-                }}
-                onRemove={removeFromQueue}
-                onReorder={async (ids) => {
-                  await reorderQueue(ids);
-                }}
-                onClear={clearQueue}
-                isRemoving={isRemovingFromQueue}
-                isClearing={isClearingQueue}
-              />
 
               <div className="flex flex-col gap-2">
                 <FollowUpEditorCard
