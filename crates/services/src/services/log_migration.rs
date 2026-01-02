@@ -118,13 +118,26 @@ pub async fn fetch_legacy_logs(
     .fetch_all(pool)
     .await?;
 
-    let records = rows
+    let records: Vec<LegacyLogRecord> = rows
         .iter()
-        .map(|row| LegacyLogRecord {
-            execution_id: row.get::<Uuid, _>("execution_id"),
-            logs: row.get::<String, _>("logs"),
-            byte_size: row.get::<i64, _>("byte_size"),
-            inserted_at: row.get::<DateTime<Utc>, _>("inserted_at"),
+        .filter_map(|row| {
+            let execution_id: Uuid = row.get("execution_id");
+            match row.try_get::<DateTime<Utc>, _>("inserted_at") {
+                Ok(inserted_at) => Some(LegacyLogRecord {
+                    execution_id,
+                    logs: row.get("logs"),
+                    byte_size: row.get("byte_size"),
+                    inserted_at,
+                }),
+                Err(e) => {
+                    warn!(
+                        execution_id = %execution_id,
+                        error = %e,
+                        "Skipping row with invalid inserted_at timestamp"
+                    );
+                    None
+                }
+            }
         })
         .collect();
 
