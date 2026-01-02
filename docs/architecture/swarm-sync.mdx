@@ -162,11 +162,14 @@ ALTER TABLE projects ADD COLUMN swarm_project_id TEXT;
 Extended with swarm linking and sync tracking:
 
 ```sql
-ALTER TABLE tasks ADD COLUMN swarm_task_id TEXT;
-ALTER TABLE tasks ADD COLUMN swarm_version INTEGER DEFAULT 1;
-ALTER TABLE tasks ADD COLUMN swarm_synced_at TEXT;
--- NULL swarm_task_id = local task
+ALTER TABLE tasks ADD COLUMN shared_task_id TEXT;
+-- NULL shared_task_id = local task, UUID = linked to hive task
+-- ElectricSQL syncs tasks directly to this table via shared_task_id
 ```
+
+> **Note**: The legacy `shared_tasks` cache table has been removed. ElectricSQL now syncs
+> tasks directly to the `tasks` table using the `shared_task_id` foreign key for
+> upsert conflict resolution.
 
 ### labels
 
@@ -468,6 +471,32 @@ These operations are blocked until reconnection:
 - All incoming data validated against schema
 - UUIDs verified to exist and be accessible
 - Version numbers prevent replay attacks
+
+## Migration Notes (v0.0.125+)
+
+### Legacy Fields Removed
+
+The following legacy fields have been removed as part of the ElectricSQL migration:
+
+| Table | Field Removed | Reason |
+|-------|--------------|--------|
+| `tasks` | `is_remote` | Task origin no longer matters; execution location is tracked via attempts |
+| - | `shared_tasks` table | ElectricSQL syncs tasks directly to `tasks` table |
+
+### ElectricSQL Task Sync
+
+Tasks are now synced via ElectricSQL instead of WebSocket polling:
+
+1. **Hive → Node**: ElectricSQL shapes push task changes in real-time
+2. **Node → Hive**: Task create/update messages sent via WebSocket
+3. **Conflict Resolution**: `shared_task_id` column used for upsert on sync
+
+### git_repo_path Constraint Handling
+
+The `projects.git_repo_path` column has a UNIQUE constraint. When syncing remote
+projects from nodes, if a local project already exists with the same path, the
+remote project sync is skipped to avoid constraint violations. This commonly
+occurs when the same repository is checked out on multiple machines.
 
 ## Related Documentation
 
