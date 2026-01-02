@@ -40,8 +40,9 @@ export const AttemptHeaderActions = ({
     enabled: Boolean(attempt),
   });
 
-  // Only show connection badge for remote tasks (not local)
-  const showConnectionBadge = task?.is_remote && connectionStatus !== 'local';
+  // Only show connection badge for tasks linked to the Hive (with shared_task_id)
+  const showConnectionBadge =
+    Boolean(task?.shared_task_id) && connectionStatus !== 'local';
 
   return (
     <>

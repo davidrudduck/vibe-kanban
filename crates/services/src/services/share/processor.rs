@@ -201,7 +201,7 @@ impl ActivityProcessor {
                 // Use mutually exclusive sync paths based on project type to avoid duplicates
                 if let Some(ref project) = project {
                     if project.is_remote {
-                        // Remote projects: use upsert_remote_task (creates with is_remote=1)
+                        // Remote projects: use upsert_remote_task for synced task data
                         let assignee_name = user
                             .as_ref()
                             .map(|u| match (&u.first_name, &u.last_name) {
@@ -229,7 +229,7 @@ impl ActivityProcessor {
                         )
                         .await?;
                     } else {
-                        // Local projects: use sync_local_task_for_shared_task (creates with is_remote=0)
+                        // Local projects: use sync_local_task_for_shared_task
                         sync_local_task_for_shared_task(
                             tx.as_mut(),
                             &shared_task,
@@ -384,7 +384,7 @@ impl ActivityProcessor {
             // Use mutually exclusive sync paths based on project type to avoid duplicates
             if let Some(ref proj) = project {
                 if proj.is_remote {
-                    // Remote projects: use upsert_remote_task (creates with is_remote=1)
+                    // Remote projects: use upsert_remote_task for synced task data
                     let assignee_name = match (&remote_user_first_name, &remote_user_last_name) {
                         (Some(f), Some(l)) => Some(format!("{} {}", f, l)),
                         (Some(f), None) => Some(f.clone()),
@@ -409,7 +409,7 @@ impl ActivityProcessor {
                     )
                     .await?;
                 } else {
-                    // Local projects: use sync_local_task_for_shared_task (creates with is_remote=0)
+                    // Local projects: use sync_local_task_for_shared_task
                     sync_local_task_for_shared_task(
                         tx.as_mut(),
                         &shared_task,

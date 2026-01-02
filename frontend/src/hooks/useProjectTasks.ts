@@ -264,7 +264,7 @@ export const useProjectTasks = (
 
     // Build a set of shared_task_ids that are already represented in local tasks
     // This ensures we don't show duplicates when a task exists in both
-    // the local tasks table (with is_remote=true) AND the shared_tasks table
+    // the local tasks table AND the shared_tasks table
     const referencedSharedIds = new Set(
       Object.values(localTasksById)
         .map((task) => task.shared_task_id)

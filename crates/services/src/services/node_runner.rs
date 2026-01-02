@@ -793,9 +793,9 @@ async fn sync_remote_project_tasks(
         Task::delete_by_shared_task_id(pool, deleted_id).await?;
     }
 
-    // Clean up stale remote tasks for this project
+    // Clean up stale shared tasks for this project
     if !active_task_ids.is_empty() {
-        Task::delete_stale_remote_tasks(pool, local_project_id, &active_task_ids).await?;
+        Task::delete_stale_shared_tasks(pool, local_project_id, &active_task_ids).await?;
     }
 
     Ok(())

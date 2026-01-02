@@ -66,7 +66,6 @@ async fn setup_db() -> (SqlitePool, TempDir) {
                                         CHECK (status IN ('todo','inprogress','done','cancelled','inreview')),
             parent_task_id              BLOB REFERENCES tasks(id) ON DELETE SET NULL,
             shared_task_id              BLOB,
-            is_remote                   INTEGER NOT NULL DEFAULT 0,
             remote_assignee_user_id     BLOB,
             remote_assignee_name        TEXT,
             remote_assignee_username    TEXT,
@@ -409,7 +408,6 @@ async fn test_apply_insert_creates_task() {
 
     assert_eq!(task.title, "New Task");
     assert_eq!(task.shared_task_id, Some(shared_task_id));
-    assert!(task.is_remote);
 }
 
 #[tokio::test]

@@ -183,13 +183,10 @@ export function TaskCard({
     updateTaskArchivedOptimistically,
   ]);
 
-  // Get status strip color - remote tasks use purple, shared tasks use their own color
-  const statusStripClass = task.is_remote
-    ? 'before:bg-purple-400'
-    : sharedTask
-      ? 'before:bg-card-foreground'
-      : statusStripColors[task.status as TaskStatus] ||
-        statusStripColors['todo'];
+  // Get status strip color - shared tasks use their own color, otherwise use status
+  const statusStripClass = sharedTask
+    ? 'before:bg-card-foreground'
+    : statusStripColors[task.status as TaskStatus] || statusStripColors['todo'];
 
   // Truncated description for compact view
   const truncatedDesc = truncateDescription(task.description, 40);
@@ -224,7 +221,7 @@ export function TaskCard({
                   ownerName,
                   nodeName: shortNodeName,
                 }
-              : task.is_remote && task.remote_assignee_name
+              : task.remote_assignee_name
                 ? {
                     firstName:
                       task.remote_assignee_name.split(' ')[0] ?? undefined,

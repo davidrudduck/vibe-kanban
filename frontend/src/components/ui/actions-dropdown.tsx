@@ -141,7 +141,6 @@ export function ActionsDropdown({
   const hasAttemptActions = Boolean(attempt);
   const hasTaskActions = Boolean(task);
   const isShared = Boolean(sharedTask);
-  const isRemote = Boolean(task?.is_remote);
 
   // Check if this task uses a shared worktree (prevents subtask creation)
   const { usesSharedWorktree } = useTaskUsesSharedWorktree(task?.id);
@@ -330,8 +329,8 @@ export function ActionsDropdown({
   // - Assignee of the shared task
   // - Assignee of the remote task
   // - Org admin
-  // - For local tasks without shared/remote info, anyone can edit (preserve current behavior)
-  const isLocalOnlyTask = !isShared && !isRemote;
+  // - For local tasks without shared info, anyone can edit (preserve current behavior)
+  const isLocalOnlyTask = !isShared;
   const canModifyTask =
     isLocalOnlyTask || isAssignee || isRemoteAssignee || isOrgAdmin;
 
