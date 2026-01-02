@@ -1,13 +1,23 @@
 # Message Queue UX Improvements Progress
 
 ## 📊 Current Status
-Progress: 3/6 sessions complete
-Current Session: #4 - Remove old MessageQueuePanel from TaskFollowUpSection
+Progress: 4/6 sessions complete
+Current Session: #5 - Full testing & regression check
 
 ## 🎯 Known Issues & Blockers
 - None
 
 ## 📝 Recent Sessions
+
+### Session 4 (2026-01-02) - Remove old MessageQueuePanel from TaskFollowUpSection
+**Completed:** Session 4 - Remove obstructive inline panel
+**Key Changes:**
+- Removed `MessageQueuePanel` JSX from `TaskFollowUpSection.tsx`
+- Removed unused import for `MessageQueuePanel`
+- Cleaned up hook destructuring (only keep `addAndInject`, `isAddingToQueue`, `isInjecting`)
+- Message queue UI now fully handled by `MessageQueueBadge` in toolbar
+- Browser verified: Toolbar shows "Queue (0)" and "Messages (0)" badges correctly
+**Git Commits:** 9f85b615a
 
 ### Session 3 (2026-01-02) - Auto-remove messages after successful injection
 **Completed:** Session 3 - Auto-remove on injection
@@ -40,20 +50,12 @@ Current Session: #4 - Remove old MessageQueuePanel from TaskFollowUpSection
 - TypeScript and ESLint pass (no errors in new code)
 **Git Commits:** 95f956f5b
 
-### Session 0 (2026-01-02) - Initialize development environment
-**Completed:** Environment setup
-**Key Changes:**
-- Set up port configuration (FRONTEND: 4000, BACKEND: 4001, MCP: 4002)
-- Created init.sh script
-- Created .env.testing configuration
-**Git Commits:** 55a134885
-
 ---
 
 ## Session Plan Overview
 1. ✅ **Session 1**: Create MessageQueueBadge component
 2. ✅ **Session 2**: Extend mobile toolbar to all screen sizes
 3. ✅ **Session 3**: Show injected messages in conversation + auto-remove
-4. ⏳ **Session 4**: Remove old MessageQueuePanel from TaskFollowUpSection
-5. ⬜ **Session 5**: Full testing & regression check
+4. ✅ **Session 4**: Remove old MessageQueuePanel from TaskFollowUpSection
+5. ⏳ **Session 5**: Full testing & regression check
 6. ⬜ **Session 6**: Documentation update
