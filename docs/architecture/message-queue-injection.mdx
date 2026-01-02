@@ -1,0 +1,287 @@
+---
+title: "Message Queue Injection"
+description: "Technical architecture for live message injection and auto-removal"
+sidebarTitle: "Message Injection"
+---
+
+## Overview
+
+The message queue injection system enables real-time communication with running AI coding agents. When a user adds a message, it is:
+
+1. Added to the backend queue (for persistence and retry)
+2. Immediately injected into the running process via stdin
+3. Automatically removed from the queue if injection succeeds
+
+This document describes the technical implementation.
+
+## Data Flow
+
+```text
+User adds message
+       │
+       ▼
+┌─────────────────────────┐
+│  useMessageQueueInjection │  Hook: addAndInject()
+│  (addMessage + inject)   │
+└──────────┬──────────────┘
+           │
+           ▼
+┌─────────────────────────┐
+│  messageQueueApi.add()   │  POST /api/task-attempts/{id}/message-queue
+└──────────┬──────────────┘
+           │
+           ▼
+┌─────────────────────────┐
+│  executionProcessesApi   │  POST /api/execution-processes/{id}/inject-message
+│  .injectMessage()        │
+└──────────┬──────────────┘
+           │
+           ▼
+┌─────────────────────────┐
+│  container.rs            │  inject_message() -> get_protocol_peer()
+│  inject_message()        │
+└──────────┬──────────────┘
+           │
+           ▼
+┌─────────────────────────┐
+│  ProtocolPeer            │  send_user_message() writes to stdin
+│  send_user_message()     │
+└──────────┬──────────────┘
+           │
+           ▼
+┌─────────────────────────┐
+│  Claude Code Process     │  Receives message via stdin JSON-RPC
+└──────────┬──────────────┘
+           │
+    { injected: true }
+           │
+           ▼
+┌─────────────────────────┐
+│  useMessageQueueInjection │  Calls removeMessage(message.id)
+│  (auto-remove)           │
+└─────────────────────────┘
+```
+
+## Key Components
+
+### Frontend
+
+| File | Purpose |
+|------|---------|
+| `frontend/src/hooks/message-queue/useMessageQueueInjection.ts` | Main hook combining queue + injection |
+| `frontend/src/hooks/message-queue/useMessageQueue.ts` | Queue CRUD operations |
+| `frontend/src/components/tasks/message-queue/MessageQueueBadge.tsx` | Toolbar badge UI |
+
+### Backend
+
+| File | Purpose |
+|------|---------|
+| `crates/server/src/routes/execution_processes.rs:214` | `inject_message()` route handler |
+| `crates/local-deployment/src/container.rs:1542` | `inject_message()` implementation |
+| `crates/executors/src/executors/claude/protocol.rs` | `ProtocolPeer` stdin management |
+
+## API Endpoints
+
+### POST `/api/task-attempts/{id}/message-queue`
+
+Add a message to the queue.
+
+**Request:**
+```json
+{
+  "content": "Please also add input validation",
+  "variant": null
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "content": "Please also add input validation",
+    "variant": null,
+    "position": 0
+  }
+}
+```
+
+### DELETE `/api/task-attempts/{id}/message-queue/{msgId}`
+
+Remove a message from the queue.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": null
+}
+```
+
+### POST `/api/execution-processes/{id}/inject-message`
+
+Inject a message into a running process.
+
+**Request:**
+```json
+{
+  "content": "Please also add input validation"
+}
+```
+
+**Response (success):**
+```json
+{
+  "success": true,
+  "data": {
+    "injected": true
+  }
+}
+```
+
+**Response (process not accepting input):**
+```json
+{
+  "success": true,
+  "data": {
+    "injected": false
+  }
+}
+```
+
+**Response (process not running):**
+```json
+{
+  "success": false,
+  "message": "Cannot inject message: process is not running (status: Completed)"
+}
+```
+
+## Injection Mechanics
+
+### Protocol Peer
+
+Each running Claude Code process has an associated `ProtocolPeer` that manages bidirectional communication:
+
+```rust
+// crates/local-deployment/src/container.rs
+async fn inject_message(
+    &self,
+    execution_process_id: Uuid,
+    message: String,
+) -> Result<bool, ContainerError> {
+    if let Some(peer) = self.get_protocol_peer(&execution_process_id).await {
+        peer.send_user_message(message).await?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+```
+
+The peer lookup uses a concurrent `DashMap` keyed by `execution_process_id`.
+
+### Message Format
+
+Messages are sent to Claude Code via JSON-RPC format on stdin:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "send_user_message",
+  "params": {
+    "content": "Please also add input validation"
+  }
+}
+```
+
+## Auto-Remove Logic
+
+The `useMessageQueueInjection` hook handles automatic removal:
+
+```typescript
+const addAndInject = async (content, variant) => {
+  // 1. Add to queue first (persistence)
+  const message = await addMessage(content, variant);
+
+  if (runningProcessId) {
+    try {
+      // 2. Inject into running process
+      const result = await executionProcessesApi.injectMessage(
+        runningProcessId,
+        content
+      );
+
+      if (result.injected) {
+        // 3. Remove from queue on success
+        await removeMessage(message.id);
+        return { queued: false, injected: true };
+      }
+    } catch (error) {
+      // Keep in queue on error
+      return { queued: true, injected: false };
+    }
+  }
+
+  return { queued: true, injected: false };
+};
+```
+
+### Return Values
+
+| Scenario | `queued` | `injected` |
+|----------|----------|------------|
+| No running process | `true` | `false` |
+| Injection succeeded | `false` | `true` |
+| Injection failed | `true` | `false` |
+| Network error | `true` | `false` |
+
+## Error Handling
+
+### Frontend
+
+- Injection errors are logged but not thrown
+- Message remains in queue for retry
+- `lastInjectionError` state available for UI feedback
+
+### Backend
+
+- Process status checked before injection attempt
+- Returns 400 Bad Request if process not running
+- Returns `{ injected: false }` if no protocol peer found
+
+## Toolbar Badge UI
+
+The `MessageQueueBadge` component displays in the toolbar:
+
+```tsx
+<Popover>
+  <PopoverTrigger>
+    <Button>
+      <MessageSquareDashed />
+      <span className="hidden sm:inline">Messages</span>
+      <span>({queue.length})</span>
+    </Button>
+  </PopoverTrigger>
+  <PopoverContent>
+    {/* Queue items with edit/remove/reorder controls */}
+  </PopoverContent>
+</Popover>
+```
+
+### Responsive Behavior
+
+| Breakpoint | Display |
+|------------|---------|
+| `< sm` (640px) | Icon + count only |
+| `>= sm` | Icon + "Messages" label + count |
+
+### Touch Targets
+
+All interactive elements meet 44px minimum touch target for mobile accessibility.
+
+## Related Documentation
+
+- [Executor Architecture](/architecture/executors) - How AI agent processes are managed
+- [Message Queue User Guide](/core-features/message-queue) - End-user documentation

@@ -1,17 +1,38 @@
 ---
 title: "Message Queue"
-description: "Queue and inject follow-up messages to running agents with live injection support"
+description: "Queue and inject follow-up messages to running agents with live injection and auto-removal"
 sidebarTitle: "Message Queue"
 ---
 
-Send follow-up messages to running agents instantly, or queue them for later. Messages can be injected into running processes immediately or queued to execute automatically after completion.
+Send follow-up messages to running agents instantly, or queue them for later. Messages are injected into running processes immediately and **automatically removed** when successfully delivered.
 
 ## Overview
 
 The message queue allows you to:
 - **Inject messages into running agents** - Send instructions immediately without waiting
-- **Queue messages for automatic execution** - Plan multi-step workflows in advance
-- **Manage pending messages** - Edit, reorder, or remove queued messages
+- **Auto-remove after delivery** - Successfully injected messages are removed from the queue
+- **Queue for failed injections** - If injection fails, messages stay queued for retry
+- **Manage pending messages** - Edit, reorder, or remove queued messages via the toolbar badge
+
+## The Message Queue Badge
+
+The message queue is accessed via a compact badge in the toolbar above the input area:
+
+```text
+◉ Queue (2)    ✉ Messages (3)                    Task Info
+```
+
+| Element | Description |
+|---------|-------------|
+| Queue badge | Shows todos count (left) |
+| **Messages badge** | Shows queued messages count (middle) |
+| Task Info | Opens task description (right) |
+
+Click the **Messages** badge to open a popover with your queued messages.
+
+<Tip>
+The badge always displays (even with 0 messages) so the toolbar layout is consistent. On mobile, only icons are shown to save space.
+</Tip>
 
 ## Adding Messages
 
@@ -19,29 +40,31 @@ While an agent is executing:
 
 1. Type your follow-up message in the input field
 2. Click **Add to Queue**
-3. The message is added to the queue AND injected into the running process
+3. The message is injected AND automatically removed if successful
 
-<Frame>
-<img src="/images/vk-message-queue.png" alt="Message queue panel showing queued messages with reorder controls" />
-</Frame>
-
-### Live Injection
+### Live Injection + Auto-Remove
 
 When you add a message while an agent is actively running:
 
 1. The message is immediately sent to the agent's stdin
 2. The agent receives and processes your message in real-time
-3. The message also stays in the queue as a backup
+3. **On success**: The message is automatically removed from the queue
+4. **On failure**: The message stays in the queue for retry
 
 <Tip>
-Live injection means you don't have to wait for the agent to finish before giving additional instructions. Send corrections, clarifications, or new directions while the agent is working.
+No need to manually clear injected messages! Successfully delivered messages are removed automatically, keeping your queue clean and focused on pending work.
 </Tip>
 
-If injection fails (e.g., the process ended), the message remains in the queue and will be sent when execution resumes.
+### Failure Handling
 
-## Queue Panel
+If injection fails (e.g., the process ended or isn't accepting input):
+- The message remains in the queue
+- It will be sent when execution resumes
+- You'll see the queue count stay the same
 
-The queue panel shows all pending messages with controls:
+## Queue Popover
+
+Click the Messages badge to open the queue popover with controls:
 
 | Action | Description |
 |--------|-------------|
@@ -78,15 +101,17 @@ This enables "fire and forget" workflows where you can plan several steps ahead 
 
 ## How It Works Technically
 
-The message queue uses a two-part approach:
+The message queue uses a three-part approach:
 
 1. **Queue Storage**: Messages are stored in an in-memory queue on the backend, ordered by position
 2. **Live Injection**: When a process is running, messages are sent directly to the agent's stdin using the Claude Code protocol
+3. **Auto-Removal**: When injection succeeds (`result.injected === true`), the message is automatically removed from the queue
 
 This means:
 - Messages persist across page refreshes (until server restart)
 - Injection happens instantly without waiting for completion
-- Failed injections don't lose your message - it stays queued
+- Successful injections automatically clean up the queue
+- Failed injections keep your message queued for retry
 
 ## Variants
 
@@ -128,7 +153,8 @@ As you review agent output, queue follow-ups:
 1. Agent is working on implementation
 2. You spot potential issues while reviewing
 3. Queue "Also add input validation for email format"
-4. The message is injected immediately if running, or queued for later
+4. The message is injected immediately and **removed from the queue** if successful
+5. If injection fails, check the Messages badge - the count will reflect the queued message
 
 ### Combine with Agent Profiles
 
@@ -137,6 +163,22 @@ Use variants strategically:
 1. Queue planning message with PLAN variant
 2. Queue implementation with DEFAULT variant
 3. Queue review request with PLAN variant
+
+## Responsive Design
+
+The message queue toolbar adapts to different screen sizes:
+
+| Screen Size | Toolbar Display |
+|-------------|-----------------|
+| Mobile (< 640px) | Icons only with count badges |
+| Tablet/Desktop (≥ 640px) | Icons + labels + counts |
+
+The popover also adapts:
+- **Mobile**: Narrower width (288px)
+- **Tablet**: Medium width (320px)
+- **Desktop**: Full width (384px)
+
+Touch targets are optimized with minimum 44px tap areas for mobile users.
 
 ## Related Documentation
 
