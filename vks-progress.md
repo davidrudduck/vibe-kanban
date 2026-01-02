@@ -1,13 +1,29 @@
 # Message Queue UX Improvements Progress
 
 ## 📊 Current Status
-Progress: 4/6 sessions complete
-Current Session: #5 - Full testing & regression check
+Progress: 5/6 sessions complete
+Current Session: #6 - Documentation update
 
 ## 🎯 Known Issues & Blockers
 - None
 
 ## 📝 Recent Sessions
+
+### Session 5 (2026-01-02) - Full Testing & Regression Check
+**Completed:** Session 5 - Full testing & regression check
+**Key Changes:**
+- Rebased on origin/main successfully
+- Frontend validation: lint (passed with pre-existing warnings), format (fixed), TypeScript (passed), tests (passed in isolation)
+- Backend validation: cargo fmt (passed), clippy (passed), cargo test (passed with --test-threads=1)
+- Browser verification on port 4000 (dev instance):
+  - Desktop: TodosBadge "(5)" and MessageQueueBadge "(0)" visible in toolbar
+  - Mobile (375x812): Same toolbar layout works correctly
+  - Popover opens on badge click showing "Message Queue (0)" with empty state message
+  - Task Info button right-justified as expected
+- All Session 1-4 features verified working correctly
+**Notes:**
+- Some test failures are pre-existing on main branch (SettingsMobile, race condition in cargo test)
+- Frontend lint has 3 pre-existing warnings in files not changed by this branch
 
 ### Session 4 (2026-01-02) - Remove old MessageQueuePanel from TaskFollowUpSection
 **Completed:** Session 4 - Remove obstructive inline panel
@@ -57,5 +73,5 @@ Current Session: #5 - Full testing & regression check
 2. ✅ **Session 2**: Extend mobile toolbar to all screen sizes
 3. ✅ **Session 3**: Show injected messages in conversation + auto-remove
 4. ✅ **Session 4**: Remove old MessageQueuePanel from TaskFollowUpSection
-5. ⏳ **Session 5**: Full testing & regression check
-6. ⬜ **Session 6**: Documentation update
+5. ✅ **Session 5**: Full testing & regression check
+6. ⏳ **Session 6**: Documentation update
