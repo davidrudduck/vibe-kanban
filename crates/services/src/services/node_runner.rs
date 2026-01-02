@@ -406,6 +406,17 @@ impl NodeRunnerHandle {
                 }
                 // Note: DB update happens in run_node_runner where we have access to the pool
             }
+            HiveEvent::LabelSync(label_sync) => {
+                tracing::info!(
+                    shared_label_id = %label_sync.shared_label_id,
+                    origin_node_id = %label_sync.origin_node_id,
+                    name = %label_sync.name,
+                    is_deleted = label_sync.is_deleted,
+                    "label sync received from another node"
+                );
+                // Note: DB update for label sync should happen in run_node_runner
+                // where we have access to the pool, or in a dedicated label sync handler
+            }
         }
 
         Some(event)
