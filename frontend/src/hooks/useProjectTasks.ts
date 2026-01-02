@@ -5,36 +5,16 @@ import {
   useRegisterStatusCallback,
   useRegisterArchivedCallback,
 } from '@/contexts/TaskOptimisticContext';
-import type {
-  SharedTask,
-  TaskStatus,
-  TaskWithAttemptStatus,
-} from 'shared/types';
-
-export type SharedTaskRecord = Omit<
-  SharedTask,
-  'version' | 'last_event_seq'
-> & {
-  version: number;
-  last_event_seq: number | null;
-  created_at: string | Date;
-  updated_at: string | Date;
-  assignee_first_name?: string | null;
-  assignee_last_name?: string | null;
-  assignee_username?: string | null;
-};
+import type { TaskStatus, TaskWithAttemptStatus } from 'shared/types';
 
 type TasksState = {
   tasks: Record<string, TaskWithAttemptStatus>;
-  shared_tasks: Record<string, SharedTaskRecord>;
 };
 
 export interface UseProjectTasksResult {
   tasks: TaskWithAttemptStatus[];
   tasksById: Record<string, TaskWithAttemptStatus>;
   tasksByStatus: Record<TaskStatus, TaskWithAttemptStatus[]>;
-  sharedTasksById: Record<string, SharedTaskRecord>;
-  sharedOnlyByStatus: Record<TaskStatus, SharedTaskRecord[]>;
   isLoading: boolean;
   isConnected: boolean;
   error: string | null;
@@ -80,10 +60,7 @@ export const useProjectTasks = (
     ? `/api/tasks/stream/ws?project_id=${encodeURIComponent(projectId)}&include_archived=${includeArchived}`
     : undefined;
 
-  const initialData = useCallback(
-    (): TasksState => ({ tasks: {}, shared_tasks: {} }),
-    []
-  );
+  const initialData = useCallback((): TasksState => ({ tasks: {} }), []);
 
   const { data, isConnected, error, patchData } = useJsonPatchWsStream(
     endpoint,
@@ -197,10 +174,6 @@ export const useProjectTasks = (
 
     return merged;
   }, [data?.tasks, optimisticArchivedOverrides]);
-  const sharedTasksById = useMemo(
-    () => data?.shared_tasks ?? {},
-    [data?.shared_tasks]
-  );
 
   const { tasks, tasksById, tasksByStatus } = useMemo(() => {
     const merged: Record<string, TaskWithAttemptStatus> = { ...localTasksById };
@@ -253,72 +226,12 @@ export const useProjectTasks = (
     return { tasks: sorted, tasksById: merged, tasksByStatus: byStatus };
   }, [localTasksById]);
 
-  const sharedOnlyByStatus = useMemo(() => {
-    const grouped: Record<TaskStatus, SharedTaskRecord[]> = {
-      todo: [],
-      inprogress: [],
-      inreview: [],
-      done: [],
-      cancelled: [],
-    };
-
-    // Build a set of shared_task_ids that are already represented in local tasks
-    // This ensures we don't show duplicates when a task exists in both
-    // the local tasks table AND the shared_tasks table
-    const referencedSharedIds = new Set(
-      Object.values(localTasksById)
-        .map((task) => task.shared_task_id)
-        .filter((id): id is string => Boolean(id))
-    );
-
-    Object.values(sharedTasksById).forEach((sharedTask) => {
-      // Skip this shared task if its ID matches a local task's shared_task_id
-      // This properly deduplicates remote tasks that appear in both tables
-      if (referencedSharedIds.has(sharedTask.id)) {
-        return;
-      }
-      grouped[sharedTask.status]?.push(sharedTask);
-    });
-
-    // Helper: get activity time for shared tasks (fallback to created_at)
-    const getSharedActivityTime = (task: SharedTaskRecord) =>
-      new Date(
-        ((task.activity_at ?? task.created_at) as string | Date).toString()
-      ).getTime();
-
-    // Apply same status-aware sorting as local tasks
-    const TASK_STATUSES: TaskStatus[] = [
-      'todo',
-      'inprogress',
-      'inreview',
-      'done',
-      'cancelled',
-    ];
-    TASK_STATUSES.forEach((status) => {
-      if (status === 'todo') {
-        // Todo: oldest first (ascending by activity_at)
-        grouped[status].sort(
-          (a, b) => getSharedActivityTime(a) - getSharedActivityTime(b)
-        );
-      } else {
-        // All others: most recent first (descending by activity_at)
-        grouped[status].sort(
-          (a, b) => getSharedActivityTime(b) - getSharedActivityTime(a)
-        );
-      }
-    });
-
-    return grouped;
-  }, [localTasksById, sharedTasksById]);
-
   const isLoading = !data && !error; // until first snapshot
 
   return {
     tasks,
     tasksById,
     tasksByStatus,
-    sharedTasksById,
-    sharedOnlyByStatus,
     isLoading,
     isConnected,
     error,

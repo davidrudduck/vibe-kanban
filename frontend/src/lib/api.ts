@@ -44,7 +44,6 @@ import {
   LabelQueryParams,
   SetTaskLabels,
   TaskWithAttemptStatus,
-  AssignSharedTaskResponse,
   UpdateProject,
   UpdateTask,
   UpdateTemplate,
@@ -508,26 +507,6 @@ export const tasksApi = {
       method: 'DELETE',
     });
     return handleApiResponse<void>(response);
-  },
-
-  reassign: async (
-    sharedTaskId: string,
-    data: { new_assignee_user_id: string | null; version?: number | null }
-  ): Promise<AssignSharedTaskResponse> => {
-    const payload = {
-      new_assignee_user_id: data.new_assignee_user_id,
-      version: data.version ?? null,
-    };
-
-    const response = await makeRequest(
-      `/api/shared-tasks/${sharedTaskId}/assign`,
-      {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      }
-    );
-
-    return handleApiResponse<AssignSharedTaskResponse>(response);
   },
 
   /** Get list of nodes where this task's project exists (for remote attempt start). */

@@ -46,7 +46,7 @@ vi.mock('@/hooks/useTaskLabels', () => ({
   useTaskLabels: () => ({ data: [] }),
 }));
 
-// Mock the TaskCard and SharedTaskCard to avoid deep dependency issues
+// Mock the TaskCard to avoid deep dependency issues
 vi.mock('../TaskCard', () => ({
   TaskCard: ({
     task,
@@ -58,12 +58,6 @@ vi.mock('../TaskCard', () => ({
     <div data-testid={`task-${task.id}`} onClick={() => onViewDetails(task)}>
       {task.title}
     </div>
-  ),
-}));
-
-vi.mock('../SharedTaskCard', () => ({
-  SharedTaskCard: ({ task }: { task: { id: string; title: string } }) => (
-    <div data-testid={`shared-task-${task.id}`}>{task.title}</div>
   ),
 }));
 
@@ -120,7 +114,6 @@ function createMockColumns(): KanbanColumns {
 
 describe('MobileKanbanBoard', () => {
   const mockOnViewTaskDetails = vi.fn();
-  const mockOnViewSharedTask = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -129,7 +122,6 @@ describe('MobileKanbanBoard', () => {
   const defaultProps = {
     columns: createMockColumns(),
     onViewTaskDetails: mockOnViewTaskDetails,
-    onViewSharedTask: mockOnViewSharedTask,
     projectId: 'project-1',
   };
 

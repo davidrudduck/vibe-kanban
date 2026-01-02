@@ -4,12 +4,9 @@ import { cn } from '@/lib/utils';
 import type { TaskStatus, TaskWithAttemptStatus } from 'shared/types';
 import { statusBoardColors, statusLabels } from '@/utils/statusLabels';
 import type { KanbanColumns } from './TaskKanbanBoard';
-import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
 import MobileColumnHeader from './MobileColumnHeader';
 import { TaskCard } from './TaskCard';
-import { SharedTaskCard } from './SharedTaskCard';
 import { SwipeableTaskCard } from './SwipeableTaskCard';
-import { useAuth, useIsOrgAdmin } from '@/hooks';
 import { tasksApi } from '@/lib/api';
 import {
   useTaskOptimistic,
@@ -30,9 +27,7 @@ const COLUMN_ORDER: TaskStatus[] = [
 interface MobileKanbanBoardProps {
   columns: KanbanColumns;
   onViewTaskDetails: (task: TaskWithAttemptStatus) => void;
-  onViewSharedTask?: (task: SharedTaskRecord) => void;
   selectedTaskId?: string;
-  selectedSharedTaskId?: string | null;
   projectId: string;
   className?: string;
 }
@@ -44,15 +39,11 @@ interface MobileKanbanBoardProps {
 function MobileKanbanBoard({
   columns,
   onViewTaskDetails,
-  onViewSharedTask,
   selectedTaskId,
-  selectedSharedTaskId,
   projectId,
   className,
 }: MobileKanbanBoardProps) {
   const [currentColumnIndex, setCurrentColumnIndex] = useState(0);
-  const { userId } = useAuth();
-  const isOrgAdmin = useIsOrgAdmin();
   const taskOptimisticContext = useTaskOptimistic();
 
   // Get optimistic archived callback from context or global registry
@@ -154,50 +145,24 @@ function MobileKanbanBoard({
                 aria-hidden={colIndex !== currentColumnIndex}
               >
                 {items.map((item, index) => {
-                  // Admins can manage all tasks, so they see TaskCard for everything
-                  const isOwnTask =
-                    item.type === 'task' &&
-                    (!item.sharedTask?.assignee_user_id ||
-                      !userId ||
-                      item.sharedTask?.assignee_user_id === userId ||
-                      isOrgAdmin);
-
-                  if (isOwnTask) {
-                    const isArchived = item.task.archived_at !== null;
-                    return (
-                      <SwipeableTaskCard
-                        key={item.task.id}
-                        task={item.task}
-                        onArchive={handleSwipeArchive}
-                        isArchived={isArchived}
-                        disabled={false}
-                      >
-                        <TaskCard
-                          task={item.task}
-                          index={index}
-                          status={status}
-                          onViewDetails={onViewTaskDetails}
-                          isOpen={selectedTaskId === item.task.id}
-                          projectId={projectId}
-                          sharedTask={item.sharedTask}
-                        />
-                      </SwipeableTaskCard>
-                    );
-                  }
-
-                  const sharedTask =
-                    item.type === 'shared' ? item.task : item.sharedTask!;
-
+                  const isArchived = item.task.archived_at !== null;
                   return (
-                    <SharedTaskCard
-                      key={`shared-${item.task.id}`}
-                      task={sharedTask}
-                      index={index}
-                      status={status}
-                      isSelected={selectedSharedTaskId === item.task.id}
-                      onViewDetails={onViewSharedTask}
-                      isOrgAdmin={isOrgAdmin}
-                    />
+                    <SwipeableTaskCard
+                      key={item.task.id}
+                      task={item.task}
+                      onArchive={handleSwipeArchive}
+                      isArchived={isArchived}
+                      disabled={false}
+                    >
+                      <TaskCard
+                        task={item.task}
+                        index={index}
+                        status={status}
+                        onViewDetails={onViewTaskDetails}
+                        isOpen={selectedTaskId === item.task.id}
+                        projectId={projectId}
+                      />
+                    </SwipeableTaskCard>
                   );
                 })}
                 {items.length === 0 && (
