@@ -17,7 +17,6 @@ import {
   GitBranch,
   GitMerge,
   Tag,
-  UserPlus,
   Archive,
   ArchiveRestore,
   Pencil,
@@ -46,13 +45,11 @@ import { ViewRelatedTasksDialog } from '@/components/dialogs/tasks/ViewRelatedTa
 import { CreateAttemptDialog } from '@/components/dialogs/tasks/CreateAttemptDialog';
 import { GitActionsDialog } from '@/components/dialogs/tasks/GitActionsDialog';
 import { EditBranchNameDialog } from '@/components/dialogs/tasks/EditBranchNameDialog';
-import { ReassignDialog } from '@/components/dialogs/tasks/ReassignDialog';
 import { useProject } from '@/contexts/ProjectContext';
 import { getStatusCallback } from '@/contexts/TaskOptimisticContext';
 import { openTaskForm } from '@/lib/openTaskForm';
 
 import { useNavigate } from 'react-router-dom';
-import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
 import { useAuth, useTaskUsesSharedWorktree, useIsMobile } from '@/hooks';
 import { useAttemptCleanupMutations } from '@/hooks/useAttemptCleanupMutations';
 import { tasksApi } from '@/lib/api';
@@ -65,14 +62,12 @@ import { cn } from '@/lib/utils';
 interface ActionsDropdownProps {
   task?: TaskWithAttemptStatus | null;
   attempt?: TaskAttempt | null;
-  sharedTask?: SharedTaskRecord;
   isOrgAdmin?: boolean;
 }
 
 export function ActionsDropdown({
   task,
   attempt,
-  sharedTask,
   isOrgAdmin = false,
 }: ActionsDropdownProps) {
   const { t } = useTranslation('tasks');
@@ -140,7 +135,6 @@ export function ActionsDropdown({
 
   const hasAttemptActions = Boolean(attempt);
   const hasTaskActions = Boolean(task);
-  const isShared = Boolean(sharedTask);
 
   // Check if this task uses a shared worktree (prevents subtask creation)
   const { usesSharedWorktree } = useTaskUsesSharedWorktree(task?.id);
@@ -236,12 +230,6 @@ export function ActionsDropdown({
     });
   };
 
-  const handleReassign = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!sharedTask) return;
-    ReassignDialog.show({ sharedTask, isOrgAdmin });
-  };
-
   const handleCleanupWorktree = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!attempt?.id) return;
@@ -322,26 +310,13 @@ export function ActionsDropdown({
     }
   };
 
-  const isAssignee = sharedTask?.assignee_user_id === userId;
   const isRemoteAssignee = task?.remote_assignee_user_id === userId;
 
   // Permission to modify (edit/delete) a task:
-  // - Assignee of the shared task
   // - Assignee of the remote task
   // - Org admin
-  // - For local tasks without shared info, anyone can edit (preserve current behavior)
-  const isLocalOnlyTask = !isShared;
-  const canModifyTask =
-    isLocalOnlyTask || isAssignee || isRemoteAssignee || isOrgAdmin;
-
-  // For reassign: need both task and sharedTask, unless admin (admins can reassign shared-only tasks)
-  const canReassign =
-    Boolean(sharedTask) &&
-    (Boolean(task) || isOrgAdmin) &&
-    (isAssignee || isOrgAdmin);
-  // Show shared task actions section when we only have a sharedTask (no local task)
-  const hasSharedOnlyActions =
-    !hasTaskActions && Boolean(sharedTask) && isOrgAdmin;
+  // - For local tasks, anyone can edit
+  const canModifyTask = isRemoteAssignee || isOrgAdmin || !task?.remote_assignee_user_id;
 
   // Mobile menu item component with 48px touch target
   const MobileMenuItem = ({
@@ -559,13 +534,6 @@ export function ActionsDropdown({
                         )}
                         <MobileSeparator />
                         <MobileMenuItem
-                          icon={UserPlus}
-                          label={t('actionsMenu.reassign')}
-                          onClick={handleReassign}
-                          disabled={!canReassign}
-                        />
-                        <MobileSeparator />
-                        <MobileMenuItem
                           icon={Link2}
                           label={t('actionsMenu.viewRelatedTasks')}
                           onClick={handleViewRelatedTasks}
@@ -612,20 +580,6 @@ export function ActionsDropdown({
                           onClick={handleDelete}
                           disabled={!projectId || !canModifyTask}
                           destructive
-                        />
-                      </>
-                    )}
-
-                    {hasSharedOnlyActions && (
-                      <>
-                        <MobileSectionLabel>
-                          {t('actionsMenu.sharedTask')}
-                        </MobileSectionLabel>
-                        <MobileMenuItem
-                          icon={UserPlus}
-                          label={t('actionsMenu.reassign')}
-                          onClick={handleReassign}
-                          disabled={!canReassign}
                         />
                       </>
                     )}
@@ -793,11 +747,6 @@ export function ActionsDropdown({
               </DropdownMenuItem>
             )}
             <DropdownMenuSeparator />
-            <DropdownMenuItem disabled={!canReassign} onClick={handleReassign}>
-              <UserPlus className="mr-2 h-4 w-4" />
-              {t('actionsMenu.reassign')}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
             <DropdownMenuItem
               disabled={!task?.id || !projectId}
               onClick={handleViewRelatedTasks}
@@ -857,16 +806,6 @@ export function ActionsDropdown({
             >
               <Trash2 className="mr-2 h-4 w-4" />
               {t('common:buttons.delete')}
-            </DropdownMenuItem>
-          </>
-        )}
-
-        {hasSharedOnlyActions && (
-          <>
-            <DropdownMenuLabel>{t('actionsMenu.sharedTask')}</DropdownMenuLabel>
-            <DropdownMenuItem disabled={!canReassign} onClick={handleReassign}>
-              <UserPlus className="mr-2 h-4 w-4" />
-              {t('actionsMenu.reassign')}
             </DropdownMenuItem>
           </>
         )}

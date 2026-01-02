@@ -121,8 +121,6 @@ fn generate_types_content() -> String {
         server::routes::task_attempts::CommitCompareResult::decl(),
         server::routes::task_attempts::OpenEditorRequest::decl(),
         server::routes::task_attempts::OpenEditorResponse::decl(),
-        server::routes::shared_tasks::AssignSharedTaskRequest::decl(),
-        server::routes::shared_tasks::AssignSharedTaskResponse::decl(),
         server::routes::tasks::CreateAndStartTaskRequest::decl(),
         server::routes::tasks::ArchiveTaskRequest::decl(),
         server::routes::tasks::ArchiveTaskResponse::decl(),

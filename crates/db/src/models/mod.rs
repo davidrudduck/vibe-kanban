@@ -10,7 +10,6 @@
 //!
 //! The following models use polling/WebSocket-based sync and are being replaced:
 //!
-//! - [`shared_task`] - **DEPRECATED** - Will sync via Electric shapes
 //! - [`cached_node`] - **DEPRECATED** - Will sync via Electric shapes
 //!
 //! See individual module documentation for migration guidance.
@@ -36,6 +35,9 @@ pub mod template;
 pub mod log_entry;
 
 // === Legacy Sync Models (Deprecated) ===
-// These are being replaced by Electric-based sync
+// These are being replaced by Electric-based sync.
+// Note: shared_task model is kept for backend services but the frontend no longer
+// uses the shared_tasks WebSocket data or API routes. Table will be dropped in
+// a future migration once ElectricSQL sync is complete.
 pub mod cached_node;
 pub mod shared_task;
