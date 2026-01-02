@@ -136,6 +136,8 @@ pub enum HiveMessage {
     Close { reason: String },
     #[serde(rename = "task_sync_response")]
     TaskSyncResponse(TaskSyncResponseMessage),
+    #[serde(rename = "label_sync")]
+    LabelSync(LabelSyncBroadcastMessage),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -477,6 +479,32 @@ pub struct TaskSyncResponseMessage {
     pub error: Option<String>,
 }
 
+/// Label sync broadcast from hive to nodes.
+///
+/// Sent by the hive when a label is created or updated on another node.
+/// Nodes use this to keep their local label cache in sync.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LabelSyncBroadcastMessage {
+    /// Unique message ID for acknowledgement
+    pub message_id: Uuid,
+    /// The shared label ID on the Hive
+    pub shared_label_id: Uuid,
+    /// The project ID if this is a project-specific label, None for global labels
+    pub project_id: Option<Uuid>,
+    /// ID of the node that owns/created this label
+    pub origin_node_id: Uuid,
+    /// Label name
+    pub name: String,
+    /// Lucide icon name
+    pub icon: String,
+    /// Hex color code (e.g., "#3b82f6")
+    pub color: String,
+    /// Version for conflict resolution
+    pub version: i64,
+    /// Whether this label was deleted
+    pub is_deleted: bool,
+}
+
 /// A log entry in a batch sync message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncLogEntry {
@@ -526,6 +554,8 @@ pub enum HiveEvent {
     NodeRemoved(NodeRemovedMessage),
     /// Task sync response received (shared_task_id assigned)
     TaskSyncResponse(TaskSyncResponseMessage),
+    /// Label sync received (label created/updated on another node)
+    LabelSync(LabelSyncBroadcastMessage),
     /// Error from hive
     Error { message: String },
 }
@@ -862,6 +892,16 @@ impl HiveClient {
                     .event_tx
                     .send(HiveEvent::TaskSyncResponse(response))
                     .await;
+            }
+            HiveMessage::LabelSync(label_sync) => {
+                tracing::info!(
+                    shared_label_id = %label_sync.shared_label_id,
+                    origin_node_id = %label_sync.origin_node_id,
+                    name = %label_sync.name,
+                    is_deleted = label_sync.is_deleted,
+                    "received label sync from another node"
+                );
+                let _ = self.event_tx.send(HiveEvent::LabelSync(label_sync)).await;
             }
             HiveMessage::HeartbeatAck { server_time } => {
                 tracing::trace!(server_time = %server_time, "heartbeat acknowledged");

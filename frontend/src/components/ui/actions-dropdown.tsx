@@ -467,19 +467,18 @@ export function ActionsDropdown({
                           icon={Plus}
                           label={t('actionsMenu.createNewAttempt')}
                           onClick={handleCreateNewAttempt}
-                          disabled={isRemote}
                         />
                         <MobileMenuItem
                           icon={GitMerge}
                           label={t('actionsMenu.gitActions')}
                           onClick={handleGitActions}
-                          disabled={!attempt?.id || !task || isRemote}
+                          disabled={!attempt?.id || !task}
                         />
                         <MobileMenuItem
                           icon={Tag}
                           label={t('actionsMenu.editBranchName')}
                           onClick={handleEditBranchName}
-                          disabled={!attempt?.id || isRemote}
+                          disabled={!attempt?.id}
                         />
                         <MobileSeparator />
                         <MobileMenuItem
@@ -491,7 +490,6 @@ export function ActionsDropdown({
                           onClick={handlePurgeArtifacts}
                           disabled={
                             !attempt?.id ||
-                            isRemote ||
                             attempt.worktree_deleted ||
                             purgeArtifacts.isPending
                           }
@@ -505,7 +503,6 @@ export function ActionsDropdown({
                           onClick={handleCleanupWorktree}
                           disabled={
                             !attempt?.id ||
-                            isRemote ||
                             attempt.worktree_deleted ||
                             cleanupWorktree.isPending
                           }
@@ -579,12 +576,7 @@ export function ActionsDropdown({
                           icon={GitBranch}
                           label={t('actionsMenu.createSubtask')}
                           onClick={handleCreateSubtask}
-                          disabled={
-                            !projectId ||
-                            !task ||
-                            isRemote ||
-                            usesSharedWorktree
-                          }
+                          disabled={!projectId || !task || usesSharedWorktree}
                         />
                         <MobileSeparator />
                         {!task?.archived_at && (
@@ -592,7 +584,7 @@ export function ActionsDropdown({
                             icon={Archive}
                             label={t('actionsMenu.archive')}
                             onClick={handleArchive}
-                            disabled={!projectId || !canModifyTask || isRemote}
+                            disabled={!projectId || !canModifyTask}
                           />
                         )}
                         {task?.archived_at && (
@@ -600,9 +592,7 @@ export function ActionsDropdown({
                             icon={ArchiveRestore}
                             label={t('actionsMenu.unarchive')}
                             onClick={handleUnarchive}
-                            disabled={
-                              !canModifyTask || isRemote || isUnarchiving
-                            }
+                            disabled={!canModifyTask || isUnarchiving}
                           />
                         )}
                         <MobileMenuItem
@@ -686,32 +676,20 @@ export function ActionsDropdown({
               <Activity className="mr-2 h-4 w-4" />
               {t('actionsMenu.viewProcesses')}
             </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={isRemote}
-              onClick={handleCreateNewAttempt}
-              title={
-                isRemote ? t('actionsMenu.remoteTaskCannotExecute') : undefined
-              }
-            >
+            <DropdownMenuItem onClick={handleCreateNewAttempt}>
               <Plus className="mr-2 h-4 w-4" />
               {t('actionsMenu.createNewAttempt')}
             </DropdownMenuItem>
             <DropdownMenuItem
-              disabled={!attempt?.id || !task || isRemote}
+              disabled={!attempt?.id || !task}
               onClick={handleGitActions}
-              title={
-                isRemote ? t('actionsMenu.remoteTaskCannotExecute') : undefined
-              }
             >
               <GitMerge className="mr-2 h-4 w-4" />
               {t('actionsMenu.gitActions')}
             </DropdownMenuItem>
             <DropdownMenuItem
-              disabled={!attempt?.id || isRemote}
+              disabled={!attempt?.id}
               onClick={handleEditBranchName}
-              title={
-                isRemote ? t('actionsMenu.remoteTaskCannotExecute') : undefined
-              }
             >
               <Tag className="mr-2 h-4 w-4" />
               {t('actionsMenu.editBranchName')}
@@ -720,23 +698,20 @@ export function ActionsDropdown({
             <DropdownMenuItem
               disabled={
                 !attempt?.id ||
-                isRemote ||
                 attempt.worktree_deleted ||
                 purgeArtifacts.isPending
               }
               onClick={handlePurgeArtifacts}
               title={
-                isRemote
-                  ? t('actionsMenu.remoteTaskCannotExecute')
-                  : attempt?.worktree_deleted
-                    ? t(
-                        'actionsMenu.worktreeAlreadyDeleted',
-                        'Worktree already deleted'
-                      )
-                    : t(
-                        'actionsMenu.purgeArtifactsDesc',
-                        'Remove target/, node_modules/, etc.'
-                      )
+                attempt?.worktree_deleted
+                  ? t(
+                      'actionsMenu.worktreeAlreadyDeleted',
+                      'Worktree already deleted'
+                    )
+                  : t(
+                      'actionsMenu.purgeArtifactsDesc',
+                      'Remove target/, node_modules/, etc.'
+                    )
               }
             >
               <HardDrive className="mr-2 h-4 w-4" />
@@ -745,24 +720,21 @@ export function ActionsDropdown({
             <DropdownMenuItem
               disabled={
                 !attempt?.id ||
-                isRemote ||
                 attempt.worktree_deleted ||
                 cleanupWorktree.isPending
               }
               onClick={handleCleanupWorktree}
               className="text-destructive"
               title={
-                isRemote
-                  ? t('actionsMenu.remoteTaskCannotExecute')
-                  : attempt?.worktree_deleted
-                    ? t(
-                        'actionsMenu.worktreeAlreadyDeleted',
-                        'Worktree already deleted'
-                      )
-                    : t(
-                        'actionsMenu.cleanupWorktreeDesc',
-                        'Delete worktree files from disk'
-                      )
+                attempt?.worktree_deleted
+                  ? t(
+                      'actionsMenu.worktreeAlreadyDeleted',
+                      'Worktree already deleted'
+                    )
+                  : t(
+                      'actionsMenu.cleanupWorktreeDesc',
+                      'Delete worktree files from disk'
+                    )
               }
             >
               <FolderX className="mr-2 h-4 w-4" />
@@ -835,17 +807,15 @@ export function ActionsDropdown({
               {t('actionsMenu.viewRelatedTasks')}
             </DropdownMenuItem>
             <DropdownMenuItem
-              disabled={!projectId || !task || isRemote || usesSharedWorktree}
+              disabled={!projectId || !task || usesSharedWorktree}
               onClick={handleCreateSubtask}
               title={
-                isRemote
-                  ? t('actionsMenu.remoteTaskCannotExecute')
-                  : usesSharedWorktree
-                    ? t(
-                        'actionsMenu.sharedWorktreeNoSubtask',
-                        'Cannot create subtasks for tasks using a shared worktree'
-                      )
-                    : undefined
+                usesSharedWorktree
+                  ? t(
+                      'actionsMenu.sharedWorktreeNoSubtask',
+                      'Cannot create subtasks for tasks using a shared worktree'
+                    )
+                  : undefined
               }
             >
               <GitBranch className="mr-2 h-4 w-4" />
@@ -854,13 +824,8 @@ export function ActionsDropdown({
             <DropdownMenuSeparator />
             {!task?.archived_at && (
               <DropdownMenuItem
-                disabled={!projectId || !canModifyTask || isRemote}
+                disabled={!projectId || !canModifyTask}
                 onClick={handleArchive}
-                title={
-                  isRemote
-                    ? t('actionsMenu.remoteTaskCannotExecute')
-                    : undefined
-                }
               >
                 <Archive className="mr-2 h-4 w-4" />
                 {t('actionsMenu.archive')}
@@ -868,13 +833,8 @@ export function ActionsDropdown({
             )}
             {task?.archived_at && (
               <DropdownMenuItem
-                disabled={!canModifyTask || isRemote || isUnarchiving}
+                disabled={!canModifyTask || isUnarchiving}
                 onClick={handleUnarchive}
-                title={
-                  isRemote
-                    ? t('actionsMenu.remoteTaskCannotExecute')
-                    : undefined
-                }
               >
                 <ArchiveRestore className="mr-2 h-4 w-4" />
                 {t('actionsMenu.unarchive')}
