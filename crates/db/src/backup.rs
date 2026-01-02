@@ -3,7 +3,7 @@
 //! Creates timestamped backups before migrations run, ensuring recovery is possible
 //! if a migration causes data loss or corruption.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -320,6 +320,61 @@ impl BackupService {
 
         info!(db_path = %db_path.display(), "Database restored from backup");
         Ok(())
+    }
+
+    /// Find the most recent backup that has task_attempts data.
+    ///
+    /// Used for recovery from the broken migration 20260102051142 which accidentally
+    /// deleted all task_attempts due to missing PRAGMA foreign_keys = OFF.
+    ///
+    /// Returns None if no backup with attempts data exists.
+    pub fn find_backup_with_attempts(_db_path: &Path) -> Option<PathBuf> {
+        let backup_directory = backup_dir();
+        if !backup_directory.exists() {
+            return None;
+        }
+
+        // Get all backups sorted by time (newest first)
+        let mut backups: Vec<_> = std::fs::read_dir(&backup_directory)
+            .ok()?
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let path = e.path();
+                path.extension().is_some_and(|ext| ext == "sqlite")
+                    && path
+                        .file_name()
+                        .is_some_and(|n| n.to_string_lossy().starts_with("db_backup_"))
+            })
+            .collect();
+
+        backups.sort_by(|a, b| {
+            let a_time = a.metadata().and_then(|m| m.modified()).ok();
+            let b_time = b.metadata().and_then(|m| m.modified()).ok();
+            b_time.cmp(&a_time)
+        });
+
+        // Check each backup for task_attempts data
+        for backup in backups {
+            let path = backup.path();
+            if let Ok(conn) = rusqlite::Connection::open(&path) {
+                if let Ok(count) = conn.query_row::<i64, _, _>(
+                    "SELECT COUNT(*) FROM task_attempts",
+                    [],
+                    |row| row.get(0),
+                ) {
+                    if count > 0 {
+                        info!(
+                            backup = %path.display(),
+                            attempts = count,
+                            "Found backup with task_attempts data"
+                        );
+                        return Some(path);
+                    }
+                }
+            }
+        }
+
+        None
     }
 }
 
