@@ -24,9 +24,7 @@ describe('DaysInColumnBadge', () => {
   });
 
   it('returns null for undefined activityAt', () => {
-    const { container } = render(
-      <DaysInColumnBadge activityAt={undefined} />
-    );
+    const { container } = render(<DaysInColumnBadge activityAt={undefined} />);
     expect(container.firstChild).toBeNull();
   });
 

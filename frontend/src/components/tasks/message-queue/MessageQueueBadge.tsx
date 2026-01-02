@@ -205,14 +205,20 @@ export function MessageQueueBadge({
   const handleMoveUp = (index: number) => {
     if (index === 0) return;
     const newOrder = [...queue];
-    [newOrder[index - 1], newOrder[index]] = [newOrder[index], newOrder[index - 1]];
+    [newOrder[index - 1], newOrder[index]] = [
+      newOrder[index],
+      newOrder[index - 1],
+    ];
     onReorder(newOrder.map((m) => m.id));
   };
 
   const handleMoveDown = (index: number) => {
     if (index === queue.length - 1) return;
     const newOrder = [...queue];
-    [newOrder[index], newOrder[index + 1]] = [newOrder[index + 1], newOrder[index]];
+    [newOrder[index], newOrder[index + 1]] = [
+      newOrder[index + 1],
+      newOrder[index],
+    ];
     onReorder(newOrder.map((m) => m.id));
   };
 
@@ -231,7 +237,9 @@ export function MessageQueueBadge({
         >
           <span className="flex items-center gap-1">
             <MessageSquareDashed className="h-3.5 w-3.5" aria-hidden />
-            <span className="hidden sm:inline ml-1">{t('messageQueue.badgeText')}</span>
+            <span className="hidden sm:inline ml-1">
+              {t('messageQueue.badgeText')}
+            </span>
             <span className="font-mono text-xs">({queue.length})</span>
           </span>
         </Button>

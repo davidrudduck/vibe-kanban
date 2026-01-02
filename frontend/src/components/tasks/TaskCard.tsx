@@ -176,7 +176,12 @@ export function TaskCard({
     } finally {
       setIsArchiving(false);
     }
-  }, [task.id, task.archived_at, isArchiving, updateTaskArchivedOptimistically]);
+  }, [
+    task.id,
+    task.archived_at,
+    isArchiving,
+    updateTaskArchivedOptimistically,
+  ]);
 
   // Get status strip color - remote tasks use purple, shared tasks use their own color
   const statusStripClass = task.is_remote

@@ -284,7 +284,9 @@ export function NodeProjectsSection({
                           <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
                         )}
                         <Monitor className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <span className="font-medium truncate">{node.name}</span>
+                        <span className="font-medium truncate">
+                          {node.name}
+                        </span>
                         <Badge
                           variant={
                             node.status === 'online' ? 'default' : 'secondary'
@@ -324,9 +326,8 @@ export function NodeProjectsSection({
                                   <FolderGit2 className="h-4 w-4 text-muted-foreground shrink-0" />
                                   <div className="min-w-0">
                                     <p className="font-medium truncate text-sm">
-                                      {project.git_repo_path
-                                        .split('/')
-                                        .pop() || project.git_repo_path}
+                                      {project.git_repo_path.split('/').pop() ||
+                                        project.git_repo_path}
                                     </p>
                                     <p className="text-xs text-muted-foreground truncate">
                                       {project.git_repo_path}
@@ -548,14 +549,19 @@ export function NodeProjectsSection({
             {dialogTab === 'existing' ? (
               <Button
                 onClick={handleLink}
-                disabled={!selectedSwarmProjectId || mutations.linkNode.isPending}
+                disabled={
+                  !selectedSwarmProjectId || mutations.linkNode.isPending
+                }
               >
                 {mutations.linkNode.isPending ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 ) : (
                   <Link2 className="h-4 w-4 mr-2" />
                 )}
-                {t('settings.swarm.nodeProjects.linkDialog.confirm', 'Link Project')}
+                {t(
+                  'settings.swarm.nodeProjects.linkDialog.confirm',
+                  'Link Project'
+                )}
               </Button>
             ) : (
               <Button
@@ -566,7 +572,8 @@ export function NodeProjectsSection({
                   mutations.linkNode.isPending
                 }
               >
-                {mutations.createProject.isPending || mutations.linkNode.isPending ? (
+                {mutations.createProject.isPending ||
+                mutations.linkNode.isPending ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 ) : (
                   <Plus className="h-4 w-4 mr-2" />

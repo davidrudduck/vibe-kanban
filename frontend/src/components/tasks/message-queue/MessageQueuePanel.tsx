@@ -185,14 +185,20 @@ function MessageQueuePanel({
   const handleMoveUp = (index: number) => {
     if (index === 0) return;
     const newOrder = [...queue];
-    [newOrder[index - 1], newOrder[index]] = [newOrder[index], newOrder[index - 1]];
+    [newOrder[index - 1], newOrder[index]] = [
+      newOrder[index],
+      newOrder[index - 1],
+    ];
     onReorder(newOrder.map((m) => m.id));
   };
 
   const handleMoveDown = (index: number) => {
     if (index === queue.length - 1) return;
     const newOrder = [...queue];
-    [newOrder[index], newOrder[index + 1]] = [newOrder[index + 1], newOrder[index]];
+    [newOrder[index], newOrder[index + 1]] = [
+      newOrder[index + 1],
+      newOrder[index],
+    ];
     onReorder(newOrder.map((m) => m.id));
   };
 

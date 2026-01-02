@@ -1077,9 +1077,7 @@ export function ProjectTasks() {
             onClose={() => setMode(null)}
           />
         )}
-        {mode === 'processes' && (
-          <ProcessesPanel attemptId={attempt.id} />
-        )}
+        {mode === 'processes' && <ProcessesPanel attemptId={attempt.id} />}
       </div>
     ) : (
       <div className="relative h-full w-full" />

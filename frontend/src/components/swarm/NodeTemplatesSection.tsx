@@ -190,10 +190,7 @@ export function NodeTemplatesSection({
                           @{template.template_name}
                         </span>
                         {promoted && (
-                          <Badge
-                            variant="secondary"
-                            className="text-xs gap-1"
-                          >
+                          <Badge variant="secondary" className="text-xs gap-1">
                             <Check className="h-3 w-3" />
                             {t(
                               'settings.swarm.nodeTemplates.promoted',
@@ -266,7 +263,9 @@ export function NodeTemplatesSection({
               <div className="p-4 bg-muted rounded-md">
                 <div className="flex items-center gap-2 mb-2">
                   <FileText className="h-4 w-4 text-muted-foreground" />
-                  <span className="font-medium">@{promotingTemplate.template_name}</span>
+                  <span className="font-medium">
+                    @{promotingTemplate.template_name}
+                  </span>
                 </div>
                 <p className="text-sm text-muted-foreground">
                   {truncateContent(promotingTemplate.content, 200)}

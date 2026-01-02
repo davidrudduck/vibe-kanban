@@ -39,12 +39,10 @@ export function TodosBadge({ todos, className }: TodosBadgeProps) {
   const pendingCount = safeList.filter(
     (t) => t.status?.toLowerCase() !== 'completed'
   ).length;
-  const inProgressCount = safeList.filter(
-    (t) => {
-      const s = (t.status || '').toLowerCase();
-      return s === 'in_progress' || s === 'in-progress';
-    }
-  ).length;
+  const inProgressCount = safeList.filter((t) => {
+    const s = (t.status || '').toLowerCase();
+    return s === 'in_progress' || s === 'in-progress';
+  }).length;
 
   return (
     <Popover>

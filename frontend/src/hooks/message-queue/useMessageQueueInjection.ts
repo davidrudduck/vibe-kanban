@@ -65,7 +65,10 @@ export function useMessageQueueInjection(
           return { queued: true, injected: false };
         } catch (error) {
           // Log but don't throw - the message is still in queue
-          console.error('Failed to inject message into running process:', error);
+          console.error(
+            'Failed to inject message into running process:',
+            error
+          );
           setLastInjectionError(
             error instanceof Error ? error : new Error(String(error))
           );
