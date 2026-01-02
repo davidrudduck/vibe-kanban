@@ -20,7 +20,7 @@ export function useMessageQueueInjection(
   runningProcessId: string | undefined
 ) {
   const messageQueue = useMessageQueue(attemptId);
-  const { addMessage } = messageQueue;
+  const { addMessage, removeMessage } = messageQueue;
   const [isInjecting, setIsInjecting] = useState(false);
   const [lastInjectionError, setLastInjectionError] = useState<Error | null>(
     null
@@ -29,9 +29,12 @@ export function useMessageQueueInjection(
   /**
    * Add a message to the queue and optionally inject it into a running process.
    *
+   * When injection succeeds, the message is automatically removed from the queue
+   * since it has been delivered directly to the running process.
+   *
    * @param content - The message content
    * @param variant - Optional message variant (e.g., 'plan')
-   * @returns Object with `queued` (always true on success) and `injected` (true if live injection worked)
+   * @returns Object with `queued` (true if message remains in queue) and `injected` (true if live injection worked)
    */
   const addAndInject = useCallback(
     async (
@@ -41,7 +44,7 @@ export function useMessageQueueInjection(
       setLastInjectionError(null);
 
       // Always add to queue first (for persistence and retry)
-      await addMessage(content, variant);
+      const message = await addMessage(content, variant);
 
       // If process is running, try to inject immediately
       if (runningProcessId) {
@@ -51,7 +54,15 @@ export function useMessageQueueInjection(
             runningProcessId,
             content
           );
-          return { queued: true, injected: result.injected };
+
+          if (result.injected) {
+            // Successfully injected - remove from queue since message was delivered
+            await removeMessage(message.id);
+            return { queued: false, injected: true };
+          }
+
+          // Injection returned false (process may not accept input right now)
+          return { queued: true, injected: false };
         } catch (error) {
           // Log but don't throw - the message is still in queue
           console.error('Failed to inject message into running process:', error);
@@ -68,7 +79,7 @@ export function useMessageQueueInjection(
       // No running process, just queued
       return { queued: true, injected: false };
     },
-    [addMessage, runningProcessId]
+    [addMessage, removeMessage, runningProcessId]
   );
 
   /**
