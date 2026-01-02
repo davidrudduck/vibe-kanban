@@ -249,6 +249,36 @@ Use the merge functionality to consolidate duplicates.
 - Check that your node's API key is valid
 - Ensure you're logged in with the correct account
 
+## Migration from Legacy Shared Projects
+
+If you were using the legacy "Shared Projects" system in Organization Settings, your projects have been migrated to the new Swarm Management system.
+
+### What Changed
+
+The legacy shared projects system used Organization Settings to link local projects to remote projects. This has been replaced with:
+
+- **Swarm Projects** - A dedicated management interface under Settings > Swarm Management
+- **Node Projects Section** - Link local projects to swarm projects with "Link to Existing" or "Create New" options
+- **Improved Actions** - All task actions (Git Actions, Edit Branch, Cleanup Worktree) now work correctly regardless of where a task was created
+
+### Migration Steps
+
+1. **Automatic unlinking**: All existing project links have been cleared during the migration
+2. **Re-link projects**: Navigate to Settings > Swarm Management > Swarm Projects
+3. **Link local projects**: Click a swarm project row, then use the "Link Project" dropdown to connect your local project
+4. **Alternatively**: Use the Node Projects Section to create a new swarm project and link in one step
+
+<Note>
+The migration preserves all your local projects and their data. Only the remote project links are cleared, allowing you to set up fresh connections using the new system.
+</Note>
+
+### Benefits of the New System
+
+- **Task actions always enabled** - Actions depend on attempt existence, not project origin
+- **Create and link in one step** - No need to pre-create swarm projects on the hive
+- **Better visibility** - See which nodes are linked to each swarm project
+- **Merge functionality** - Consolidate duplicate projects created during migration
+
 ## Related Documentation
 
 - [Swarm/Hive Setup Guide](/swarm-hive-setup) - Configure your node for swarm connectivity
