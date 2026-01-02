@@ -69,7 +69,6 @@ fn generate_types_content() -> String {
         db::models::activity_feed::ActivityFeed::decl(),
         db::models::task::CreateTask::decl(),
         db::models::task::UpdateTask::decl(),
-        db::models::shared_task::SharedTask::decl(),
         db::models::image::Image::decl(),
         db::models::image::CreateImage::decl(),
         utils::response::ApiResponse::<()>::decl(),
