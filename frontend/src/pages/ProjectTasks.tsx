@@ -1038,6 +1038,7 @@ export function ProjectTasks() {
                 relationships={relationships}
                 variables={variables}
                 isMobile={isMobile}
+                selectedAttemptId={attempt?.id}
               />
             </>
           )}
