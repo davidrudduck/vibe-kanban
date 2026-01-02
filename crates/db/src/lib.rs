@@ -1,4 +1,4 @@
-use std::{str::FromStr, sync::Arc, time::Duration};
+use std::{path::Path, str::FromStr, sync::Arc, time::Duration};
 
 use sqlx::{
     Error, Executor, Pool, Sqlite,
@@ -7,7 +7,7 @@ use sqlx::{
         SqliteSynchronous,
     },
 };
-use tracing::warn;
+use tracing::{info, warn};
 use utils::assets::database_path;
 
 pub mod backup;
@@ -94,6 +94,102 @@ async fn apply_performance_pragmas(conn: &mut SqliteConnection) -> Result<(), Er
     Ok(())
 }
 
+// ============================================================================
+// Migration Recovery
+// ============================================================================
+
+/// Check if the broken migration 20260102051142 caused data loss and recover if possible.
+///
+/// Detection criteria:
+/// - Migration 20260102051142 was applied (in _sqlx_migrations)
+/// - task_attempts table is empty (data was deleted by CASCADE)
+/// - tasks table has data (should have had attempts)
+/// - A backup with task_attempts data exists
+///
+/// Recovery:
+/// - Restore from the most recent backup that has task_attempts data
+/// - Migrations will re-run safely on the restored database
+///
+/// This is a sync function because it must run BEFORE the SQLx pool is created.
+fn check_and_recover_from_migration_data_loss(db_path: &Path) -> Result<(), std::io::Error> {
+    use rusqlite::Connection;
+
+    // Check if database even exists
+    if !db_path.exists() {
+        return Ok(());
+    }
+
+    // Open connection to check state
+    let conn = match Connection::open(db_path) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!(error = ?e, "Failed to open database for migration recovery check");
+            return Ok(());
+        }
+    };
+
+    // Check if broken migration was applied
+    let migration_applied: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM _sqlx_migrations WHERE version = 20260102051142)",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !migration_applied {
+        return Ok(()); // Migration hasn't run yet, no recovery needed
+    }
+
+    // Check if task_attempts is empty (data loss indicator)
+    let attempts_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM task_attempts", [], |row| row.get(0))
+        .unwrap_or(0);
+
+    if attempts_count > 0 {
+        return Ok(()); // Data exists, no recovery needed
+    }
+
+    // Check if tasks exist that should have attempts
+    let tasks_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM tasks", [], |row| row.get(0))
+        .unwrap_or(0);
+
+    if tasks_count == 0 {
+        return Ok(()); // No tasks, no recovery needed
+    }
+
+    drop(conn); // Close connection before restore
+
+    // Find backup with attempts data
+    let Some(backup_path) = BackupService::find_backup_with_attempts(db_path) else {
+        warn!(
+            "Data loss detected from migration 20260102051142 but no backup with attempts found. \
+             Task attempt history cannot be recovered."
+        );
+        return Ok(());
+    };
+
+    info!(
+        backup = %backup_path.display(),
+        tasks = tasks_count,
+        "Detected data loss from migration 20260102051142, restoring from backup"
+    );
+
+    // Read backup data
+    let backup_data = std::fs::read(&backup_path)?;
+
+    // Restore from backup (this replaces the current db)
+    BackupService::restore_from_data(db_path, &backup_data)?;
+
+    info!(
+        "Database restored from backup successfully. \
+         Migrations will re-run safely with PRAGMA foreign_keys = OFF."
+    );
+
+    Ok(())
+}
+
 #[derive(Clone)]
 pub struct DBService {
     pub pool: Pool<Sqlite>,
@@ -103,6 +199,12 @@ pub struct DBService {
 impl DBService {
     pub async fn new() -> Result<DBService, Error> {
         let db_path = database_path();
+
+        // Check for data loss from broken migration and auto-recover BEFORE pool creation
+        if let Err(e) = check_and_recover_from_migration_data_loss(&db_path) {
+            warn!(error = ?e, "Migration recovery check failed");
+        }
+
         let database_url = format!("sqlite://{}", db_path.to_string_lossy());
         let max_connections = get_max_connections();
 
@@ -171,6 +273,12 @@ impl DBService {
             + 'static,
     {
         let db_path = database_path();
+
+        // Check for data loss from broken migration and auto-recover BEFORE pool creation
+        if let Err(e) = check_and_recover_from_migration_data_loss(&db_path) {
+            warn!(error = ?e, "Migration recovery check failed");
+        }
+
         let database_url = format!("sqlite://{}", db_path.to_string_lossy());
         let max_connections = get_max_connections();
 
