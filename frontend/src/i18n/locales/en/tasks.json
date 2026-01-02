@@ -180,7 +180,12 @@
     "saveError": "Failed to save changes",
     "confirmRemove": "Remove this message from the queue?",
     "removeError": "Failed to remove message",
-    "injectingMessage": "Sending message..."
+    "injectingMessage": "Sending message...",
+    "badgeLabel": "{{count}} messages queued",
+    "badgeText": "Messages",
+    "moveUp": "Move message up",
+    "moveDown": "Move message down",
+    "remove": "Remove message"
   },
   "todos": {
     "title_one": "Todos ({{count}})",
