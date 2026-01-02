@@ -1,13 +1,22 @@
 # Message Queue UX Improvements Progress
 
 ## 📊 Current Status
-Progress: 2/6 sessions complete
-Current Session: #3 - Show injected messages in conversation + auto-remove
+Progress: 3/6 sessions complete
+Current Session: #4 - Remove old MessageQueuePanel from TaskFollowUpSection
 
 ## 🎯 Known Issues & Blockers
 - None
 
 ## 📝 Recent Sessions
+
+### Session 3 (2026-01-02) - Auto-remove messages after successful injection
+**Completed:** Session 3 - Auto-remove on injection
+**Key Changes:**
+- Modified `useMessageQueueInjection.ts` to capture message ID from `addMessage`
+- Added `removeMessage` call when injection succeeds (`result.injected === true`)
+- Updated return value: `queued=false` when message removed after injection
+- Browser verified: Messages badge updates correctly, queue clears via API
+**Git Commits:** 0563da795
 
 ### Session 2 (2026-01-02) - Extend mobile toolbar to all screen sizes
 **Completed:** Session 2 - Unified toolbar with MessageQueueBadge
@@ -44,7 +53,7 @@ Current Session: #3 - Show injected messages in conversation + auto-remove
 ## Session Plan Overview
 1. ✅ **Session 1**: Create MessageQueueBadge component
 2. ✅ **Session 2**: Extend mobile toolbar to all screen sizes
-3. ⏳ **Session 3**: Show injected messages in conversation + auto-remove
-4. ⬜ **Session 4**: Remove old MessageQueuePanel from TaskFollowUpSection
+3. ✅ **Session 3**: Show injected messages in conversation + auto-remove
+4. ⏳ **Session 4**: Remove old MessageQueuePanel from TaskFollowUpSection
 5. ⬜ **Session 5**: Full testing & regression check
 6. ⬜ **Session 6**: Documentation update
