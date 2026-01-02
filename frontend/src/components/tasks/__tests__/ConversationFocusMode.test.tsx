@@ -83,7 +83,6 @@ function createMockTask(
     has_merged_attempt: false,
     last_attempt_failed: false,
     executor: 'CLAUDE_CODE',
-    is_remote: false,
     remote_assignee_user_id: null,
     remote_assignee_name: null,
     remote_assignee_username: null,

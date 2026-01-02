@@ -451,8 +451,8 @@ pub async fn update_task(
 
     Json(payload): Json<UpdateTask>,
 ) -> Result<ResponseJson<ApiResponse<Task>>, ApiError> {
-    // Check if this is a remote task
-    if existing_task.is_remote {
+    // Check if this is a task synced from Hive (has shared_task_id)
+    if existing_task.shared_task_id.is_some() {
         return update_remote_task(&deployment, &existing_task, &payload).await;
     }
 
@@ -592,8 +592,8 @@ pub async fn delete_task(
     Extension(task): Extension<Task>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<(StatusCode, ResponseJson<ApiResponse<()>>), ApiError> {
-    // Check if this is a remote task
-    if task.is_remote {
+    // Check if this is a task synced from Hive (has shared_task_id)
+    if task.shared_task_id.is_some() {
         return delete_remote_task(&deployment, &task).await;
     }
 
@@ -827,10 +827,10 @@ pub async fn archive_task(
 ) -> Result<(StatusCode, ResponseJson<ApiResponse<ArchiveTaskResponse>>), ApiError> {
     let pool = &deployment.db().pool;
 
-    // Remote tasks cannot be archived locally
-    if task.is_remote {
+    // Tasks synced from Hive cannot be archived locally
+    if task.shared_task_id.is_some() {
         return Err(ApiError::BadRequest(
-            "Remote tasks cannot be archived. Archive them on the origin node.".to_string(),
+            "Tasks synced from Hive cannot be archived locally. Archive them on the origin node.".to_string(),
         ));
     }
 
@@ -980,10 +980,10 @@ pub async fn unarchive_task(
 ) -> Result<ResponseJson<ApiResponse<Task>>, ApiError> {
     let pool = &deployment.db().pool;
 
-    // Remote tasks cannot be unarchived locally
-    if task.is_remote {
+    // Tasks synced from Hive cannot be unarchived locally
+    if task.shared_task_id.is_some() {
         return Err(ApiError::BadRequest(
-            "Remote tasks cannot be unarchived. Unarchive them on the origin node.".to_string(),
+            "Tasks synced from Hive cannot be unarchived locally. Unarchive them on the origin node.".to_string(),
         ));
     }
 
@@ -1024,10 +1024,10 @@ pub async fn set_task_labels(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<SetTaskLabels>,
 ) -> Result<ResponseJson<ApiResponse<Vec<Label>>>, ApiError> {
-    // Remote tasks don't support labels
-    if task.is_remote {
+    // Tasks synced from Hive don't support local labels
+    if task.shared_task_id.is_some() {
         return Err(ApiError::BadRequest(
-            "Labels are not supported for remote tasks".to_string(),
+            "Labels are not supported for tasks synced from Hive".to_string(),
         ));
     }
 
