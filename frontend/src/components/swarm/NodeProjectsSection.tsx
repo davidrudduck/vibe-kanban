@@ -9,6 +9,7 @@ import {
   FolderGit2,
   ChevronDown,
   ChevronRight,
+  Plus,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -35,6 +36,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { nodesApi } from '@/lib/api';
 import {
@@ -70,6 +73,11 @@ export function NodeProjectsSection({
     new Set()
   );
 
+  // State for dialog tabs and new project form
+  const [dialogTab, setDialogTab] = useState<'existing' | 'create'>('existing');
+  const [newProjectName, setNewProjectName] = useState('');
+  const [newProjectDescription, setNewProjectDescription] = useState('');
+
   // Fetch nodes
   const {
     data: nodes = [],
@@ -89,12 +97,15 @@ export function NodeProjectsSection({
     enabled: !!organizationId,
   });
 
-  // Mutations for linking
+  // Mutations for linking and creating
   const mutations = useSwarmProjectMutations({
     organizationId,
     onLinkNodeSuccess: () => {
       setLinkingProject(null);
       setSelectedSwarmProjectId(null);
+      setNewProjectName('');
+      setNewProjectDescription('');
+      setDialogTab('existing');
       // Refetch to update linked status
       refetchNodes();
     },
@@ -139,12 +150,34 @@ export function NodeProjectsSection({
     });
   };
 
-  // Handle link action
+  // Handle link to existing project action
   const handleLink = async () => {
     if (!linkingProject || !selectedSwarmProjectId) return;
 
     await mutations.linkNode.mutateAsync({
       projectId: selectedSwarmProjectId,
+      data: {
+        node_id: linkingProject.nodeId,
+        local_project_id: linkingProject.project.local_project_id,
+        git_repo_path: linkingProject.project.git_repo_path,
+      },
+    });
+  };
+
+  // Handle create new project and link action
+  const handleCreateAndLink = async () => {
+    if (!linkingProject || !newProjectName.trim()) return;
+
+    // First create the project
+    const project = await mutations.createProject.mutateAsync({
+      organization_id: organizationId,
+      name: newProjectName.trim(),
+      description: newProjectDescription.trim() || null,
+    });
+
+    // Then link the node project to it
+    await mutations.linkNode.mutateAsync({
+      projectId: project.id,
       data: {
         node_id: linkingProject.nodeId,
         local_project_id: linkingProject.project.local_project_id,
@@ -347,10 +380,13 @@ export function NodeProjectsSection({
           if (!open) {
             setLinkingProject(null);
             setSelectedSwarmProjectId(null);
+            setNewProjectName('');
+            setNewProjectDescription('');
+            setDialogTab('existing');
           }
         }}
       >
-        <DialogContent>
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>
               {t(
@@ -368,6 +404,7 @@ export function NodeProjectsSection({
 
           {linkingProject && (
             <div className="space-y-4 py-4">
+              {/* Local Project Display */}
               <div className="space-y-2">
                 <Label>
                   {t(
@@ -385,49 +422,113 @@ export function NodeProjectsSection({
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="swarm-project-select">
-                  {t(
-                    'settings.swarm.nodeProjects.linkDialog.swarmProject',
-                    'Swarm Project'
-                  )}
-                </Label>
-                <Select
-                  value={selectedSwarmProjectId || ''}
-                  onValueChange={setSelectedSwarmProjectId}
-                >
-                  <SelectTrigger id="swarm-project-select">
-                    <SelectValue
+              {/* Tabs for Link Existing or Create New */}
+              <Tabs
+                value={dialogTab}
+                onValueChange={(value) =>
+                  setDialogTab(value as 'existing' | 'create')
+                }
+                className="w-full"
+              >
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="existing">
+                    <Link2 className="h-4 w-4 mr-2" />
+                    {t(
+                      'settings.swarm.nodeProjects.linkDialog.linkExisting',
+                      'Link to Existing'
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="create">
+                    <Plus className="h-4 w-4 mr-2" />
+                    {t(
+                      'settings.swarm.nodeProjects.linkDialog.createNew',
+                      'Create New'
+                    )}
+                  </TabsTrigger>
+                </TabsList>
+
+                {/* Link to Existing Tab */}
+                <TabsContent value="existing" className="space-y-4 mt-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="swarm-project-select">
+                      {t(
+                        'settings.swarm.nodeProjects.linkDialog.swarmProject',
+                        'Swarm Project'
+                      )}
+                    </Label>
+                    <Select
+                      value={selectedSwarmProjectId || ''}
+                      onValueChange={setSelectedSwarmProjectId}
+                    >
+                      <SelectTrigger id="swarm-project-select">
+                        <SelectValue
+                          placeholder={t(
+                            'settings.swarm.nodeProjects.linkDialog.selectProject',
+                            'Select a swarm project...'
+                          )}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {swarmProjects.length === 0 ? (
+                          <SelectItem value="no-projects" disabled>
+                            {t(
+                              'settings.swarm.nodeProjects.linkDialog.noProjects',
+                              'No swarm projects available'
+                            )}
+                          </SelectItem>
+                        ) : (
+                          swarmProjects.map((sp) => (
+                            <SelectItem key={sp.id} value={sp.id}>
+                              {sp.name}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </TabsContent>
+
+                {/* Create New Tab */}
+                <TabsContent value="create" className="space-y-4 mt-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="new-project-name">
+                      {t(
+                        'settings.swarm.nodeProjects.linkDialog.projectName',
+                        'Project Name'
+                      )}
+                    </Label>
+                    <Input
+                      id="new-project-name"
+                      value={newProjectName}
+                      onChange={(e) => setNewProjectName(e.target.value)}
                       placeholder={t(
-                        'settings.swarm.nodeProjects.linkDialog.selectProject',
-                        'Select a swarm project...'
+                        'settings.swarm.nodeProjects.linkDialog.projectNamePlaceholder',
+                        'Enter project name...'
                       )}
                     />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {swarmProjects.length === 0 ? (
-                      <SelectItem value="no-projects" disabled>
-                        {t(
-                          'settings.swarm.nodeProjects.linkDialog.noProjects',
-                          'No swarm projects available'
-                        )}
-                      </SelectItem>
-                    ) : (
-                      swarmProjects.map((sp) => (
-                        <SelectItem key={sp.id} value={sp.id}>
-                          {sp.name}
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
-                <p className="text-sm text-muted-foreground">
-                  {t(
-                    'settings.swarm.nodeProjects.linkDialog.helper',
-                    'Create a swarm project first if you don\'t have one.'
-                  )}
-                </p>
-              </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="new-project-description">
+                      {t(
+                        'settings.swarm.nodeProjects.linkDialog.projectDescription',
+                        'Description'
+                      )}{' '}
+                      <span className="text-muted-foreground">
+                        ({t('common:optional', 'Optional')})
+                      </span>
+                    </Label>
+                    <Input
+                      id="new-project-description"
+                      value={newProjectDescription}
+                      onChange={(e) => setNewProjectDescription(e.target.value)}
+                      placeholder={t(
+                        'settings.swarm.nodeProjects.linkDialog.projectDescriptionPlaceholder',
+                        'Enter description...'
+                      )}
+                    />
+                  </div>
+                </TabsContent>
+              </Tabs>
             </div>
           )}
 
@@ -437,21 +538,45 @@ export function NodeProjectsSection({
               onClick={() => {
                 setLinkingProject(null);
                 setSelectedSwarmProjectId(null);
+                setNewProjectName('');
+                setNewProjectDescription('');
+                setDialogTab('existing');
               }}
             >
               {t('common:cancel', 'Cancel')}
             </Button>
-            <Button
-              onClick={handleLink}
-              disabled={!selectedSwarmProjectId || mutations.linkNode.isPending}
-            >
-              {mutations.linkNode.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Link2 className="h-4 w-4 mr-2" />
-              )}
-              {t('settings.swarm.nodeProjects.linkDialog.confirm', 'Link Project')}
-            </Button>
+            {dialogTab === 'existing' ? (
+              <Button
+                onClick={handleLink}
+                disabled={!selectedSwarmProjectId || mutations.linkNode.isPending}
+              >
+                {mutations.linkNode.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Link2 className="h-4 w-4 mr-2" />
+                )}
+                {t('settings.swarm.nodeProjects.linkDialog.confirm', 'Link Project')}
+              </Button>
+            ) : (
+              <Button
+                onClick={handleCreateAndLink}
+                disabled={
+                  !newProjectName.trim() ||
+                  mutations.createProject.isPending ||
+                  mutations.linkNode.isPending
+                }
+              >
+                {mutations.createProject.isPending || mutations.linkNode.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Plus className="h-4 w-4 mr-2" />
+                )}
+                {t(
+                  'settings.swarm.nodeProjects.linkDialog.createAndLink',
+                  'Create & Link'
+                )}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
