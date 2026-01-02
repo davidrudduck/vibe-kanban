@@ -864,6 +864,19 @@ enum HandleError {
     Send,
 }
 
+/// Sanitize a string by removing null bytes (0x00).
+///
+/// PostgreSQL does not allow null bytes in text fields, so this function
+/// strips them to prevent "invalid byte sequence for encoding UTF8: 0x00" errors.
+fn sanitize_string(s: &str) -> String {
+    s.replace('\0', "")
+}
+
+/// Sanitize an optional string by removing null bytes.
+fn sanitize_option_string(s: Option<String>) -> Option<String> {
+    s.map(|v| sanitize_string(&v))
+}
+
 /// Send a message to the WebSocket.
 async fn send_message(
     sender: &mut futures::stream::SplitSink<WebSocket, Message>,
@@ -1188,14 +1201,18 @@ async fn handle_task_sync(
         }
     };
 
+    // Sanitize string fields to remove null bytes (PostgreSQL doesn't allow them)
+    let sanitized_title = sanitize_string(&task_sync.title);
+    let sanitized_description = sanitize_option_string(task_sync.description.clone());
+
     let repo = SharedTaskRepository::new(pool);
     match repo
         .upsert_from_node(UpsertTaskFromNodeData {
             project_id: task_sync.remote_project_id,
             organization_id: project.organization_id,
             origin_node_id: node_id,
-            title: task_sync.title.clone(),
-            description: task_sync.description.clone(),
+            title: sanitized_title,
+            description: sanitized_description,
             status,
             version: task_sync.version,
         })
