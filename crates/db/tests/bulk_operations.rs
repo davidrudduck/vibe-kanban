@@ -85,23 +85,10 @@ async fn create_remote_task(
         shared_task_id,
     );
 
-    // Create the task first
-    let _task = Task::create(pool, &data, task_id)
+    // Create the task with shared_task_id (this makes it a "remote" task)
+    Task::create(pool, &data, task_id)
         .await
-        .expect("Failed to create remote task");
-
-    // Mark it as remote (is_remote = 1) using raw query
-    sqlx::query("UPDATE tasks SET is_remote = 1 WHERE id = ?")
-        .bind(task_id)
-        .execute(pool)
-        .await
-        .expect("Failed to mark task as remote");
-
-    // Fetch and return the updated task
-    Task::find_by_id(pool, task_id)
-        .await
-        .expect("Failed to fetch task")
-        .expect("Task not found")
+        .expect("Failed to create remote task")
 }
 
 // =============================================================================
@@ -219,11 +206,11 @@ async fn test_archive_many_already_archived_tasks() {
 }
 
 // =============================================================================
-// Task::delete_stale_remote_tasks() tests
+// Task::delete_stale_shared_tasks() tests
 // =============================================================================
 
 #[tokio::test]
-async fn test_delete_stale_remote_tasks_bulk_delete() {
+async fn test_delete_stale_shared_tasks_bulk_delete() {
     let (pool, _temp_dir) = setup_test_pool().await;
     let project = create_test_project(&pool).await;
 
@@ -244,9 +231,9 @@ async fn test_delete_stale_remote_tasks_bulk_delete() {
     let active_ids = vec![shared_id_2, shared_id_3, shared_id_5];
 
     // Delete stale tasks (1 and 4 should be deleted)
-    let rows_deleted = Task::delete_stale_remote_tasks(&pool, project.id, &active_ids)
+    let rows_deleted = Task::delete_stale_shared_tasks(&pool, project.id, &active_ids)
         .await
-        .expect("delete_stale_remote_tasks failed");
+        .expect("delete_stale_shared_tasks failed");
 
     assert_eq!(rows_deleted, 2, "Should have deleted 2 stale tasks");
 
@@ -259,7 +246,7 @@ async fn test_delete_stale_remote_tasks_bulk_delete() {
 }
 
 #[tokio::test]
-async fn test_delete_stale_remote_tasks_empty_active_list_noop() {
+async fn test_delete_stale_shared_tasks_empty_active_list_noop() {
     let (pool, _temp_dir) = setup_test_pool().await;
     let project = create_test_project(&pool).await;
 
@@ -271,9 +258,9 @@ async fn test_delete_stale_remote_tasks_empty_active_list_noop() {
     let task2 = create_remote_task(&pool, project.id, "Remote Task 2", shared_id_2).await;
 
     // Call with empty active list - should NOT delete anything (safety check)
-    let rows_deleted = Task::delete_stale_remote_tasks(&pool, project.id, &[])
+    let rows_deleted = Task::delete_stale_shared_tasks(&pool, project.id, &[])
         .await
-        .expect("delete_stale_remote_tasks with empty list should not fail");
+        .expect("delete_stale_shared_tasks with empty list should not fail");
 
     assert_eq!(
         rows_deleted, 0,
@@ -286,22 +273,22 @@ async fn test_delete_stale_remote_tasks_empty_active_list_noop() {
 }
 
 #[tokio::test]
-async fn test_delete_stale_remote_tasks_only_affects_remote_tasks() {
+async fn test_delete_stale_shared_tasks_only_affects_shared_tasks() {
     let (pool, _temp_dir) = setup_test_pool().await;
     let project = create_test_project(&pool).await;
 
-    // Create a local task (no shared_task_id, is_remote = false)
+    // Create a local task (no shared_task_id)
     let local_task = create_test_task(&pool, project.id, "Local Task").await;
 
-    // Create a remote task
+    // Create a remote task (has shared_task_id)
     let shared_id = Uuid::new_v4();
     let remote_task = create_remote_task(&pool, project.id, "Remote Task", shared_id).await;
 
     // Delete stale with active list that doesn't include the remote task
     let unrelated_id = Uuid::new_v4();
-    let rows_deleted = Task::delete_stale_remote_tasks(&pool, project.id, &[unrelated_id])
+    let rows_deleted = Task::delete_stale_shared_tasks(&pool, project.id, &[unrelated_id])
         .await
-        .expect("delete_stale_remote_tasks failed");
+        .expect("delete_stale_shared_tasks failed");
 
     // Only the remote task should be deleted
     assert_eq!(rows_deleted, 1, "Should have deleted 1 remote task");
@@ -326,7 +313,7 @@ async fn test_delete_stale_remote_tasks_only_affects_remote_tasks() {
 }
 
 #[tokio::test]
-async fn test_delete_stale_remote_tasks_project_isolation() {
+async fn test_delete_stale_shared_tasks_project_isolation() {
     let (pool, _temp_dir) = setup_test_pool().await;
 
     // Create two projects
@@ -356,9 +343,9 @@ async fn test_delete_stale_remote_tasks_project_isolation() {
 
     // Delete stale tasks only in project1
     let unrelated_id = Uuid::new_v4();
-    let rows_deleted = Task::delete_stale_remote_tasks(&pool, project1.id, &[unrelated_id])
+    let rows_deleted = Task::delete_stale_shared_tasks(&pool, project1.id, &[unrelated_id])
         .await
-        .expect("delete_stale_remote_tasks failed");
+        .expect("delete_stale_shared_tasks failed");
 
     assert_eq!(rows_deleted, 1, "Should have deleted 1 task from project1");
 

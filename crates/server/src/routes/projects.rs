@@ -25,7 +25,7 @@ use services::services::{
     filesystem::{DirectoryListResponse, FileContentResponse, FilesystemError},
     git::GitBranch,
     project_detector::ProjectDetector,
-    share::{link_shared_tasks_to_project, share_existing_tasks_to_hive},
+    share::share_existing_tasks_to_hive,
 };
 use ts_rs::TS;
 use utils::{
@@ -670,10 +670,8 @@ async fn apply_remote_project_link(
     let current_profile = deployment.auth_context().cached_profile().await;
     let current_user_id = current_profile.as_ref().map(|p| p.user_id);
 
-    // Pull shared tasks from Hive to local
-    link_shared_tasks_to_project(pool, current_user_id, project_id, remote_project.id).await?;
-
-    // Push existing local tasks to the Hive (user_id is optional)
+    // Note: Pulling shared tasks from Hive is now handled by ElectricSQL.
+    // We only push existing local tasks to the Hive here.
     if let Ok(publisher) = deployment.share_publisher() {
         match share_existing_tasks_to_hive(pool, &publisher, project_id, current_user_id).await {
             Ok(count) => {

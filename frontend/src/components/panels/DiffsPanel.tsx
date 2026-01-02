@@ -32,13 +32,13 @@ export function DiffsPanel({ selectedAttempt, task, gitOps }: DiffsPanelProps) {
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [hasInitialized, setHasInitialized] = useState(false);
 
-  // Build remote stream info if this is a remote task
+  // Build remote stream info if this task has a shared_task_id (linked to Hive)
   const remoteStreamInfo: RemoteStreamInfo | undefined = useMemo(() => {
-    if (task?.is_remote && task?.shared_task_id) {
+    if (task?.shared_task_id) {
       return { taskId: task.id };
     }
     return undefined;
-  }, [task?.is_remote, task?.shared_task_id, task?.id]);
+  }, [task?.shared_task_id, task?.id]);
 
   const { diffs, error, connectionType } = useDiffStream(
     selectedAttempt?.id ?? null,

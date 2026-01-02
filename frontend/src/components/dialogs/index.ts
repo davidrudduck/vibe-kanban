@@ -81,10 +81,6 @@ export {
   type GitActionsDialogProps,
 } from './tasks/GitActionsDialog';
 export {
-  ReassignDialog,
-  type ReassignDialogProps,
-} from './tasks/ReassignDialog';
-export {
   EditBranchNameDialog,
   type EditBranchNameDialogResult,
 } from './tasks/EditBranchNameDialog';

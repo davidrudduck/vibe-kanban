@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { useNavigateWithSearch, useIsOrgAdmin } from '@/hooks';
 import { useTaskLabels } from '@/hooks/useTaskLabels';
 import { paths } from '@/lib/paths';
-import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
 import { TaskCardHeader } from './TaskCardHeader';
 import { useTranslation } from 'react-i18next';
 import { useProject } from '@/contexts/ProjectContext';
@@ -63,7 +62,6 @@ interface TaskCardProps {
   onViewDetails: (task: Task) => void;
   isOpen?: boolean;
   projectId: string;
-  sharedTask?: SharedTaskRecord;
 }
 
 export function TaskCard({
@@ -73,7 +71,6 @@ export function TaskCard({
   onViewDetails,
   isOpen,
   projectId,
-  sharedTask,
 }: TaskCardProps) {
   const { t } = useTranslation('tasks');
   const navigate = useNavigateWithSearch();
@@ -89,13 +86,8 @@ export function TaskCard({
   // Fetch labels for this task
   const { data: labels } = useTaskLabels(task.id, true);
 
-  // Get owner name from shared task or remote task
-  const ownerName =
-    sharedTask?.assignee_first_name || sharedTask?.assignee_last_name
-      ? [sharedTask.assignee_first_name, sharedTask.assignee_last_name]
-          .filter(Boolean)
-          .join(' ')
-      : (task.remote_assignee_name ?? task.remote_assignee_username ?? null);
+  // Get owner name from remote task
+  const ownerName = task.remote_assignee_name ?? task.remote_assignee_username ?? null;
 
   // Get short node name from project
   const shortNodeName = getShortNodeName(project?.source_node_name);
@@ -183,13 +175,9 @@ export function TaskCard({
     updateTaskArchivedOptimistically,
   ]);
 
-  // Get status strip color - remote tasks use purple, shared tasks use their own color
-  const statusStripClass = task.is_remote
-    ? 'before:bg-purple-400'
-    : sharedTask
-      ? 'before:bg-card-foreground'
-      : statusStripColors[task.status as TaskStatus] ||
-        statusStripColors['todo'];
+  // Get status strip color based on task status
+  const statusStripClass =
+    statusStripColors[task.status as TaskStatus] || statusStripColors['todo'];
 
   // Truncated description for compact view
   const truncatedDesc = truncateDescription(task.description, 40);
@@ -216,31 +204,23 @@ export function TaskCard({
         <TaskCardHeader
           title={task.title}
           avatar={
-            sharedTask
+            task.remote_assignee_name
               ? {
-                  firstName: sharedTask.assignee_first_name ?? undefined,
-                  lastName: sharedTask.assignee_last_name ?? undefined,
-                  username: sharedTask.assignee_username ?? undefined,
+                  firstName:
+                    task.remote_assignee_name.split(' ')[0] ?? undefined,
+                  lastName:
+                    task.remote_assignee_name.split(' ').slice(1).join(' ') ||
+                    undefined,
+                  username: task.remote_assignee_username ?? undefined,
                   ownerName,
                   nodeName: shortNodeName,
                 }
-              : task.is_remote && task.remote_assignee_name
+              : ownerName || shortNodeName
                 ? {
-                    firstName:
-                      task.remote_assignee_name.split(' ')[0] ?? undefined,
-                    lastName:
-                      task.remote_assignee_name.split(' ').slice(1).join(' ') ||
-                      undefined,
-                    username: task.remote_assignee_username ?? undefined,
                     ownerName,
                     nodeName: shortNodeName,
                   }
-                : ownerName || shortNodeName
-                  ? {
-                      ownerName,
-                      nodeName: shortNodeName,
-                    }
-                  : undefined
+                : undefined
           }
           right={
             <>
@@ -266,7 +246,6 @@ export function TaskCard({
               )}
               <ActionsDropdown
                 task={task}
-                sharedTask={sharedTask}
                 isOrgAdmin={isOrgAdmin}
               />
             </>

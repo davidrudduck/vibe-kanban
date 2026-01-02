@@ -32,7 +32,6 @@ const createMockTask = (
   shared_task_id: null,
   created_at: '2024-01-01T00:00:00Z',
   updated_at: '2024-01-01T00:00:00Z',
-  is_remote: false,
   remote_assignee_user_id: null,
   remote_assignee_name: null,
   remote_assignee_username: null,

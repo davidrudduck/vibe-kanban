@@ -67,10 +67,9 @@ export function AllProjectsTaskCard({
           .join(' ')
       : (task.remote_assignee_name ?? task.remote_assignee_username ?? null);
 
-  // Get status strip color - remote tasks use purple
-  const statusStripClass = task.is_remote
-    ? 'before:bg-purple-400'
-    : statusStripColors[task.status as TaskStatus] || statusStripColors['todo'];
+  // Get status strip color based on task status
+  const statusStripClass =
+    statusStripColors[task.status as TaskStatus] || statusStripColors['todo'];
 
   // Truncated description for compact view
   const truncatedDesc = truncateDescription(task.description, 40);

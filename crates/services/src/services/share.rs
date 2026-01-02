@@ -1,36 +1,18 @@
-//! Task sharing service for syncing tasks between nodes and hive (legacy implementation).
+//! Task and label sharing service between nodes and hive.
 //!
-//! # DEPRECATION NOTICE
+//! This module handles:
+//! - Publishing local tasks to the Hive
+//! - Syncing labels from the Hive via activity stream
 //!
-//! This module is deprecated and will be removed in a future release. It is being
-//! replaced by ElectricSQL-based real-time sync which provides:
+//! # Note
 //!
-//! - Real-time updates via PostgreSQL logical replication
-//! - Reduced network overhead with incremental shape updates
-//! - Simpler architecture (no WebSocket activity streams needed for sync)
-//!
-//! ## Migration Path
-//!
-//! **Backend (Node Runner):**
-//! - Use [`super::electric_task_sync::ElectricTaskSyncService`] for task synchronization
-//! - The Electric service fetches tasks via HTTP Shape API from the hive's Electric proxy
-//!
-//! **Frontend:**
-//! - Use the `useElectricTasks` hook from `frontend/src/hooks/useElectricTasks.ts`
-//! - This connects to the Electric proxy at `/api/electric/v1/shape/shared_tasks`
-//!
-//! ## Current Status
-//!
-//! The legacy implementation remains active for backwards compatibility. During the
-//! transition period, both sync mechanisms can run in parallel:
-//! - This module: WebSocket-based activity stream processing
-//! - Electric: HTTP Shape API with incremental updates
+//! Task sync from Hive to local is now handled by ElectricSQL. This module only:
+//! - Pushes local tasks to the Hive (via `SharePublisher`)
+//! - Syncs labels via WebSocket activity stream (via `RemoteSync`)
 //!
 //! ## See Also
 //!
-//! - `crates/services/src/services/electric_task_sync.rs` - Electric-based task sync
-//! - `crates/remote/src/routes/electric_proxy.rs` - Electric proxy with auth
-//! - `frontend/src/hooks/useElectricTasks.ts` - React hook for Electric tasks
+//! - `crates/services/src/services/electric_task_sync.rs` - Electric-based task sync from Hive
 
 mod config;
 mod label_publisher;
@@ -50,19 +32,13 @@ use axum::http::{HeaderName, HeaderValue, header::AUTHORIZATION};
 pub use config::ShareConfig;
 use db::{
     DBService,
-    models::{
-        shared_task::{SharedActivityCursor, SharedTask, SharedTaskInput},
-        task::{SyncTask, Task},
-    },
+    models::{shared_task::SharedActivityCursor, task::Task},
 };
 pub use label_publisher::LabelPublisher;
 use processor::ActivityProcessor;
 pub use publisher::SharePublisher;
-use remote::{
-    ClientMessage, ServerMessage,
-    db::{tasks::SharedTask as RemoteSharedTask, users::UserData as RemoteUserData},
-};
-use sqlx::{Executor, Sqlite, SqlitePool};
+use remote::{ClientMessage, ServerMessage};
+use sqlx::SqlitePool;
 use thiserror::Error;
 use tokio::{
     sync::{mpsc, oneshot},
@@ -335,27 +311,6 @@ impl RemoteSync {
             }
         }
 
-        // Auto-assign any unassigned shared tasks to the authenticated user
-        if let Some(user_id) = user_id {
-            match auto_assign_unassigned_tasks(&self.db.pool, &publisher, user_id).await {
-                Ok(count) => {
-                    if count > 0 {
-                        tracing::info!(
-                            assigned_count = count,
-                            user_id = %user_id,
-                            "Startup sync: auto-assigned unassigned tasks"
-                        );
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(error = ?e, "Failed to auto-assign unassigned tasks on startup");
-                }
-            }
-        } else {
-            tracing::debug!(
-                "Startup sync: no authenticated user, skipping auto-assignment of unassigned tasks"
-            );
-        }
     }
 
     async fn linked_remote_projects(&self) -> Result<Vec<Uuid>, ShareError> {
@@ -737,91 +692,6 @@ impl Drop for RemoteSyncHandleInner {
     }
 }
 
-pub(super) fn convert_remote_task(
-    task: &RemoteSharedTask,
-    user: Option<&RemoteUserData>,
-    last_event_seq: Option<i64>,
-    activity_at: Option<chrono::DateTime<chrono::Utc>>,
-) -> SharedTaskInput {
-    SharedTaskInput {
-        id: task.id,
-        remote_project_id: task.project_id,
-        title: task.title.clone(),
-        description: task.description.clone(),
-        status: status::from_remote(&task.status),
-        assignee_user_id: task.assignee_user_id,
-        assignee_first_name: user.and_then(|u| u.first_name.clone()),
-        assignee_last_name: user.and_then(|u| u.last_name.clone()),
-        assignee_username: user.and_then(|u| u.username.clone()),
-        version: task.version,
-        last_event_seq,
-        created_at: task.created_at,
-        updated_at: task.updated_at,
-        activity_at,
-    }
-}
-
-pub(super) async fn sync_local_task_for_shared_task<'e, E>(
-    executor: E,
-    shared_task: &SharedTask,
-    current_user_id: Option<uuid::Uuid>,
-    creator_user_id: Option<uuid::Uuid>,
-    project_id: Option<Uuid>,
-) -> Result<(), ShareError>
-where
-    E: Executor<'e, Database = Sqlite>,
-{
-    let Some(project_id) = project_id else {
-        return Ok(());
-    };
-
-    let create_task_if_not_exists = {
-        let assignee_is_current_user = matches!(
-            (shared_task.assignee_user_id.as_ref(), current_user_id.as_ref()),
-            (Some(assignee), Some(current)) if assignee == current
-        );
-        let creator_is_current_user = matches!((creator_user_id.as_ref(), current_user_id.as_ref()), (Some(creator), Some(current)) if creator == current);
-
-        assignee_is_current_user
-            && !(creator_is_current_user && SHARED_TASK_LINKING_LOCK.lock().unwrap().is_locked())
-    };
-
-    Task::sync_from_shared_task(
-        executor,
-        SyncTask {
-            shared_task_id: shared_task.id,
-            project_id,
-            title: shared_task.title.clone(),
-            description: shared_task.description.clone(),
-            status: shared_task.status.clone(),
-            activity_at: shared_task.activity_at,
-        },
-        create_task_if_not_exists,
-    )
-    .await?;
-
-    Ok(())
-}
-
-pub async fn link_shared_tasks_to_project(
-    pool: &SqlitePool,
-    current_user_id: Option<uuid::Uuid>,
-    project_id: Uuid,
-    remote_project_id: Uuid,
-) -> Result<(), ShareError> {
-    let tasks = SharedTask::list_by_remote_project_id(pool, remote_project_id).await?;
-
-    if tasks.is_empty() {
-        return Ok(());
-    }
-
-    for task in tasks {
-        sync_local_task_for_shared_task(pool, &task, current_user_id, None, Some(project_id))
-            .await?;
-    }
-
-    Ok(())
-}
 
 /// Sync all unshared tasks for all Hive-linked projects.
 ///
@@ -933,58 +803,6 @@ pub async fn migrate_unlinked_projects(
     Ok(linked_count)
 }
 
-/// Auto-assign all unassigned shared tasks to the specified user.
-///
-/// This is called during startup to ensure all synced tasks have an assignee.
-/// When a task is synced from the Hive without an assignee, this assigns it to
-/// the node's authenticated user.
-pub async fn auto_assign_unassigned_tasks(
-    pool: &SqlitePool,
-    publisher: &SharePublisher,
-    user_id: Uuid,
-) -> Result<usize, ShareError> {
-    let unassigned = SharedTask::find_unassigned(pool).await?;
-
-    if unassigned.is_empty() {
-        tracing::debug!("No unassigned shared tasks to auto-assign");
-        return Ok(0);
-    }
-
-    tracing::info!(
-        task_count = unassigned.len(),
-        user_id = %user_id,
-        "Auto-assigning unassigned shared tasks"
-    );
-
-    let mut assigned_count = 0;
-    for task in unassigned {
-        match publisher.assign_task(task.id, user_id).await {
-            Ok(()) => {
-                tracing::debug!(
-                    task_id = %task.id,
-                    task_title = %task.title,
-                    "Auto-assigned unassigned task to user"
-                );
-                assigned_count += 1;
-            }
-            Err(e) => {
-                tracing::warn!(
-                    task_id = %task.id,
-                    error = ?e,
-                    "Failed to auto-assign unassigned task"
-                );
-            }
-        }
-    }
-
-    tracing::info!(
-        assigned_count,
-        "Completed auto-assignment of unassigned tasks"
-    );
-
-    Ok(assigned_count)
-}
-
 /// Share all existing local tasks for a project to the Hive.
 /// Called when a project is first linked to the Hive to push all existing tasks.
 pub async fn share_existing_tasks_to_hive(
@@ -1033,40 +851,4 @@ pub async fn share_existing_tasks_to_hive(
     );
 
     Ok(shared_count)
-}
-
-// Prevent duplicate local tasks from being created during task sharing.
-// The activity event handler can create a duplicate local task when it receives a shared task assigned to the current user.
-lazy_static::lazy_static! {
-    pub(super) static ref SHARED_TASK_LINKING_LOCK: StdMutex<SharedTaskLinkingLock> = StdMutex::new(SharedTaskLinkingLock::new());
-}
-
-#[derive(Debug)]
-pub(super) struct SharedTaskLinkingLock {
-    count: usize,
-}
-
-impl SharedTaskLinkingLock {
-    fn new() -> Self {
-        Self { count: 0 }
-    }
-
-    pub(super) fn is_locked(&self) -> bool {
-        self.count > 0
-    }
-
-    #[allow(dead_code)]
-    pub(super) fn guard(&mut self) -> SharedTaskLinkingGuard {
-        self.count += 1;
-        SharedTaskLinkingGuard
-    }
-}
-
-#[allow(dead_code)]
-pub(super) struct SharedTaskLinkingGuard;
-
-impl Drop for SharedTaskLinkingGuard {
-    fn drop(&mut self) {
-        SHARED_TASK_LINKING_LOCK.lock().unwrap().count -= 1;
-    }
 }

@@ -12,7 +12,6 @@ import type { LayoutMode } from '../layout/TasksLayout';
 import type { TaskAttempt, TaskWithAttemptStatus } from 'shared/types';
 import { ActionsDropdown } from '../ui/actions-dropdown';
 import { useIsOrgAdmin, useRemoteConnectionStatus } from '@/hooks';
-import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
 import { ConnectionStatusBadge } from '@/components/common/ConnectionStatusBadge';
 
 interface AttemptHeaderActionsProps {
@@ -21,7 +20,6 @@ interface AttemptHeaderActionsProps {
   onModeChange?: (mode: LayoutMode) => void;
   task: TaskWithAttemptStatus;
   attempt?: TaskAttempt | null;
-  sharedTask?: SharedTaskRecord;
   isMobile?: boolean;
 }
 
@@ -31,7 +29,6 @@ export const AttemptHeaderActions = ({
   onModeChange,
   task,
   attempt,
-  sharedTask,
   isMobile,
 }: AttemptHeaderActionsProps) => {
   const { t } = useTranslation('tasks');
@@ -40,8 +37,9 @@ export const AttemptHeaderActions = ({
     enabled: Boolean(attempt),
   });
 
-  // Only show connection badge for remote tasks (not local)
-  const showConnectionBadge = task?.is_remote && connectionStatus !== 'local';
+  // Only show connection badge for tasks linked to the Hive (with shared_task_id)
+  const showConnectionBadge =
+    Boolean(task?.shared_task_id) && connectionStatus !== 'local';
 
   return (
     <>
@@ -151,7 +149,6 @@ export const AttemptHeaderActions = ({
       <ActionsDropdown
         task={task}
         attempt={attempt}
-        sharedTask={sharedTask}
         isOrgAdmin={isOrgAdmin}
       />
       <Button variant="icon" aria-label="Close" onClick={onClose}>
