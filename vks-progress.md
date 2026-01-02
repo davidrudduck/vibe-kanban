@@ -1,53 +1,48 @@
-## Session 0 Complete - Initialization
+## Session 1 Complete - Fix ActionsDropdown is_remote Checks
 
 ### Progress Summary
-Completed initialization phase for the Swarm Management bug fixes task. Set up development environment configuration and created initialization script for future agents.
+- **Progress**: 1/7 sessions complete (~14%)
+- **Current Session**: Session 1 - Fix ActionsDropdown is_remote Checks
+- **Status**: COMPLETED
 
 ### Accomplished
-- Read and analyzed implementation plan at `/home/david/.claude/plans/zesty-munching-squid.md`
-- Reviewed CLAUDE.md to understand project structure, tech stack, and development commands
-- Identified available ports: 4000, 4001, 4002
-- Set task variables:
-  - `FRONTEND_PORT=4000`
-  - `BACKEND_PORT=4001`
-  - `MCP_PORT=4002`
-  - `SESSION=1`
-- Created `init.sh` script that:
-  - Checks for .env.testing file (copies from .env.example if missing)
-  - Copies .env.testing to .env
-  - Updates port configuration in .env
-  - Installs dependencies with pnpm
-  - Starts development servers
+- Removed all `isRemote` disabled conditions from `actions-dropdown.tsx`
+- Both mobile bottom sheet and desktop dropdown menus updated
+- Verified all menu items are now enabled when an attempt exists
+- No console errors introduced
 
-### Project Context
-- **Project**: vibe-kanban
-- **Task ID**: 9fdd26fd-995f-475d-8601-14ee1427af3b
-- **Branch**: dr/8cc2-swarm-correction
-- **Tech Stack**: Rust (Axum) backend, React/TypeScript frontend, SQLite database
+### Changes Made
+**File:** `frontend/src/components/ui/actions-dropdown.tsx`
+
+Removed `isRemote` from disabled conditions on:
+- Create New Attempt (mobile: line 470, desktop: line 690)
+- Git Actions (mobile: line 476, desktop: line 700)
+- Edit Branch Name (mobile: line 482, desktop: line 710)
+- Purge Build Artifacts (mobile: lines 492-497, desktop: lines 721-726)
+- Cleanup Worktree (mobile: lines 506-511, desktop: lines 746-751)
+- Create Subtask (mobile: line 585, desktop: line 838)
+- Archive (mobile: line 595, desktop: line 857)
+- Unarchive (mobile: line 604, desktop: line 871)
+
+Also removed unnecessary `remoteTaskCannotExecute` tooltip titles.
+
+**Note:** The `isRemote` variable at line 144 is still used for permission checks in `canModifyTask` at line 334, so it was kept.
+
+### Test Plan Verification
+1. ✅ Navigated to development server at http://localhost:4006
+2. ✅ Created test task with attempt
+3. ✅ Verified all Actions menu items are enabled (screenshot taken)
+4. ✅ No React errors in console
+
+### Git Commits
+- `1989b785c` - fix(frontend): remove isRemote disabled conditions from Actions dropdown
 
 ### Next Session Should
-1. Run `./init.sh` to start development servers
-2. Read the implementation plan, focusing on Session 1:
-   - Remove `isRemote` disabled conditions from `frontend/src/components/ui/actions-dropdown.tsx`
-3. Use Playwright to verify:
-   - All tasks show enabled Actions button
-   - Attempt-related menu items enabled when attempt exists
-   - Task-related menu items accessible for all tasks
-   - No console errors
-4. Proceed through remaining sessions as documented in the plan
+Continue with Session 2: Enhance NodeProjectsSection Link Dialog
+- Add "Create New" tab to allow creating swarm project + linking in one step
+- File: `frontend/src/components/swarm/NodeProjectsSection.tsx`
 
-### Implementation Plan Summary
-The plan covers 7 sessions:
-1. **Session 1**: Fix ActionsDropdown is_remote checks
-2. **Session 2**: Enhance NodeProjectsSection Link Dialog
-3. **Session 3**: Fix Backend Null Byte Sanitization
-4. **Session 4**: Fix label_sync Message Handling
-5. **Session 5**: Remove Legacy Shared Projects UI
-6. **Session 6**: Create Migration to Clear remote_project_id
-7. **Session 7**: Documentation Update
-
-### Notes
-- The `get_context` MCP call was timing out, but we successfully identified the task via `list_tasks`
-- Ports 9001, 9002, 9009 are currently in use; selected 4000-4002 for this worktree
-- The project uses pnpm for package management (not npm)
-- Backend auto-spawns MCP HTTP server when MCP_PORT is set
+### Environment
+- **Ports**: Frontend: 4006, Backend: 4005, MCP: 4007
+- **Branch**: dr/8cc2-swarm-correction
+- **Servers**: Running (init.sh started them in background)
