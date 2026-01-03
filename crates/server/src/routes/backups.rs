@@ -54,22 +54,52 @@ async fn download_backup(Path(filename): Path<String>) -> Result<Response<Body>,
         .unwrap())
 }
 
-/// Restore database from an uploaded backup file
+/// Restore database from an uploaded backup file.
+///
+/// IMPORTANT: This stages the backup for restore on next server restart.
+/// The actual restore happens during server startup, BEFORE the database pool is created.
+/// This prevents corruption from overwriting the database while connections are active.
 async fn restore_backup(
     mut multipart: Multipart,
-) -> Result<ResponseJson<ApiResponse<String>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<RestoreResponse>>, ApiError> {
     while let Some(field) = multipart.next_field().await? {
         if field.name() == Some("backup") {
             let data = field.bytes().await?;
             let db_path = database_path();
-            BackupService::restore_from_data(&db_path, &data)?;
-            return Ok(ResponseJson(ApiResponse::success(
-                "You must restart the application for the database restore to finalise."
-                    .to_string(),
-            )));
+
+            // Stage the backup for restore instead of overwriting directly
+            // This is safe because the actual restore happens on next startup
+            BackupService::stage_restore(&db_path, &data)?;
+
+            return Ok(ResponseJson(ApiResponse::success(RestoreResponse {
+                message: "Backup staged for restore. Please restart the server to complete the restore.".to_string(),
+                restart_required: true,
+            })));
         }
     }
     Err(ApiError::BadRequest("No backup file provided".into()))
+}
+
+/// Check if a database restore is pending.
+async fn restore_status() -> Result<ResponseJson<ApiResponse<RestoreStatusResponse>>, ApiError> {
+    Ok(ResponseJson(ApiResponse::success(RestoreStatusResponse {
+        pending: BackupService::is_restore_pending(),
+    })))
+}
+
+/// Response from the restore endpoint.
+#[derive(serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[ts(export)]
+pub struct RestoreResponse {
+    pub message: String,
+    pub restart_required: bool,
+}
+
+/// Response from the restore status endpoint.
+#[derive(serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[ts(export)]
+pub struct RestoreStatusResponse {
+    pub pending: bool,
 }
 
 pub fn router() -> Router<DeploymentImpl> {
@@ -79,6 +109,7 @@ pub fn router() -> Router<DeploymentImpl> {
             "/backups/restore",
             post(restore_backup).layer(DefaultBodyLimit::max(500 * 1024 * 1024)), // 500MB limit
         )
+        .route("/backups/restore/status", get(restore_status))
         .route("/backups/{filename}", delete(delete_backup))
         .route("/backups/{filename}/download", get(download_backup))
 }
