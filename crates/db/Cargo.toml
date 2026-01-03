@@ -20,6 +20,14 @@ strum_macros = "0.27.2"
 tokio = { workspace = true }
 rusqlite = { version = "0.32", features = ["bundled", "backup"] }
 
+[features]
+default = []
+test-utils = ["tempfile"]
+
+[dependencies.tempfile]
+version = "3.10"
+optional = true
+
 [dev-dependencies]
 serial_test = "3.0"
 tempfile = "3.10"

@@ -203,6 +203,26 @@ mod tests {
 }
 ```
 
+### Database Test Utilities
+
+For database tests, use the shared test pool utilities in `crates/db/src/test_utils.rs`:
+
+```rust
+use db::test_utils::create_test_pool;
+
+#[tokio::test]
+async fn test_db_operation() {
+    let (pool, _temp_dir) = create_test_pool().await;
+    // The pool has migrations already applied via template database
+    // Much faster than running migrations per test
+}
+```
+
+**Benefits:**
+- Template database approach: migrations run once, then copied for each test
+- ~90% faster than running migrations per test
+- Full test isolation (each test gets its own database copy)
+
 ### Frontend Validation
 ```bash
 cd frontend
@@ -511,7 +531,7 @@ Swarm/Hive Node Configuration (see `docs/swarm-hive-setup.mdx` for full guide):
 
 8. **Keep services stateless**: Service structs should be `Clone` with no fields. Pass `&SqlitePool` to methods.
 
-9. **Test database operations**: Use `tempfile::TempDir` for isolated test environments. Clean up after tests.
+9. **Test database operations**: Use `db::test_utils::create_test_pool()` for fast, isolated test databases. Falls back to `tempfile::TempDir` for non-DB tests.
 
 10. **Check existing components**: Look at similar components in `frontend/src/components/` before creating new ones. Follow established patterns for Props, hooks, and error handling.
 

@@ -114,7 +114,7 @@ impl LocalContainerService {
             message_queue,
         };
 
-        container.spawn_worktree_cleanup().await;
+        container.spawn_worktree_cleanup();
 
         container
     }
@@ -186,8 +186,9 @@ impl LocalContainerService {
         Ok(())
     }
 
-    /// Find and delete orphaned worktrees that don't correspond to any task attempts
-    async fn cleanup_orphaned_worktrees(&self) {
+    /// Find and delete orphaned worktrees that don't correspond to any task attempts.
+    /// This is a static method to allow calling from background tasks.
+    async fn cleanup_orphaned_worktrees(db: &DBService) {
         // Check if orphan cleanup is disabled via environment variable
         // Only "1" or "true" (case-insensitive) disables cleanup; unset or "0"/"false" enables it
         if std::env::var("DISABLE_WORKTREE_ORPHAN_CLEANUP")
@@ -234,7 +235,7 @@ impl LocalContainerService {
 
             let worktree_path_str = path.to_string_lossy().to_string();
             if let Ok(false) =
-                TaskAttempt::container_ref_exists(&self.db().pool, &worktree_path_str).await
+                TaskAttempt::container_ref_exists(&db.pool, &worktree_path_str).await
             {
                 // This is an orphaned worktree - delete it
                 tracing::info!("Found orphaned worktree: {}", worktree_path_str);
@@ -298,11 +299,17 @@ impl LocalContainerService {
         Ok(())
     }
 
-    pub async fn spawn_worktree_cleanup(&self) {
+    pub fn spawn_worktree_cleanup(&self) {
         let db = self.db.clone();
-        let mut cleanup_interval = tokio::time::interval(tokio::time::Duration::from_secs(1800)); // 30 minutes
-        self.cleanup_orphaned_worktrees().await;
         tokio::spawn(async move {
+            // Run initial orphan cleanup in background (non-blocking startup)
+            tracing::debug!("Starting initial worktree cleanup in background...");
+            Self::cleanup_orphaned_worktrees(&db).await;
+            tracing::debug!("Initial worktree cleanup completed");
+
+            // Periodic cleanup every 30 minutes
+            let mut cleanup_interval =
+                tokio::time::interval(tokio::time::Duration::from_secs(1800));
             loop {
                 cleanup_interval.tick().await;
                 tracing::info!("Starting periodic worktree cleanup...");
