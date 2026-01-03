@@ -46,15 +46,9 @@ export {
 export { useTaskUsesSharedWorktree } from './useTaskUsesSharedWorktree';
 export { useIsMobile } from './useIsMobile';
 export { useMediaQuery } from './useMediaQuery';
-export { useElectricTasks } from './useElectricTasks';
 export { usePendingVariables } from './usePendingVariables';
 export type {
   PendingVariable,
   UsePendingVariablesReturn,
 } from './usePendingVariables';
 export { useMessageQueue, useMessageQueueInjection } from './message-queue';
-export type {
-  UseElectricTasksResult,
-  UseElectricTasksOptions,
-  ElectricTask,
-} from './useElectricTasks';

@@ -15,11 +15,6 @@ describe('Electric Config', () => {
   });
 
   describe('ELECTRIC_SHAPE_TABLES', () => {
-    it('contains shared_tasks table definition', () => {
-      expect(ELECTRIC_SHAPE_TABLES.shared_tasks).toBeDefined();
-      expect(ELECTRIC_SHAPE_TABLES.shared_tasks.table).toBe('shared_tasks');
-    });
-
     it('contains nodes table definition', () => {
       expect(ELECTRIC_SHAPE_TABLES.nodes).toBeDefined();
       expect(ELECTRIC_SHAPE_TABLES.nodes.table).toBe('nodes');
@@ -37,11 +32,6 @@ describe('Electric Config', () => {
   });
 
   describe('createShapeUrl', () => {
-    it('creates URL for shared_tasks table', () => {
-      const url = createShapeUrl('shared_tasks');
-      expect(url).toBe('/api/electric/v1/shape/shared_tasks');
-    });
-
     it('creates URL for nodes table', () => {
       const url = createShapeUrl('nodes');
       expect(url).toBe('/api/electric/v1/shape/nodes');

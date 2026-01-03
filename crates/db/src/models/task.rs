@@ -515,8 +515,8 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
         Ok(result.rows_affected())
     }
 
-    /// Clear shared_task_id for all tasks that reference shared tasks belonging to a remote project
-    /// This breaks the link between local tasks and shared tasks when a project is unlinked
+    /// Clear shared_task_id for all tasks belonging to a project with the given remote_project_id
+    /// This breaks the link between local tasks and hive tasks when a project is unlinked
     pub async fn clear_shared_task_ids_for_remote_project<'e, E>(
         executor: E,
         remote_project_id: Uuid,
@@ -527,8 +527,8 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
         let result = sqlx::query!(
             r#"UPDATE tasks
                SET shared_task_id = NULL
-               WHERE shared_task_id IN (
-                   SELECT id FROM shared_tasks WHERE remote_project_id = $1
+               WHERE project_id IN (
+                   SELECT id FROM projects WHERE remote_project_id = $1
                )"#,
             remote_project_id
         )

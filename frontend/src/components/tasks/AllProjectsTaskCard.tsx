@@ -59,7 +59,7 @@ export function AllProjectsTaskCard({
 
   const shortNodeName = getShortNodeName(task.source_node_name);
 
-  // Prefer granular assignee fields from shared_tasks, fall back to remote_assignee_name
+  // Prefer granular assignee fields if available, fall back to remote_assignee_name
   const ownerName =
     task.assignee_first_name || task.assignee_last_name
       ? [task.assignee_first_name, task.assignee_last_name]
@@ -93,7 +93,7 @@ export function AllProjectsTaskCard({
         <TaskCardHeader
           title={task.title}
           avatar={
-            // Prefer granular assignee fields from shared_tasks
+            // Prefer granular assignee fields if available
             task.assignee_first_name ||
             task.assignee_last_name ||
             task.assignee_username
