@@ -432,21 +432,20 @@ impl BackupService {
         // Check each backup for task_attempts data
         for backup in backups {
             let path = backup.path();
-            if let Ok(conn) = rusqlite::Connection::open(&path) {
-                if let Ok(count) = conn.query_row::<i64, _, _>(
+            if let Ok(conn) = rusqlite::Connection::open(&path)
+                && let Ok(count) = conn.query_row::<i64, _, _>(
                     "SELECT COUNT(*) FROM task_attempts",
                     [],
                     |row| row.get(0),
-                ) {
-                    if count > 0 {
-                        info!(
-                            backup = %path.display(),
-                            attempts = count,
-                            "Found backup with task_attempts data"
-                        );
-                        return Some(path);
-                    }
-                }
+                )
+                && count > 0
+            {
+                info!(
+                    backup = %path.display(),
+                    attempts = count,
+                    "Found backup with task_attempts data"
+                );
+                return Some(path);
             }
         }
 
@@ -534,10 +533,10 @@ impl BackupService {
         );
 
         // Create backup of current database first (in case the restore is bad)
-        if db_path.exists() {
-            if let Err(e) = Self::create_backup(&db_path) {
-                warn!(error = ?e, "Failed to create backup before restore");
-            }
+        if db_path.exists()
+            && let Err(e) = Self::create_backup(&db_path)
+        {
+            warn!(error = ?e, "Failed to create backup before restore");
         }
 
         // Perform the actual restore - copy staging file to db path

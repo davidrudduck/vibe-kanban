@@ -285,10 +285,10 @@ fn attempt_corruption_recovery(db_path: &Path) -> Result<bool, std::io::Error> {
                 error = %msg,
                 "Restored database is also corrupted"
             );
-            Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Restored backup is also corrupted: {}", msg),
-            ))
+            Err(std::io::Error::other(format!(
+                "Restored backup is also corrupted: {}",
+                msg
+            )))
         }
     }
 }

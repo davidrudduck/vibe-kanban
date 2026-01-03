@@ -10,7 +10,7 @@
 //! - Automatically cleans up old backups (keeps last 10)
 //! - Can be disabled via environment variable
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use tokio::sync::mpsc;
@@ -148,7 +148,7 @@ impl BackupScheduler {
         }
     }
 
-    async fn create_scheduled_backup(db_path: &PathBuf) {
+    async fn create_scheduled_backup(db_path: &Path) {
         tracing::info!("Running scheduled backup");
 
         match BackupService::create_backup(db_path) {
