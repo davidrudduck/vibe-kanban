@@ -8,7 +8,11 @@ use sqlx::Error as SqlxError;
 use std::process::{Child, Command, Stdio};
 use strip_ansi_escapes::strip;
 use thiserror::Error;
-use utils::{assets::asset_dir, browser::open_browser, port_file::write_port_file};
+use utils::{
+    assets::asset_dir,
+    browser::open_browser,
+    port_file::{InstanceInfo, InstancePorts, InstanceRegistry, write_port_file},
+};
 
 #[derive(Debug, Error)]
 pub enum VibeKanbanError {
@@ -35,6 +39,11 @@ async fn main() -> Result<(), VibeKanbanError> {
     // Create asset directory if it doesn't exist
     if !asset_dir().exists() {
         std::fs::create_dir_all(asset_dir())?;
+    }
+
+    // Clean up stale instance registry entries from previous runs
+    if let Err(e) = InstanceRegistry::cleanup_stale().await {
+        tracing::warn!("Failed to cleanup stale instance entries: {}", e);
     }
 
     let deployment = DeploymentImpl::new().await?;
@@ -110,7 +119,30 @@ async fn main() -> Result<(), VibeKanbanError> {
     let listener = tokio::net::TcpListener::bind(format!("{host}:{port}")).await?;
     let actual_port = listener.local_addr()?.port(); // get → 53427 (example)
 
-    // Write port file for discovery if prod, warn on fail
+    // Determine project root for instance registration
+    let project_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+
+    // Parse optional ports from environment
+    let frontend_port = std::env::var("FRONTEND_PORT")
+        .ok()
+        .and_then(|s| s.trim().parse::<u16>().ok());
+    let mcp_port = std::env::var("MCP_PORT")
+        .ok()
+        .and_then(|s| s.trim().parse::<u16>().ok());
+
+    // Register instance with all ports for multi-instance support
+    let mut instance = InstanceInfo::new(project_root.clone());
+    instance.ports = InstancePorts {
+        backend: Some(actual_port),
+        frontend: frontend_port,
+        mcp: mcp_port,
+        hive: None, // Set later if hive is enabled
+    };
+    if let Err(e) = InstanceRegistry::register(&instance).await {
+        tracing::warn!("Failed to register instance: {}", e);
+    }
+
+    // Also write legacy port file for backwards compatibility
     if let Err(e) = write_port_file(actual_port).await {
         tracing::warn!("Failed to write port file: {}", e);
     }
@@ -141,6 +173,11 @@ async fn main() -> Result<(), VibeKanbanError> {
     // MCP uses HTTP to communicate with backend (which is now down), so it's safe to cleanup first.
     // This ensures all database writes are flushed before any child processes are killed.
     perform_cleanup_actions(&deployment).await;
+
+    // Unregister this instance from the registry
+    if let Err(e) = InstanceRegistry::unregister(&project_root).await {
+        tracing::warn!("Failed to unregister instance: {}", e);
+    }
 
     // THEN terminate MCP child process (after database is safely closed)
     if let Some(ref mut child) = mcp_child {
