@@ -17,7 +17,6 @@ vi.mock('@tanstack/electric-db-collection', () => ({
 
 // Import after mocks are set up
 import {
-  createSharedTasksCollection,
   createNodesCollection,
   createProjectsCollection,
   createNodeProjectsCollection,
@@ -29,30 +28,6 @@ import { electricCollectionOptions } from '@tanstack/electric-db-collection';
 describe('Electric Collections', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  describe('createSharedTasksCollection', () => {
-    it('creates a collection with correct shape URL', () => {
-      const collection = createSharedTasksCollection();
-
-      expect(electricCollectionOptions).toHaveBeenCalledWith(
-        expect.objectContaining({
-          shapeOptions: expect.objectContaining({
-            url: '/api/electric/v1/shape/shared_tasks',
-          }),
-        })
-      );
-      expect(createCollection).toHaveBeenCalled();
-      expect(collection).toBeDefined();
-    });
-
-    it('uses id as the key extractor', () => {
-      createSharedTasksCollection();
-
-      const config = (electricCollectionOptions as ReturnType<typeof vi.fn>)
-        .mock.calls[0][0] as ElectricCollectionConfig<{ id: string }>;
-      expect(config.getKey({ id: 'test-uuid' })).toBe('test-uuid');
-    });
   });
 
   describe('createNodesCollection', () => {

@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow;
+use chrono::Utc;
 use axum::{
     Extension, Json, Router,
     extract::{
@@ -812,6 +813,118 @@ pub struct ArchiveTaskResponse {
     pub subtasks_archived: u64,
 }
 
+/// Archive a remote (hive-synced) task by proxying to the Hive API.
+///
+/// This updates the task's `archived_at` on the Hive, which will sync back to all nodes.
+async fn archive_remote_task(
+    deployment: &DeploymentImpl,
+    task: &Task,
+) -> Result<(StatusCode, ResponseJson<ApiResponse<ArchiveTaskResponse>>), ApiError> {
+    let remote_client = deployment.remote_client()?;
+    let shared_task_id = task
+        .shared_task_id
+        .ok_or_else(|| ApiError::BadRequest("Remote task missing shared_task_id".to_string()))?;
+
+    let request = UpdateSharedTaskRequest {
+        title: None,
+        description: None,
+        status: None,
+        archived_at: Some(Some(Utc::now())),
+        version: Some(task.remote_version),
+    };
+
+    let response = remote_client
+        .update_shared_task(shared_task_id, &request)
+        .await?;
+
+    // Build display name from user data
+    let assignee_name = response
+        .user
+        .as_ref()
+        .and_then(|u| format_user_display_name(u.first_name.as_ref(), u.last_name.as_ref()));
+
+    // Upsert updated remote task locally
+    let pool = &deployment.db().pool;
+    let archived_task = Task::upsert_remote_task(
+        pool,
+        task.id,
+        task.project_id,
+        response.task.id,
+        response.task.title,
+        response.task.description,
+        task_status::from_remote(&response.task.status),
+        response.task.assignee_user_id,
+        assignee_name,
+        response.user.as_ref().and_then(|u| u.username.clone()),
+        response.task.version,
+        Some(response.task.updated_at),
+        response.task.archived_at,
+    )
+    .await?;
+
+    // Note: Subtask archiving for hive-synced tasks is handled by the Hive
+    // The Hive will propagate archive status to all subtasks
+    Ok((
+        StatusCode::OK,
+        ResponseJson(ApiResponse::success(ArchiveTaskResponse {
+            task: archived_task,
+            subtasks_archived: 0, // Hive handles subtasks
+        })),
+    ))
+}
+
+/// Unarchive a remote (hive-synced) task by proxying to the Hive API.
+///
+/// This clears the task's `archived_at` on the Hive, which will sync back to all nodes.
+async fn unarchive_remote_task(
+    deployment: &DeploymentImpl,
+    task: &Task,
+) -> Result<ResponseJson<ApiResponse<Task>>, ApiError> {
+    let remote_client = deployment.remote_client()?;
+    let shared_task_id = task
+        .shared_task_id
+        .ok_or_else(|| ApiError::BadRequest("Remote task missing shared_task_id".to_string()))?;
+
+    let request = UpdateSharedTaskRequest {
+        title: None,
+        description: None,
+        status: None,
+        archived_at: Some(None), // Some(None) means unarchive
+        version: Some(task.remote_version),
+    };
+
+    let response = remote_client
+        .update_shared_task(shared_task_id, &request)
+        .await?;
+
+    // Build display name from user data
+    let assignee_name = response
+        .user
+        .as_ref()
+        .and_then(|u| format_user_display_name(u.first_name.as_ref(), u.last_name.as_ref()));
+
+    // Upsert updated remote task locally
+    let pool = &deployment.db().pool;
+    let unarchived_task = Task::upsert_remote_task(
+        pool,
+        task.id,
+        task.project_id,
+        response.task.id,
+        response.task.title,
+        response.task.description,
+        task_status::from_remote(&response.task.status),
+        response.task.assignee_user_id,
+        assignee_name,
+        response.user.as_ref().and_then(|u| u.username.clone()),
+        response.task.version,
+        Some(response.task.updated_at),
+        response.task.archived_at,
+    )
+    .await?;
+
+    Ok(ResponseJson(ApiResponse::success(unarchived_task)))
+}
+
 /// Archive a task and optionally its subtasks.
 ///
 /// This endpoint:
@@ -827,11 +940,9 @@ pub async fn archive_task(
 ) -> Result<(StatusCode, ResponseJson<ApiResponse<ArchiveTaskResponse>>), ApiError> {
     let pool = &deployment.db().pool;
 
-    // Tasks synced from Hive cannot be archived locally
+    // Tasks synced from Hive are archived by proxying to the Hive API
     if task.shared_task_id.is_some() {
-        return Err(ApiError::BadRequest(
-            "Tasks synced from Hive cannot be archived locally. Archive them on the origin node.".to_string(),
-        ));
+        return archive_remote_task(&deployment, &task).await;
     }
 
     // Task already archived
@@ -980,11 +1091,9 @@ pub async fn unarchive_task(
 ) -> Result<ResponseJson<ApiResponse<Task>>, ApiError> {
     let pool = &deployment.db().pool;
 
-    // Tasks synced from Hive cannot be unarchived locally
+    // Tasks synced from Hive are unarchived by proxying to the Hive API
     if task.shared_task_id.is_some() {
-        return Err(ApiError::BadRequest(
-            "Tasks synced from Hive cannot be unarchived locally. Unarchive them on the origin node.".to_string(),
-        ));
+        return unarchive_remote_task(&deployment, &task).await;
     }
 
     // Task not archived

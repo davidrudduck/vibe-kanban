@@ -40,15 +40,6 @@ export interface ElectricTableConfig {
  */
 export const ELECTRIC_SHAPE_TABLES = {
   /**
-   * Shared tasks synced from the hive.
-   * Filtered by organization membership on the server side.
-   */
-  shared_tasks: {
-    table: 'shared_tasks',
-    description: 'Tasks shared from the hive to connected nodes',
-  },
-
-  /**
    * Connected worker nodes.
    * Filtered by organization membership on the server side.
    */
