@@ -356,21 +356,20 @@ impl BackupService {
         // Check each backup for task_attempts data
         for backup in backups {
             let path = backup.path();
-            if let Ok(conn) = rusqlite::Connection::open(&path) {
-                if let Ok(count) = conn.query_row::<i64, _, _>(
+            if let Ok(conn) = rusqlite::Connection::open(&path)
+                && let Ok(count) = conn.query_row::<i64, _, _>(
                     "SELECT COUNT(*) FROM task_attempts",
                     [],
                     |row| row.get(0),
-                ) {
-                    if count > 0 {
-                        info!(
-                            backup = %path.display(),
-                            attempts = count,
-                            "Found backup with task_attempts data"
-                        );
-                        return Some(path);
-                    }
-                }
+                )
+                && count > 0
+            {
+                info!(
+                    backup = %path.display(),
+                    attempts = count,
+                    "Found backup with task_attempts data"
+                );
+                return Some(path);
             }
         }
 
