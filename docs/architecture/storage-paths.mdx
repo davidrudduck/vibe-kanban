@@ -127,6 +127,35 @@ pub fn asset_dir() -> PathBuf {
 | macOS | `~/Library/Application Support/vibe-kanban/` |
 | Windows | `%APPDATA%\vibe-kanban\` |
 
+## Instance Registry
+
+**Location**: `crates/utils/src/port_file.rs`
+
+When multiple Vibe Kanban instances run simultaneously, each registers itself in a central registry for process management and port discovery.
+
+```rust
+pub struct InstanceRegistry;
+
+impl InstanceRegistry {
+    fn registry_dir() -> PathBuf {
+        env::temp_dir().join("vibe-kanban").join("instances")
+    }
+}
+```
+
+**Registry Location**: `/tmp/vibe-kanban/instances/`
+
+Each instance file (`<hash>.json`) contains:
+- `project_root`: Canonical path to the project directory
+- `pid`: Process ID of the server
+- `ports`: All service ports (backend, frontend, mcp, hive)
+- `started_at`: RFC 3339 timestamp
+
+This enables:
+- Safe process management (`pnpm run stop`)
+- Executor discovery (find which backend/MCP to connect to)
+- Multi-instance port tracking
+
 ## Startup Logging
 
 **Location**: `crates/local-deployment/src/lib.rs`
@@ -170,6 +199,14 @@ INFO Storage locations database=/home/user/.local/share/vibe-kanban/db.sqlite
 |------|-------|
 | `crates/services/src/services/worktree_manager.rs` | Worktree creation and management |
 | `crates/services/src/services/git.rs` | Git operations on worktrees |
+
+### Instance Registry Consumers
+
+| File | Usage |
+|------|-------|
+| `crates/server/src/main.rs` | Instance registration/unregistration on start/stop |
+| `crates/utils/src/port_file.rs` | Registry management and discovery functions |
+| `scripts/stop-server.js` | Reading registry to stop specific instances |
 
 ## Testing
 
