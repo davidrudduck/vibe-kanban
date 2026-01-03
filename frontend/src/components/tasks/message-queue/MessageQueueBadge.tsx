@@ -160,11 +160,6 @@ function MessageQueueItem({
             {message.content}
           </div>
         )}
-        {message.variant && (
-          <span className="text-xs text-muted-foreground mt-1 block">
-            {t('messageQueue.variant')} {message.variant}
-          </span>
-        )}
         {removeError && (
           <div className="text-xs text-destructive mt-1">{removeError}</div>
         )}

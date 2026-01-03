@@ -87,16 +87,15 @@ If saving fails, the editor stays open so you can retry or fix the issue.
 
 Click the × button to remove a message. You'll be asked to confirm before the message is deleted. This prevents accidental removal of important queued instructions.
 
-## Automatic Execution
+## Queue Persistence
 
 When the agent completes its current task:
-1. First queued message is sent automatically
-2. Agent processes the message
-3. Next message sent on completion
-4. Continues until the queue is empty
+- Queued messages are **NOT** automatically sent
+- Messages stay in the queue until you manually inject or remove them
+- This gives you full control over when follow-up messages are sent
 
 <Tip>
-This enables "fire and forget" workflows where you can plan several steps ahead and let the agent work through them autonomously.
+You can use this to prepare messages while the agent is working, then inject them when you're ready. This prevents unintended automatic execution and gives you time to review the agent's output before sending follow-ups.
 </Tip>
 
 ## How It Works Technically
@@ -113,9 +112,9 @@ This means:
 - Successful injections automatically clean up the queue
 - Failed injections keep your message queued for retry
 
-## Variants
+## Mode/Variant
 
-If you have multiple agent profiles configured, the queue preserves which variant (profile) each message should use. This means you can queue messages that alternate between different modes like PLAN and DEFAULT.
+Injected messages always use the executor's **current mode**. The queue does not store or override variants - this keeps the behavior simple and predictable. Whatever mode the agent is currently running in (e.g., DEFAULT, PLAN) will be used for injected messages.
 
 ## Limits
 
@@ -155,14 +154,6 @@ As you review agent output, queue follow-ups:
 3. Queue "Also add input validation for email format"
 4. The message is injected immediately and **removed from the queue** if successful
 5. If injection fails, check the Messages badge - the count will reflect the queued message
-
-### Combine with Agent Profiles
-
-Use variants strategically:
-
-1. Queue planning message with PLAN variant
-2. Queue implementation with DEFAULT variant
-3. Queue review request with PLAN variant
 
 ## Responsive Design
 
