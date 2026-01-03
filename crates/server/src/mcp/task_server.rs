@@ -1,6 +1,7 @@
 use std::{future::Future, path::PathBuf, str::FromStr};
 
 use db::models::{
+    execution_process::ExecutionProcess,
     project::Project,
     task::{CreateTask, Task, TaskStatus, TaskWithAttemptStatus, UpdateTask},
     task_attempt::{TaskAttempt, TaskAttemptContext},
@@ -325,6 +326,92 @@ pub struct DeleteTaskVariableResponse {
     pub deleted_variable_name: String,
     #[schemars(description = "The task ID the variable was deleted from")]
     pub task_id: String,
+}
+
+// ===== Task Attempt Execution Control MCP Types =====
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct StopTaskAttemptRequest {
+    #[schemars(description = "The ID of the task attempt to stop")]
+    pub attempt_id: Uuid,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct StopTaskAttemptResponse {
+    #[schemars(description = "The ID of the task attempt that was stopped")]
+    pub attempt_id: String,
+    #[schemars(description = "Whether the stop operation was successful")]
+    pub stopped: bool,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetTaskAttemptStatusRequest {
+    #[schemars(description = "The ID of the task attempt to get status for")]
+    pub attempt_id: Uuid,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ExecutionProcessSummary {
+    #[schemars(description = "The unique identifier of the execution process")]
+    pub id: String,
+    #[schemars(description = "The reason this process was run (e.g., 'initial', 'follow_up')")]
+    pub run_reason: String,
+    #[schemars(description = "Current status of the execution process")]
+    pub status: String,
+    #[schemars(description = "When the process started")]
+    pub started_at: String,
+    #[schemars(description = "When the process completed (if finished)")]
+    pub completed_at: Option<String>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct TaskAttemptStatusResponse {
+    #[schemars(description = "The unique identifier of the task attempt")]
+    pub attempt_id: String,
+    #[schemars(description = "The ID of the task this attempt belongs to")]
+    pub task_id: String,
+    #[schemars(description = "The git branch name for this attempt")]
+    pub branch: String,
+    #[schemars(description = "The executor used for this attempt")]
+    pub executor: String,
+    #[schemars(description = "Whether the worktree has been deleted")]
+    pub worktree_deleted: bool,
+    #[schemars(description = "When the attempt was created")]
+    pub created_at: String,
+    #[schemars(description = "List of execution processes for this attempt")]
+    pub processes: Vec<ExecutionProcessSummary>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ListTaskAttemptsRequest {
+    #[schemars(description = "The ID of the task to list attempts for")]
+    pub task_id: Uuid,
+    #[schemars(description = "Maximum number of attempts to return (default: 50)")]
+    pub limit: Option<i32>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct TaskAttemptSummary {
+    #[schemars(description = "The unique identifier of the task attempt")]
+    pub id: String,
+    #[schemars(description = "The git branch name for this attempt")]
+    pub branch: String,
+    #[schemars(description = "The executor used for this attempt")]
+    pub executor: String,
+    #[schemars(description = "When the attempt was created")]
+    pub created_at: String,
+    #[schemars(description = "Whether the worktree has been deleted")]
+    pub worktree_deleted: bool,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ListTaskAttemptsResponse {
+    #[schemars(description = "The ID of the task these attempts belong to")]
+    pub task_id: String,
+    #[schemars(description = "List of task attempts")]
+    pub attempts: Vec<TaskAttemptSummary>,
+    #[schemars(description = "Number of attempts returned")]
+    pub count: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -908,12 +995,119 @@ impl TaskServer {
 
         TaskServer::success(&response)
     }
+
+    // ===== Task Attempt Execution Control MCP Tools =====
+
+    #[tool(description = "Stop a running task attempt. Terminates all execution processes for the attempt.")]
+    async fn stop_task_attempt(
+        &self,
+        Parameters(StopTaskAttemptRequest { attempt_id }): Parameters<StopTaskAttemptRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/task-attempts/{}/stop", attempt_id));
+
+        // POST to stop endpoint - it returns () on success
+        if let Err(e) = self
+            .send_json::<serde_json::Value>(self.client.post(&url))
+            .await
+        {
+            return Ok(e);
+        }
+
+        let response = StopTaskAttemptResponse {
+            attempt_id: attempt_id.to_string(),
+            stopped: true,
+        };
+
+        TaskServer::success(&response)
+    }
+
+    #[tool(description = "Get the status of a task attempt including its execution processes.")]
+    async fn get_task_attempt_status(
+        &self,
+        Parameters(GetTaskAttemptStatusRequest { attempt_id }): Parameters<
+            GetTaskAttemptStatusRequest,
+        >,
+    ) -> Result<CallToolResult, ErrorData> {
+        // Fetch the task attempt
+        let attempt_url = self.url(&format!("/api/task-attempts/{}", attempt_id));
+        let attempt: TaskAttempt = match self.send_json(self.client.get(&attempt_url)).await {
+            Ok(a) => a,
+            Err(e) => return Ok(e),
+        };
+
+        // Fetch execution processes for this attempt
+        let processes_url = self.url(&format!(
+            "/api/execution-processes?task_attempt_id={}",
+            attempt_id
+        ));
+        let processes: Vec<ExecutionProcess> = self
+            .send_json(self.client.get(&processes_url))
+            .await
+            .unwrap_or_default();
+
+        let process_summaries: Vec<ExecutionProcessSummary> = processes
+            .into_iter()
+            .map(|p| ExecutionProcessSummary {
+                id: p.id.to_string(),
+                run_reason: format!("{:?}", p.run_reason).to_lowercase(),
+                status: format!("{:?}", p.status).to_lowercase(),
+                started_at: p.started_at.to_rfc3339(),
+                completed_at: p.completed_at.map(|dt| dt.to_rfc3339()),
+            })
+            .collect();
+
+        let response = TaskAttemptStatusResponse {
+            attempt_id: attempt.id.to_string(),
+            task_id: attempt.task_id.to_string(),
+            branch: attempt.branch,
+            executor: attempt.executor,
+            worktree_deleted: attempt.worktree_deleted,
+            created_at: attempt.created_at.to_rfc3339(),
+            processes: process_summaries,
+        };
+
+        TaskServer::success(&response)
+    }
+
+    #[tool(description = "List all task attempts for a specific task.")]
+    async fn list_task_attempts(
+        &self,
+        Parameters(ListTaskAttemptsRequest { task_id, limit }): Parameters<ListTaskAttemptsRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/task-attempts?task_id={}", task_id));
+        let attempts: Vec<TaskAttempt> = match self.send_json(self.client.get(&url)).await {
+            Ok(a) => a,
+            Err(e) => return Ok(e),
+        };
+
+        let attempt_limit = limit.unwrap_or(50).max(0) as usize;
+        let limited: Vec<TaskAttempt> = attempts.into_iter().take(attempt_limit).collect();
+
+        let attempt_summaries: Vec<TaskAttemptSummary> = limited
+            .into_iter()
+            .map(|a| TaskAttemptSummary {
+                id: a.id.to_string(),
+                branch: a.branch,
+                executor: a.executor,
+                created_at: a.created_at.to_rfc3339(),
+                worktree_deleted: a.worktree_deleted,
+            })
+            .collect();
+
+        let response = ListTaskAttemptsResponse {
+            task_id: task_id.to_string(),
+            count: attempt_summaries.len(),
+            attempts: attempt_summaries,
+        };
+
+        TaskServer::success(&response)
+    }
 }
 
 #[tool_handler]
 impl ServerHandler for TaskServer {
     fn get_info(&self) -> ServerInfo {
-        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`.. TOOLS: 'list_projects', 'list_tasks', 'create_task', 'start_workspace_session', 'get_task', 'update_task', 'delete_task', 'list_repos'. Make sure to pass `project_id` or `task_id` where required. You can use list tools to get the available ids. Task variables: Use 'get_task_variables', 'set_task_variable', and 'delete_task_variable' to manage variables that are expanded in task descriptions using $VAR or ${VAR} syntax.".to_string();
+        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`.. TOOLS: 'list_projects', 'list_tasks', 'create_task', 'start_workspace_session', 'get_task', 'update_task', 'delete_task', 'list_repos'. Make sure to pass `project_id` or `task_id` where required. You can use list tools to get the available ids. Task variables: Use 'get_task_variables', 'set_task_variable', and 'delete_task_variable' to manage variables that are expanded in task descriptions using $VAR or ${VAR} syntax. Task attempts: Use 'stop_task_attempt', 'get_task_attempt_status', and 'list_task_attempts' to control and monitor task execution.".to_string();
         if self.context.is_some() {
             let context_instruction = "Use 'get_context' to fetch project/task/attempt metadata for the active Vibe Kanban attempt when available.";
             instruction = format!("{} {}", context_instruction, instruction);
