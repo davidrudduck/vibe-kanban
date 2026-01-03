@@ -498,8 +498,71 @@ projects from nodes, if a local project already exists with the same path, the
 remote project sync is skipped to avoid constraint violations. This commonly
 occurs when the same repository is checked out on multiple machines.
 
+## Task Archive Proxy Pattern
+
+When archiving hive-synced tasks, nodes proxy the archive operation to the hive rather than
+modifying local state directly. This ensures archive status syncs consistently across all nodes.
+
+### Archive Flow
+
+```text
+┌──────────┐         ┌──────────┐         ┌──────────┐
+│  Node A  │         │   Hive   │         │  Node B  │
+└────┬─────┘         └────┬─────┘         └────┬─────┘
+     │                    │                    │
+     │ UpdateSharedTask   │                    │
+     │ (archived_at=now)  │                    │
+     │───────────────────►│                    │
+     │                    │                    │
+     │  Updated Task      │                    │
+     │  (version++)       │                    │
+     │◄───────────────────│                    │
+     │                    │                    │
+     │                    │ TaskUpdated        │
+     │                    │ (archived_at=now)  │
+     │                    │───────────────────►│
+     │                    │                    │
+```
+
+### API Request Format
+
+The archive operation uses the standard `UpdateSharedTaskRequest` with the `archived_at` field:
+
+```rust
+// Archive request
+UpdateSharedTaskRequest {
+    title: None,
+    description: None,
+    status: None,
+    archived_at: Some(Some(Utc::now())),  // Set timestamp
+    version: Some(current_version),
+}
+
+// Unarchive request
+UpdateSharedTaskRequest {
+    title: None,
+    description: None,
+    status: None,
+    archived_at: Some(None),  // Clear timestamp
+    version: Some(current_version),
+}
+```
+
+### Subtask Handling
+
+When archiving a hive-synced parent task, the hive propagates the archive status to all
+subtasks. Nodes do not need to archive subtasks individually—the hive handles this
+server-side to ensure consistency.
+
+### Local State Update
+
+After a successful archive/unarchive operation, the node updates its local task cache
+via `Task::upsert_remote_task()` to ensure the local state reflects the hive's response
+immediately, without waiting for the next sync cycle.
+
 ## Related Documentation
 
+- [Task Archiving](/features/task-archiving) - User guide for archiving tasks
 - [Swarm/Hive Setup Guide](/swarm-hive-setup) - Configuration instructions
 - [Project Linking](/core-features/project-linking) - User guide for linking
 - [Swarm Management](/core-features/swarm-management) - UI documentation
