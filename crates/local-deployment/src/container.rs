@@ -522,23 +522,13 @@ impl LocalContainerService {
                     container
                         .finalize_task(&container.config, publisher.as_ref().ok(), &ctx)
                         .await;
-                    // After finalization, check if a queued follow-up exists and start it
-                    if let Err(e) = container.try_consume_queued_followup(&ctx).await {
-                        tracing::error!(
-                            "Failed to start queued follow-up for attempt {}: {}",
-                            ctx.task_attempt.id,
-                            e
-                        );
-                    }
 
-                    // Then check if there are queued messages in the in-memory queue
-                    if let Err(e) = container.try_consume_queued_message(&ctx).await {
-                        tracing::error!(
-                            "Failed to start queued message for attempt {}: {}",
-                            ctx.task_attempt.id,
-                            e
-                        );
-                    }
+                    // NOTE: We intentionally DO NOT auto-consume queued follow-ups or
+                    // queued messages here. The "Queue For Next Turn" button has been
+                    // removed in favor of the message queue with live injection.
+                    // Messages are injected directly into running processes via the
+                    // /inject-message endpoint and removed from queue on success.
+                    // See: Sessions 2 & 3 of message-queue-injection fix plan.
                 }
             }
 
@@ -767,6 +757,11 @@ impl LocalContainerService {
 
     /// If a queued follow-up draft exists for this attempt and nothing is running,
     /// start it immediately and clear the draft.
+    ///
+    /// NOTE: This function is currently unused. The "Queue For Next Turn" UI was removed
+    /// in favor of the message queue with live injection. Keeping this for potential
+    /// future use or manual triggering via API.
+    #[allow(dead_code)]
     async fn try_consume_queued_followup(
         &self,
         ctx: &ExecutionContext,
@@ -919,6 +914,11 @@ impl LocalContainerService {
 
     /// If a queued message exists in the in-memory queue for this attempt and nothing is running,
     /// pop and start it as a follow-up request.
+    ///
+    /// NOTE: This function is currently unused. Messages are now injected directly into
+    /// running processes via the /inject-message endpoint and removed from queue on success.
+    /// Keeping this for potential future use or manual triggering via API.
+    #[allow(dead_code)]
     async fn try_consume_queued_message(
         &self,
         ctx: &ExecutionContext,

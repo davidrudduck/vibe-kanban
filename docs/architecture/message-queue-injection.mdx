@@ -203,7 +203,8 @@ The `useMessageQueueInjection` hook handles automatic removal:
 ```typescript
 const addAndInject = async (content, variant) => {
   // 1. Add to queue first (persistence)
-  const message = await addMessage(content, variant);
+  // Note: variant is always null - injected messages use executor's current mode
+  const message = await addMessage(content, null);
 
   if (runningProcessId) {
     try {
@@ -236,6 +237,16 @@ const addAndInject = async (content, variant) => {
 | Injection succeeded | `false` | `true` |
 | Injection failed | `true` | `false` |
 | Network error | `true` | `false` |
+
+## No Auto-Consume on Completion
+
+**Important**: The message queue is NOT automatically consumed when an executor finishes. This design decision gives users full control:
+
+- Messages stay in the queue until manually injected or removed
+- No unexpected automatic executions when a process completes
+- Users can review output before sending follow-ups
+
+The `try_consume_queued_message()` call in `container.rs` is intentionally disabled to achieve this behavior.
 
 ## Error Handling
 

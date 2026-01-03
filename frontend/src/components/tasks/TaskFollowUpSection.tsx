@@ -42,7 +42,6 @@ import { useDraftStream } from '@/hooks/follow-up/useDraftStream';
 import { useRetryUi } from '@/contexts/RetryUiContext';
 import { useDraftEditor } from '@/hooks/follow-up/useDraftEditor';
 import { useDraftAutosave } from '@/hooks/follow-up/useDraftAutosave';
-import { useDraftQueue } from '@/hooks/follow-up/useDraftQueue';
 import { useFollowUpSend } from '@/hooks/follow-up/useFollowUpSend';
 import { useDefaultVariant } from '@/hooks/follow-up/useDefaultVariant';
 import { buildResolveConflictsInstructions } from '@/lib/conflicts';
@@ -182,27 +181,6 @@ export function TaskFollowUpSection({
     setSelectedVariant(nextVariant === 'DEFAULT' ? null : nextVariant);
   }, [currentProfile, selectedVariant, setSelectedVariant]);
 
-  // Queue management (including derived lock flag)
-  const { onQueue, onUnqueue } = useDraftQueue({
-    attemptId: selectedAttemptId,
-    draft,
-    message: followUpMessage,
-    selectedVariant,
-    images,
-  });
-
-  // Presentation-only queue state
-  const [isQueuing, setIsQueuing] = useState(false);
-  const [isUnqueuing, setIsUnqueuing] = useState(false);
-  // Local queued state override after server action completes; null = rely on server
-  const [queuedOptimistic, setQueuedOptimistic] = useState<boolean | null>(
-    null
-  );
-
-  // Server + presentation derived flags (computed early so they are usable below)
-  const isQueued = !!draft?.queued;
-  const displayQueued = queuedOptimistic ?? isQueued;
-
   // During retry, follow-up box is greyed/disabled (not hidden)
   // Use RetryUi context so optimistic retry immediately disables this box
   const { activeRetryProcessId } = useRetryUi();
@@ -234,10 +212,10 @@ export function TaskFollowUpSection({
       variant: selectedVariant,
       image_ids: images.map((img) => img.id),
     },
-    isQueuedUI: displayQueued,
+    isQueuedUI: false,
     isDraftSending: !!draft?.sending,
-    isQueuing: isQueuing,
-    isUnqueuing: isUnqueuing,
+    isQueuing: false,
+    isUnqueuing: false,
   });
 
   // Send follow-up action
@@ -311,41 +289,34 @@ export function TaskFollowUpSection({
   ]);
   // currentProfile is provided by useDefaultVariant
 
-  const isDraftLocked =
-    displayQueued || isQueuing || isUnqueuing || !!draft?.sending;
+  const isDraftLocked = !!draft?.sending;
   const isEditable =
     isDraftLoaded && !isDraftLocked && !isRetryActive && !hasPendingApproval;
 
-  // Keyboard shortcut handler - unified submit (send or queue depending on state)
+  // Keyboard shortcut handler - unified submit (add to queue when running, send when idle)
   const handleSubmitShortcut = useCallback(
     async (e?: KeyboardEvent) => {
       e?.preventDefault();
 
-      // When attempt is running, queue or unqueue
+      // When attempt is running, add to message queue (with injection)
+      // Note: variant is always null - injected messages use executor's current mode
       if (isAttemptRunning) {
-        if (displayQueued) {
-          setIsUnqueuing(true);
-          try {
-            const ok = await onUnqueue();
-            if (ok) setQueuedOptimistic(false);
-          } finally {
-            setIsUnqueuing(false);
-          }
-        } else {
-          setIsQueuing(true);
-          try {
-            const ok = await onQueue();
-            if (ok) setQueuedOptimistic(true);
-          } finally {
-            setIsQueuing(false);
-          }
+        if (followUpMessage.trim()) {
+          await addAndInject(followUpMessage.trim(), null);
+          setFollowUpMessage('');
         }
       } else {
         // When attempt is idle, send immediately
         onSendFollowUp();
       }
     },
-    [isAttemptRunning, displayQueued, onQueue, onUnqueue, onSendFollowUp]
+    [
+      isAttemptRunning,
+      followUpMessage,
+      addAndInject,
+      setFollowUpMessage,
+      onSendFollowUp,
+    ]
   );
 
   // Register keyboard shortcuts
@@ -358,7 +329,7 @@ export function TaskFollowUpSection({
   useKeySubmitFollowUp(handleSubmitShortcut, {
     scope: Scope.FOLLOW_UP_READY,
     enableOnFormTags: ['textarea', 'TEXTAREA'],
-    when: canSendFollowUp && !isDraftLocked && !isQueuing && !isUnqueuing,
+    when: canSendFollowUp && !isDraftLocked,
   });
 
   // Enable FOLLOW_UP scope when textarea is focused AND editable
@@ -425,7 +396,6 @@ export function TaskFollowUpSection({
         clearImagesAndUploads();
       }
       if (showImageUpload) setShowImageUpload(false);
-      if (queuedOptimistic !== null) setQueuedOptimistic(null);
     }
     prevSendingRef.current = now;
   }, [
@@ -436,18 +406,7 @@ export function TaskFollowUpSection({
     newlyUploadedImageIds.length,
     clearImagesAndUploads,
     showImageUpload,
-    queuedOptimistic,
   ]);
-
-  // On server queued state change, drop optimistic override and stop spinners accordingly
-  useEffect(() => {
-    setQueuedOptimistic(null);
-    if (isQueued) {
-      if (isQueuing) setIsQueuing(false);
-    } else {
-      if (isUnqueuing) setIsUnqueuing(false);
-    }
-  }, [isQueued, isQueuing, isUnqueuing]);
 
   return (
     selectedAttemptId && (
@@ -540,11 +499,9 @@ export function TaskFollowUpSection({
               <div className="flex flex-col gap-2">
                 <FollowUpEditorCard
                   placeholder={
-                    isQueued
-                      ? 'Type your follow-up… It will auto-send when ready.'
-                      : reviewMarkdown || conflictResolutionInstructions
-                        ? '(Optional) Add additional instructions... Type @ to insert tags or search files.'
-                        : 'Continue working on this task attempt... Type @ to insert tags or search files.'
+                    reviewMarkdown || conflictResolutionInstructions
+                      ? '(Optional) Add additional instructions... Type @ to insert tags or search files.'
+                      : 'Continue working on this task attempt... Type @ to insert tags or search files.'
                   }
                   value={followUpMessage}
                   onChange={(value) => {
@@ -552,7 +509,7 @@ export function TaskFollowUpSection({
                     if (followUpError) setFollowUpError(null);
                   }}
                   disabled={!isEditable}
-                  showLoadingOverlay={isUnqueuing || !isDraftLoaded}
+                  showLoadingOverlay={!isDraftLoaded}
                   onPasteFiles={handlePasteImages}
                   onFocusChange={setIsTextareaFocused}
                   onSelectionChange={handleSelectionChange}
@@ -565,8 +522,8 @@ export function TaskFollowUpSection({
                       isSending: !!draft?.sending,
                     },
                     queue: {
-                      isUnqueuing: isUnqueuing,
-                      isQueued: displayQueued,
+                      isUnqueuing: false,
+                      isQueued: false,
                     },
                   }}
                 />
@@ -649,44 +606,16 @@ export function TaskFollowUpSection({
                     </>
                   )}
                 </Button>
-                {isQueued && (
-                  <Button
-                    variant="default"
-                    size="sm"
-                    className="min-w-[180px] transition-all"
-                    onClick={async () => {
-                      setIsUnqueuing(true);
-                      try {
-                        const ok = await onUnqueue();
-                        if (ok) setQueuedOptimistic(false);
-                      } finally {
-                        setIsUnqueuing(false);
-                      }
-                    }}
-                    disabled={isUnqueuing}
-                  >
-                    {isUnqueuing ? (
-                      <>
-                        <Loader2 className="animate-spin h-4 w-4 mr-2" />
-                        {t('followUp.unqueuing')}
-                      </>
-                    ) : (
-                      t('followUp.edit')
-                    )}
-                  </Button>
-                )}
               </div>
             )}
             {isAttemptRunning && (
               <div className="flex items-center gap-2">
                 {/* Add to Message Queue button (with live injection when running) */}
+                {/* Note: variant is always null - injected messages use executor's current mode */}
                 <Button
                   onClick={async () => {
                     if (followUpMessage.trim()) {
-                      await addAndInject(
-                        followUpMessage.trim(),
-                        selectedVariant
-                      );
+                      await addAndInject(followUpMessage.trim(), null);
                       setFollowUpMessage('');
                     }
                   }}
@@ -715,58 +644,6 @@ export function TaskFollowUpSection({
                         {t('messageQueue.addToQueue')}
                       </span>
                     </>
-                  )}
-                </Button>
-                <Button
-                  onClick={async () => {
-                    if (displayQueued) {
-                      setIsUnqueuing(true);
-                      try {
-                        const ok = await onUnqueue();
-                        if (ok) setQueuedOptimistic(false);
-                      } finally {
-                        setIsUnqueuing(false);
-                      }
-                    } else {
-                      setIsQueuing(true);
-                      try {
-                        const ok = await onQueue();
-                        if (ok) setQueuedOptimistic(true);
-                      } finally {
-                        setIsQueuing(false);
-                      }
-                    }
-                  }}
-                  disabled={
-                    displayQueued
-                      ? isUnqueuing
-                      : !canSendFollowUp ||
-                        !isDraftLoaded ||
-                        isQueuing ||
-                        isUnqueuing ||
-                        !!draft?.sending ||
-                        isRetryActive
-                  }
-                  size="sm"
-                  variant="default"
-                  className="md:min-w-[180px] transition-all"
-                >
-                  {displayQueued ? (
-                    isUnqueuing ? (
-                      <>
-                        <Loader2 className="animate-spin h-4 w-4 mr-2" />
-                        {t('followUp.unqueuing')}
-                      </>
-                    ) : (
-                      t('followUp.edit')
-                    )
-                  ) : isQueuing ? (
-                    <>
-                      <Loader2 className="animate-spin h-4 w-4 mr-2" />
-                      {t('followUp.queuing')}
-                    </>
-                  ) : (
-                    t('followUp.queueForNextTurn')
                   )}
                 </Button>
               </div>
