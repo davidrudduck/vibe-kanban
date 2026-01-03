@@ -10,6 +10,7 @@
 //! they don't interfere with each other.
 
 use remote::db::get_max_connections;
+use serial_test::serial;
 
 /// Helper to safely set an environment variable in tests.
 ///
@@ -31,6 +32,7 @@ unsafe fn remove_env(key: &str) {
 
 /// Test that VK_PG_MAX_CONNECTIONS environment variable is respected.
 #[test]
+#[serial]
 fn test_pool_respects_env_var() {
     // Save original value if any
     let original = std::env::var("VK_PG_MAX_CONNECTIONS").ok();
@@ -56,6 +58,7 @@ fn test_pool_respects_env_var() {
 
 /// Test that default is used when VK_PG_MAX_CONNECTIONS is not set.
 #[test]
+#[serial]
 fn test_pool_default_when_no_env() {
     // Save original value if any
     let original = std::env::var("VK_PG_MAX_CONNECTIONS").ok();
@@ -82,6 +85,7 @@ fn test_pool_default_when_no_env() {
 
 /// Test that invalid values fall back to default.
 #[test]
+#[serial]
 fn test_pool_invalid_env_uses_default() {
     // Save original value if any
     let original = std::env::var("VK_PG_MAX_CONNECTIONS").ok();
@@ -109,6 +113,7 @@ fn test_pool_invalid_env_uses_default() {
 
 /// Test that negative values fall back to default.
 #[test]
+#[serial]
 fn test_pool_negative_value_uses_default() {
     // Save original value if any
     let original = std::env::var("VK_PG_MAX_CONNECTIONS").ok();
@@ -133,6 +138,7 @@ fn test_pool_negative_value_uses_default() {
 
 /// Test that zero value falls back to default (0 connections is not valid).
 #[test]
+#[serial]
 fn test_pool_zero_value_uses_default() {
     // Save original value if any
     let original = std::env::var("VK_PG_MAX_CONNECTIONS").ok();
