@@ -1,0 +1,146 @@
+---
+title: "Task Archiving"
+description: "Archive and unarchive tasks to keep your board organized while preserving task history"
+---
+
+Archiving tasks allows you to remove completed or inactive tasks from your active board view while preserving their history. Archived tasks can be restored at any time.
+
+## Overview
+
+Task archiving provides:
+- **Clean boards** - Remove clutter by hiding completed tasks
+- **History preservation** - Archived tasks retain all their data, attempts, and logs
+- **Reversibility** - Unarchive tasks to bring them back to active status
+- **Automatic cleanup** - Worktrees are cleaned up when tasks are archived
+
+## Archiving Tasks
+
+### From the Task Card
+
+1. Click the **Archive** button on any task card
+2. Optionally select "Include subtasks" to archive all child tasks
+3. Confirm the archive operation
+
+### What Happens When You Archive
+
+When a task is archived:
+1. The `archived_at` timestamp is set
+2. The task is hidden from the default board view
+3. Worktrees associated with the task's attempts are cleaned up in the background
+4. Subtasks can optionally be archived together
+
+<Note>
+Worktree cleanup happens asynchronously. The archive operation returns immediately while cleanup continues in the background.
+</Note>
+
+## Viewing Archived Tasks
+
+To view archived tasks:
+
+1. Click the filter/settings icon on your board
+2. Enable "Show Archived Tasks"
+3. Archived tasks appear with a visual indicator
+
+## Unarchiving Tasks
+
+To restore an archived task:
+
+1. View archived tasks (see above)
+2. Click the **Unarchive** button on the archived task
+3. The task returns to its previous status column
+
+<Note>
+Unarchiving a task does not restore worktrees. You'll need to start a new attempt if you want to continue working on the task.
+</Note>
+
+## Hive-Synced Task Archiving
+
+For tasks that are synced with a hive (swarm tasks), archiving behavior is slightly different.
+
+### How It Works
+
+When you archive a hive-synced task:
+1. The archive request is proxied to the hive server
+2. The hive updates the task's `archived_at` field
+3. The change syncs to all connected nodes
+4. All nodes see the task as archived
+
+This means:
+- **Any node can archive** - You don't need to be on the "origin" node
+- **Changes sync everywhere** - Archive status propagates to all connected nodes
+- **Consistent state** - All nodes see the same archive status
+
+### Subtask Handling
+
+For hive-synced tasks, the hive handles subtask archiving:
+- When you archive a parent task on the hive, child tasks are also archived
+- This happens on the server side, so you don't need to manually select "Include subtasks"
+- Archive status of subtasks syncs to all nodes
+
+### Technical Details
+
+The archive operation uses the same `UpdateSharedTaskRequest` API that handles other task updates:
+
+```rust
+// Archive request
+UpdateSharedTaskRequest {
+    archived_at: Some(Some(Utc::now())),  // Set archive timestamp
+    ...
+}
+
+// Unarchive request
+UpdateSharedTaskRequest {
+    archived_at: Some(None),  // Clear archive timestamp
+    ...
+}
+```
+
+This ensures:
+- Version tracking for conflict resolution
+- Proper sync with all connected nodes
+- Consistent behavior with other task updates
+
+## Best Practices
+
+### When to Archive
+
+- **Completed tasks** - After merging a PR and closing the task
+- **Cancelled tasks** - Tasks that won't be worked on
+- **Old tasks** - Tasks that have been dormant for a long time
+
+### When Not to Archive
+
+- **Tasks in active development** - This will clean up worktrees
+- **Tasks you might resume soon** - Consider using status columns instead
+
+### Organizing with Archive
+
+1. **Regular cleanup** - Periodically archive completed tasks
+2. **Use filters** - Enable archived view only when you need to find old tasks
+3. **Subtask consideration** - Decide if subtasks should be archived together
+
+## Troubleshooting
+
+### "Task has running execution processes"
+
+You cannot archive a task while it has running processes. Either:
+- Wait for the processes to complete
+- Stop the running processes first
+- Check the Processes panel for active executions
+
+### "Cannot archive remote task" (Legacy)
+
+This error occurred in older versions when trying to archive hive-synced tasks. As of v0.0.125, this is no longer an issue - all tasks can be archived from any node.
+
+### Worktree Not Cleaned Up
+
+If a worktree wasn't cleaned up after archiving:
+1. Check the server logs for cleanup errors
+2. Manually clean up the worktree directory if needed
+3. The worktree path is stored in the task attempt record
+
+## Related Documentation
+
+- [Task Cards](/core-features/task-cards) - Task card features and actions
+- [Swarm Sync Architecture](/architecture/swarm-sync) - How task sync works
+- [Completing a Task](/core-features/completing-a-task) - End-to-end task workflow
