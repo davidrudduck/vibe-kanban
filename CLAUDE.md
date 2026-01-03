@@ -396,6 +396,16 @@ npm run backend:dev                   # Backend only (auto-assigned port)
 HOST=0.0.0.0 pnpm run dev            # Network-accessible dev server
 ```
 
+### Stopping the Server
+```bash
+pnpm run stop                         # Stop instance for current directory
+pnpm run stop --list                  # List all running instances with ports
+pnpm run stop --all                   # Stop all running instances
+pnpm run stop /path/to/project        # Stop a specific project's instance
+```
+
+**Multi-instance support**: Multiple vibe-kanban instances can run simultaneously. Each instance registers in `/tmp/vibe-kanban/instances/` with project root, PID, and all ports (backend, frontend, MCP, hive).
+
 ### Production
 ```bash
 pnpm run prod                         # Full build + run production
@@ -504,3 +514,12 @@ Swarm/Hive Node Configuration (see `docs/swarm-hive-setup.mdx` for full guide):
 9. **Test database operations**: Use `tempfile::TempDir` for isolated test environments. Clean up after tests.
 
 10. **Check existing components**: Look at similar components in `frontend/src/components/` before creating new ones. Follow established patterns for Props, hooks, and error handling.
+
+11. **CRITICAL - Safe Process Management**: When running in a worktree spawned by vibe-kanban, NEVER use `pkill`, `killall`, or pattern-based process killing. These commands can accidentally kill the parent vibe-kanban server, causing database corruption. Instead:
+    - To stop the vibe-kanban dev server: `pnpm run stop` (stops instance for current directory)
+    - To list all running instances: `pnpm run stop --list`
+    - To stop all instances: `pnpm run stop --all`
+    - To kill a specific process: Use `kill <PID>` with the exact PID
+    - The server binary is named `vks-node-server`, not "server"
+    - Instance registry is at `/tmp/vibe-kanban/instances/` (JSON files keyed by project path hash)
+    - Each instance file contains: project_root, PID, ports (backend, frontend, mcp, hive)

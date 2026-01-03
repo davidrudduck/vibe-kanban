@@ -24,6 +24,17 @@ pub struct BackupInfo {
     pub size_bytes: u64,
 }
 
+/// Error type for backup operations.
+#[derive(Debug, thiserror::Error)]
+pub enum BackupError {
+    #[error("Database not found")]
+    NotFound,
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("SQLite error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
+}
+
 /// Number of backups to retain (older ones are automatically deleted)
 const DEFAULT_BACKUP_RETENTION: usize = 5;
 
@@ -179,6 +190,71 @@ impl BackupService {
             created_at: Utc::now(),
             size_bytes: meta.len(),
         })
+    }
+
+    /// Create an atomic backup using SQLite's online backup API.
+    ///
+    /// This is more reliable than file copying because:
+    /// - Creates a consistent snapshot even while the database is in use
+    /// - Doesn't require copying WAL/SHM files separately
+    /// - Handles concurrent writes correctly
+    ///
+    /// Falls back to file copy if the online backup fails.
+    pub fn create_atomic_backup(db_path: &Path) -> Result<BackupInfo, BackupError> {
+        use rusqlite::{Connection, backup::Backup};
+        use std::time::Duration;
+
+        if !db_path.exists() {
+            return Err(BackupError::NotFound);
+        }
+
+        let backup_directory = backup_dir();
+        std::fs::create_dir_all(&backup_directory)?;
+
+        let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
+        let filename = format!("db_backup_{}.sqlite", timestamp);
+        let backup_path = backup_directory.join(&filename);
+
+        // Open source connection (read-only to minimize blocking)
+        let src_conn = Connection::open_with_flags(
+            db_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )?;
+
+        // Create destination file and connection
+        let mut dst_conn = Connection::open(&backup_path)?;
+
+        // Perform the backup with progress tracking
+        // pages_per_step: 100 pages per step (about 400KB per step)
+        // pause_between_pages: 10ms pause to allow source operations to continue
+        let backup = Backup::new(&src_conn, &mut dst_conn)?;
+        backup.run_to_completion(100, Duration::from_millis(10), None)?;
+
+        let meta = std::fs::metadata(&backup_path)?;
+        info!(backup_path = %backup_path.display(), "Atomic database backup created");
+
+        Ok(BackupInfo {
+            filename,
+            created_at: Utc::now(),
+            size_bytes: meta.len(),
+        })
+    }
+
+    /// Create a backup using the best available method.
+    ///
+    /// Tries atomic backup first, falls back to file copy if it fails.
+    pub fn create_backup_smart(db_path: &Path) -> Result<BackupInfo, std::io::Error> {
+        // Try atomic backup first
+        match Self::create_atomic_backup(db_path) {
+            Ok(info) => Ok(info),
+            Err(e) => {
+                warn!(
+                    error = ?e,
+                    "Atomic backup failed, falling back to file copy"
+                );
+                Self::create_backup(db_path)
+            }
+        }
     }
 
     /// List all available backup files, sorted by modification time (newest first).
@@ -374,6 +450,119 @@ impl BackupService {
         }
 
         None
+    }
+
+    // =========================================================================
+    // Staged Restore (Safe - No Hot Reload)
+    // =========================================================================
+
+    /// Path to the staging file for pending restores.
+    fn staging_path() -> PathBuf {
+        backup_dir().join("pending_restore.sqlite")
+    }
+
+    /// Path to the marker file indicating a restore is pending.
+    fn restore_marker_path() -> PathBuf {
+        backup_dir().join(".restore_pending")
+    }
+
+    /// Stage a backup for restore on next server startup.
+    ///
+    /// This is the SAFE way to restore a database - instead of overwriting the
+    /// database file while the server is running (which causes corruption),
+    /// this stages the backup and marks it for restore on next startup.
+    ///
+    /// The actual restore happens in `execute_pending_restore()` which must
+    /// be called BEFORE the SQLx pool is created.
+    pub fn stage_restore(db_path: &Path, data: &[u8]) -> Result<(), std::io::Error> {
+        // Validate SQLite header (first 16 bytes must be "SQLite format 3\0")
+        if data.len() < 16 || &data[0..16] != b"SQLite format 3\0" {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Invalid SQLite file",
+            ));
+        }
+
+        let backup_directory = backup_dir();
+        std::fs::create_dir_all(&backup_directory)?;
+
+        // Write to staging file
+        std::fs::write(Self::staging_path(), data)?;
+
+        // Create marker file with target db path
+        std::fs::write(
+            Self::restore_marker_path(),
+            db_path.to_string_lossy().as_bytes(),
+        )?;
+
+        info!(
+            staging_path = %Self::staging_path().display(),
+            db_path = %db_path.display(),
+            "Backup staged for restore on next startup"
+        );
+
+        Ok(())
+    }
+
+    /// Execute any pending restore operation.
+    ///
+    /// This MUST be called BEFORE the SQLx pool is created, during server startup.
+    /// Returns Ok(true) if a restore was performed, Ok(false) if no restore was pending.
+    pub fn execute_pending_restore() -> Result<bool, std::io::Error> {
+        let marker_path = Self::restore_marker_path();
+
+        if !marker_path.exists() {
+            return Ok(false); // No pending restore
+        }
+
+        // Read target db path from marker
+        let db_path_str = std::fs::read_to_string(&marker_path)?;
+        let db_path = PathBuf::from(db_path_str.trim());
+        let staging_path = Self::staging_path();
+
+        if !staging_path.exists() {
+            warn!("Restore marker exists but staging file not found - cleaning up");
+            std::fs::remove_file(&marker_path)?;
+            return Ok(false);
+        }
+
+        info!(
+            staging_path = %staging_path.display(),
+            db_path = %db_path.display(),
+            "Executing pending database restore"
+        );
+
+        // Create backup of current database first (in case the restore is bad)
+        if db_path.exists()
+            && let Err(e) = Self::create_backup(&db_path)
+        {
+            warn!(error = ?e, "Failed to create backup before restore");
+        }
+
+        // Perform the actual restore - copy staging file to db path
+        std::fs::copy(&staging_path, &db_path)?;
+
+        // Remove WAL/SHM files to force a clean database state
+        let _ = std::fs::remove_file(db_path.with_extension("sqlite-wal"));
+        let _ = std::fs::remove_file(db_path.with_extension("sqlite-shm"));
+
+        // Clean up staging files
+        std::fs::remove_file(&staging_path)?;
+        std::fs::remove_file(&marker_path)?;
+
+        info!(
+            db_path = %db_path.display(),
+            "Database restore completed successfully"
+        );
+
+        Ok(true)
+    }
+
+    /// Check if a restore operation is pending.
+    ///
+    /// Can be used by the frontend to show a warning that restart is required.
+    pub fn is_restore_pending() -> bool {
+        Self::restore_marker_path().exists()
     }
 }
 

@@ -20,6 +20,7 @@ expands to `/home/username/vibe-kanban/db.sqlite`).
 | **Backups** | `<project_root>/dev_assets/backups/` | `~/.local/share/vibe-kanban/backups/` |
 | **Worktrees** | `/var/tmp/vibe-kanban-dev/worktrees/` | `/var/tmp/vibe-kanban/worktrees/` |
 | **Logs** | `<project_root>/dev_assets/logs/` | `~/.local/share/vibe-kanban/logs/` |
+| **Instance Registry** | `/tmp/vibe-kanban/instances/` | `/tmp/vibe-kanban/instances/` |
 
 <Note>
 Production locations use platform-specific data directories. On macOS, this is
@@ -176,6 +177,41 @@ If backups aren't appearing in your custom directory:
 1. Check the startup logs for the resolved backup path
 2. Verify the directory is writable
 3. Backups are only created before migrations or when triggered via API
+
+## Instance Registry
+
+When running multiple Vibe Kanban instances simultaneously (e.g., different projects), each instance registers itself in a central registry:
+
+| Location | Path |
+|----------|------|
+| **Registry directory** | `/tmp/vibe-kanban/instances/` |
+| **Instance file** | `/tmp/vibe-kanban/instances/<hash>.json` |
+
+Each instance file contains:
+
+```json
+{
+  "project_root": "/home/user/my-project",
+  "pid": 12345,
+  "binary": "vks-node-server",
+  "started_at": "2026-01-03T10:30:00Z",
+  "ports": {
+    "backend": 53427,
+    "frontend": 3000,
+    "mcp": 3001,
+    "hive": null
+  }
+}
+```
+
+<Tip>
+Use `pnpm run stop --list` to view all running instances and their ports.
+</Tip>
+
+This registry enables:
+- **Safe process management**: Stop specific instances without affecting others
+- **Executor discovery**: Coding agents can find which backend/MCP to connect to
+- **Port conflict detection**: Identify which ports are already in use
 
 <Card title="Database Performance" icon="database" href="/configuration-customisation/database-performance">
   Configure database performance settings and monitoring

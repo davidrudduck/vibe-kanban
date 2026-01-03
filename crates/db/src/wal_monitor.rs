@@ -10,6 +10,7 @@
 //! - Updates metrics with current WAL size
 //! - Logs warnings when WAL exceeds configurable threshold
 //! - Optionally triggers passive checkpoint when WAL is large
+//! - Runs periodic TRUNCATE checkpoints to minimize data loss on abrupt shutdown
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -28,6 +29,10 @@ const DEFAULT_WARNING_THRESHOLD_MB: u64 = 50;
 /// Default WAL size for triggering passive checkpoint in MB.
 const DEFAULT_CHECKPOINT_THRESHOLD_MB: u64 = 100;
 
+/// Default interval for forced TRUNCATE checkpoint in seconds (5 minutes).
+/// This ensures max data loss of 5 minutes if the server is killed abruptly.
+const DEFAULT_TRUNCATE_INTERVAL_SECS: u64 = 300;
+
 /// Configuration for the WAL monitor.
 #[derive(Clone, Debug)]
 pub struct WalMonitorConfig {
@@ -39,6 +44,10 @@ pub struct WalMonitorConfig {
     pub checkpoint_threshold_bytes: u64,
     /// Whether to automatically trigger passive checkpoints.
     pub auto_checkpoint: bool,
+    /// Interval in seconds for forced TRUNCATE checkpoint (flushes all WAL to main DB).
+    /// This ensures data is regularly persisted to minimize loss on abrupt kill.
+    /// Set to 0 to disable periodic TRUNCATE checkpoints.
+    pub truncate_checkpoint_interval_secs: u64,
 }
 
 impl Default for WalMonitorConfig {
@@ -60,6 +69,10 @@ impl Default for WalMonitorConfig {
             auto_checkpoint: std::env::var("VK_WAL_AUTO_CHECKPOINT")
                 .map(|v| v == "true" || v == "1")
                 .unwrap_or(true),
+            truncate_checkpoint_interval_secs: get_env_or_default(
+                "VK_WAL_TRUNCATE_INTERVAL_SECS",
+                DEFAULT_TRUNCATE_INTERVAL_SECS,
+            ),
         }
     }
 }
@@ -80,8 +93,10 @@ pub struct WalMonitorHandle {
 enum WalMonitorCommand {
     /// Request immediate WAL size check.
     CheckNow,
-    /// Request immediate checkpoint.
+    /// Request immediate passive checkpoint.
     Checkpoint,
+    /// Request immediate TRUNCATE checkpoint (blocks until all WAL is flushed).
+    TruncateCheckpoint,
     /// Shutdown the monitor.
     Shutdown,
 }
@@ -95,6 +110,11 @@ impl WalMonitorHandle {
     /// Request an immediate passive checkpoint.
     pub async fn checkpoint(&self) {
         let _ = self.tx.send(WalMonitorCommand::Checkpoint).await;
+    }
+
+    /// Request an immediate TRUNCATE checkpoint (blocks until all WAL is flushed).
+    pub async fn truncate_checkpoint(&self) {
+        let _ = self.tx.send(WalMonitorCommand::TruncateCheckpoint).await;
     }
 
     /// Shutdown the WAL monitor.
@@ -142,16 +162,33 @@ impl WalMonitor {
     }
 
     async fn run(self, mut rx: mpsc::Receiver<WalMonitorCommand>) {
-        let mut interval =
+        let mut check_interval =
             tokio::time::interval(Duration::from_secs(self.config.check_interval_secs));
+
+        // Periodic TRUNCATE checkpoint timer - ensures data is persisted regularly
+        // to minimize data loss if the server is killed abruptly (e.g., by pkill from child processes)
+        let truncate_enabled = self.config.truncate_checkpoint_interval_secs > 0;
+        let mut truncate_interval = tokio::time::interval(Duration::from_secs(
+            if truncate_enabled {
+                self.config.truncate_checkpoint_interval_secs
+            } else {
+                u64::MAX // Effectively disabled
+            },
+        ));
 
         tracing::info!(
             check_interval_secs = self.config.check_interval_secs,
             warning_threshold_mb = self.config.warning_threshold_bytes / (1024 * 1024),
             checkpoint_threshold_mb = self.config.checkpoint_threshold_bytes / (1024 * 1024),
             auto_checkpoint = self.config.auto_checkpoint,
+            truncate_interval_secs = self.config.truncate_checkpoint_interval_secs,
             "WAL monitor started"
         );
+
+        // Skip first immediate tick for truncate interval
+        if truncate_enabled {
+            truncate_interval.tick().await;
+        }
 
         loop {
             tokio::select! {
@@ -163,14 +200,20 @@ impl WalMonitor {
                         WalMonitorCommand::Checkpoint => {
                             self.run_checkpoint().await;
                         }
+                        WalMonitorCommand::TruncateCheckpoint => {
+                            self.run_truncate_checkpoint().await;
+                        }
                         WalMonitorCommand::Shutdown => {
                             tracing::info!("WAL monitor shutting down");
                             break;
                         }
                     }
                 }
-                _ = interval.tick() => {
+                _ = check_interval.tick() => {
                     self.check_wal_size().await;
+                }
+                _ = truncate_interval.tick(), if truncate_enabled => {
+                    self.run_truncate_checkpoint().await;
                 }
             }
         }
@@ -262,6 +305,57 @@ impl WalMonitor {
             }
         }
     }
+
+    /// Run a TRUNCATE checkpoint.
+    ///
+    /// TRUNCATE checkpoint blocks until ALL WAL content is written to the main database file,
+    /// then truncates the WAL file to zero bytes. This ensures all data is persisted to the
+    /// main database file, minimizing data loss if the server is killed abruptly.
+    ///
+    /// This is more aggressive than PASSIVE checkpoint but provides stronger data durability.
+    async fn run_truncate_checkpoint(&self) {
+        tracing::info!("Running TRUNCATE checkpoint (periodic data safety)");
+
+        let start = std::time::Instant::now();
+
+        // Use PRAGMA wal_checkpoint(TRUNCATE) which blocks until complete
+        let result: Result<(i32, i32, i32), sqlx::Error> =
+            sqlx::query_as("PRAGMA wal_checkpoint(TRUNCATE)")
+                .fetch_one(&self.pool)
+                .await;
+
+        let duration = start.elapsed();
+        self.metrics.update_checkpoint_duration(duration);
+
+        match result {
+            Ok((blocked, log_pages, checkpointed)) => {
+                if blocked == 0 {
+                    tracing::info!(
+                        duration_ms = duration.as_millis() as u64,
+                        log_pages = log_pages,
+                        checkpointed = checkpointed,
+                        "TRUNCATE checkpoint completed - all WAL flushed to main database"
+                    );
+                } else {
+                    // blocked != 0 means checkpoint was blocked (busy database)
+                    tracing::warn!(
+                        duration_ms = duration.as_millis() as u64,
+                        blocked = blocked,
+                        log_pages = log_pages,
+                        checkpointed = checkpointed,
+                        "TRUNCATE checkpoint was blocked - some WAL may not be flushed"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = ?e,
+                    duration_ms = duration.as_millis() as u64,
+                    "TRUNCATE checkpoint failed"
+                );
+            }
+        }
+    }
 }
 
 /// Get the current WAL file size for a database.
@@ -289,6 +383,10 @@ mod tests {
             DEFAULT_CHECKPOINT_THRESHOLD_MB * 1024 * 1024
         );
         assert!(config.auto_checkpoint);
+        assert_eq!(
+            config.truncate_checkpoint_interval_secs,
+            DEFAULT_TRUNCATE_INTERVAL_SECS
+        );
     }
 
     #[test]
