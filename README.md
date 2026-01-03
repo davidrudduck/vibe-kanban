@@ -89,6 +89,26 @@ pnpm run dev
 
 This will start the backend. A blank DB will be copied from the `dev_assets_seed` folder.
 
+### Stopping the dev server
+
+```bash
+pnpm run stop              # Stop instance for current directory
+pnpm run stop --list       # List all running instances
+pnpm run stop --all        # Stop all running instances
+```
+
+<details>
+<summary>Multi-instance support</summary>
+
+Vibe Kanban supports running multiple instances simultaneously (e.g., different projects). Each instance registers itself in `/tmp/vibe-kanban/instances/` with:
+- Project root directory
+- Process ID (PID)
+- All service ports (backend, frontend, MCP, hive)
+
+This enables safe process management and helps executors discover which instance to connect to.
+
+</details>
+
 ### Building the frontend
 
 To build just the frontend:

@@ -396,6 +396,16 @@ npm run backend:dev                   # Backend only (auto-assigned port)
 HOST=0.0.0.0 pnpm run dev            # Network-accessible dev server
 ```
 
+### Stopping the Server
+```bash
+pnpm run stop                         # Stop instance for current directory
+pnpm run stop --list                  # List all running instances with ports
+pnpm run stop --all                   # Stop all running instances
+pnpm run stop /path/to/project        # Stop a specific project's instance
+```
+
+**Multi-instance support**: Multiple vibe-kanban instances can run simultaneously. Each instance registers in `/tmp/vibe-kanban/instances/` with project root, PID, and all ports (backend, frontend, MCP, hive).
+
 ### Production
 ```bash
 pnpm run prod                         # Full build + run production
