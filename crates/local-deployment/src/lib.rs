@@ -74,7 +74,19 @@ struct PendingHandoff {
 #[async_trait]
 impl Deployment for LocalDeployment {
     async fn new() -> Result<Self, DeploymentError> {
-        let mut raw_config = load_config_from_file(&config_path()).await;
+        // Load config and OAuth credentials in parallel for faster startup
+        let config_path = config_path();
+        let creds_path = credentials_path();
+        let (mut raw_config, oauth_credentials) = tokio::join!(
+            load_config_from_file(&config_path),
+            async {
+                let creds = Arc::new(OAuthCredentials::new(creds_path));
+                if let Err(e) = creds.load().await {
+                    tracing::warn!(?e, "failed to load OAuth credentials");
+                }
+                creds
+            }
+        );
 
         let profiles = ExecutorConfigs::get_cached();
         if !raw_config.onboarding_acknowledged
@@ -96,7 +108,7 @@ impl Deployment for LocalDeployment {
         }
 
         // Always save config (may have been migrated or version updated)
-        save_config_to_file(&raw_config, &config_path()).await?;
+        save_config_to_file(&raw_config, &config_path).await?;
 
         // Log storage locations at startup for debugging
         tracing::info!(
@@ -142,10 +154,7 @@ impl Deployment for LocalDeployment {
 
         let share_config = ShareConfig::from_env();
 
-        let oauth_credentials = Arc::new(OAuthCredentials::new(credentials_path()));
-        if let Err(e) = oauth_credentials.load().await {
-            tracing::warn!(?e, "failed to load OAuth credentials");
-        }
+        // oauth_credentials already loaded in parallel at startup
 
         let profile_cache = Arc::new(RwLock::new(None));
         let auth_context = AuthContext::new(oauth_credentials.clone(), profile_cache.clone());

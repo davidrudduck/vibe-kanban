@@ -47,16 +47,30 @@ async fn main() -> Result<(), VibeKanbanError> {
     }
 
     let deployment = DeploymentImpl::new().await?;
-    deployment
-        .container()
-        .cleanup_orphan_executions()
-        .await
-        .map_err(DeploymentError::from)?;
-    deployment
-        .container()
-        .backfill_before_head_commits()
-        .await
-        .map_err(DeploymentError::from)?;
+
+    // Spawn cleanup operations in background (non-blocking startup)
+    let deployment_for_orphan_cleanup = deployment.clone();
+    tokio::spawn(async move {
+        if let Err(e) = deployment_for_orphan_cleanup
+            .container()
+            .cleanup_orphan_executions()
+            .await
+        {
+            tracing::warn!("Failed to cleanup orphan executions: {}", e);
+        }
+    });
+
+    let deployment_for_backfill = deployment.clone();
+    tokio::spawn(async move {
+        if let Err(e) = deployment_for_backfill
+            .container()
+            .backfill_before_head_commits()
+            .await
+        {
+            tracing::warn!("Failed to backfill before_head_commits: {}", e);
+        }
+    });
+
     deployment.spawn_pr_monitor_service().await;
     deployment.spawn_github_sync_service().await;
 
