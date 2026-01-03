@@ -137,7 +137,12 @@ async fn main() -> Result<(), VibeKanbanError> {
         .with_graceful_shutdown(shutdown_signal())
         .await?;
 
-    // Terminate MCP child process if it was spawned
+    // IMPORTANT: Cleanup database BEFORE killing MCP
+    // MCP uses HTTP to communicate with backend (which is now down), so it's safe to cleanup first.
+    // This ensures all database writes are flushed before any child processes are killed.
+    perform_cleanup_actions(&deployment).await;
+
+    // THEN terminate MCP child process (after database is safely closed)
     if let Some(ref mut child) = mcp_child {
         tracing::info!("[MCP] Terminating HTTP server (PID: {})", child.id());
         if let Err(e) = child.kill() {
@@ -148,8 +153,6 @@ async fn main() -> Result<(), VibeKanbanError> {
             tracing::info!("[MCP] HTTP server terminated");
         }
     }
-
-    perform_cleanup_actions(&deployment).await;
 
     Ok(())
 }
@@ -198,12 +201,27 @@ pub async fn perform_cleanup_actions(deployment: &DeploymentImpl) {
         tracing::info!("Log buffers flushed");
     }
 
-    // Then kill running processes
-    deployment
-        .container()
-        .kill_all_running_processes()
+    // Kill running execution processes (this does DB writes)
+    if let Err(e) = deployment.container().kill_all_running_processes().await {
+        tracing::error!("Failed to cleanly kill running execution processes: {}", e);
+    }
+
+    // Run TRUNCATE checkpoint to ensure all WAL content is written to main database.
+    // This is critical for data durability - if the server is killed after this point,
+    // the database will be in a consistent state.
+    tracing::info!("Running final WAL checkpoint...");
+    match sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+        .execute(&deployment.db().pool)
         .await
-        .expect("Failed to cleanly kill running execution processes");
+    {
+        Ok(_) => tracing::info!("Final WAL checkpoint completed - all data flushed to main database"),
+        Err(e) => tracing::warn!("Final WAL checkpoint failed (data may still be in WAL): {}", e),
+    }
+
+    // Close the pool gracefully to ensure all connections are properly closed
+    tracing::info!("Closing database connection pool...");
+    deployment.db().pool.close().await;
+    tracing::info!("Database connection pool closed");
 }
 
 /// Spawns the MCP HTTP server as a child process if MCP_PORT is set.

@@ -7,17 +7,19 @@ use sqlx::{
         SqliteSynchronous,
     },
 };
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use utils::assets::database_path;
 
 pub mod backup;
+pub mod backup_scheduler;
 pub mod metrics;
 pub mod models;
 pub mod retry;
 pub mod validation;
 pub mod wal_monitor;
 
-pub use backup::{BackupInfo, BackupService};
+pub use backup::{BackupError, BackupInfo, BackupService};
+pub use backup_scheduler::{BackupScheduler, BackupSchedulerConfig, BackupSchedulerHandle};
 pub use metrics::DbMetrics;
 pub use retry::{RetryConfig, is_retryable_error, with_retry};
 pub use wal_monitor::{WalMonitor, WalMonitorConfig, WalMonitorHandle, get_wal_size};
@@ -190,6 +192,107 @@ fn check_and_recover_from_migration_data_loss(db_path: &Path) -> Result<(), std:
     Ok(())
 }
 
+// ============================================================================
+// Database Integrity Check
+// ============================================================================
+
+/// Check database integrity using PRAGMA quick_check.
+///
+/// This is faster than full integrity_check and catches most corruption issues.
+/// Returns Ok(()) if database is healthy, Err with details if corrupted.
+///
+/// This is a sync function because it must run BEFORE the SQLx pool is created.
+fn check_database_integrity(db_path: &Path) -> Result<(), String> {
+    use rusqlite::Connection;
+
+    if !db_path.exists() {
+        return Ok(()); // No database to check
+    }
+
+    let conn = Connection::open(db_path)
+        .map_err(|e| format!("Failed to open database for integrity check: {}", e))?;
+
+    // Run quick_check first (faster, catches most issues)
+    let result: String = conn
+        .query_row("PRAGMA quick_check", [], |row| row.get(0))
+        .map_err(|e| format!("Failed to run integrity check: {}", e))?;
+
+    if result != "ok" {
+        return Err(format!("Database integrity check failed: {}", result));
+    }
+
+    Ok(())
+}
+
+/// Attempt to recover from database corruption by restoring from the most recent backup.
+///
+/// Returns Ok(true) if recovery was successful, Ok(false) if no backup available,
+/// or Err if recovery failed.
+fn attempt_corruption_recovery(db_path: &Path) -> Result<bool, std::io::Error> {
+    // Find most recent backup
+    let backup_dir = utils::assets::backup_dir();
+    if !backup_dir.exists() {
+        return Ok(false);
+    }
+
+    // Get all backups sorted by modification time (newest first)
+    let mut backups: Vec<_> = std::fs::read_dir(&backup_dir)?
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            let path = e.path();
+            path.extension().is_some_and(|ext| ext == "sqlite")
+                && path
+                    .file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with("db_backup_"))
+        })
+        .collect();
+
+    if backups.is_empty() {
+        return Ok(false);
+    }
+
+    backups.sort_by(|a, b| {
+        let a_time = a.metadata().and_then(|m| m.modified()).ok();
+        let b_time = b.metadata().and_then(|m| m.modified()).ok();
+        b_time.cmp(&a_time)
+    });
+
+    let backup_path = backups[0].path();
+
+    warn!(
+        backup = %backup_path.display(),
+        "Attempting automatic recovery from backup"
+    );
+
+    // Read backup data
+    let backup_data = std::fs::read(&backup_path)?;
+
+    // Restore from backup
+    BackupService::restore_from_data(db_path, &backup_data)?;
+
+    // Verify restored database is healthy
+    match check_database_integrity(db_path) {
+        Ok(()) => {
+            info!(
+                backup = %backup_path.display(),
+                "Database restored and verified healthy"
+            );
+            Ok(true)
+        }
+        Err(msg) => {
+            error!(
+                backup = %backup_path.display(),
+                error = %msg,
+                "Restored database is also corrupted"
+            );
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Restored backup is also corrupted: {}", msg),
+            ))
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct DBService {
     pub pool: Pool<Sqlite>,
@@ -199,6 +302,41 @@ pub struct DBService {
 impl DBService {
     pub async fn new() -> Result<DBService, Error> {
         let db_path = database_path();
+
+        // Execute pending restore FIRST (before any connections)
+        match BackupService::execute_pending_restore() {
+            Ok(true) => info!("Pending database restore executed successfully"),
+            Ok(false) => {} // No pending restore
+            Err(e) => warn!(error = ?e, "Failed to execute pending restore"),
+        }
+
+        // Check database integrity BEFORE creating pool
+        match check_database_integrity(&db_path) {
+            Ok(()) => {
+                info!("Database integrity check passed");
+            }
+            Err(msg) => {
+                error!(error = %msg, "DATABASE CORRUPTION DETECTED");
+
+                // Attempt automatic recovery from backup
+                match attempt_corruption_recovery(&db_path) {
+                    Ok(true) => {
+                        info!("Automatic recovery from backup successful");
+                    }
+                    Ok(false) => {
+                        error!("No backup available for recovery. Database is corrupted.");
+                        return Err(Error::Protocol(msg));
+                    }
+                    Err(e) => {
+                        error!(error = ?e, "Automatic recovery failed");
+                        return Err(Error::Protocol(format!(
+                            "Database corruption detected and recovery failed: {}",
+                            msg
+                        )));
+                    }
+                }
+            }
+        }
 
         // Check for data loss from broken migration and auto-recover BEFORE pool creation
         if let Err(e) = check_and_recover_from_migration_data_loss(&db_path) {
@@ -276,6 +414,41 @@ impl DBService {
             + 'static,
     {
         let db_path = database_path();
+
+        // Execute pending restore FIRST (before any connections)
+        match BackupService::execute_pending_restore() {
+            Ok(true) => info!("Pending database restore executed successfully"),
+            Ok(false) => {} // No pending restore
+            Err(e) => warn!(error = ?e, "Failed to execute pending restore"),
+        }
+
+        // Check database integrity BEFORE creating pool
+        match check_database_integrity(&db_path) {
+            Ok(()) => {
+                info!("Database integrity check passed");
+            }
+            Err(msg) => {
+                error!(error = %msg, "DATABASE CORRUPTION DETECTED");
+
+                // Attempt automatic recovery from backup
+                match attempt_corruption_recovery(&db_path) {
+                    Ok(true) => {
+                        info!("Automatic recovery from backup successful");
+                    }
+                    Ok(false) => {
+                        error!("No backup available for recovery. Database is corrupted.");
+                        return Err(Error::Protocol(msg));
+                    }
+                    Err(e) => {
+                        error!(error = ?e, "Automatic recovery failed");
+                        return Err(Error::Protocol(format!(
+                            "Database corruption detected and recovery failed: {}",
+                            msg
+                        )));
+                    }
+                }
+            }
+        }
 
         // Check for data loss from broken migration and auto-recover BEFORE pool creation
         if let Err(e) = check_and_recover_from_migration_data_loss(&db_path) {
