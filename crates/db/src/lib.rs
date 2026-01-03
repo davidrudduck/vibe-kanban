@@ -15,6 +15,8 @@ pub mod backup_scheduler;
 pub mod metrics;
 pub mod models;
 pub mod retry;
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;
 pub mod validation;
 pub mod wal_monitor;
 
@@ -369,13 +371,27 @@ impl DBService {
             .connect_with(options)
             .await?;
 
-        // Create pre-migration backup for safety
-        if let Err(e) = BackupService::backup_before_migration(&db_path) {
+        // Create pre-migration backup and cleanup old backups in parallel (non-blocking)
+        let db_path_for_backup = db_path.clone();
+        let db_path_for_cleanup = db_path.clone();
+        let (backup_result, cleanup_result) = tokio::join!(
+            tokio::task::spawn_blocking(move || {
+                BackupService::backup_before_migration(&db_path_for_backup)
+            }),
+            tokio::task::spawn_blocking(move || {
+                BackupService::cleanup_old_backups(&db_path_for_cleanup)
+            }),
+        );
+
+        if let Err(e) = backup_result {
+            warn!(error = ?e, "Backup task panicked");
+        } else if let Err(e) = backup_result.unwrap() {
             warn!(error = ?e, "Failed to create pre-migration backup");
         }
 
-        // Clean up old backups (keep last 5)
-        if let Err(e) = BackupService::cleanup_old_backups(&db_path) {
+        if let Err(e) = cleanup_result {
+            warn!(error = ?e, "Cleanup task panicked");
+        } else if let Err(e) = cleanup_result.unwrap() {
             warn!(error = ?e, "Failed to cleanup old backups");
         }
 
@@ -501,13 +517,27 @@ impl DBService {
                 .await?
         };
 
-        // Create pre-migration backup for safety
-        if let Err(e) = BackupService::backup_before_migration(&db_path) {
+        // Create pre-migration backup and cleanup old backups in parallel (non-blocking)
+        let db_path_for_backup = db_path.clone();
+        let db_path_for_cleanup = db_path.clone();
+        let (backup_result, cleanup_result) = tokio::join!(
+            tokio::task::spawn_blocking(move || {
+                BackupService::backup_before_migration(&db_path_for_backup)
+            }),
+            tokio::task::spawn_blocking(move || {
+                BackupService::cleanup_old_backups(&db_path_for_cleanup)
+            }),
+        );
+
+        if let Err(e) = backup_result {
+            warn!(error = ?e, "Backup task panicked");
+        } else if let Err(e) = backup_result.unwrap() {
             warn!(error = ?e, "Failed to create pre-migration backup");
         }
 
-        // Clean up old backups (keep last 5)
-        if let Err(e) = BackupService::cleanup_old_backups(&db_path) {
+        if let Err(e) = cleanup_result {
+            warn!(error = ?e, "Cleanup task panicked");
+        } else if let Err(e) = cleanup_result.unwrap() {
             warn!(error = ?e, "Failed to cleanup old backups");
         }
 
