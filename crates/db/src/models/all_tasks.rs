@@ -81,10 +81,10 @@ impl AllTasksResponse {
   p.name                          AS "project_name!",
   p.source_node_name              AS "source_node_name",
 
-  -- Assignee info from shared_tasks (for consistent avatar/owner display)
-  st.assignee_first_name          AS "assignee_first_name",
-  st.assignee_last_name           AS "assignee_last_name",
-  COALESCE(st.assignee_username, t.remote_assignee_username) AS "assignee_username",
+  -- Assignee info (shared_tasks table was removed, use task's remote fields)
+  CAST(NULL AS TEXT)              AS "assignee_first_name",
+  CAST(NULL AS TEXT)              AS "assignee_last_name",
+  t.remote_assignee_username      AS "assignee_username",
 
   -- Attempt status: has_in_progress_attempt
   CASE WHEN EXISTS (
@@ -135,7 +135,6 @@ impl AllTasksResponse {
 
 FROM tasks t
 JOIN projects p ON t.project_id = p.id
-LEFT JOIN shared_tasks st ON t.shared_task_id = st.id
 WHERE (t.archived_at IS NULL OR $1)
 ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
             include_archived
