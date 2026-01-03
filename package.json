@@ -18,6 +18,7 @@
     "check": "pnpm run frontend:check && pnpm run backend:check",
     "dev": "export FRONTEND_PORT=$(node scripts/setup-dev-environment.js frontend) && export BACKEND_PORT=$(node scripts/setup-dev-environment.js backend) && export HOST=$(node scripts/setup-dev-environment.js host) && concurrently \"pnpm run backend:dev:watch\" \"pnpm run frontend:dev\"",
     "dev:network": "HOST=0.0.0.0 pnpm run dev",
+    "stop": "node scripts/stop-server.js",
     "prod:build": "cd frontend && pnpm run build && cd .. && cargo build --release",
     "prod:run": "./target/release/vks-node-server",
     "prod:backend": "cargo run --release --bin vks-node-server",
