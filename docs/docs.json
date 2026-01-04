@@ -103,6 +103,7 @@
           "core-features/swarm-management",
           "core-features/project-linking",
           "architecture/swarm-sync",
+          "architecture/auth-token-management",
           "future/phase-4-load-balancing"
         ]
       }

@@ -26,7 +26,7 @@ use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
-use tracing::warn;
+use tracing::{debug, info, warn};
 use url::Url;
 use utils::{
     api::{
@@ -167,17 +167,23 @@ impl RemoteClient {
     > {
         Box::pin(async move {
             let leeway = ChronoDuration::seconds(Self::TOKEN_REFRESH_LEEWAY_SECS);
-            let creds = self
-                .auth_context
-                .get_credentials()
-                .await
-                .ok_or(RemoteClientError::Auth)?;
+            let creds = self.auth_context.get_credentials().await.ok_or_else(|| {
+                debug!("no credentials found in auth context");
+                RemoteClientError::Auth
+            })?;
 
             if let Some(token) = creds.access_token.as_ref()
                 && !creds.expires_soon(leeway)
             {
                 return Ok(token.clone());
             }
+
+            // Token is missing or expiring soon, need to refresh
+            debug!(
+                expires_at = ?creds.expires_at,
+                has_access_token = creds.access_token.is_some(),
+                "access token expired or expiring soon, attempting refresh"
+            );
 
             let refreshed = {
                 let _refresh_guard = self.auth_context.refresh_guard().await;
@@ -189,6 +195,7 @@ impl RemoteClient {
                 if let Some(token) = latest.access_token.as_ref()
                     && !latest.expires_soon(leeway)
                 {
+                    debug!("another task already refreshed the token");
                     return Ok(token.clone());
                 }
 
@@ -196,12 +203,22 @@ impl RemoteClient {
             };
 
             match refreshed {
-                Ok(updated) => updated.access_token.ok_or(RemoteClientError::Auth),
+                Ok(updated) => {
+                    debug!(
+                        expires_at = ?updated.expires_at,
+                        "token refresh succeeded"
+                    );
+                    updated.access_token.ok_or(RemoteClientError::Auth)
+                }
                 Err(RemoteClientError::Auth) => {
+                    warn!("token refresh failed with auth error, clearing credentials");
                     let _ = self.auth_context.clear_credentials().await;
                     Err(RemoteClientError::Auth)
                 }
-                Err(err) => Err(err),
+                Err(err) => {
+                    warn!(error = %err, "token refresh failed with non-auth error");
+                    Err(err)
+                }
             }
         })
     }
@@ -210,11 +227,22 @@ impl RemoteClient {
         &self,
         creds: &Credentials,
     ) -> Result<Credentials, RemoteClientError> {
-        let response = self.refresh_token_request(&creds.refresh_token).await?;
+        debug!("sending token refresh request to hive");
+        let response = self
+            .refresh_token_request(&creds.refresh_token)
+            .await
+            .map_err(|e| {
+                warn!(error = %e, "token refresh request failed");
+                e
+            })?;
         let access_token = response.access_token;
         let refresh_token = response.refresh_token;
         let expires_at = extract_expiration(&access_token)
             .map_err(|err| RemoteClientError::Token(err.to_string()))?;
+        info!(
+            expires_at = ?expires_at,
+            "token refresh successful, new token expires at"
+        );
         let new_creds = Credentials {
             access_token: Some(access_token),
             refresh_token,
@@ -307,13 +335,26 @@ impl RemoteClient {
 
             let res = req.send().await.map_err(map_reqwest_error)?;
 
-            match res.status() {
+            let status = res.status();
+            match status {
                 s if s.is_success() => Ok(res),
-                StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => Err(RemoteClientError::Auth),
-                s => {
-                    let status = s.as_u16();
+                StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
                     let body = res.text().await.unwrap_or_default();
-                    Err(RemoteClientError::Http { status, body })
+                    warn!(
+                        status = status.as_u16(),
+                        body = %body,
+                        path = %path,
+                        "received auth error from server"
+                    );
+                    Err(RemoteClientError::Auth)
+                }
+                _ => {
+                    let status_code = status.as_u16();
+                    let body = res.text().await.unwrap_or_default();
+                    Err(RemoteClientError::Http {
+                        status: status_code,
+                        body,
+                    })
                 }
             }
         })
@@ -736,8 +777,10 @@ impl RemoteClient {
         &self,
         organization_id: Uuid,
     ) -> Result<ListSwarmProjectsResponse, RemoteClientError> {
-        self.get_authed(&format!("/v1/swarm/projects?organization_id={organization_id}"))
-            .await
+        self.get_authed(&format!(
+            "/v1/swarm/projects?organization_id={organization_id}"
+        ))
+        .await
     }
 
     /// Gets a specific swarm project by ID.
@@ -768,10 +811,7 @@ impl RemoteClient {
     }
 
     /// Deletes a swarm project.
-    pub async fn delete_swarm_project(
-        &self,
-        project_id: Uuid,
-    ) -> Result<(), RemoteClientError> {
+    pub async fn delete_swarm_project(&self, project_id: Uuid) -> Result<(), RemoteClientError> {
         self.delete_authed(&format!("/v1/swarm/projects/{project_id}"))
             .await
     }
@@ -889,8 +929,10 @@ impl RemoteClient {
         &self,
         organization_id: Uuid,
     ) -> Result<ListSwarmLabelsResponse, RemoteClientError> {
-        self.get_authed(&format!("/v1/swarm/labels?organization_id={organization_id}"))
-            .await
+        self.get_authed(&format!(
+            "/v1/swarm/labels?organization_id={organization_id}"
+        ))
+        .await
     }
 
     /// Gets a specific swarm label by ID.
@@ -921,10 +963,7 @@ impl RemoteClient {
     }
 
     /// Deletes a swarm label.
-    pub async fn delete_swarm_label(
-        &self,
-        label_id: Uuid,
-    ) -> Result<(), RemoteClientError> {
+    pub async fn delete_swarm_label(&self, label_id: Uuid) -> Result<(), RemoteClientError> {
         self.delete_authed(&format!("/v1/swarm/labels/{label_id}"))
             .await
     }
@@ -997,10 +1036,7 @@ impl RemoteClient {
     }
 
     /// Deletes a swarm template.
-    pub async fn delete_swarm_template(
-        &self,
-        template_id: Uuid,
-    ) -> Result<(), RemoteClientError> {
+    pub async fn delete_swarm_template(&self, template_id: Uuid) -> Result<(), RemoteClientError> {
         self.delete_authed(&format!("/v1/swarm/templates/{template_id}"))
             .await
     }

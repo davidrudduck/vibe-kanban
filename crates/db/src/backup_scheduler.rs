@@ -161,9 +161,10 @@ impl BackupScheduler {
                 );
 
                 // Clean up old backups, keeping more for scheduled backups
-                if let Err(e) =
-                    BackupService::cleanup_old_backups_with_retention(db_path, SCHEDULED_BACKUP_RETENTION)
-                {
+                if let Err(e) = BackupService::cleanup_old_backups_with_retention(
+                    db_path,
+                    SCHEDULED_BACKUP_RETENTION,
+                ) {
                     tracing::warn!(error = ?e, "Failed to cleanup old backups");
                 }
             }

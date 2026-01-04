@@ -222,14 +222,16 @@ impl<'a> NodeCacheSyncer<'a> {
         for project in projects {
             synced_remote_project_ids.push(project.project_id);
 
-            // Check if a local project already exists with this git_repo_path.
-            // If so, skip the upsert to avoid UNIQUE constraint violation on git_repo_path.
-            // This happens when a node shares the same repo path as a local project.
-            if let Some(existing) = Project::find_by_git_repo_path(self.pool, &project.git_repo_path)
-                .await
-                .map_err(NodeCacheSyncError::Database)?
+            // Check if ANY project already exists with this git_repo_path.
+            // Skip the upsert to avoid UNIQUE constraint violation on git_repo_path.
+            // This happens when:
+            // 1. A node shares the same repo path as a local project
+            // 2. Multiple remote nodes have the same repo path (e.g., same repo cloned on different machines)
+            if let Some(existing) =
+                Project::find_by_git_repo_path(self.pool, &project.git_repo_path)
+                    .await
+                    .map_err(NodeCacheSyncError::Database)?
             {
-                // Only skip if it's a local project (is_remote = false)
                 if !existing.is_remote {
                     debug!(
                         git_repo_path = %project.git_repo_path,
@@ -237,9 +239,17 @@ impl<'a> NodeCacheSyncer<'a> {
                         local_project_id = %existing.id,
                         "skipping remote project upsert - local project exists with same path"
                     );
-                    synced_count += 1;
-                    continue;
+                } else {
+                    debug!(
+                        git_repo_path = %project.git_repo_path,
+                        remote_project_id = %project.project_id,
+                        existing_remote_project_id = ?existing.remote_project_id,
+                        existing_source_node_id = ?existing.source_node_id,
+                        "skipping remote project upsert - path already synced from another node"
+                    );
                 }
+                synced_count += 1;
+                continue;
             }
 
             // Extract project name from git repo path

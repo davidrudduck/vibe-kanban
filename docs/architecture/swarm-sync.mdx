@@ -494,9 +494,16 @@ Tasks are now synced via ElectricSQL instead of WebSocket polling:
 ### git_repo_path Constraint Handling
 
 The `projects.git_repo_path` column has a UNIQUE constraint. When syncing remote
-projects from nodes, if a local project already exists with the same path, the
-remote project sync is skipped to avoid constraint violations. This commonly
-occurs when the same repository is checked out on multiple machines.
+projects from nodes, if ANY project already exists with the same path (local OR
+remote from another node), the remote project sync is skipped to avoid constraint
+violations. This commonly occurs when:
+
+- The same repository is checked out on multiple machines
+- Multiple nodes in a swarm share the same repository path (e.g., `/home/david/Code/vibe-kanban`)
+
+The sync logic prioritises the first project synced with a given path. Subsequent
+nodes with the same path are detected and logged but their project entries are
+not duplicated.
 
 ## Task Archive Proxy Pattern
 
@@ -566,3 +573,4 @@ immediately, without waiting for the next sync cycle.
 - [Swarm/Hive Setup Guide](/swarm-hive-setup) - Configuration instructions
 - [Project Linking](/core-features/project-linking) - User guide for linking
 - [Swarm Management](/core-features/swarm-management) - UI documentation
+- [Auth Token Management](/architecture/auth-token-management) - Token refresh and error handling
