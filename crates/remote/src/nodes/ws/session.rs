@@ -1013,38 +1013,52 @@ async fn handle_execution_sync(
     pool: &PgPool,
 ) -> Result<(), HandleError> {
     use crate::db::node_execution_processes::{
-        NodeExecutionProcessRepository, UpsertNodeExecutionProcess,
+        NodeExecutionProcessError, NodeExecutionProcessRepository, UpsertNodeExecutionProcess,
     };
 
     let repo = NodeExecutionProcessRepository::new(pool);
-    repo.upsert(&UpsertNodeExecutionProcess {
-        id: execution.execution_id,
-        attempt_id: execution.attempt_id,
-        node_id,
-        run_reason: execution.run_reason.clone(),
-        executor_action: execution.executor_action.clone(),
-        before_head_commit: execution.before_head_commit.clone(),
-        after_head_commit: execution.after_head_commit.clone(),
-        status: execution.status.clone(),
-        exit_code: execution.exit_code,
-        dropped: execution.dropped,
-        pid: execution.pid,
-        started_at: execution.started_at,
-        completed_at: execution.completed_at,
-        created_at: execution.created_at,
-    })
-    .await
-    .map_err(|e| HandleError::Database(e.to_string()))?;
-
-    tracing::debug!(
-        node_id = %node_id,
-        execution_id = %execution.execution_id,
-        attempt_id = %execution.attempt_id,
-        status = %execution.status,
-        "synced execution process from node"
-    );
-
-    Ok(())
+    match repo
+        .upsert(&UpsertNodeExecutionProcess {
+            id: execution.execution_id,
+            attempt_id: execution.attempt_id,
+            node_id,
+            run_reason: execution.run_reason.clone(),
+            executor_action: execution.executor_action.clone(),
+            before_head_commit: execution.before_head_commit.clone(),
+            after_head_commit: execution.after_head_commit.clone(),
+            status: execution.status.clone(),
+            exit_code: execution.exit_code,
+            dropped: execution.dropped,
+            pid: execution.pid,
+            started_at: execution.started_at,
+            completed_at: execution.completed_at,
+            created_at: execution.created_at,
+        })
+        .await
+    {
+        Ok(_) => {
+            tracing::debug!(
+                node_id = %node_id,
+                execution_id = %execution.execution_id,
+                attempt_id = %execution.attempt_id,
+                status = %execution.status,
+                "synced execution process from node"
+            );
+            Ok(())
+        }
+        Err(NodeExecutionProcessError::AttemptNotFound(attempt_id)) => {
+            // The attempt doesn't exist on the hive (perhaps deleted or not yet synced).
+            // Log a warning but don't fail - this is a transient sync issue.
+            tracing::warn!(
+                node_id = %node_id,
+                execution_id = %execution.execution_id,
+                attempt_id = %attempt_id,
+                "skipping execution sync: attempt not found on hive"
+            );
+            Ok(())
+        }
+        Err(e) => Err(HandleError::Database(e.to_string())),
+    }
 }
 
 /// Handle a logs batch message from a node.

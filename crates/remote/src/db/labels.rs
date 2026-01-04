@@ -581,7 +581,7 @@ impl LabelRepository<'_> {
 
         // Create new label (or for new labels without shared_label_id)
         // Use find_or_create to handle race conditions where label already exists
-        let (label, _was_created) = self
+        let (label, was_created) = self
             .find_or_create(CreateLabelData {
                 organization_id: data.organization_id,
                 project_id: data.project_id,
@@ -618,7 +618,7 @@ impl LabelRepository<'_> {
         .fetch_one(self.pool)
         .await?;
 
-        Ok((label, true))
+        Ok((label, was_created))
     }
 
     /// Merge two labels by moving all task associations from source to target.
