@@ -302,6 +302,33 @@ pub struct DBService {
 }
 
 impl DBService {
+    /// Create a minimal DBService with just a connection pool.
+    /// Use this for bootstrapping (e.g., creating hooks) before full initialization.
+    /// Does NOT run migrations, backups, or integrity checks.
+    pub async fn bootstrap() -> Result<DBService, Error> {
+        let db_path = database_path();
+        let database_url = format!("sqlite://{}", db_path.to_string_lossy());
+
+        let options = SqliteConnectOptions::from_str(&database_url)?
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .synchronous(SqliteSynchronous::Normal)
+            .busy_timeout(Duration::from_secs(DEFAULT_ACQUIRE_TIMEOUT_SECS));
+
+        let pool = SqlitePoolOptions::new()
+            .max_connections(2) // Minimal connections for bootstrap
+            .min_connections(1)
+            .acquire_timeout(Duration::from_secs(DEFAULT_ACQUIRE_TIMEOUT_SECS))
+            .after_connect(|conn, _meta| {
+                Box::pin(async move { apply_performance_pragmas(conn).await })
+            })
+            .connect_with(options)
+            .await?;
+
+        let metrics = DbMetrics::new();
+        Ok(DBService { pool, metrics })
+    }
+
     pub async fn new() -> Result<DBService, Error> {
         let db_path = database_path();
 
@@ -371,34 +398,41 @@ impl DBService {
             .connect_with(options)
             .await?;
 
-        // Create pre-migration backup and cleanup old backups in parallel (non-blocking)
-        let db_path_for_backup = db_path.clone();
-        let db_path_for_cleanup = db_path.clone();
-        let (backup_result, cleanup_result) = tokio::join!(
-            tokio::task::spawn_blocking(move || {
+        // Check if there are pending migrations before deciding to backup
+        let has_pending = has_pending_migrations(&pool).await;
+
+        // Only create pre-migration backup if there are migrations to run
+        if has_pending {
+            info!("Pending migrations detected, creating pre-migration backup");
+            let db_path_for_backup = db_path.clone();
+            let backup_result = tokio::task::spawn_blocking(move || {
                 BackupService::backup_before_migration(&db_path_for_backup)
-            }),
-            tokio::task::spawn_blocking(move || {
+            })
+            .await;
+
+            if let Err(e) = backup_result {
+                warn!(error = ?e, "Backup task panicked");
+            } else if let Err(e) = backup_result.unwrap() {
+                warn!(error = ?e, "Failed to create pre-migration backup");
+            }
+
+            // Run migrations with foreign keys disabled to prevent CASCADE deletes during table recreation.
+            // IMPORTANT: PRAGMA foreign_keys cannot be changed inside a transaction, and SQLx wraps
+            // migrations in transactions. We use a dedicated connection with FK off for migrations.
+            run_migrations_with_fk_disabled(&database_url).await?;
+        }
+
+        // Always cleanup old backups (this is fast and doesn't block)
+        let db_path_for_cleanup = db_path.clone();
+        tokio::spawn(async move {
+            if let Err(e) = tokio::task::spawn_blocking(move || {
                 BackupService::cleanup_old_backups(&db_path_for_cleanup)
-            }),
-        );
-
-        if let Err(e) = backup_result {
-            warn!(error = ?e, "Backup task panicked");
-        } else if let Err(e) = backup_result.unwrap() {
-            warn!(error = ?e, "Failed to create pre-migration backup");
-        }
-
-        if let Err(e) = cleanup_result {
-            warn!(error = ?e, "Cleanup task panicked");
-        } else if let Err(e) = cleanup_result.unwrap() {
-            warn!(error = ?e, "Failed to cleanup old backups");
-        }
-
-        // Run migrations with foreign keys disabled to prevent CASCADE deletes during table recreation.
-        // IMPORTANT: PRAGMA foreign_keys cannot be changed inside a transaction, and SQLx wraps
-        // migrations in transactions. We use a dedicated connection with FK off for migrations.
-        run_migrations_with_fk_disabled(&database_url).await?;
+            })
+            .await
+            {
+                warn!(error = ?e, "Failed to cleanup old backups");
+            }
+        });
 
         let metrics = DbMetrics::new();
         Ok(DBService { pool, metrics })
@@ -517,35 +551,71 @@ impl DBService {
                 .await?
         };
 
-        // Create pre-migration backup and cleanup old backups in parallel (non-blocking)
-        let db_path_for_backup = db_path.clone();
-        let db_path_for_cleanup = db_path.clone();
-        let (backup_result, cleanup_result) = tokio::join!(
-            tokio::task::spawn_blocking(move || {
+        // Check if there are pending migrations before deciding to backup
+        let has_pending = has_pending_migrations(&pool).await;
+
+        // Only create pre-migration backup if there are migrations to run
+        if has_pending {
+            info!("Pending migrations detected, creating pre-migration backup");
+            let db_path_for_backup = db_path.clone();
+            let backup_result = tokio::task::spawn_blocking(move || {
                 BackupService::backup_before_migration(&db_path_for_backup)
-            }),
-            tokio::task::spawn_blocking(move || {
+            })
+            .await;
+
+            if let Err(e) = backup_result {
+                warn!(error = ?e, "Backup task panicked");
+            } else if let Err(e) = backup_result.unwrap() {
+                warn!(error = ?e, "Failed to create pre-migration backup");
+            }
+
+            // Run migrations with foreign keys disabled to prevent CASCADE deletes during table recreation.
+            run_migrations_with_fk_disabled(&database_url).await?;
+        }
+
+        // Always cleanup old backups in background (this is fast)
+        let db_path_for_cleanup = db_path.clone();
+        tokio::spawn(async move {
+            if let Err(e) = tokio::task::spawn_blocking(move || {
                 BackupService::cleanup_old_backups(&db_path_for_cleanup)
-            }),
-        );
-
-        if let Err(e) = backup_result {
-            warn!(error = ?e, "Backup task panicked");
-        } else if let Err(e) = backup_result.unwrap() {
-            warn!(error = ?e, "Failed to create pre-migration backup");
-        }
-
-        if let Err(e) = cleanup_result {
-            warn!(error = ?e, "Cleanup task panicked");
-        } else if let Err(e) = cleanup_result.unwrap() {
-            warn!(error = ?e, "Failed to cleanup old backups");
-        }
-
-        // Run migrations with foreign keys disabled to prevent CASCADE deletes during table recreation.
-        run_migrations_with_fk_disabled(&database_url).await?;
+            })
+            .await
+            {
+                warn!(error = ?e, "Failed to cleanup old backups");
+            }
+        });
 
         Ok(pool)
     }
+}
+
+/// Check if there are pending migrations to run.
+///
+/// Compares the migrations in the codebase against the `_sqlx_migrations` table
+/// to determine if any migrations need to be applied.
+async fn has_pending_migrations(pool: &Pool<Sqlite>) -> bool {
+    let migrator = sqlx::migrate!("./migrations");
+    let applied: Vec<i64> = match sqlx::query_scalar::<_, i64>(
+        "SELECT version FROM _sqlx_migrations ORDER BY version",
+    )
+    .fetch_all(pool)
+    .await
+    {
+        Ok(versions) => versions,
+        Err(_) => {
+            // Table doesn't exist or query failed - assume we need migrations
+            return true;
+        }
+    };
+
+    // Check if any migration in the migrator is not in the applied list
+    for migration in migrator.iter() {
+        if !applied.contains(&migration.version) {
+            return true;
+        }
+    }
+
+    false
 }
 
 /// Run migrations with foreign keys disabled.
