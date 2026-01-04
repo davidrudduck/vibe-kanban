@@ -330,22 +330,25 @@ impl DbLogEntry {
     /// Find log entries that have not been synced to the Hive.
     /// Returns entries grouped by execution_id and ordered by id (oldest first).
     /// This allows batching log entries for efficient sync.
+    /// Only returns entries whose parent execution has been synced,
+    /// to avoid FK constraint errors on the server side.
     pub async fn find_unsynced(pool: &SqlitePool, limit: i64) -> Result<Vec<Self>, sqlx::Error> {
-        sqlx::query_as!(
-            DbLogEntry,
+        sqlx::query_as::<_, DbLogEntry>(
             r#"SELECT
-                id as "id!",
-                execution_id as "execution_id!: Uuid",
-                output_type,
-                content,
-                timestamp as "timestamp!: DateTime<Utc>",
-                hive_synced_at as "hive_synced_at: DateTime<Utc>"
-               FROM log_entries
-               WHERE hive_synced_at IS NULL
-               ORDER BY execution_id, id ASC
-               LIMIT $1"#,
-            limit
+                le.id,
+                le.execution_id,
+                le.output_type,
+                le.content,
+                le.timestamp,
+                le.hive_synced_at
+               FROM log_entries le
+               INNER JOIN execution_processes ep ON le.execution_id = ep.id
+               WHERE le.hive_synced_at IS NULL
+                 AND ep.hive_synced_at IS NOT NULL
+               ORDER BY le.execution_id, le.id ASC
+               LIMIT ?"#,
         )
+        .bind(limit)
         .fetch_all(pool)
         .await
     }
