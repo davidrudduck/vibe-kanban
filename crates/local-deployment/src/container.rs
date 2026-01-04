@@ -263,6 +263,34 @@ impl LocalContainerService {
         worktree_path: PathBuf,
         git_repo_path: PathBuf,
     ) -> Result<(), DeploymentError> {
+        // Safety check: don't delete worktrees with uncommitted changes
+        if worktree_path.exists() {
+            let git = GitService {};
+            match git.get_dirty_files(&worktree_path) {
+                Ok(dirty_files) if !dirty_files.is_empty() => {
+                    tracing::warn!(
+                        attempt_id = %attempt_id,
+                        dirty_file_count = dirty_files.len(),
+                        path = %worktree_path.display(),
+                        "Skipping cleanup of expired worktree with uncommitted changes"
+                    );
+                    return Ok(());
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        attempt_id = %attempt_id,
+                        path = %worktree_path.display(),
+                        error = %e,
+                        "Failed to check for uncommitted changes, skipping cleanup for safety"
+                    );
+                    return Ok(());
+                }
+                Ok(_) => {
+                    // No dirty files, safe to proceed with cleanup
+                }
+            }
+        }
+
         WorktreeManager::cleanup_worktree(&WorktreeCleanup::new(
             worktree_path,
             Some(git_repo_path),
@@ -275,6 +303,18 @@ impl LocalContainerService {
     }
 
     pub async fn cleanup_expired_attempts(db: &DBService) -> Result<(), DeploymentError> {
+        // Check if expired cleanup is disabled via environment variable
+        // Only "1" or "true" (case-insensitive) disables cleanup; unset or "0"/"false" enables it
+        if std::env::var("DISABLE_WORKTREE_EXPIRED_CLEANUP")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+        {
+            tracing::debug!(
+                "Expired worktree cleanup is disabled via DISABLE_WORKTREE_EXPIRED_CLEANUP=1"
+            );
+            return Ok(());
+        }
+
         let expired_attempts = TaskAttempt::find_expired_for_cleanup(&db.pool).await?;
         if expired_attempts.is_empty() {
             tracing::debug!("No expired worktrees found");

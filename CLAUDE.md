@@ -491,7 +491,8 @@ Runtime:
 - `BACKEND_PORT`: Backend server port (default: auto-assign)
 - `FRONTEND_PORT`: Frontend dev port (default: 3000)
 - `HOST`: Backend host (default: 127.0.0.1)
-- `DISABLE_WORKTREE_ORPHAN_CLEANUP`: Set to `1` or `true` to disable automatic worktree cleanup (default: `0`, cleanup enabled)
+- `DISABLE_WORKTREE_ORPHAN_CLEANUP`: Set to `1` or `true` to disable automatic cleanup of orphaned worktrees (worktrees without matching task attempts) (default: `0`, cleanup enabled)
+- `DISABLE_WORKTREE_EXPIRED_CLEANUP`: Set to `1` or `true` to disable automatic cleanup of expired worktrees (worktrees idle for 72+ hours) (default: `0`, cleanup enabled)
 
 Storage (see `docs/configuration-customisation/storage-configuration.mdx` for full guide):
 - `VK_DATABASE_PATH`: Override database file location (supports tilde expansion)
