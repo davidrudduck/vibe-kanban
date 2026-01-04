@@ -52,29 +52,68 @@ Add the following configuration to your agent's MCP servers configuration:
 
 ## Available MCP Tools
 
-The Vibe Kanban MCP server provides the following tools for managing projects, tasks, and task execution:
+The Vibe Kanban MCP server provides 18 tools for managing projects, tasks, execution, labels, and nodes.
+
+<Tip>
+For complete parameter details and response formats, see the [MCP Tools Reference](/features/mcp-tools).
+</Tip>
 
 ### Project Operations
 
-| Tool | Purpose | Required Parameters | Optional Parameters | Returns |
-|------|---------|-------------------|-------------------|---------|
-| `list_projects` | Fetch all projects | None | None | List of projects with metadata |
+| Tool | Purpose | Required Parameters | Optional Parameters |
+|------|---------|-------------------|-------------------|
+| `list_projects` | List all projects | None | None |
 
 ### Task Management
 
-| Tool | Purpose | Required Parameters | Optional Parameters | Returns |
-|------|---------|-------------------|-------------------|---------|
-| `list_tasks` | List tasks in a project | `project_id` | `status`<br/>`limit` | List of tasks with execution state |
-| `create_task` | Create a new task | `project_id`<br/>`title` | `description` | Created task ID and confirmation |
-| `get_task` | Get task details | `task_id` | None | Full task information |
-| `update_task` | Update task details | `task_id` | `title`<br/>`description`<br/>`status` | Updated task information |
-| `delete_task` | Delete a task | `task_id` | None | Deletion confirmation |
+| Tool | Purpose | Required Parameters | Optional Parameters |
+|------|---------|-------------------|-------------------|
+| `list_tasks` | List tasks in a project | `project_id` | `status`, `limit` |
+| `create_task` | Create a new task | `project_id`, `title` | `description`, `link_to_parent`, `parent_task_id` |
+| `get_task` | Get task details | `task_id` | None |
+| `update_task` | Update task details | `task_id` | `title`, `description`, `status` |
+| `delete_task` | Delete a task | `task_id` | None |
 
 ### Task Execution
 
-| Tool | Purpose | Required Parameters | Optional Parameters | Returns |
-|------|---------|-------------------|-------------------|---------|
-| `start_task_attempt` | Start working on a task with a coding agent | `task_id`<br/>`executor`<br/>`base_branch` | `variant` | Attempt ID and confirmation |
+| Tool | Purpose | Required Parameters | Optional Parameters |
+|------|---------|-------------------|-------------------|
+| `start_task_attempt` | Start working on a task | `task_id`, `executor`, `base_branch` | `variant` |
+| `stop_task_attempt` | Stop a running attempt | `attempt_id` | None |
+| `get_task_attempt_status` | Get attempt status with processes | `attempt_id` | None |
+| `list_task_attempts` | List attempts for a task | `task_id` | `limit` |
+
+### Task Variables
+
+| Tool | Purpose | Required Parameters | Optional Parameters |
+|------|---------|-------------------|-------------------|
+| `get_task_variables` | Get resolved variables (includes inherited) | `task_id` | None |
+| `set_task_variable` | Set/update a variable | `task_id`, `name`, `value` | None |
+| `delete_task_variable` | Delete a variable | `task_id`, `name` | None |
+
+### Labels
+
+| Tool | Purpose | Required Parameters | Optional Parameters |
+|------|---------|-------------------|-------------------|
+| `get_task_labels` | Get labels assigned to a task | `task_id` | None |
+| `set_task_labels` | Replace task labels | `task_id`, `label_ids` | None |
+| `list_labels` | List available labels | None | `project_id` |
+
+### Nodes
+
+| Tool | Purpose | Required Parameters | Optional Parameters |
+|------|---------|-------------------|-------------------|
+| `list_nodes` | List swarm nodes for a task's project | `task_id` | None |
+
+### Context
+
+| Tool | Purpose | Required Parameters | Optional Parameters |
+|------|---------|-------------------|-------------------|
+| `get_context` | Get current attempt context | None | None |
+
+<Note>
+The `get_context` tool is only available when running within a Vibe Kanban task attempt.
+</Note>
 
 ### Supported Executors
 
@@ -103,7 +142,7 @@ Once you have the MCP server configured, you can leverage it to streamline your 
 
 ### Planning and Task Creation
 
-```
+```text
 I need to build a user authentication system with the following features:
 - User registration with email validation
 - Login/logout functionality
@@ -120,7 +159,7 @@ Your MCP client will use the `create_task` tool to break this down into individu
 
 After tasks are created, you can start work on them programmatically:
 
-```
+```text
 Start working on the user registration task using Claude Code on the main branch.
 ```
 
@@ -137,7 +176,7 @@ This creates a new task attempt, generates a feature branch, and starts the codi
 
 ### Complete Workflow Example
 
-```
+```bash
 1. List all projects to find the project ID
 2. List todo tasks in the project
 3. Create a new task for "Add user profile page"
@@ -145,6 +184,41 @@ This creates a new task attempt, generates a feature branch, and starts the codi
 ```
 
 Each step uses the appropriate MCP tool (`list_projects`, `list_tasks`, `create_task`, `start_task_attempt`) to manage the complete workflow from planning to execution.
+
+### Monitoring and Controlling Execution
+
+Control running task attempts with execution control tools:
+
+```text
+Check the status of the current task attempt and stop it if it's been running too long.
+```
+
+Your MCP client will use:
+1. `list_task_attempts` to find the attempt ID
+2. `get_task_attempt_status` to check current status and processes
+3. `stop_task_attempt` to stop the execution if needed
+
+### Organising Tasks with Labels
+
+Categorise tasks using labels:
+
+```text
+Add "High Priority" and "Bug Fix" labels to this task so it stands out in the board.
+```
+
+Your MCP client will use:
+1. `list_labels` to find available label IDs
+2. `set_task_labels` to assign the labels to the task
+
+### Using Task Variables
+
+Configure tasks with variables that are expanded in descriptions:
+
+```text
+Set the API_URL variable to the staging environment URL for this task.
+```
+
+Your MCP client will use `set_task_variable` with the variable name and value. Variables use `UPPER_SNAKE_CASE` naming and are inherited by subtasks.
 
 ### Internal Coding Agents (Within Vibe Kanban)
 

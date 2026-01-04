@@ -1,6 +1,8 @@
 use std::{future::Future, path::PathBuf, str::FromStr};
 
 use db::models::{
+    execution_process::ExecutionProcess,
+    label::Label,
     project::Project,
     task::{CreateTask, Task, TaskStatus, TaskWithAttemptStatus, UpdateTask},
     task_attempt::{TaskAttempt, TaskAttemptContext},
@@ -18,6 +20,8 @@ use rmcp::{
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json;
 use uuid::Uuid;
+
+use remote::routes::projects::{ListProjectNodesResponse, ProjectNodeInfo};
 
 use crate::routes::{containers::ContainerQuery, task_attempts::CreateTaskAttemptBody};
 
@@ -327,6 +331,210 @@ pub struct DeleteTaskVariableResponse {
     pub task_id: String,
 }
 
+// ===== Task Attempt Execution Control MCP Types =====
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct StopTaskAttemptRequest {
+    #[schemars(description = "The ID of the task attempt to stop")]
+    pub attempt_id: Uuid,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct StopTaskAttemptResponse {
+    #[schemars(description = "The ID of the task attempt that was stopped")]
+    pub attempt_id: String,
+    #[schemars(description = "Whether the stop operation was successful")]
+    pub stopped: bool,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetTaskAttemptStatusRequest {
+    #[schemars(description = "The ID of the task attempt to get status for")]
+    pub attempt_id: Uuid,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ExecutionProcessSummary {
+    #[schemars(description = "The unique identifier of the execution process")]
+    pub id: String,
+    #[schemars(description = "The reason this process was run (e.g., 'initial', 'follow_up')")]
+    pub run_reason: String,
+    #[schemars(description = "Current status of the execution process")]
+    pub status: String,
+    #[schemars(description = "When the process started")]
+    pub started_at: String,
+    #[schemars(description = "When the process completed (if finished)")]
+    pub completed_at: Option<String>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct TaskAttemptStatusResponse {
+    #[schemars(description = "The unique identifier of the task attempt")]
+    pub attempt_id: String,
+    #[schemars(description = "The ID of the task this attempt belongs to")]
+    pub task_id: String,
+    #[schemars(description = "The git branch name for this attempt")]
+    pub branch: String,
+    #[schemars(description = "The executor used for this attempt")]
+    pub executor: String,
+    #[schemars(description = "Whether the worktree has been deleted")]
+    pub worktree_deleted: bool,
+    #[schemars(description = "When the attempt was created")]
+    pub created_at: String,
+    #[schemars(description = "List of execution processes for this attempt")]
+    pub processes: Vec<ExecutionProcessSummary>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ListTaskAttemptsRequest {
+    #[schemars(description = "The ID of the task to list attempts for")]
+    pub task_id: Uuid,
+    #[schemars(description = "Maximum number of attempts to return (default: 50)")]
+    pub limit: Option<i32>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct TaskAttemptSummary {
+    #[schemars(description = "The unique identifier of the task attempt")]
+    pub id: String,
+    #[schemars(description = "The git branch name for this attempt")]
+    pub branch: String,
+    #[schemars(description = "The executor used for this attempt")]
+    pub executor: String,
+    #[schemars(description = "When the attempt was created")]
+    pub created_at: String,
+    #[schemars(description = "Whether the worktree has been deleted")]
+    pub worktree_deleted: bool,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ListTaskAttemptsResponse {
+    #[schemars(description = "The ID of the task these attempts belong to")]
+    pub task_id: String,
+    #[schemars(description = "List of task attempts")]
+    pub attempts: Vec<TaskAttemptSummary>,
+    #[schemars(description = "Number of attempts returned")]
+    pub count: usize,
+}
+
+// ===== Label MCP Types =====
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct LabelSummary {
+    #[schemars(description = "The unique identifier of the label")]
+    pub id: String,
+    #[schemars(description = "The name of the label")]
+    pub name: String,
+    #[schemars(description = "Lucide icon name (e.g., 'tag', 'bug', 'code')")]
+    pub icon: String,
+    #[schemars(description = "Hex color code (e.g., '#3b82f6')")]
+    pub color: String,
+}
+
+impl LabelSummary {
+    fn from_label(label: Label) -> Self {
+        Self {
+            id: label.id.to_string(),
+            name: label.name,
+            icon: label.icon,
+            color: label.color,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetTaskLabelsRequest {
+    #[schemars(description = "The ID of the task to get labels for")]
+    pub task_id: Uuid,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct GetTaskLabelsResponse {
+    #[schemars(description = "The ID of the task")]
+    pub task_id: String,
+    #[schemars(description = "Labels assigned to the task")]
+    pub labels: Vec<LabelSummary>,
+    #[schemars(description = "Number of labels returned")]
+    pub count: usize,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SetTaskLabelsRequest {
+    #[schemars(description = "The ID of the task to set labels for")]
+    pub task_id: Uuid,
+    #[schemars(description = "List of label IDs to assign to the task (replaces existing labels)")]
+    pub label_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct SetTaskLabelsResponse {
+    #[schemars(description = "The ID of the task")]
+    pub task_id: String,
+    #[schemars(description = "Labels now assigned to the task")]
+    pub labels: Vec<LabelSummary>,
+    #[schemars(description = "Number of labels set")]
+    pub count: usize,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ListLabelsRequest {
+    #[schemars(
+        description = "Optional project ID. If provided, returns global + project-specific labels. If not, returns only global labels."
+    )]
+    pub project_id: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ListLabelsResponse {
+    #[schemars(description = "Available labels")]
+    pub labels: Vec<LabelSummary>,
+    #[schemars(description = "Number of labels returned")]
+    pub count: usize,
+    #[schemars(description = "Project ID filter that was applied (null if global only)")]
+    pub project_id: Option<String>,
+}
+
+// ===== Nodes MCP Types =====
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ListNodesRequest {
+    #[schemars(description = "The ID of the task to list available nodes for")]
+    pub task_id: Uuid,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct NodeSummary {
+    #[schemars(description = "The unique identifier of the node")]
+    pub node_id: String,
+    #[schemars(description = "The name of the node")]
+    pub node_name: String,
+    #[schemars(description = "Current status of the node (pending, online, offline, busy, draining)")]
+    pub status: String,
+    #[schemars(description = "Public URL for direct connection to the node (if available)")]
+    pub public_url: Option<String>,
+}
+
+impl NodeSummary {
+    fn from_project_node_info(info: ProjectNodeInfo) -> Self {
+        Self {
+            node_id: info.node_id.to_string(),
+            node_name: info.node_name,
+            status: format!("{:?}", info.node_status).to_lowercase(),
+            public_url: info.node_public_url,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ListNodesResponse {
+    #[schemars(description = "The ID of the task")]
+    pub task_id: String,
+    #[schemars(description = "Available nodes that have this task's project linked")]
+    pub nodes: Vec<NodeSummary>,
+    #[schemars(description = "Number of nodes returned")]
+    pub count: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct TaskServer {
     client: reqwest::Client,
@@ -482,18 +690,14 @@ impl TaskServer {
 
 #[tool_router]
 impl TaskServer {
-    #[tool(
-        description = "Return project, task, and attempt metadata for the current task attempt context."
-    )]
+    #[tool(description = "Get current task attempt context.")]
     async fn get_context(&self) -> Result<CallToolResult, ErrorData> {
         // Context was fetched at startup and cached
         // This tool is only registered if context exists, so unwrap is safe
         let context = self.context.as_ref().expect("VK context should exist");
         TaskServer::success(context)
     }
-    #[tool(
-        description = "Create a new task/ticket in a project. Always pass the `project_id` of the project you want to create the task in - it is required!"
-    )]
+    #[tool(description = "Create task. Requires project_id.")]
     async fn create_task(
         &self,
         Parameters(CreateTaskRequest {
@@ -539,7 +743,7 @@ impl TaskServer {
         })
     }
 
-    #[tool(description = "List all the available projects")]
+    #[tool(description = "List all projects.")]
     async fn list_projects(&self) -> Result<CallToolResult, ErrorData> {
         let url = self.url("/api/projects");
         let projects: Vec<Project> = match self.send_json(self.client.get(&url)).await {
@@ -560,9 +764,7 @@ impl TaskServer {
         TaskServer::success(&response)
     }
 
-    #[tool(
-        description = "List all the task/tickets in a project with optional filtering and execution status. `project_id` is required!"
-    )]
+    #[tool(description = "List tasks. Requires project_id.")]
     async fn list_tasks(
         &self,
         Parameters(ListTasksRequest {
@@ -620,7 +822,7 @@ impl TaskServer {
         TaskServer::success(&response)
     }
 
-    #[tool(description = "Start working on a task by creating and launching a new task attempt.")]
+    #[tool(description = "Start task execution with specified executor.")]
     async fn start_task_attempt(
         &self,
         Parameters(StartTaskAttemptRequest {
@@ -688,9 +890,7 @@ impl TaskServer {
         TaskServer::success(&response)
     }
 
-    #[tool(
-        description = "Update an existing task/ticket's title, description, or status. `project_id` and `task_id` are required! `title`, `description`, and `status` are optional."
-    )]
+    #[tool(description = "Update task title/description/status.")]
     async fn update_task(
         &self,
         Parameters(UpdateTaskRequest {
@@ -732,9 +932,7 @@ impl TaskServer {
         TaskServer::success(&repsonse)
     }
 
-    #[tool(
-        description = "Delete a task/ticket from a project. `project_id` and `task_id` are required!"
-    )]
+    #[tool(description = "Delete a task.")]
     async fn delete_task(
         &self,
         Parameters(DeleteTaskRequest { task_id }): Parameters<DeleteTaskRequest>,
@@ -754,9 +952,7 @@ impl TaskServer {
         TaskServer::success(&repsonse)
     }
 
-    #[tool(
-        description = "Get detailed information (like task description) about a specific task/ticket. You can use `list_tasks` to find the `task_ids` of all tasks in a project. `project_id` and `task_id` are required!"
-    )]
+    #[tool(description = "Get task details.")]
     async fn get_task(
         &self,
         Parameters(GetTaskRequest { task_id }): Parameters<GetTaskRequest>,
@@ -775,9 +971,7 @@ impl TaskServer {
 
     // ===== Task Variables MCP Tools =====
 
-    #[tool(
-        description = "Get all resolved variables for a task, including variables inherited from parent tasks. Child tasks automatically inherit variables from parent tasks, with child values overriding parent values."
-    )]
+    #[tool(description = "Get resolved variables (includes inherited).")]
     async fn get_task_variables(
         &self,
         Parameters(GetTaskVariablesRequest { task_id }): Parameters<GetTaskVariablesRequest>,
@@ -802,9 +996,7 @@ impl TaskServer {
         TaskServer::success(&response)
     }
 
-    #[tool(
-        description = "Set a variable on a task. Creates a new variable if it doesn't exist, or updates an existing variable. Variable names must start with an uppercase letter and contain only uppercase letters, digits, and underscores (e.g., MY_VAR, API_KEY_2). Variables are expanded in task descriptions when sent to executors using $VAR or ${VAR} syntax."
-    )]
+    #[tool(description = "Set/update variable. Names: UPPER_SNAKE_CASE.")]
     async fn set_task_variable(
         &self,
         Parameters(SetTaskVariableRequest {
@@ -864,9 +1056,7 @@ impl TaskServer {
         TaskServer::success(&response)
     }
 
-    #[tool(
-        description = "Delete a variable from a task. This only deletes variables defined directly on the task, not inherited variables from parent tasks."
-    )]
+    #[tool(description = "Delete a task variable.")]
     async fn delete_task_variable(
         &self,
         Parameters(DeleteTaskVariableRequest { task_id, name }): Parameters<
@@ -908,12 +1098,226 @@ impl TaskServer {
 
         TaskServer::success(&response)
     }
+
+    // ===== Task Attempt Execution Control MCP Tools =====
+
+    #[tool(description = "Stop running task attempt.")]
+    async fn stop_task_attempt(
+        &self,
+        Parameters(StopTaskAttemptRequest { attempt_id }): Parameters<StopTaskAttemptRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/task-attempts/{}/stop", attempt_id));
+
+        // POST to stop endpoint - it returns () on success
+        if let Err(e) = self
+            .send_json::<serde_json::Value>(self.client.post(&url))
+            .await
+        {
+            return Ok(e);
+        }
+
+        let response = StopTaskAttemptResponse {
+            attempt_id: attempt_id.to_string(),
+            stopped: true,
+        };
+
+        TaskServer::success(&response)
+    }
+
+    #[tool(description = "Get attempt status with execution details.")]
+    async fn get_task_attempt_status(
+        &self,
+        Parameters(GetTaskAttemptStatusRequest { attempt_id }): Parameters<
+            GetTaskAttemptStatusRequest,
+        >,
+    ) -> Result<CallToolResult, ErrorData> {
+        // Fetch the task attempt
+        let attempt_url = self.url(&format!("/api/task-attempts/{}", attempt_id));
+        let attempt: TaskAttempt = match self.send_json(self.client.get(&attempt_url)).await {
+            Ok(a) => a,
+            Err(e) => return Ok(e),
+        };
+
+        // Fetch execution processes for this attempt
+        let processes_url = self.url(&format!(
+            "/api/execution-processes?task_attempt_id={}",
+            attempt_id
+        ));
+        let processes: Vec<ExecutionProcess> = self
+            .send_json(self.client.get(&processes_url))
+            .await
+            .unwrap_or_default();
+
+        let process_summaries: Vec<ExecutionProcessSummary> = processes
+            .into_iter()
+            .map(|p| ExecutionProcessSummary {
+                id: p.id.to_string(),
+                run_reason: format!("{:?}", p.run_reason).to_lowercase(),
+                status: format!("{:?}", p.status).to_lowercase(),
+                started_at: p.started_at.to_rfc3339(),
+                completed_at: p.completed_at.map(|dt| dt.to_rfc3339()),
+            })
+            .collect();
+
+        let response = TaskAttemptStatusResponse {
+            attempt_id: attempt.id.to_string(),
+            task_id: attempt.task_id.to_string(),
+            branch: attempt.branch,
+            executor: attempt.executor,
+            worktree_deleted: attempt.worktree_deleted,
+            created_at: attempt.created_at.to_rfc3339(),
+            processes: process_summaries,
+        };
+
+        TaskServer::success(&response)
+    }
+
+    #[tool(description = "List attempts for a task.")]
+    async fn list_task_attempts(
+        &self,
+        Parameters(ListTaskAttemptsRequest { task_id, limit }): Parameters<ListTaskAttemptsRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/task-attempts?task_id={}", task_id));
+        let attempts: Vec<TaskAttempt> = match self.send_json(self.client.get(&url)).await {
+            Ok(a) => a,
+            Err(e) => return Ok(e),
+        };
+
+        let attempt_limit = limit.unwrap_or(50).max(0) as usize;
+        let limited: Vec<TaskAttempt> = attempts.into_iter().take(attempt_limit).collect();
+
+        let attempt_summaries: Vec<TaskAttemptSummary> = limited
+            .into_iter()
+            .map(|a| TaskAttemptSummary {
+                id: a.id.to_string(),
+                branch: a.branch,
+                executor: a.executor,
+                created_at: a.created_at.to_rfc3339(),
+                worktree_deleted: a.worktree_deleted,
+            })
+            .collect();
+
+        let response = ListTaskAttemptsResponse {
+            task_id: task_id.to_string(),
+            count: attempt_summaries.len(),
+            attempts: attempt_summaries,
+        };
+
+        TaskServer::success(&response)
+    }
+
+    // ===== Label MCP Tools =====
+
+    #[tool(description = "Get task labels.")]
+    async fn get_task_labels(
+        &self,
+        Parameters(GetTaskLabelsRequest { task_id }): Parameters<GetTaskLabelsRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/tasks/{}/labels", task_id));
+        let labels: Vec<Label> = match self.send_json(self.client.get(&url)).await {
+            Ok(l) => l,
+            Err(e) => return Ok(e),
+        };
+
+        let label_summaries: Vec<LabelSummary> =
+            labels.into_iter().map(LabelSummary::from_label).collect();
+
+        let response = GetTaskLabelsResponse {
+            task_id: task_id.to_string(),
+            count: label_summaries.len(),
+            labels: label_summaries,
+        };
+
+        TaskServer::success(&response)
+    }
+
+    #[tool(description = "Set task labels. Empty array clears all.")]
+    async fn set_task_labels(
+        &self,
+        Parameters(SetTaskLabelsRequest { task_id, label_ids }): Parameters<SetTaskLabelsRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/tasks/{}/labels", task_id));
+        let payload = serde_json::json!({ "label_ids": label_ids });
+
+        let labels: Vec<Label> = match self.send_json(self.client.put(&url).json(&payload)).await {
+            Ok(l) => l,
+            Err(e) => return Ok(e),
+        };
+
+        let label_summaries: Vec<LabelSummary> =
+            labels.into_iter().map(LabelSummary::from_label).collect();
+
+        let response = SetTaskLabelsResponse {
+            task_id: task_id.to_string(),
+            count: label_summaries.len(),
+            labels: label_summaries,
+        };
+
+        TaskServer::success(&response)
+    }
+
+    #[tool(description = "List available labels.")]
+    async fn list_labels(
+        &self,
+        Parameters(ListLabelsRequest { project_id }): Parameters<ListLabelsRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = if let Some(pid) = project_id {
+            self.url(&format!("/api/labels?project_id={}", pid))
+        } else {
+            self.url("/api/labels")
+        };
+
+        let labels: Vec<Label> = match self.send_json(self.client.get(&url)).await {
+            Ok(l) => l,
+            Err(e) => return Ok(e),
+        };
+
+        let label_summaries: Vec<LabelSummary> =
+            labels.into_iter().map(LabelSummary::from_label).collect();
+
+        let response = ListLabelsResponse {
+            count: label_summaries.len(),
+            labels: label_summaries,
+            project_id: project_id.map(|p| p.to_string()),
+        };
+
+        TaskServer::success(&response)
+    }
+
+    // ===== Nodes MCP Tools =====
+
+    #[tool(description = "List swarm nodes for task's project.")]
+    async fn list_nodes(
+        &self,
+        Parameters(ListNodesRequest { task_id }): Parameters<ListNodesRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/tasks/{}/available-nodes", task_id));
+
+        let response: ListProjectNodesResponse = match self.send_json(self.client.get(&url)).await {
+            Ok(r) => r,
+            Err(e) => return Ok(e),
+        };
+
+        let node_summaries: Vec<NodeSummary> = response
+            .nodes
+            .into_iter()
+            .map(NodeSummary::from_project_node_info)
+            .collect();
+
+        let result = ListNodesResponse {
+            task_id: task_id.to_string(),
+            count: node_summaries.len(),
+            nodes: node_summaries,
+        };
+
+        TaskServer::success(&result)
+    }
 }
 
 #[tool_handler]
 impl ServerHandler for TaskServer {
     fn get_info(&self) -> ServerInfo {
-        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`.. TOOLS: 'list_projects', 'list_tasks', 'create_task', 'start_workspace_session', 'get_task', 'update_task', 'delete_task', 'list_repos'. Make sure to pass `project_id` or `task_id` where required. You can use list tools to get the available ids. Task variables: Use 'get_task_variables', 'set_task_variable', and 'delete_task_variable' to manage variables that are expanded in task descriptions using $VAR or ${VAR} syntax.".to_string();
+        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`.. TOOLS: 'list_projects', 'list_tasks', 'create_task', 'start_workspace_session', 'get_task', 'update_task', 'delete_task', 'list_repos'. Make sure to pass `project_id` or `task_id` where required. You can use list tools to get the available ids. Task variables: Use 'get_task_variables', 'set_task_variable', and 'delete_task_variable' to manage variables that are expanded in task descriptions using $VAR or ${VAR} syntax. Task attempts: Use 'stop_task_attempt', 'get_task_attempt_status', and 'list_task_attempts' to control and monitor task execution. Labels: Use 'get_task_labels', 'set_task_labels', and 'list_labels' to manage task labels for categorization. Nodes: Use 'list_nodes' to find swarm nodes available for a task's project.".to_string();
         if self.context.is_some() {
             let context_instruction = "Use 'get_context' to fetch project/task/attempt metadata for the active Vibe Kanban attempt when available.";
             instruction = format!("{} {}", context_instruction, instruction);
