@@ -1,0 +1,336 @@
+---
+title: "MCP Server Architecture"
+description: "Technical architecture of the Vibe Kanban MCP server, including request flow, tool implementation patterns, and error handling."
+---
+
+This document describes the internal architecture of the Vibe Kanban MCP server, which provides Model Context Protocol (MCP) tools for managing projects, tasks, and execution.
+
+## Overview
+
+The MCP server is implemented in Rust using the `rmcp` crate. It exposes tools via the MCP protocol, allowing coding agents and external MCP clients to interact with Vibe Kanban programmatically.
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                         MCP Client                              │
+│            (Claude Desktop, Raycast, Coding Agent)              │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │ MCP Protocol (JSON-RPC)
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      MCP Server                                 │
+│              crates/server/src/mcp/task_server.rs               │
+│                                                                 │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
+│  │ Tool Router │  │   Context   │  │   HTTP Client           │  │
+│  │  (18 tools) │  │   Cache     │  │   (reqwest)             │  │
+│  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │ HTTP REST API
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Backend REST API                             │
+│              crates/server/src/routes/                          │
+│                                                                 │
+│   /api/projects    /api/tasks    /api/task-attempts             │
+│   /api/labels      /api/containers/attempt-context              │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │ SQLx
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    SQLite Database                              │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Request Flow
+
+### 1. Tool Invocation
+
+When an MCP client calls a tool, the request follows this path:
+
+1. **MCP Protocol Layer**: Client sends JSON-RPC request with tool name and parameters
+2. **Tool Router**: Routes request to appropriate handler method
+3. **Parameter Validation**: Deserialises and validates input using `schemars`
+4. **HTTP Request**: Constructs and sends REST API request to backend
+5. **Response Processing**: Parses API response and transforms to tool result
+6. **MCP Response**: Returns CallToolResult to client
+
+### 2. Context Detection
+
+On server startup, the MCP server attempts to detect if it's running within a Vibe Kanban task attempt:
+
+```rust
+async fn fetch_context_at_startup(&self) -> Option<McpContext> {
+    // Get current working directory
+    let current_dir = std::env::current_dir().ok()?;
+
+    // Query backend for attempt context
+    let url = self.url("/api/containers/attempt-context");
+    let response = self.client.get(&url)
+        .query(&ContainerQuery { container_ref: path })
+        .send().await;
+
+    // Cache context if available
+}
+```
+
+If context is detected, the `get_context` tool becomes available. If not, it's removed from the tool registry.
+
+## Key Components
+
+### TaskServer
+
+The main server struct that implements MCP protocol handlers:
+
+```rust
+#[derive(Debug, Clone)]
+pub struct TaskServer {
+    client: reqwest::Client,    // HTTP client for backend calls
+    base_url: String,           // Backend API base URL
+    tool_router: ToolRouter<TaskServer>,  // Tool routing
+    context: Option<McpContext>,  // Cached attempt context
+}
+```
+
+### Tool Registration
+
+Tools are registered using the `#[tool_router]` and `#[tool]` macros:
+
+```rust
+#[tool_router]
+impl TaskServer {
+    #[tool(description = "Create task. Requires project_id.")]
+    async fn create_task(
+        &self,
+        Parameters(req): Parameters<CreateTaskRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        // Implementation
+    }
+}
+```
+
+Each tool has:
+- **Description**: Short description shown to MCP clients
+- **Parameters**: Typed request struct with `schemars` annotations
+- **Handler**: Async function that processes the request
+
+### Request/Response Types
+
+All request types use `schemars` for JSON Schema generation:
+
+```rust
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CreateTaskRequest {
+    #[schemars(description = "The ID of the project to create the task in.")]
+    pub project_id: Uuid,
+
+    #[schemars(description = "The title of the task")]
+    pub title: String,
+
+    #[schemars(description = "Optional description of the task")]
+    #[serde(default)]
+    pub description: Option<String>,
+}
+```
+
+## Error Handling
+
+### Error Response Format
+
+All errors are returned as structured JSON:
+
+```rust
+fn err<S: Into<String>>(msg: S, details: Option<S>) -> Result<CallToolResult, ErrorData> {
+    let v = serde_json::json!({
+        "success": false,
+        "error": msg.into(),
+        "details": details.map(|d| d.into())
+    });
+    Ok(CallToolResult::error(vec![Content::text(v.to_string())]))
+}
+```
+
+### Error Categories
+
+| Category | Handling |
+|----------|----------|
+| Connection failures | Returns error with "Failed to connect to VK API" |
+| HTTP error status | Returns error with status code |
+| Parse failures | Returns error with "Failed to parse VK API response" |
+| Business logic errors | Returns error from API message field |
+| Missing data | Returns error with "VK API response missing data field" |
+
+### API Response Envelope
+
+Backend responses are wrapped in a standard envelope:
+
+```rust
+#[derive(Debug, Deserialize)]
+struct ApiResponseEnvelope<T> {
+    success: bool,
+    data: Option<T>,
+    message: Option<String>,
+}
+```
+
+The MCP server unwraps this envelope and extracts either the data or error message.
+
+## Tool Implementation Patterns
+
+### Pattern 1: Simple Read
+
+Fetch and transform a single resource:
+
+```rust
+#[tool(description = "Get task details.")]
+async fn get_task(&self, Parameters(req): Parameters<GetTaskRequest>)
+    -> Result<CallToolResult, ErrorData>
+{
+    let url = self.url(&format!("/api/tasks/{}", req.task_id));
+    let task: Task = match self.send_json(self.client.get(&url)).await {
+        Ok(t) => t,
+        Err(e) => return Ok(e),
+    };
+
+    let response = GetTaskResponse {
+        task: TaskDetails::from_task(task)
+    };
+    TaskServer::success(&response)
+}
+```
+
+### Pattern 2: List with Filtering
+
+Fetch list, apply client-side filtering, and transform:
+
+```rust
+#[tool(description = "List tasks. Requires project_id.")]
+async fn list_tasks(&self, Parameters(req): Parameters<ListTasksRequest>)
+    -> Result<CallToolResult, ErrorData>
+{
+    // Validate status filter if provided
+    let status_filter = if let Some(ref s) = req.status {
+        match TaskStatus::from_str(s) {
+            Ok(status) => Some(status),
+            Err(_) => return Self::err("Invalid status filter", Some(s)),
+        }
+    } else { None };
+
+    // Fetch all tasks
+    let url = self.url(&format!("/api/tasks?project_id={}", req.project_id));
+    let tasks: Vec<TaskWithAttemptStatus> =
+        match self.send_json(self.client.get(&url)).await {
+            Ok(t) => t,
+            Err(e) => return Ok(e),
+        };
+
+    // Apply filters and limits
+    let filtered = tasks.into_iter()
+        .filter(|t| status_filter.as_ref().map_or(true, |s| &t.status == s))
+        .take(req.limit.unwrap_or(50) as usize)
+        .map(TaskSummary::from_task_with_status)
+        .collect();
+
+    TaskServer::success(&ListTasksResponse { tasks: filtered, ... })
+}
+```
+
+### Pattern 3: Create with Context
+
+Use cached context to auto-populate fields:
+
+```rust
+#[tool(description = "Create task. Requires project_id.")]
+async fn create_task(&self, Parameters(req): Parameters<CreateTaskRequest>)
+    -> Result<CallToolResult, ErrorData>
+{
+    // Resolve parent task from context if link_to_parent is true
+    let parent_task_id = if let Some(explicit) = req.parent_task_id {
+        Some(explicit)
+    } else if req.link_to_parent.unwrap_or(false) {
+        self.context.as_ref().map(|ctx| ctx.task_id)
+    } else {
+        None
+    };
+
+    // Create task with resolved parent
+    let payload = CreateTask {
+        project_id: req.project_id,
+        title: req.title,
+        parent_task_id,
+        ...
+    };
+
+    let task: Task = match self.send_json(
+        self.client.post(&url).json(&payload)
+    ).await { ... };
+}
+```
+
+### Pattern 4: Multi-Step Operations
+
+Combine multiple API calls:
+
+```rust
+#[tool(description = "Set/update variable. Names: UPPER_SNAKE_CASE.")]
+async fn set_task_variable(&self, Parameters(req): Parameters<SetTaskVariableRequest>)
+    -> Result<CallToolResult, ErrorData>
+{
+    // Step 1: Check if variable exists
+    let list_url = self.url(&format!("/api/tasks/{}/variables", req.task_id));
+    let existing: Vec<TaskVariable> =
+        match self.send_json(self.client.get(&list_url)).await { ... };
+
+    // Step 2: Update or create based on existence
+    let (variable, created) = if let Some(existing_var) =
+        existing.iter().find(|v| v.name == req.name)
+    {
+        // Update existing
+        let url = self.url(&format!("/api/tasks/{}/variables/{}",
+            req.task_id, existing_var.id));
+        (self.send_json(self.client.put(&url).json(&payload)).await?, false)
+    } else {
+        // Create new
+        let url = self.url(&format!("/api/tasks/{}/variables", req.task_id));
+        (self.send_json(self.client.post(&url).json(&payload)).await?, true)
+    };
+}
+```
+
+## Server Modes
+
+### Stdio Mode (NPM Package)
+
+When run via `npx vibe-kanban@latest --mcp`, the server communicates over stdio:
+
+```bash
+npx vibe-kanban@latest --mcp
+```
+
+This mode is used by MCP clients like Claude Desktop and Raycast.
+
+### HTTP Mode (Integrated)
+
+When the `MCP_PORT` environment variable is set, the backend spawns an HTTP-based MCP server:
+
+```bash
+MCP_PORT=5102 ./vks-node-server
+```
+
+This mode is used by coding agents running within Vibe Kanban task attempts.
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| `crates/server/src/mcp/task_server.rs` | Main MCP server implementation |
+| `crates/server/src/mcp/mod.rs` | Module exports |
+| `crates/server/src/routes/` | Backend REST API handlers |
+
+## Dependencies
+
+- `rmcp`: Rust MCP protocol implementation
+- `reqwest`: HTTP client for backend API calls
+- `schemars`: JSON Schema generation for tool parameters
+- `serde`, `serde_json`: Serialisation/deserialisation
+- `uuid`: UUID handling
+- `tokio`: Async runtime
