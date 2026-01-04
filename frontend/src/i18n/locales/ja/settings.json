@@ -309,6 +309,12 @@
       "diskUsage": {
         "title": "ディスク使用量",
         "description": "ワークツリーで使用されるディスク容量を監視・管理します。"
+      },
+      "buildInfo": {
+        "version": "バージョン",
+        "commit": "コミット",
+        "branch": "ブランチ",
+        "built": "ビルド日時"
       }
     },
     "agents": {
