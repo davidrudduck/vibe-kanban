@@ -266,7 +266,6 @@ pub async fn update_shared_task(
         status,
         archived_at,
         version,
-        acting_user_id: ctx.user.id,
     };
 
     match repo.update(task_id, data).await {
