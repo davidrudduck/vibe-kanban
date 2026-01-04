@@ -216,10 +216,8 @@ impl BackupService {
         let backup_path = backup_directory.join(&filename);
 
         // Open source connection (read-only to minimize blocking)
-        let src_conn = Connection::open_with_flags(
-            db_path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )?;
+        let src_conn =
+            Connection::open_with_flags(db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
 
         // Create destination file and connection
         let mut dst_conn = Connection::open(&backup_path)?;
@@ -433,11 +431,10 @@ impl BackupService {
         for backup in backups {
             let path = backup.path();
             if let Ok(conn) = rusqlite::Connection::open(&path)
-                && let Ok(count) = conn.query_row::<i64, _, _>(
-                    "SELECT COUNT(*) FROM task_attempts",
-                    [],
-                    |row| row.get(0),
-                )
+                && let Ok(count) =
+                    conn.query_row::<i64, _, _>("SELECT COUNT(*) FROM task_attempts", [], |row| {
+                        row.get(0)
+                    })
                 && count > 0
             {
                 info!(

@@ -168,13 +168,12 @@ impl WalMonitor {
         // Periodic TRUNCATE checkpoint timer - ensures data is persisted regularly
         // to minimize data loss if the server is killed abruptly (e.g., by pkill from child processes)
         let truncate_enabled = self.config.truncate_checkpoint_interval_secs > 0;
-        let mut truncate_interval = tokio::time::interval(Duration::from_secs(
-            if truncate_enabled {
+        let mut truncate_interval =
+            tokio::time::interval(Duration::from_secs(if truncate_enabled {
                 self.config.truncate_checkpoint_interval_secs
             } else {
                 u64::MAX // Effectively disabled
-            },
-        ));
+            }));
 
         tracing::info!(
             check_interval_secs = self.config.check_interval_secs,

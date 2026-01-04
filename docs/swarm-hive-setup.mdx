@@ -519,6 +519,21 @@ If tasks you created locally appear as read-only (greyed out, no edit options):
 3. If incorrect, a migration may need to run to fix the flag
 4. Check logs for "sync from shared task" events that may have overwritten the flag
 
+### User Keeps Getting Logged Out
+
+If you're repeatedly asked to sign in again:
+
+1. Check logs for `failed to refresh OAuth credentials` messages
+2. Look for `received auth error from server` entries
+3. Verify the hive server is using a consistent `VIBEKANBAN_REMOTE_JWT_SECRET`
+
+Common causes:
+- Refresh token expired (user inactive for extended period)
+- Hive server restarted with different JWT secret
+- Clock skew between node and hive (check system time)
+
+See [Auth Token Management](/architecture/auth-token-management) for technical details on token refresh logic.
+
 ---
 
 ## Security Considerations
