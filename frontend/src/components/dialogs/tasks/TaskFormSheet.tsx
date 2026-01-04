@@ -256,19 +256,17 @@ const TaskFormSheetImpl = NiceModal.create<TaskFormSheetProps>((props) => {
   const handleSubmit = async ({ value }: { value: TaskFormValues }) => {
     if (editMode) {
       const task = (props as { task: Task }).task;
-      await updateTask.mutateAsync(
-        {
-          taskId: task.id,
-          data: {
-            title: value.title,
-            description: value.description,
-            status: value.status,
-            parent_task_id: null,
-            image_ids: images.length > 0 ? images.map((img) => img.id) : null,
-          },
+      await updateTask.mutateAsync({
+        taskId: task.id,
+        data: {
+          title: value.title,
+          description: value.description,
+          status: value.status,
+          parent_task_id: null,
+          image_ids: images.length > 0 ? images.map((img) => img.id) : null,
         },
-        { onSuccess: () => modal.remove() }
-      );
+      });
+      modal.remove();
     } else {
       const imageIds =
         newlyUploadedImageIds.length > 0 ? newlyUploadedImageIds : null;
@@ -1104,7 +1102,7 @@ const TaskFormSheetImpl = NiceModal.create<TaskFormSheetProps>((props) => {
 
             return (
               <Button
-                onClick={() => form.handleSubmit()}
+                onClick={(e) => form.handleSubmit(e)}
                 disabled={!canSubmit}
                 className={cn('w-full h-11 text-base', isMobile && 'h-12')}
               >

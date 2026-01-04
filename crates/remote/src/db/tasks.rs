@@ -86,7 +86,6 @@ pub struct UpdateSharedTaskData {
     pub status: Option<TaskStatus>,
     pub archived_at: Option<Option<DateTime<Utc>>>,
     pub version: Option<i64>,
-    pub acting_user_id: Uuid,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -456,12 +455,11 @@ impl<'a> SharedTaskRepository<'a> {
         SET title       = COALESCE($2, t.title),
             description = COALESCE($3, t.description),
             status      = COALESCE($4, t.status),
-            archived_at = CASE WHEN $7 THEN $8 ELSE t.archived_at END,
+            archived_at = CASE WHEN $6 THEN $7 ELSE t.archived_at END,
             version     = t.version + 1,
             updated_at  = NOW()
         WHERE t.id = $1
           AND t.version = COALESCE($5, t.version)
-          AND t.assignee_user_id = $6
           AND t.deleted_at IS NULL
         RETURNING
             t.id                AS "id!",
@@ -486,13 +484,14 @@ impl<'a> SharedTaskRepository<'a> {
             data.description,
             data.status as Option<TaskStatus>,
             data.version,
-            data.acting_user_id,
             should_update_archived,
             archived_at_value
         )
         .fetch_optional(&mut *tx)
         .await?
-        .ok_or_else(|| SharedTaskError::Conflict("task version mismatch".to_string()))?;
+        .ok_or_else(|| SharedTaskError::Conflict(
+            "Task update failed: version mismatch or task was deleted".to_string()
+        ))?;
 
         ensure_text_size(&task.title, task.description.as_deref())?;
 
@@ -648,7 +647,6 @@ impl<'a> SharedTaskRepository<'a> {
             version = t.version + 1
         WHERE t.id = $1
           AND t.version = COALESCE($2, t.version)
-          AND t.assignee_user_id = $3
           AND t.deleted_at IS NULL
         RETURNING
             t.id                AS "id!",
@@ -674,9 +672,9 @@ impl<'a> SharedTaskRepository<'a> {
         )
         .fetch_optional(&mut *tx)
         .await?
-        .ok_or_else(|| {
-            SharedTaskError::Conflict("task version mismatch or user not authorized".to_string())
-        })?;
+        .ok_or_else(|| SharedTaskError::Conflict(
+            "Task delete failed: version mismatch or task was already deleted".to_string()
+        ))?;
 
         insert_activity(&mut tx, &task, None, "task.deleted").await?;
         tx.commit().await.map_err(SharedTaskError::from)?;
