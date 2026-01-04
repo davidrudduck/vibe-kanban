@@ -92,14 +92,12 @@ async fn run_http_server(base_url: &str, port: u16) -> anyhow::Result<()> {
 
     tracing::info!("[MCP] Starting HTTP server at http://{}/mcp", bind_address);
 
-    // Clone base_url for the closure
-    let base_url_owned = Arc::new(base_url.to_string());
+    // Initialize server once at startup (fetches context, removes get_context tool if unavailable)
+    // Then clone for each session to avoid re-initializing
+    let template_server = Arc::new(TaskServer::new(base_url).init().await);
 
     let service = StreamableHttpService::new(
-        move || {
-            let url = base_url_owned.clone();
-            Ok(TaskServer::new(&url))
-        },
+        move || Ok((*template_server).clone()),
         LocalSessionManager::default().into(),
         StreamableHttpServerConfig::default(),
     );
