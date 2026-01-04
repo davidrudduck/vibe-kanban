@@ -3,6 +3,7 @@ import { useUserOrganizations } from '@/hooks/useUserOrganizations';
 import { useOrganizationSelection } from '@/hooks/useOrganizationSelection';
 import { NodesProvider, useNodes } from '@/contexts/NodesContext';
 import { NodeList, NodeDetailPanel } from '@/components/nodes';
+import { BuildInfo } from '@/components/settings';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -176,6 +177,8 @@ export function Nodes() {
           <NodesPageContent />
         </NodesProvider>
       )}
+
+      <BuildInfo />
     </div>
   );
 }

@@ -395,6 +395,12 @@
       "diskUsage": {
         "title": "Disk Usage",
         "description": "Monitor and manage disk space used by worktrees."
+      },
+      "buildInfo": {
+        "version": "Version",
+        "commit": "Commit",
+        "branch": "Branch",
+        "built": "Built"
       }
     },
     "agents": {

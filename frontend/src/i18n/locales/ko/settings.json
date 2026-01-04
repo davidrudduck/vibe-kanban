@@ -309,6 +309,12 @@
       "diskUsage": {
         "title": "디스크 사용량",
         "description": "워크트리에서 사용하는 디스크 공간을 모니터링하고 관리합니다."
+      },
+      "buildInfo": {
+        "version": "버전",
+        "commit": "커밋",
+        "branch": "브랜치",
+        "built": "빌드 일시"
       }
     },
     "agents": {

@@ -76,7 +76,7 @@ import { useFonts } from '@/components/FontProvider';
 import { TemplateManager } from '@/components/TemplateManager';
 import { LabelManager } from '@/components/LabelManager';
 import { DiskUsageIndicator } from '@/components/dashboard/DiskUsageIndicator';
-import { FontPreview } from '@/components/settings';
+import { FontPreview, BuildInfo } from '@/components/settings';
 import {
   loadFont,
   getUiFontUrl,
@@ -1309,6 +1309,9 @@ export function GeneralSettings() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Build Info */}
+      <BuildInfo />
 
       {/* Sticky Save Button */}
       <div className="sticky bottom-0 z-10 bg-background/80 backdrop-blur-sm border-t py-4">

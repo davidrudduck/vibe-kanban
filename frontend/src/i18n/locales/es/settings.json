@@ -309,6 +309,12 @@
       "diskUsage": {
         "title": "Uso del Disco",
         "description": "Monitorea y gestiona el espacio en disco usado por los worktrees."
+      },
+      "buildInfo": {
+        "version": "Versión",
+        "commit": "Commit",
+        "branch": "Rama",
+        "built": "Compilado"
       }
     },
     "agents": {
