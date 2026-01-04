@@ -30,6 +30,7 @@ import {
   Circle,
   HardDrive,
   FolderX,
+  UserPlus,
 } from 'lucide-react';
 import type {
   TaskWithAttemptStatus,
@@ -279,6 +280,21 @@ export function ActionsDropdown({
     }
   };
 
+  const [isClaiming, setIsClaiming] = useState(false);
+
+  const handleClaim = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!task || !userId || isClaiming) return;
+    setIsClaiming(true);
+    try {
+      await tasksApi.assign(task.id, userId);
+    } catch (err) {
+      console.error('Failed to claim task:', err);
+    } finally {
+      setIsClaiming(false);
+    }
+  };
+
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
   const handleStatusChange = async (
@@ -317,6 +333,10 @@ export function ActionsDropdown({
   // - Org admin
   // - For local tasks, anyone can edit
   const canModifyTask = isRemoteAssignee || isOrgAdmin || !task?.remote_assignee_user_id;
+
+  // Can claim a task if it's a Hive-synced task and is currently unassigned
+  const canClaim =
+    Boolean(task?.shared_task_id) && !task?.remote_assignee_user_id;
 
   // Mobile menu item component with 48px touch target
   const MobileMenuItem = ({
@@ -491,6 +511,15 @@ export function ActionsDropdown({
                         <MobileSectionLabel>
                           {t('actionsMenu.task')}
                         </MobileSectionLabel>
+                        {/* Claim unassigned remote task */}
+                        {canClaim && (
+                          <MobileMenuItem
+                            icon={UserPlus}
+                            label={t('actionsMenu.claimTask', 'Claim Task')}
+                            onClick={handleClaim}
+                            disabled={isClaiming}
+                          />
+                        )}
                         {/* Quick status change actions */}
                         {task?.status !== 'inprogress' && (
                           <MobileMenuItem
@@ -700,6 +729,13 @@ export function ActionsDropdown({
         {hasTaskActions && (
           <>
             <DropdownMenuLabel>{t('actionsMenu.task')}</DropdownMenuLabel>
+            {/* Claim unassigned remote task */}
+            {canClaim && (
+              <DropdownMenuItem disabled={isClaiming} onClick={handleClaim}>
+                <UserPlus className="mr-2 h-4 w-4" />
+                {t('actionsMenu.claimTask', 'Claim Task')}
+              </DropdownMenuItem>
+            )}
             {/* Quick status change actions */}
             {task?.status !== 'inprogress' && (
               <DropdownMenuItem
