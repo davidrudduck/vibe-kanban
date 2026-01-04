@@ -26,8 +26,8 @@ use futures_util::TryStreamExt;
 use remote::routes::{
     projects::ListProjectNodesResponse,
     tasks::{
-        CreateSharedTaskRequest, DeleteSharedTaskRequest, TaskStreamConnectionInfoResponse,
-        UpdateSharedTaskRequest,
+        AssignSharedTaskRequest, CreateSharedTaskRequest, DeleteSharedTaskRequest,
+        TaskStreamConnectionInfoResponse, UpdateSharedTaskRequest,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -825,12 +825,14 @@ async fn archive_remote_task(
         .shared_task_id
         .ok_or_else(|| ApiError::BadRequest("Remote task missing shared_task_id".to_string()))?;
 
+    // Don't send version - archive is idempotent and version may be stale
+    // if Electric sync hasn't pulled latest changes from Hive
     let request = UpdateSharedTaskRequest {
         title: None,
         description: None,
         status: None,
         archived_at: Some(Some(Utc::now())),
-        version: Some(task.remote_version),
+        version: None,
     };
 
     let response = remote_client
@@ -885,12 +887,14 @@ async fn unarchive_remote_task(
         .shared_task_id
         .ok_or_else(|| ApiError::BadRequest("Remote task missing shared_task_id".to_string()))?;
 
+    // Don't send version - unarchive is idempotent and version may be stale
+    // if Electric sync hasn't pulled latest changes from Hive
     let request = UpdateSharedTaskRequest {
         title: None,
         description: None,
         status: None,
         archived_at: Some(None), // Some(None) means unarchive
-        version: Some(task.remote_version),
+        version: None,
     };
 
     let response = remote_client
@@ -1107,6 +1111,61 @@ pub async fn unarchive_task(
     Ok(ResponseJson(ApiResponse::success(unarchived_task)))
 }
 
+/// Assign (or claim) a task.
+///
+/// This endpoint allows:
+/// - Claiming an unassigned remote task (anyone in the org can claim)
+/// - Reassigning a task (assignee or org admin)
+///
+/// For local tasks, this is a no-op since they don't have assignees.
+pub async fn assign_task(
+    Extension(task): Extension<Task>,
+    State(deployment): State<DeploymentImpl>,
+    Json(payload): Json<AssignSharedTaskRequest>,
+) -> Result<ResponseJson<ApiResponse<Task>>, ApiError> {
+    // Only works for tasks synced from Hive
+    let shared_task_id = task.shared_task_id.ok_or_else(|| {
+        ApiError::BadRequest("Only Hive-synced tasks can be assigned".to_string())
+    })?;
+
+    // Get the remote client
+    let client = deployment.remote_client()?;
+
+    // Call the Hive assign endpoint
+    let response = client.assign_shared_task(shared_task_id, &payload).await?;
+
+    // Build assignee name from response
+    let assignee_name = response.user.as_ref().and_then(|u| {
+        match (&u.first_name, &u.last_name) {
+            (Some(f), Some(l)) => Some(format!("{} {}", f, l)),
+            (Some(f), None) => Some(f.clone()),
+            (None, Some(l)) => Some(l.clone()),
+            (None, None) => None,
+        }
+    });
+
+    // Upsert updated remote task locally
+    let pool = &deployment.db().pool;
+    let updated_task = Task::upsert_remote_task(
+        pool,
+        task.id,
+        task.project_id,
+        response.task.id,
+        response.task.title,
+        response.task.description,
+        task_status::from_remote(&response.task.status),
+        response.task.assignee_user_id,
+        assignee_name,
+        response.user.as_ref().and_then(|u| u.username.clone()),
+        response.task.version,
+        Some(response.task.updated_at),
+        response.task.archived_at,
+    )
+    .await?;
+
+    Ok(ResponseJson(ApiResponse::success(updated_task)))
+}
+
 /// Get children (subtasks) of a task.
 ///
 /// Used by the archive dialog to show the user how many subtasks will be affected.
@@ -1150,6 +1209,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/", delete(delete_task))
         .route("/archive", post(archive_task))
         .route("/unarchive", post(unarchive_task))
+        .route("/assign", post(assign_task))
         .route("/children", get(get_task_children))
         .route("/labels", get(get_task_labels).put(set_task_labels))
         .route("/available-nodes", get(get_available_nodes))

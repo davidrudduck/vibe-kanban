@@ -545,6 +545,15 @@ export const tasksApi = {
     return handleApiResponse<Task>(response);
   },
 
+  /** Assign or claim a Hive-synced task. */
+  assign: async (taskId: string, newAssigneeUserId?: string): Promise<Task> => {
+    const response = await makeRequest(`/api/tasks/${taskId}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ new_assignee_user_id: newAssigneeUserId }),
+    });
+    return handleApiResponse<Task>(response);
+  },
+
   /** Get child tasks (subtasks) of a task. Used for archive confirmation dialog. */
   getChildren: async (taskId: string): Promise<Task[]> => {
     const response = await makeRequest(`/api/tasks/${taskId}/children`);

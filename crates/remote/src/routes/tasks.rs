@@ -307,9 +307,14 @@ pub async fn assign_task(
         }
     };
 
-    // Check if user is assignee OR org admin
+    // Check if user can assign this task:
+    // 1. User is the current assignee (can reassign their own task)
+    // 2. Task is unassigned (anyone in the org can claim it)
+    // 3. User is an org admin (can reassign any task)
     let is_assignee = existing.assignee_user_id.as_ref() == Some(&ctx.user.id);
-    if !is_assignee {
+    let is_unassigned = existing.assignee_user_id.is_none();
+
+    if !is_assignee && !is_unassigned {
         let org_repo = OrganizationRepository::new(pool);
         let is_admin = org_repo
             .check_user_role(organization_id, ctx.user.id)

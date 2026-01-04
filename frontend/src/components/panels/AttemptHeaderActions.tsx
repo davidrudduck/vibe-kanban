@@ -33,13 +33,17 @@ export const AttemptHeaderActions = ({
 }: AttemptHeaderActionsProps) => {
   const { t } = useTranslation('tasks');
   const isOrgAdmin = useIsOrgAdmin();
+  // Only fetch connection status for tasks with an in-progress attempt
+  // Tasks without active assignments return 404 from Hive, showing confusing "Disconnected" status
   const { status: connectionStatus } = useRemoteConnectionStatus(task, {
-    enabled: Boolean(attempt),
+    enabled: Boolean(attempt) && task?.has_in_progress_attempt === true,
   });
 
-  // Only show connection badge for tasks linked to the Hive (with shared_task_id)
+  // Only show connection badge for remote tasks with running attempts
   const showConnectionBadge =
-    Boolean(task?.shared_task_id) && connectionStatus !== 'local';
+    Boolean(task?.shared_task_id) &&
+    task?.has_in_progress_attempt === true &&
+    connectionStatus !== 'local';
 
   return (
     <>
