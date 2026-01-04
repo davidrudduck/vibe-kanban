@@ -1007,6 +1007,8 @@ async fn handle_attempt_sync(
 /// Handle an execution sync message from a node.
 ///
 /// Upserts the execution process into node_execution_processes.
+/// If the referenced attempt doesn't exist yet (race condition during sync),
+/// we log a warning and skip - the client will retry on the next sync cycle.
 async fn handle_execution_sync(
     node_id: Uuid,
     execution: &ExecutionSyncMessage,
@@ -1015,6 +1017,28 @@ async fn handle_execution_sync(
     use crate::db::node_execution_processes::{
         NodeExecutionProcessRepository, UpsertNodeExecutionProcess,
     };
+    use crate::db::node_task_attempts::NodeTaskAttemptRepository;
+
+    // Check if the parent attempt exists first to avoid FK constraint errors
+    // This can happen when ExecutionSync arrives before AttemptSync is processed
+    let attempt_repo = NodeTaskAttemptRepository::new(pool);
+    let attempt_exists = attempt_repo
+        .find_by_id(execution.attempt_id)
+        .await
+        .map_err(|e| HandleError::Database(e.to_string()))?
+        .is_some();
+
+    if !attempt_exists {
+        tracing::warn!(
+            node_id = %node_id,
+            execution_id = %execution.execution_id,
+            attempt_id = %execution.attempt_id,
+            "execution sync skipped: parent attempt not yet synced (will retry)"
+        );
+        // Return Ok - the client should retry on next sync cycle
+        // This is a race condition, not a real error
+        return Ok(());
+    }
 
     let repo = NodeExecutionProcessRepository::new(pool);
     repo.upsert(&UpsertNodeExecutionProcess {
