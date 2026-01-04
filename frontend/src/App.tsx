@@ -30,7 +30,6 @@ import { HotkeysProvider } from 'react-hotkeys-hook';
 
 import { ProjectProvider } from '@/contexts/ProjectContext';
 import { ThemeMode } from 'shared/types';
-import { Loader } from '@/components/ui/loader';
 
 import { DisclaimerDialog } from '@/components/dialogs/global/DisclaimerDialog';
 import { OnboardingDialog } from '@/components/dialogs/global/OnboardingDialog';
@@ -39,7 +38,7 @@ import { ClickedElementsProvider } from './contexts/ClickedElementsProvider';
 import NiceModal from '@ebay/nice-modal-react';
 
 function AppContent() {
-  const { config, updateAndSaveConfig, loading } = useUserSystem();
+  const { config, updateAndSaveConfig } = useUserSystem();
   const { isSignedIn } = useAuth();
 
   useEffect(() => {
@@ -88,14 +87,6 @@ function AppContent() {
       cancelled = true;
     };
   }, [config, isSignedIn, updateAndSaveConfig]);
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader message="Loading..." size={32} />
-      </div>
-    );
-  }
 
   return (
     <I18nextProvider i18n={i18n}>

@@ -130,11 +130,14 @@ impl Deployment for LocalDeployment {
         let events_entry_count = Arc::new(RwLock::new(0));
 
         // Create DB with event hooks
+        // Use bootstrap() for the hook's internal DB (lightweight, no migrations)
+        // Then create the main DB with the hook attached (runs full init + migrations)
         let db = {
+            let bootstrap_db = DBService::bootstrap().await?;
             let hook = EventService::create_hook(
                 events_msg_store.clone(),
                 events_entry_count.clone(),
-                DBService::new().await?, // Temporary DB service for the hook
+                bootstrap_db,
             );
             DBService::new_with_after_connect(hook).await?
         };

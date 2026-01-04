@@ -1114,6 +1114,23 @@ export const fileBrowserApi = {
   },
 };
 
+// Health check API
+export interface HealthResponse {
+  status: string;
+  version: string;
+  git_commit: string;
+  git_branch: string;
+  build_timestamp: string;
+  database_ready: boolean;
+}
+
+export const healthApi = {
+  check: async (): Promise<HealthResponse> => {
+    const response = await makeRequest('/api/health');
+    return handleApiResponse<HealthResponse>(response);
+  },
+};
+
 // Config APIs (backwards compatible)
 export const configApi = {
   getConfig: async (): Promise<UserSystemInfo> => {
