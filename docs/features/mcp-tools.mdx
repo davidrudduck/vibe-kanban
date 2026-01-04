@@ -1,0 +1,550 @@
+---
+title: "MCP Tools Reference"
+description: "Complete reference for all Vibe Kanban MCP server tools, including parameters, responses, and usage examples."
+---
+
+The Vibe Kanban MCP server provides 18 tools for managing projects, tasks, execution, labels, and nodes. This page provides a complete reference for all available tools.
+
+<Info>
+For setup instructions, see [Vibe Kanban MCP Server](/integrations/vibe-kanban-mcp-server). For configuring MCP servers within Vibe Kanban, see [Connecting MCP Servers](/integrations/mcp-server-configuration).
+</Info>
+
+## Tool Categories
+
+| Category | Tools | Purpose |
+|----------|-------|---------|
+| Projects | `list_projects` | Browse available projects |
+| Tasks | `create_task`, `list_tasks`, `get_task`, `update_task`, `delete_task` | Full task CRUD operations |
+| Execution | `start_task_attempt`, `stop_task_attempt`, `get_task_attempt_status`, `list_task_attempts` | Control and monitor task execution |
+| Variables | `get_task_variables`, `set_task_variable`, `delete_task_variable` | Manage task configuration variables |
+| Labels | `get_task_labels`, `set_task_labels`, `list_labels` | Categorise tasks with labels |
+| Nodes | `list_nodes` | Discover available swarm nodes |
+| Context | `get_context` | Get current execution context |
+
+## Project Operations
+
+### list_projects
+
+Lists all projects configured in Vibe Kanban.
+
+**Parameters:** None
+
+**Response:**
+```json
+{
+  "projects": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "name": "My Project",
+      "git_repo_path": "/path/to/repo",
+      "setup_script": "npm install",
+      "cleanup_script": null,
+      "dev_script": "npm run dev",
+      "created_at": "2025-01-01T00:00:00Z",
+      "updated_at": "2025-01-01T00:00:00Z"
+    }
+  ],
+  "count": 1
+}
+```
+
+## Task Management
+
+### create_task
+
+Creates a new task in a project.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | UUID | Yes | The project to create the task in |
+| `title` | string | Yes | Task title |
+| `description` | string | No | Task description |
+| `link_to_parent` | boolean | No | Link as subtask of current attempt's task |
+| `parent_task_id` | UUID | No | Explicit parent task ID (overrides `link_to_parent`) |
+
+**Response:**
+```json
+{
+  "task_id": "123e4567-e89b-12d3-a456-426614174000"
+}
+```
+
+### list_tasks
+
+Lists tasks in a project with optional filtering.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | UUID | Yes | The project to list tasks from |
+| `status` | string | No | Filter by status: `todo`, `inprogress`, `inreview`, `done`, `cancelled` |
+| `limit` | integer | No | Maximum tasks to return (default: 50) |
+
+**Response:**
+```json
+{
+  "tasks": [
+    {
+      "id": "123e4567-e89b-12d3-a456-426614174000",
+      "title": "Implement feature",
+      "status": "todo",
+      "created_at": "2025-01-01T00:00:00Z",
+      "updated_at": "2025-01-01T00:00:00Z",
+      "has_in_progress_attempt": false,
+      "has_merged_attempt": false,
+      "last_attempt_failed": false
+    }
+  ],
+  "count": 1,
+  "project_id": "550e8400-e29b-41d4-a716-446655440000",
+  "applied_filters": {
+    "status": null,
+    "limit": 50
+  }
+}
+```
+
+### get_task
+
+Retrieves detailed information about a specific task.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | UUID | Yes | The task to retrieve |
+
+**Response:**
+```json
+{
+  "task": {
+    "id": "123e4567-e89b-12d3-a456-426614174000",
+    "title": "Implement feature",
+    "description": "Add the new authentication feature",
+    "status": "inprogress",
+    "created_at": "2025-01-01T00:00:00Z",
+    "updated_at": "2025-01-02T00:00:00Z"
+  }
+}
+```
+
+### update_task
+
+Updates a task's title, description, or status.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | UUID | Yes | The task to update |
+| `title` | string | No | New title |
+| `description` | string | No | New description |
+| `status` | string | No | New status: `todo`, `inprogress`, `inreview`, `done`, `cancelled` |
+
+**Response:**
+```json
+{
+  "task": {
+    "id": "123e4567-e89b-12d3-a456-426614174000",
+    "title": "Updated title",
+    "description": "Updated description",
+    "status": "done",
+    "created_at": "2025-01-01T00:00:00Z",
+    "updated_at": "2025-01-03T00:00:00Z"
+  }
+}
+```
+
+### delete_task
+
+Deletes a task from the project.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | UUID | Yes | The task to delete |
+
+**Response:**
+```json
+{
+  "deleted_task_id": "123e4567-e89b-12d3-a456-426614174000"
+}
+```
+
+## Task Execution
+
+### start_task_attempt
+
+Starts a new task attempt with a specified coding agent.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | UUID | Yes | The task to start working on |
+| `executor` | string | Yes | Coding agent: `CLAUDE_CODE`, `CODEX`, `GEMINI`, `CURSOR_AGENT`, `OPENCODE`, etc. |
+| `base_branch` | string | Yes | Git branch to base the work on |
+| `variant` | string | No | Executor variant if applicable |
+
+**Response:**
+```json
+{
+  "task_id": "123e4567-e89b-12d3-a456-426614174000",
+  "attempt_id": "987fcdeb-51a2-3bc4-d567-890123456789"
+}
+```
+
+### stop_task_attempt
+
+Stops a running task attempt.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `attempt_id` | UUID | Yes | The attempt to stop |
+
+**Response:**
+```json
+{
+  "attempt_id": "987fcdeb-51a2-3bc4-d567-890123456789",
+  "stopped": true
+}
+```
+
+### get_task_attempt_status
+
+Gets detailed status of a task attempt including execution processes.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `attempt_id` | UUID | Yes | The attempt to check |
+
+**Response:**
+```json
+{
+  "attempt_id": "987fcdeb-51a2-3bc4-d567-890123456789",
+  "task_id": "123e4567-e89b-12d3-a456-426614174000",
+  "branch": "task/123e4567-implement-feature",
+  "executor": "CLAUDE_CODE",
+  "worktree_deleted": false,
+  "created_at": "2025-01-01T10:00:00Z",
+  "processes": [
+    {
+      "id": "abc12345-6789-0def-ghij-klmnopqrstuv",
+      "run_reason": "initial",
+      "status": "running",
+      "started_at": "2025-01-01T10:00:05Z",
+      "completed_at": null
+    }
+  ]
+}
+```
+
+### list_task_attempts
+
+Lists all attempts for a task.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | UUID | Yes | The task to list attempts for |
+| `limit` | integer | No | Maximum attempts to return (default: 50) |
+
+**Response:**
+```json
+{
+  "task_id": "123e4567-e89b-12d3-a456-426614174000",
+  "attempts": [
+    {
+      "id": "987fcdeb-51a2-3bc4-d567-890123456789",
+      "branch": "task/123e4567-implement-feature",
+      "executor": "CLAUDE_CODE",
+      "created_at": "2025-01-01T10:00:00Z",
+      "worktree_deleted": false
+    }
+  ],
+  "count": 1
+}
+```
+
+## Task Variables
+
+Task variables allow you to define configuration values that are expanded in task descriptions using `$VAR` or `${VAR}` syntax. Variables are inherited from parent tasks.
+
+### get_task_variables
+
+Gets all resolved variables for a task, including inherited variables from parent tasks.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | UUID | Yes | The task to get variables for |
+
+**Response:**
+```json
+{
+  "task_id": "123e4567-e89b-12d3-a456-426614174000",
+  "variables": [
+    {
+      "name": "API_URL",
+      "value": "https://api.example.com",
+      "source_task_id": "123e4567-e89b-12d3-a456-426614174000",
+      "inherited": false
+    },
+    {
+      "name": "SHARED_CONFIG",
+      "value": "production",
+      "source_task_id": "parent-task-id",
+      "inherited": true
+    }
+  ],
+  "count": 2
+}
+```
+
+### set_task_variable
+
+Creates or updates a variable on a task.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | UUID | Yes | The task to set the variable on |
+| `name` | string | Yes | Variable name (must be `UPPER_SNAKE_CASE`) |
+| `value` | string | Yes | Variable value |
+
+**Response:**
+```json
+{
+  "id": "var-id-12345",
+  "name": "API_URL",
+  "value": "https://api.example.com",
+  "task_id": "123e4567-e89b-12d3-a456-426614174000",
+  "created": true
+}
+```
+
+### delete_task_variable
+
+Deletes a variable from a task. Only deletes variables defined directly on the task, not inherited ones.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | UUID | Yes | The task to delete the variable from |
+| `name` | string | Yes | Variable name to delete |
+
+**Response:**
+```json
+{
+  "deleted_variable_name": "API_URL",
+  "task_id": "123e4567-e89b-12d3-a456-426614174000"
+}
+```
+
+## Labels
+
+Labels help categorise and organise tasks. Labels can be global or project-specific.
+
+### get_task_labels
+
+Gets labels assigned to a task.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | UUID | Yes | The task to get labels for |
+
+**Response:**
+```json
+{
+  "task_id": "123e4567-e89b-12d3-a456-426614174000",
+  "labels": [
+    {
+      "id": "label-id-123",
+      "name": "Bug Fix",
+      "icon": "bug",
+      "color": "#ef4444"
+    }
+  ],
+  "count": 1
+}
+```
+
+### set_task_labels
+
+Sets labels on a task. This replaces all existing labels with the specified ones. Pass an empty array to clear all labels.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | UUID | Yes | The task to set labels for |
+| `label_ids` | UUID[] | Yes | Label IDs to assign (empty array clears all) |
+
+**Response:**
+```json
+{
+  "task_id": "123e4567-e89b-12d3-a456-426614174000",
+  "labels": [
+    {
+      "id": "label-id-123",
+      "name": "Bug Fix",
+      "icon": "bug",
+      "color": "#ef4444"
+    },
+    {
+      "id": "label-id-456",
+      "name": "High Priority",
+      "icon": "alert-circle",
+      "color": "#f97316"
+    }
+  ],
+  "count": 2
+}
+```
+
+### list_labels
+
+Lists available labels.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | UUID | No | If provided, returns global + project-specific labels. Otherwise returns only global labels. |
+
+**Response:**
+```json
+{
+  "labels": [
+    {
+      "id": "label-id-123",
+      "name": "Bug Fix",
+      "icon": "bug",
+      "color": "#ef4444"
+    },
+    {
+      "id": "label-id-456",
+      "name": "Implementation",
+      "icon": "code",
+      "color": "#3b82f6"
+    }
+  ],
+  "count": 2,
+  "project_id": null
+}
+```
+
+## Nodes
+
+Nodes are swarm execution nodes connected to your Vibe Kanban instance.
+
+### list_nodes
+
+Lists swarm nodes available for a task's project.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | UUID | Yes | The task to list available nodes for |
+
+**Response:**
+```json
+{
+  "task_id": "123e4567-e89b-12d3-a456-426614174000",
+  "nodes": [
+    {
+      "node_id": "node-id-123",
+      "node_name": "dev-machine-1",
+      "status": "online",
+      "public_url": "http://192.168.1.50:3000"
+    }
+  ],
+  "count": 1
+}
+```
+
+**Node Status Values:**
+- `pending` - Node is connecting
+- `online` - Node is available
+- `offline` - Node is disconnected
+- `busy` - Node is currently executing
+- `draining` - Node is finishing work before going offline
+
+## Context
+
+### get_context
+
+Gets the current task attempt context. Only available when running within a Vibe Kanban task attempt.
+
+**Parameters:** None
+
+**Response:**
+```json
+{
+  "project_id": "550e8400-e29b-41d4-a716-446655440000",
+  "task_id": "123e4567-e89b-12d3-a456-426614174000",
+  "task_title": "Implement feature",
+  "attempt_id": "987fcdeb-51a2-3bc4-d567-890123456789",
+  "attempt_branch": "task/123e4567-implement-feature",
+  "attempt_target_branch": "main",
+  "executor": "CLAUDE_CODE"
+}
+```
+
+<Note>
+This tool is only available when the MCP server is running within the context of a Vibe Kanban task attempt. It will not appear in the tool list when running outside of an attempt.
+</Note>
+
+## Error Responses
+
+All tools return errors in a consistent format:
+
+```json
+{
+  "success": false,
+  "error": "Error message describing what went wrong",
+  "details": "Additional details if available"
+}
+```
+
+**Common Error Codes:**
+- `400` - Invalid parameters (e.g., malformed UUID, invalid status value)
+- `404` - Resource not found (e.g., task, project, or attempt doesn't exist)
+- `500` - Internal server error
+
+## Usage Examples
+
+### Create Tasks from a Plan
+
+```bash
+List all projects to find the project ID, then create a series of tasks
+for implementing user authentication:
+1. Set up authentication middleware
+2. Implement login endpoint
+3. Implement logout endpoint
+4. Add password reset flow
+```
+
+### Monitor Execution Progress
+
+```bash
+1. List all todo tasks in the project
+2. Start a task attempt using Claude Code on main branch
+3. Check the attempt status periodically
+4. Stop the attempt if needed
+```
+
+### Categorise Tasks with Labels
+
+```bash
+1. List available labels for the project
+2. Get current labels on the task
+3. Set new labels including "High Priority" and "Bug Fix"
+```
+
+### Manage Task Variables
+
+```text
+1. Set API_URL variable to "https://staging.example.com"
+2. Set DATABASE_HOST variable to "db.staging.example.com"
+3. Get all variables to verify inheritance from parent tasks
+```
