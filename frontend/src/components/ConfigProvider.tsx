@@ -17,6 +17,7 @@ import {
 import type { ExecutorConfig } from 'shared/types';
 import { configApi } from '../lib/api';
 import { updateLanguageFromConfig } from '../i18n/config';
+import { Loader } from '@/components/ui/loader';
 
 interface UserSystemState {
   config: Config | null;
@@ -52,6 +53,7 @@ interface UserSystemContextType {
 
   // State
   loading: boolean;
+  connecting: boolean; // True when waiting for backend to start
 }
 
 const UserSystemContext = createContext<UserSystemContextType | undefined>(
@@ -61,6 +63,11 @@ const UserSystemContext = createContext<UserSystemContextType | undefined>(
 interface UserSystemProviderProps {
   children: ReactNode;
 }
+
+// Retry configuration for waiting on backend startup
+const INITIAL_RETRY_DELAY_MS = 500;
+const MAX_RETRY_DELAY_MS = 5000;
+const MAX_RETRIES = 30; // ~30 seconds with backoff
 
 export function UserSystemProvider({ children }: UserSystemProviderProps) {
   // Split state for performance - independent re-renders
@@ -77,32 +84,82 @@ export function UserSystemProvider({ children }: UserSystemProviderProps) {
   const [analyticsUserId, setAnalyticsUserId] = useState<string | null>(null);
   const [loginStatus, setLoginStatus] = useState<LoginStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [connecting, setConnecting] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+
     const loadUserSystem = async () => {
-      try {
-        const userSystemInfo: UserSystemInfo = await configApi.getConfig();
-        setConfig(userSystemInfo.config);
-        setEnvironment(userSystemInfo.environment);
-        setAnalyticsUserId(userSystemInfo.analytics_user_id);
-        setLoginStatus(userSystemInfo.login_status);
-        setProfiles(
-          userSystemInfo.executors as Record<string, ExecutorConfig> | null
-        );
-        setCapabilities(
-          (userSystemInfo.capabilities || null) as Record<
-            string,
-            BaseAgentCapability[]
-          > | null
-        );
-      } catch (err) {
-        console.error('Error loading user system:', err);
-      } finally {
+      let retries = 0;
+      let delay = INITIAL_RETRY_DELAY_MS;
+
+      while (!cancelled && retries < MAX_RETRIES) {
+        try {
+          const userSystemInfo: UserSystemInfo = await configApi.getConfig();
+          if (cancelled) return;
+
+          setConfig(userSystemInfo.config);
+          setEnvironment(userSystemInfo.environment);
+          setAnalyticsUserId(userSystemInfo.analytics_user_id);
+          setLoginStatus(userSystemInfo.login_status);
+          setProfiles(
+            userSystemInfo.executors as Record<string, ExecutorConfig> | null
+          );
+          setCapabilities(
+            (userSystemInfo.capabilities || null) as Record<
+              string,
+              BaseAgentCapability[]
+            > | null
+          );
+          setConnecting(false);
+          setLoading(false);
+          return; // Success - exit the retry loop
+        } catch (err) {
+          // Check if this is a connection/proxy error (backend not ready yet)
+          const errorMessage = err instanceof Error ? err.message : '';
+          const errorStatus =
+            err && typeof err === 'object' && 'status' in err
+              ? (err as { status?: number }).status
+              : undefined;
+          const isProxyError =
+            errorStatus === 502 || errorStatus === 503 || errorStatus === 504;
+          const isNetworkError =
+            err instanceof TypeError ||
+            errorMessage.includes('Failed to fetch') ||
+            errorMessage.includes('NetworkError') ||
+            errorMessage.includes('ECONNREFUSED');
+          const isConnectionError = isNetworkError || isProxyError;
+
+          if (isConnectionError && retries < MAX_RETRIES - 1) {
+            setConnecting(true);
+            retries++;
+            await new Promise((resolve) =>
+              setTimeout(resolve, delay + Math.random() * 100)
+            );
+            delay = Math.min(delay * 1.5, MAX_RETRY_DELAY_MS);
+          } else {
+            // Non-connection error or max retries reached
+            console.error('Error loading user system:', err);
+            setConnecting(false);
+            setLoading(false);
+            return;
+          }
+        }
+      }
+
+      // Max retries exceeded
+      if (!cancelled) {
+        console.error('Failed to connect to backend after maximum retries');
+        setConnecting(false);
         setLoading(false);
       }
     };
 
     loadUserSystem();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Sync language with i18n when config changes
@@ -197,6 +254,7 @@ export function UserSystemProvider({ children }: UserSystemProviderProps) {
       setCapabilities,
       reloadSystem,
       loading,
+      connecting,
     }),
     [
       config,
@@ -210,8 +268,22 @@ export function UserSystemProvider({ children }: UserSystemProviderProps) {
       updateAndSaveConfig,
       reloadSystem,
       loading,
+      connecting,
     ]
   );
+
+  // Gate children until backend is ready - prevents child components from
+  // making API calls before the backend is available
+  if (loading || connecting) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader
+          message={connecting ? 'Starting server...' : 'Loading...'}
+          size={32}
+        />
+      </div>
+    );
+  }
 
   return (
     <UserSystemContext.Provider value={value}>

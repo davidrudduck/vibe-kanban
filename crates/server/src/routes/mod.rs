@@ -42,6 +42,7 @@ pub async fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
     let terminal_router = terminal::router_with_state(&deployment).await;
 
     // Create routers with different middleware layers
+    // Note: health check is inside base_routes so it gets the State<DeploymentImpl>
     let base_routes = Router::new()
         .route("/health", get(health::health_check))
         .merge(config::router())
