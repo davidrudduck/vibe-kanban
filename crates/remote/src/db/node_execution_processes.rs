@@ -11,6 +11,8 @@ use crate::nodes::NodeExecutionProcess;
 pub enum NodeExecutionProcessError {
     #[error("node execution process not found")]
     NotFound,
+    #[error("attempt not found: {0}")]
+    AttemptNotFound(Uuid),
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
 }
@@ -48,7 +50,7 @@ impl<'a> NodeExecutionProcessRepository<'a> {
         &self,
         data: &UpsertNodeExecutionProcess,
     ) -> Result<NodeExecutionProcess, NodeExecutionProcessError> {
-        let process = sqlx::query_as::<_, NodeExecutionProcess>(
+        let result = sqlx::query_as::<_, NodeExecutionProcess>(
             r#"
             INSERT INTO node_execution_processes (
                 id, attempt_id, node_id, run_reason, executor_action,
@@ -88,9 +90,17 @@ impl<'a> NodeExecutionProcessRepository<'a> {
         .bind(data.completed_at)
         .bind(data.created_at)
         .fetch_one(self.pool)
-        .await?;
+        .await;
 
-        Ok(process)
+        match result {
+            Ok(process) => Ok(process),
+            Err(sqlx::Error::Database(db_err))
+                if db_err.constraint() == Some("node_execution_processes_attempt_id_fkey") =>
+            {
+                Err(NodeExecutionProcessError::AttemptNotFound(data.attempt_id))
+            }
+            Err(e) => Err(NodeExecutionProcessError::Database(e)),
+        }
     }
 
     /// Find a node execution process by ID
