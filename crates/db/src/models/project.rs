@@ -639,7 +639,11 @@ impl Project {
         .await
     }
 
-    /// Create or update a remote project synced from the Hive
+    /// Create or update a remote project synced from the Hive.
+    ///
+    /// If a project with the same `git_repo_path` already exists (local or remote),
+    /// returns that project instead of inserting to avoid UNIQUE constraint violations.
+    /// This handles the case where multiple nodes have the same repo path.
     #[allow(clippy::too_many_arguments)]
     pub async fn upsert_remote_project(
         pool: &SqlitePool,
@@ -652,6 +656,17 @@ impl Project {
         source_node_public_url: Option<String>,
         source_node_status: Option<String>,
     ) -> Result<Self, sqlx::Error> {
+        // Check if a project with this git_repo_path already exists.
+        // This prevents UNIQUE constraint violations when multiple nodes
+        // have the same repo path (e.g., same repo cloned on different machines).
+        if let Some(existing) = Self::find_by_git_repo_path(pool, &git_repo_path).await? {
+            // Only skip if it's a DIFFERENT remote project.
+            // If same remote_project_id, allow the update to proceed.
+            if existing.remote_project_id != Some(remote_project_id) {
+                return Ok(existing);
+            }
+        }
+
         let now = Utc::now();
         sqlx::query_as!(
             Project,

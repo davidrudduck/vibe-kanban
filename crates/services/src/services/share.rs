@@ -310,7 +310,6 @@ impl RemoteSync {
                 tracing::warn!(error = ?e, "Startup sync failed");
             }
         }
-
     }
 
     async fn linked_remote_projects(&self) -> Result<Vec<Uuid>, ShareError> {
@@ -691,7 +690,6 @@ impl Drop for RemoteSyncHandleInner {
         }
     }
 }
-
 
 /// Sync all unshared tasks for all Hive-linked projects.
 ///

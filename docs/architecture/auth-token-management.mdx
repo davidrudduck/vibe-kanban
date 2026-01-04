@@ -1,0 +1,260 @@
+---
+title: "Authentication Token Management"
+description: "Technical documentation of OAuth token handling, refresh logic, and error recovery for node-to-hive authentication"
+---
+
+This document describes how authentication tokens are managed for node-to-hive communication, including token refresh logic and error handling.
+
+## Overview
+
+Nodes authenticate with the hive using OAuth 2.0 tokens obtained through GitHub or Google OAuth. The system automatically refreshes tokens before they expire to maintain persistent connectivity.
+
+```text
+┌──────────────────────────────────────────────────────────────────────────┐
+│                           TOKEN LIFECYCLE                                 │
+├──────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  [Login via OAuth]  →  [Access Token + Refresh Token]  →  [API Calls]   │
+│                              │                                │          │
+│                              │ (stored in local SQLite)       │          │
+│                              ▼                                ▼          │
+│                     [Token Expiring?] ──Yes──► [Refresh Request]        │
+│                              │                       │                   │
+│                              No                      ▼                   │
+│                              │            [New Access Token]            │
+│                              ▼                       │                   │
+│                     [Continue API Calls] ◄──────────┘                   │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+## Token Types
+
+### Access Token
+
+- **Purpose**: Authenticates API requests to the hive
+- **Format**: JWT (JSON Web Token) signed with the hive's secret
+- **Lifetime**: Short-lived (typically 1 hour)
+- **Storage**: SQLite `oauth_credentials` table
+
+### Refresh Token
+
+- **Purpose**: Obtains new access tokens without re-authentication
+- **Format**: Opaque token string
+- **Lifetime**: Long-lived (typically 7-30 days)
+- **Storage**: SQLite `oauth_credentials` table alongside access token
+
+## Token Refresh Logic
+
+### Proactive Refresh
+
+The `RemoteClient` checks token expiry before each API request:
+
+```rust
+async fn require_token(&self) -> Result<String, RemoteClientError> {
+    // Check if token expires within 5 minutes
+    if credentials.expires_soon() {
+        self.refresh_credentials().await?;
+    }
+    Ok(credentials.access_token)
+}
+```
+
+The `expires_soon()` check uses a 5-minute buffer to prevent requests failing mid-flight:
+
+```rust
+pub fn expires_soon(&self) -> bool {
+    match self.expires_at {
+        Some(expires_at) => {
+            let buffer = Duration::from_secs(300); // 5 minutes
+            Utc::now() + buffer >= expires_at
+        }
+        None => true, // No expiry set, assume expired
+    }
+}
+```
+
+### Refresh Request
+
+When refresh is needed, the client sends the refresh token to the hive:
+
+```rust
+async fn refresh_credentials(&self) -> Result<(), RemoteClientError> {
+    let response = self.client
+        .post(format!("{}/v1/oauth/token/refresh", self.base_url))
+        .json(&RefreshRequest { refresh_token })
+        .send()
+        .await?;
+
+    let new_tokens = response.json::<TokenResponse>().await?;
+    self.store_credentials(new_tokens).await?;
+}
+```
+
+### Token Rotation
+
+When the hive issues new access tokens, it may also issue a new refresh token. The client always stores both tokens from the response to support refresh token rotation.
+
+## Error Handling
+
+### Authentication Errors
+
+When the hive returns 401 (Unauthorized) or 403 (Forbidden):
+
+1. **Log the error** with response details for debugging
+2. **Clear stored credentials** to prevent repeated failures
+3. **Return `RemoteClientError::Auth`** to signal re-authentication needed
+
+```rust
+StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
+    warn!(
+        status = status.as_u16(),
+        path = %path,
+        "received auth error from server"
+    );
+    self.clear_credentials().await;
+    Err(RemoteClientError::Auth)
+}
+```
+
+### Refresh Token Expiry
+
+If the refresh token itself has expired:
+
+1. The refresh endpoint returns 401
+2. Credentials are cleared
+3. User must re-authenticate via OAuth
+
+<Warning>
+When credentials are cleared, the user sees "Unauthorized. Please sign in again" on the next operation requiring hive access.
+</Warning>
+
+### Network Errors
+
+Network errors during token refresh are handled differently from auth errors:
+
+- **Transient errors** (timeout, connection refused): Retry with backoff
+- **Auth errors** (401, 403): Clear credentials, require re-login
+
+```rust
+// Network error - retry is possible
+Err(RemoteClientError::Network(e)) => {
+    // Log and potentially retry
+}
+
+// Auth error - re-login required
+Err(RemoteClientError::Auth) => {
+    // User must re-authenticate
+}
+```
+
+## Credential Storage
+
+### SQLite Schema
+
+Credentials are stored in the local SQLite database:
+
+```sql
+CREATE TABLE oauth_credentials (
+    id INTEGER PRIMARY KEY,
+    provider TEXT NOT NULL,        -- 'github' or 'google'
+    access_token TEXT NOT NULL,
+    refresh_token TEXT NOT NULL,
+    expires_at TEXT,               -- ISO 8601 timestamp
+    user_id TEXT,
+    organization_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+```
+
+### Security Considerations
+
+- Tokens are stored in the local SQLite database file
+- Database file permissions should restrict access to the current user
+- Tokens are never logged (only token prefix or masked values)
+- Credentials are cleared on explicit logout or auth failure
+
+## Diagnostic Logging
+
+Token operations are logged at `debug` level for troubleshooting:
+
+| Event | Log Level | Message |
+|-------|-----------|---------|
+| Token expiry check | DEBUG | `checking token expiry: expires_at={}, expires_soon={}` |
+| Refresh attempt | INFO | `attempting to refresh OAuth credentials` |
+| Refresh success | INFO | `successfully refreshed OAuth credentials` |
+| Refresh failure | WARN | `failed to refresh OAuth credentials: {}` |
+| Auth error | WARN | `received auth error from server: status={}, path={}` |
+| Credentials cleared | INFO | `cleared OAuth credentials due to auth failure` |
+
+Enable debug logging to troubleshoot auth issues:
+
+```bash
+RUST_LOG=services::remote_client=debug pnpm run dev
+```
+
+## Troubleshooting
+
+### User Keeps Getting Logged Out
+
+**Symptoms**: User sees "Unauthorized. Please sign in again" repeatedly
+
+**Diagnosis**:
+1. Check logs for `failed to refresh OAuth credentials` messages
+2. Look for `received auth error from server` entries
+3. Check `expires_at` values in the database
+
+**Common Causes**:
+- Refresh token expired (user inactive for extended period)
+- Hive server restarted with different JWT secret
+- Clock skew between node and hive
+
+**Resolution**:
+1. User re-authenticates via OAuth (normal flow)
+2. If persistent, verify hive JWT secret configuration
+
+### Token Refresh Failing Silently
+
+**Symptoms**: Operations fail with auth errors but no visible logout prompt
+
+**Diagnosis**:
+1. Enable debug logging for the remote client
+2. Check for network errors in logs
+3. Verify hive server is accessible
+
+**Resolution**:
+1. Check network connectivity to hive
+2. Verify `VK_HIVE_URL` is correct
+3. Ensure hive server is running and healthy
+
+### Stale Token After Hive Restart
+
+**Symptoms**: Previously working node can't authenticate after hive restart
+
+**Diagnosis**: Tokens signed with old secret won't validate with new secret
+
+**Resolution**:
+1. Ensure `VIBEKANBAN_REMOTE_JWT_SECRET` is persistent across restarts
+2. Store the secret in environment file or secrets manager
+3. If secret was changed, users must re-authenticate
+
+## Best Practices
+
+### For Node Operators
+
+1. **Persistent secrets**: Store JWT secrets in environment files or secrets managers
+2. **Monitor logs**: Watch for auth error patterns that indicate issues
+3. **Regular access**: Tokens refresh on use; regular activity prevents expiry
+
+### For Hive Administrators
+
+1. **Consistent configuration**: Use the same JWT secret across deployments
+2. **Token lifetimes**: Balance security (short tokens) with convenience (longer refresh tokens)
+3. **Monitoring**: Alert on high auth error rates which may indicate configuration issues
+
+## Related Documentation
+
+- [Swarm/Hive Setup Guide](/swarm-hive-setup) - OAuth configuration
+- [Swarm Sync Architecture](/architecture/swarm-sync) - Overall sync mechanism
+- [Swarm Management](/core-features/swarm-management) - Managing swarm resources

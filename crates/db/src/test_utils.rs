@@ -88,10 +88,9 @@ pub async fn create_test_pool() -> (SqlitePool, TempDir) {
     }
 
     // Create pool for the copied database
-    let options =
-        SqliteConnectOptions::from_str(&format!("sqlite://{}", db_path.display()))
-            .expect("Invalid test database URL")
-            .journal_mode(SqliteJournalMode::Wal);
+    let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", db_path.display()))
+        .expect("Invalid test database URL")
+        .journal_mode(SqliteJournalMode::Wal);
 
     let pool = SqlitePoolOptions::new()
         .min_connections(1)
@@ -110,11 +109,10 @@ pub async fn create_test_pool_with_migrations() -> (SqlitePool, TempDir) {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let db_path = temp_dir.path().join("test.db");
 
-    let options =
-        SqliteConnectOptions::from_str(&format!("sqlite://{}", db_path.display()))
-            .expect("Invalid database URL")
-            .create_if_missing(true)
-            .journal_mode(SqliteJournalMode::Wal);
+    let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", db_path.display()))
+        .expect("Invalid database URL")
+        .create_if_missing(true)
+        .journal_mode(SqliteJournalMode::Wal);
 
     let pool = SqlitePoolOptions::new()
         .min_connections(1)
