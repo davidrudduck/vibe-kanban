@@ -1,0 +1,215 @@
+---
+title: "Log Migration"
+description: "How Vibe Kanban migrates JSONL logs to structured log entries using executor normalization"
+sidebarTitle: "Log Migration"
+---
+
+## Overview
+
+Vibe Kanban uses a dual-write architecture for execution logs:
+
+1. **`execution_process_logs`** - JSONL batches stored during execution (legacy format)
+2. **`log_entries`** - Individual normalized log entries for efficient querying
+
+The log migration service converts JSONL logs from `execution_process_logs` into normalized `log_entries` using the executor's normalization logic.
+
+## Architecture
+
+```text
+┌─────────────────────────┐
+│ execution_process_logs  │  JSONL batches ({"Stdout":"..."}, {"Stderr":"..."})
+│ (during execution)      │
+└───────────┬─────────────┘
+            │
+            ▼
+┌─────────────────────────┐
+│   Log Migration Service │  Reads JSONL, runs normalization
+│   (post-execution)      │
+└───────────┬─────────────┘
+            │
+            ▼
+┌─────────────────────────┐
+│   Executor Normalizer   │  ClaudeLogProcessor, CodexLogProcessor, etc.
+│   (parse JSON protocol) │
+└───────────┬─────────────┘
+            │
+            ▼
+┌─────────────────────────┐
+│      log_entries        │  Individual JsonPatch entries
+│   (structured rows)     │
+└─────────────────────────┘
+```
+
+## Key Components
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| `LogMigrationService` | `crates/services/src/services/log_migration.rs` | Orchestrates migration |
+| `LogBatcher` | `crates/services/src/services/log_batcher.rs` | Writes to `execution_process_logs` |
+| `DbLogEntry` | `crates/db/src/models/log_entry.rs` | Individual log entry model |
+| Per-executor normalizers | `crates/executors/src/executors/*/` | Parse executor output |
+
+## How Migration Works
+
+### 1. Read JSONL Logs
+
+The migration reads JSONL from `execution_process_logs`:
+
+```json
+{"Stdout":"{\"type\":\"assistant\",\"message\":{...}}"}
+{"Stdout":"{\"type\":\"tool_use\",\"tool_name\":\"Bash\",...}"}
+{"Stderr":"Warning: something happened"}
+```
+
+### 2. Parse into LogMsg
+
+Each line is parsed into a `LogMsg` variant:
+
+```rust
+pub enum LogMsg {
+    Stdout(String),    // Raw stdout from executor
+    Stderr(String),    // Raw stderr from executor
+    JsonPatch(Patch),  // Structured patches
+    SessionId(String), // Session identifier
+    Finished,          // End of execution
+    RefreshRequired { reason: String },
+}
+```
+
+### 3. Run Executor Normalization
+
+The migration determines which executor was used from the `executor_action` field and runs the appropriate normalizer:
+
+```rust
+// Get executor from execution's executor_action
+let executor = get_executor_from_action(&execution.executor_action)?;
+
+// Run normalization (reads stdout_lines_stream)
+executor.normalize_logs(msg_store, worktree_path);
+```
+
+### 4. Collect JsonPatch Entries
+
+The normalizer transforms raw output into `NormalizedEntry` objects wrapped in JsonPatch operations:
+
+```json
+[{
+    "op": "add",
+    "path": "/entries/0",
+    "value": {
+        "type": "NORMALIZED_ENTRY",
+        "content": {
+            "entry_type": "AssistantMessage",
+            "content": "I'll help you with that.",
+            "metadata": {...}
+        }
+    }
+}]
+```
+
+### 5. Store in log_entries
+
+Each JsonPatch is stored as a row in `log_entries`:
+
+| Column | Value |
+|--------|-------|
+| `execution_id` | UUID of the execution |
+| `output_type` | `"json_patch"` |
+| `content` | Serialized JsonPatch JSON |
+| `created_at` | Timestamp |
+
+## Testing the Migration
+
+### Test Data Format
+
+Tests must use realistic executor output that the normalization logic can parse.
+
+**Wrong** (simple stdout - produces 0 entries):
+```rust
+let jsonl = r#"{"Stdout":"Hello, world!"}"#;
+```
+
+**Correct** (Claude JSON protocol - produces normalized entries):
+```rust
+let message = json!({
+    "type": "assistant",
+    "message": {
+        "id": "msg_001",
+        "role": "assistant",
+        "content": [{"type": "text", "text": "Hello!"}]
+    }
+}).to_string();
+let jsonl = json!({"Stdout": message}).to_string();
+```
+
+### Test Helpers
+
+The test file provides helpers for creating realistic test data:
+
+```rust
+// Create Claude assistant message
+fn claude_assistant_message(text: &str, msg_id: &str) -> String;
+
+// Create Claude tool_use message
+fn claude_tool_use(tool_name: &str, tool_id: &str, input: Value) -> String;
+
+// Create Claude tool_result message
+fn claude_tool_result(tool_id: &str, result: &str) -> String;
+
+// Insert as JSONL (wraps in {"Stdout": ...})
+async fn insert_claude_logs(pool: &SqlitePool, execution_id: Uuid, lines: Vec<String>);
+```
+
+### Example Test
+
+```rust
+#[tokio::test]
+async fn test_migrate_assistant_message() {
+    let (pool, _temp_dir) = setup_test_db().await;
+    let execution_id = create_test_execution(&pool).await;
+
+    // Insert Claude-format logs
+    let lines = vec![
+        claude_assistant_message("Hello, I can help.", "msg_001")
+    ];
+    insert_claude_logs(&pool, execution_id, lines).await;
+
+    // Run migration
+    let result = migrate_execution_logs(&pool, execution_id).await.unwrap();
+
+    // Verify
+    assert!(result.migrated >= 1);
+    let entries = get_log_entries(&pool, execution_id).await;
+    assert_eq!(entries[0].output_type, "json_patch");
+}
+```
+
+## Idempotency
+
+The migration is idempotent - running it twice on the same execution skips already-migrated logs:
+
+```rust
+// First migration
+let result1 = migrate_execution_logs(&pool, execution_id).await?;
+assert!(result1.migrated >= 1);
+
+// Second migration
+let result2 = migrate_execution_logs(&pool, execution_id).await?;
+assert!(result2.skipped >= 1);  // Already migrated
+assert_eq!(result2.migrated, 0);
+```
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `crates/services/src/services/log_migration.rs` | Migration service implementation |
+| `crates/services/src/services/log_batcher.rs` | JSONL batch writer |
+| `crates/services/tests/log_migration.rs` | Integration tests |
+| `crates/db/src/models/log_entry.rs` | DbLogEntry model |
+| `crates/executors/src/executors/claude.rs` | Claude normalizer (ClaudeLogProcessor) |
+
+## Related Documentation
+
+- [Executor Log Normalization](/architecture/executor-normalization) - How normalization works
+- [Executors](/architecture/executors) - Executor implementations
