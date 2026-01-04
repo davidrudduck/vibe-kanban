@@ -444,44 +444,70 @@ impl<'a> LabelRepository<'a> {
     }
 
     /// Find or create a label by name within a scope (used for conflict resolution)
-    /// Returns the existing label if one with the same name exists, otherwise creates a new one
+    /// Returns the existing label if one with the same name exists, otherwise creates a new one.
+    /// Uses INSERT ... ON CONFLICT to handle race conditions atomically.
     pub async fn find_or_create(&self, data: CreateLabelData) -> Result<(Label, bool), LabelError> {
-        // Try to find existing label with same name in scope
-        let existing = sqlx::query_as!(
-            Label,
+        // Use INSERT ... ON CONFLICT DO NOTHING to atomically handle race conditions
+        // If a conflict occurs (same org/project/name/deleted_at), we just fetch the existing one
+        let result: Option<Uuid> = sqlx::query_scalar(
+            r#"
+            INSERT INTO labels (
+                organization_id,
+                project_id,
+                origin_node_id,
+                name,
+                icon,
+                color
+            )
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (organization_id, project_id, name, deleted_at) DO NOTHING
+            RETURNING id
+            "#,
+        )
+        .bind(data.organization_id)
+        .bind(data.project_id)
+        .bind(data.origin_node_id)
+        .bind(&data.name)
+        .bind(&data.icon)
+        .bind(&data.color)
+        .fetch_optional(self.pool)
+        .await?;
+
+        if let Some(id) = result {
+            // We successfully inserted, fetch the full label
+            let label = self.find_by_id(id).await?.ok_or(LabelError::NotFound)?;
+            return Ok((label, true));
+        }
+
+        // Conflict occurred, fetch the existing label
+        let existing = sqlx::query_as::<_, Label>(
             r#"
             SELECT
-                id              AS "id!",
-                organization_id AS "organization_id!",
-                project_id      AS "project_id?",
-                origin_node_id  AS "origin_node_id?",
-                name            AS "name!",
-                icon            AS "icon!",
-                color           AS "color!",
-                version         AS "version!",
-                deleted_at      AS "deleted_at?",
-                created_at      AS "created_at!",
-                updated_at      AS "updated_at!"
+                id,
+                organization_id,
+                project_id,
+                origin_node_id,
+                name,
+                icon,
+                color,
+                version,
+                deleted_at,
+                created_at,
+                updated_at
             FROM labels
             WHERE organization_id = $1
               AND ((project_id IS NULL AND $2::uuid IS NULL) OR project_id = $2)
               AND name = $3
               AND deleted_at IS NULL
             "#,
-            data.organization_id,
-            data.project_id,
-            data.name
         )
-        .fetch_optional(self.pool)
+        .bind(data.organization_id)
+        .bind(data.project_id)
+        .bind(&data.name)
+        .fetch_one(self.pool)
         .await?;
 
-        if let Some(label) = existing {
-            return Ok((label, false));
-        }
-
-        // Create new label
-        let label = self.create(data).await?;
-        Ok((label, true))
+        Ok((existing, false))
     }
 }
 

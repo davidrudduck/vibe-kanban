@@ -695,18 +695,21 @@ impl ExecutionProcess {
 
     /// Find execution processes that have not been synced to the Hive.
     /// Returns processes ordered by created_at (oldest first) for incremental sync.
+    /// Only returns executions whose parent attempt has already been synced,
+    /// to avoid FK constraint errors on the server side.
     pub async fn find_unsynced(pool: &SqlitePool, limit: i64) -> Result<Vec<Self>, sqlx::Error> {
-        sqlx::query_as!(
-            ExecutionProcess,
-            r#"SELECT id as "id!: Uuid", task_attempt_id as "task_attempt_id!: Uuid", run_reason as "run_reason!: ExecutionProcessRunReason", executor_action as "executor_action!: sqlx::types::Json<ExecutorActionField>", before_head_commit,
-                      after_head_commit, status as "status!: ExecutionProcessStatus", exit_code, dropped, pid, started_at as "started_at!: DateTime<Utc>", completed_at as "completed_at?: DateTime<Utc>",
-                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>"
-               FROM execution_processes
-               WHERE hive_synced_at IS NULL
-               ORDER BY created_at ASC
+        sqlx::query_as::<_, ExecutionProcess>(
+            r#"SELECT ep.id, ep.task_attempt_id, ep.run_reason, ep.executor_action, ep.before_head_commit,
+                      ep.after_head_commit, ep.status, ep.exit_code, ep.dropped, ep.pid, ep.started_at, ep.completed_at,
+                      ep.created_at, ep.updated_at, ep.hive_synced_at
+               FROM execution_processes ep
+               INNER JOIN task_attempts ta ON ep.task_attempt_id = ta.id
+               WHERE ep.hive_synced_at IS NULL
+                 AND ta.hive_synced_at IS NOT NULL
+               ORDER BY ep.created_at ASC
                LIMIT ?"#,
-            limit
         )
+        .bind(limit)
         .fetch_all(pool)
         .await
     }
