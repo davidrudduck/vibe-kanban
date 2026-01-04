@@ -1127,7 +1127,11 @@ export interface HealthResponse {
 export const healthApi = {
   check: async (): Promise<HealthResponse> => {
     const response = await makeRequest('/api/health');
-    return handleApiResponse<HealthResponse>(response);
+    // Health endpoint returns raw JSON, not wrapped in ApiResponse
+    if (!response.ok) {
+      throw new Error(`Health check failed: ${response.status}`);
+    }
+    return response.json();
   },
 };
 
