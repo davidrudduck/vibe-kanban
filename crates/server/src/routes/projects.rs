@@ -144,15 +144,6 @@ impl From<Project> for RemoteNodeProject {
     }
 }
 
-/// Response for the unified projects endpoint
-#[derive(Debug, Clone, Serialize, TS)]
-pub struct UnifiedProjectsResponse {
-    /// Local projects (always shown first)
-    pub local: Vec<Project>,
-    /// Projects from other nodes grouped by node
-    pub remote_by_node: Vec<RemoteNodeGroup>,
-}
-
 /// A project in the merged view - merges local and remote projects by remote_project_id
 #[derive(Debug, Clone, Serialize, TS)]
 pub struct MergedProject {
@@ -222,90 +213,6 @@ pub async fn get_projects(
 ) -> Result<ResponseJson<ApiResponse<Vec<Project>>>, ApiError> {
     let projects = Project::find_all(&deployment.db().pool).await?;
     Ok(ResponseJson(ApiResponse::success(projects)))
-}
-
-/// Get a unified view of all projects: local projects first, then remote projects grouped by node.
-///
-/// Remote projects are now stored in the unified projects table with is_remote=true.
-/// Projects from the current node are excluded since they're shown as local.
-///
-/// # Deprecation Notice
-///
-/// This endpoint is deprecated in favor of `get_merged_projects` which provides a more
-/// consistent view by merging projects by their remote_project_id. Use `/api/merged-projects`
-/// instead. This endpoint will be removed in a future release.
-#[deprecated(note = "Use get_merged_projects (/api/merged-projects) instead")]
-pub async fn get_unified_projects(
-    State(deployment): State<DeploymentImpl>,
-) -> Result<ResponseJson<ApiResponse<UnifiedProjectsResponse>>, ApiError> {
-    use std::collections::HashMap;
-
-    let pool = &deployment.db().pool;
-
-    // Get local projects (is_remote = false)
-    let local_projects = Project::find_local_projects(pool).await?;
-
-    // Get current node_id to exclude from remote list (if connected to hive)
-    let current_node_id = if let Some(ctx) = deployment.node_runner_context() {
-        ctx.node_id().await
-    } else {
-        None
-    };
-
-    // Debug: log what we're excluding
-    tracing::debug!(
-        current_node_id = ?current_node_id,
-        "unified projects: exclusion parameters"
-    );
-
-    // Get all remote projects from the unified table (is_remote = true)
-    // Exclude projects from the current node since they're shown as local
-    let all_remote = Project::find_remote_projects(pool)
-        .await
-        .unwrap_or_default();
-
-    // Filter out projects from current node
-    let all_remote: Vec<_> = all_remote
-        .into_iter()
-        .filter(|p| {
-            if let Some(current_id) = current_node_id {
-                p.source_node_id != Some(current_id)
-            } else {
-                true
-            }
-        })
-        .collect();
-
-    tracing::debug!(
-        all_remote_count = all_remote.len(),
-        "unified projects: find_remote_projects result"
-    );
-
-    // Group remote projects by node
-    let mut by_node: HashMap<Uuid, RemoteNodeGroup> = HashMap::new();
-    for project in all_remote {
-        let node_id = project.source_node_id.unwrap_or_default();
-        let remote_project = RemoteNodeProject::from(project);
-        let group = by_node.entry(node_id).or_insert_with(|| RemoteNodeGroup {
-            node_id,
-            node_name: remote_project.node_name.clone(),
-            node_status: remote_project.node_status,
-            node_public_url: remote_project.node_public_url.clone(),
-            projects: Vec::new(),
-        });
-        group.projects.push(remote_project);
-    }
-
-    // Convert to sorted list of node groups
-    let mut remote_by_node: Vec<RemoteNodeGroup> = by_node.into_values().collect();
-    remote_by_node.sort_by(|a, b| a.node_name.cmp(&b.node_name));
-
-    Ok(ResponseJson(ApiResponse::success(
-        UnifiedProjectsResponse {
-            local: local_projects,
-            remote_by_node,
-        },
-    )))
 }
 
 /// Helper function to truncate node name at first period
@@ -1727,6 +1634,5 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
 
     Router::new()
         .nest("/projects", projects_router)
-        .route("/unified-projects", get(get_unified_projects))
         .route("/merged-projects", get(get_merged_projects))
 }
