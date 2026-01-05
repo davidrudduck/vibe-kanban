@@ -800,8 +800,11 @@ impl Project {
     ///
     /// Uses a single bulk DELETE query with NOT IN clause for O(1) database calls
     /// instead of O(n) fetch + O(m) deletes.
+    ///
+    /// IMPORTANT: Must filter by source_node_id to avoid deleting projects from other nodes.
     pub async fn delete_stale_remote_projects(
         pool: &SqlitePool,
+        source_node_id: Uuid,
         active_remote_project_ids: &[Uuid],
     ) -> Result<u64, sqlx::Error> {
         // If the list is empty, don't delete anything (safety check)
@@ -810,8 +813,10 @@ impl Project {
         }
 
         let mut builder = QueryBuilder::<Sqlite>::new(
-            "DELETE FROM projects WHERE is_remote = 1 AND remote_project_id IS NOT NULL AND remote_project_id NOT IN (",
+            "DELETE FROM projects WHERE is_remote = 1 AND source_node_id = ",
         );
+        builder.push_bind(source_node_id);
+        builder.push(" AND remote_project_id IS NOT NULL AND remote_project_id NOT IN (");
         {
             let mut separated = builder.separated(", ");
             for id in active_remote_project_ids {
