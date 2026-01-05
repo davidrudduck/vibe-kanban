@@ -6,18 +6,24 @@
 //! # Sync Strategy
 //!
 //! The sync service uses the following strategy:
-//! 1. **Attempt Sync**: First sync task attempts, as they are the parent entities
-//! 2. **Execution Sync**: Then sync execution processes, which belong to attempts
-//! 3. **Log Batch Sync**: Finally sync log entries in batches, grouped by execution
+//! 1. **Task Sync**: First sync tasks (to get shared_task_id for attempts)
+//! 2. **Attempt Sync**: Sync task attempts, as they are the parent entities
+//! 3. **Execution Sync**: Sync execution processes, which belong to attempts
+//! 4. **Log Batch Sync**: Finally sync log entries in batches, grouped by execution
 //!
 //! Entities are marked with `hive_synced_at` timestamp after successful sync.
 //! On reconnection, all unsynced entities are retried.
+//!
+//! # Labels
+//!
+//! Labels are NOT synced from nodes to hive. Labels flow in one direction only:
+//! from hive down to nodes. They are sent in the auth response and via broadcast
+//! messages when updated on the hive.
 
 use std::collections::HashMap;
 use std::time::Duration;
 
 use db::models::execution_process::ExecutionProcess;
-use db::models::label::Label;
 use db::models::log_entry::DbLogEntry;
 use db::models::project::Project;
 use db::models::task::Task;
@@ -29,8 +35,8 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use super::hive_client::{
-    AttemptSyncMessage, ExecutionSyncMessage, LabelSyncMessage, LogsBatchMessage, NodeMessage,
-    SyncLogEntry, TaskOutputType, TaskSyncMessage,
+    AttemptSyncMessage, ExecutionSyncMessage, LogsBatchMessage, NodeMessage, SyncLogEntry,
+    TaskOutputType, TaskSyncMessage,
 };
 
 /// Configuration for the Hive sync service.
@@ -46,8 +52,6 @@ pub struct HiveSyncConfig {
     pub max_executions_per_batch: i64,
     /// Maximum number of log entries to sync in one batch
     pub max_logs_per_batch: i64,
-    /// Maximum number of labels to sync in one batch
-    pub max_labels_per_batch: i64,
 }
 
 impl Default for HiveSyncConfig {
@@ -58,7 +62,6 @@ impl Default for HiveSyncConfig {
             max_attempts_per_batch: 50,
             max_executions_per_batch: 100,
             max_logs_per_batch: 500,
-            max_labels_per_batch: 50,
         }
     }
 }
@@ -119,7 +122,10 @@ impl HiveSyncService {
     /// Perform one sync cycle.
     ///
     /// This syncs tasks first (to get shared_task_id), then attempts, executions,
-    /// logs, and labels in order.
+    /// and logs in order.
+    ///
+    /// Note: Labels are NOT synced from nodes to hive. Labels are managed centrally
+    /// on the hive and synced DOWN to nodes via the auth response and broadcast messages.
     pub async fn sync_once(&self) -> Result<(), HiveSyncError> {
         // Sync tasks first (to ensure shared_task_id exists for attempts)
         let tasks_synced = self.sync_tasks().await?;
@@ -148,11 +154,7 @@ impl HiveSyncService {
             debug!(count = logs_synced, "Synced log entries to Hive");
         }
 
-        // Sync labels
-        let labels_synced = self.sync_labels().await?;
-        if labels_synced > 0 {
-            debug!(count = labels_synced, "Synced labels to Hive");
-        }
+        // Labels are NOT synced from nodes to hive - they flow hive->nodes only
 
         Ok(())
     }
@@ -475,100 +477,9 @@ impl HiveSyncService {
         Ok(synced_count)
     }
 
-    /// Sync unsynced labels to the Hive.
-    ///
-    /// This syncs both new labels (no shared_label_id) and modified labels
-    /// (updated_at > synced_at).
-    async fn sync_labels(&self) -> Result<usize, HiveSyncError> {
-        // First, get labels that have never been synced
-        let unsynced_labels = Label::find_unsynced(&self.pool).await?;
-
-        // Then, get labels that have been modified since last sync
-        let modified_labels = Label::find_modified_since_sync(&self.pool).await?;
-
-        // Combine and deduplicate (prefer modified version if label appears in both)
-        let mut labels_to_sync: HashMap<Uuid, (Label, bool)> = HashMap::new();
-
-        // New labels (is_update = false)
-        for label in unsynced_labels
-            .into_iter()
-            .take(self.config.max_labels_per_batch as usize)
-        {
-            labels_to_sync.insert(label.id, (label, false));
-        }
-
-        // Modified labels (is_update = true) - these take precedence
-        for label in modified_labels
-            .into_iter()
-            .take(self.config.max_labels_per_batch as usize)
-        {
-            labels_to_sync.insert(label.id, (label, true));
-        }
-
-        if labels_to_sync.is_empty() {
-            return Ok(0);
-        }
-
-        let mut synced_count = 0;
-        let mut synced_ids = Vec::new();
-
-        for (label_id, (label, is_update)) in labels_to_sync {
-            // Look up the project to get remote_project_id (if this is a project-specific label)
-            let remote_project_id = if let Some(project_id) = label.project_id {
-                match Project::find_by_id(&self.pool, project_id).await? {
-                    Some(project) => project.remote_project_id,
-                    None => {
-                        debug!(
-                            label_id = %label_id,
-                            project_id = %project_id,
-                            "Skipping label sync - project not found"
-                        );
-                        continue;
-                    }
-                }
-            } else {
-                // Global label - no project association
-                None
-            };
-
-            let message = LabelSyncMessage {
-                label_id: label.id,
-                shared_label_id: label.shared_label_id,
-                project_id: label.project_id,
-                remote_project_id,
-                name: label.name.clone(),
-                icon: label.icon.clone(),
-                color: label.color.clone(),
-                version: label.version,
-                is_update,
-            };
-
-            if let Err(e) = self.command_tx.send(NodeMessage::LabelSync(message)).await {
-                error!(error = ?e, label_id = %label_id, "Failed to send label sync");
-                return Err(HiveSyncError::Send(e.to_string()));
-            }
-
-            synced_ids.push(label_id);
-            synced_count += 1;
-
-            info!(
-                label_id = %label_id,
-                name = %label.name,
-                is_update = is_update,
-                "Synced label to Hive"
-            );
-        }
-
-        // Mark all synced labels
-        // Note: For new labels, the Hive will respond with the shared_label_id
-        // which will be set via Label::set_shared_label_id
-        // For updated labels, we just mark them as synced
-        for label_id in &synced_ids {
-            Label::mark_synced(&self.pool, *label_id).await?;
-        }
-
-        Ok(synced_count)
-    }
+    // NOTE: sync_labels has been removed.
+    // Labels are now managed centrally on the hive and synced DOWN to nodes.
+    // See the auth response and HiveMessage::LabelSync broadcast for the new flow.
 }
 
 /// Parse output type string to TaskOutputType.

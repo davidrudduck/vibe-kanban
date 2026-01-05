@@ -161,6 +161,28 @@ pub struct AuthResultMessage {
     pub protocol_version: u32,
     /// Projects linked to this node
     pub linked_projects: Vec<LinkedProjectInfo>,
+    /// Swarm labels for the organization (synced from hive to nodes)
+    #[serde(default)]
+    pub swarm_labels: Vec<SwarmLabelInfo>,
+}
+
+/// Information about a swarm label sent during auth.
+///
+/// Swarm labels are organization-global labels (project_id = NULL) that are
+/// managed on the hive and synced to nodes. These labels should be used
+/// for tasks in swarm-connected projects.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SwarmLabelInfo {
+    /// Label ID on the hive
+    pub id: Uuid,
+    /// Label name
+    pub name: String,
+    /// Lucide icon name
+    pub icon: String,
+    /// Hex color code
+    pub color: String,
+    /// Version for conflict resolution
+    pub version: i64,
 }
 
 /// Information about a project in the organization sent during auth.
