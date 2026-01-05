@@ -52,6 +52,10 @@ pub struct SharedTask {
     pub assignee_user_id: Option<Uuid>,
     pub deleted_by_user_id: Option<Uuid>,
     pub executing_node_id: Option<Uuid>,
+    /// Original local task ID from source node, used for re-sync duplicate detection
+    pub source_task_id: Option<Uuid>,
+    /// Node that originally created this task, used with source_task_id for uniqueness
+    pub source_node_id: Option<Uuid>,
     pub title: String,
     pub description: Option<String>,
     pub status: TaskStatus,
@@ -121,6 +125,8 @@ pub struct UpsertTaskFromNodeData {
     pub status: TaskStatus,
     /// Version for conflict resolution
     pub version: i64,
+    /// Original local task ID from source node, used for re-sync duplicate detection
+    pub source_task_id: Option<Uuid>,
 }
 
 #[derive(Debug, Error)]
@@ -164,6 +170,8 @@ impl<'a> SharedTaskRepository<'a> {
                 assignee_user_id    AS "assignee_user_id?: Uuid",
                 deleted_by_user_id  AS "deleted_by_user_id?: Uuid",
                 executing_node_id   AS "executing_node_id?: Uuid",
+                source_task_id      AS "source_task_id?: Uuid",
+                source_node_id      AS "source_node_id?: Uuid",
                 title               AS "title!",
                 description         AS "description?",
                 status              AS "status!: TaskStatus",
@@ -183,6 +191,79 @@ impl<'a> SharedTaskRepository<'a> {
         .await?;
 
         Ok(task)
+    }
+
+    /// Find a shared task by its source task ID and source node ID.
+    ///
+    /// This is used for duplicate detection during task re-sync.
+    /// Returns the existing task if one was already created from the same source.
+    pub async fn find_by_source_task_id(
+        &self,
+        project_id: Uuid,
+        source_node_id: Uuid,
+        source_task_id: Uuid,
+    ) -> Result<Option<SharedTask>, SharedTaskError> {
+        let task = sqlx::query_as!(
+            SharedTask,
+            r#"
+            SELECT
+                id                  AS "id!",
+                organization_id     AS "organization_id!: Uuid",
+                project_id          AS "project_id!",
+                creator_user_id     AS "creator_user_id?: Uuid",
+                assignee_user_id    AS "assignee_user_id?: Uuid",
+                deleted_by_user_id  AS "deleted_by_user_id?: Uuid",
+                executing_node_id   AS "executing_node_id?: Uuid",
+                source_task_id      AS "source_task_id?: Uuid",
+                source_node_id      AS "source_node_id?: Uuid",
+                title               AS "title!",
+                description         AS "description?",
+                status              AS "status!: TaskStatus",
+                version             AS "version!",
+                deleted_at          AS "deleted_at?",
+                shared_at           AS "shared_at?",
+                archived_at         AS "archived_at?",
+                created_at          AS "created_at!",
+                updated_at          AS "updated_at!"
+            FROM shared_tasks
+            WHERE project_id = $1
+              AND source_node_id = $2
+              AND source_task_id = $3
+              AND deleted_at IS NULL
+            "#,
+            project_id,
+            source_node_id,
+            source_task_id
+        )
+        .fetch_optional(self.pool)
+        .await?;
+
+        Ok(task)
+    }
+
+    /// Update the source tracking fields on a task.
+    ///
+    /// This is used to associate a task with its source node and task ID
+    /// for duplicate detection during re-sync.
+    pub async fn set_source_task_id(
+        &self,
+        task_id: Uuid,
+        source_node_id: Uuid,
+        source_task_id: Uuid,
+    ) -> Result<(), SharedTaskError> {
+        sqlx::query!(
+            r#"
+            UPDATE shared_tasks
+            SET source_node_id = $2, source_task_id = $3
+            WHERE id = $1
+            "#,
+            task_id,
+            source_node_id,
+            source_task_id
+        )
+        .execute(self.pool)
+        .await?;
+        Ok(())
     }
 
     pub async fn create(
@@ -232,6 +313,8 @@ impl<'a> SharedTaskRepository<'a> {
                       assignee_user_id   AS "assignee_user_id?: Uuid",
                       deleted_by_user_id AS "deleted_by_user_id?: Uuid",
                       executing_node_id  AS "executing_node_id?: Uuid",
+                      source_task_id     AS "source_task_id?: Uuid",
+                      source_node_id     AS "source_node_id?: Uuid",
                       title              AS "title!",
                       description        AS "description?",
                       status             AS "status!: TaskStatus",
@@ -280,13 +363,15 @@ impl<'a> SharedTaskRepository<'a> {
                 organization_id,
                 project_id,
                 executing_node_id,
+                source_task_id,
+                source_node_id,
                 title,
                 description,
                 status,
                 version,
                 shared_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6::task_status, $7, NOW())
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8::task_status, $9, NOW())
             RETURNING id,
                       organization_id,
                       project_id,
@@ -294,6 +379,8 @@ impl<'a> SharedTaskRepository<'a> {
                       assignee_user_id,
                       deleted_by_user_id,
                       executing_node_id,
+                      source_task_id,
+                      source_node_id,
                       title,
                       description,
                       status,
@@ -308,6 +395,8 @@ impl<'a> SharedTaskRepository<'a> {
         .bind(data.organization_id)
         .bind(data.project_id)
         .bind(data.origin_node_id)
+        .bind(data.source_task_id)
+        .bind(data.origin_node_id) // source_node_id = origin_node_id
         .bind(data.title)
         .bind(data.description)
         .bind(data.status)
@@ -319,6 +408,7 @@ impl<'a> SharedTaskRepository<'a> {
             task_id = %task.id,
             project_id = %task.project_id,
             version = %task.version,
+            source_task_id = ?task.source_task_id,
             "created shared task from node"
         );
 
@@ -341,6 +431,8 @@ impl<'a> SharedTaskRepository<'a> {
                 st.assignee_user_id       AS "assignee_user_id?: Uuid",
                 st.deleted_by_user_id     AS "deleted_by_user_id?: Uuid",
                 st.executing_node_id      AS "executing_node_id?: Uuid",
+                st.source_task_id         AS "source_task_id?: Uuid",
+                st.source_node_id         AS "source_node_id?: Uuid",
                 st.title                  AS "title!",
                 st.description            AS "description?",
                 st.status                 AS "status!: TaskStatus",
@@ -376,6 +468,8 @@ impl<'a> SharedTaskRepository<'a> {
                     assignee_user_id: row.assignee_user_id,
                     deleted_by_user_id: row.deleted_by_user_id,
                     executing_node_id: row.executing_node_id,
+                    source_task_id: row.source_task_id,
+                    source_node_id: row.source_node_id,
                     title: row.title,
                     description: row.description,
                     status: row.status,
@@ -469,6 +563,8 @@ impl<'a> SharedTaskRepository<'a> {
             t.assignee_user_id  AS "assignee_user_id?: Uuid",
             t.deleted_by_user_id AS "deleted_by_user_id?: Uuid",
             t.executing_node_id AS "executing_node_id?: Uuid",
+            t.source_task_id    AS "source_task_id?: Uuid",
+            t.source_node_id    AS "source_node_id?: Uuid",
             t.title             AS "title!",
             t.description       AS "description?",
             t.status            AS "status!: TaskStatus",
@@ -530,6 +626,8 @@ impl<'a> SharedTaskRepository<'a> {
             t.assignee_user_id  AS "assignee_user_id?: Uuid",
             t.deleted_by_user_id AS "deleted_by_user_id?: Uuid",
             t.executing_node_id AS "executing_node_id?: Uuid",
+            t.source_task_id    AS "source_task_id?: Uuid",
+            t.source_node_id    AS "source_node_id?: Uuid",
             t.title             AS "title!",
             t.description       AS "description?",
             t.status            AS "status!: TaskStatus",
@@ -587,6 +685,8 @@ impl<'a> SharedTaskRepository<'a> {
                 t.assignee_user_id  AS "assignee_user_id?: Uuid",
                 t.deleted_by_user_id AS "deleted_by_user_id?: Uuid",
                 t.executing_node_id AS "executing_node_id?: Uuid",
+                t.source_task_id    AS "source_task_id?: Uuid",
+                t.source_node_id    AS "source_node_id?: Uuid",
                 t.title             AS "title!",
                 t.description       AS "description?",
                 t.status            AS "status!: TaskStatus",
@@ -656,6 +756,8 @@ impl<'a> SharedTaskRepository<'a> {
             t.assignee_user_id  AS "assignee_user_id?: Uuid",
             t.deleted_by_user_id AS "deleted_by_user_id?: Uuid",
             t.executing_node_id AS "executing_node_id?: Uuid",
+            t.source_task_id    AS "source_task_id?: Uuid",
+            t.source_node_id    AS "source_node_id?: Uuid",
             t.title             AS "title!",
             t.description       AS "description?",
             t.status            AS "status!: TaskStatus",

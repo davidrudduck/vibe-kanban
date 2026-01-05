@@ -258,6 +258,8 @@ async fn create_remote_task(
         status: None, // Default to Todo on the Hive
         assignee_user_id: None,
         start_attempt: false, // Do not auto-dispatch for remote projects created from local node
+        source_task_id: None, // Not a re-sync operation
+        source_node_id: None,
     };
 
     let response = remote_client.create_shared_task(&request).await?;
@@ -551,9 +553,112 @@ async fn update_remote_task(
         version: Some(existing_task.remote_version),
     };
 
-    let response = remote_client
+    let pool = &deployment.db().pool;
+
+    // Try to update on Hive
+    match remote_client
         .update_shared_task(shared_task_id, &request)
-        .await?;
+        .await
+    {
+        Ok(response) => {
+            // Build display name from user data
+            let assignee_name = response
+                .user
+                .as_ref()
+                .and_then(|u| format_user_display_name(u.first_name.as_ref(), u.last_name.as_ref()));
+
+            // Upsert updated remote task locally
+            let task = Task::upsert_remote_task(
+                pool,
+                existing_task.id,
+                existing_task.project_id,
+                response.task.id,
+                response.task.title,
+                response.task.description,
+                task_status::from_remote(&response.task.status),
+                response.task.assignee_user_id,
+                assignee_name,
+                response.user.as_ref().and_then(|u| u.username.clone()),
+                response.task.version,
+                Some(response.task.updated_at), // Use updated_at as activity_at for task updates
+                response.task.archived_at,
+            )
+            .await?;
+
+            tracing::info!(
+                task_id = %task.id,
+                shared_task_id = ?task.shared_task_id,
+                "Updated remote task via Hive"
+            );
+
+            Ok(ResponseJson(ApiResponse::success(task)))
+        }
+        Err(e) if e.is_not_found() => {
+            // Task doesn't exist on Hive - re-sync the task
+            tracing::warn!(
+                task_id = %existing_task.id,
+                shared_task_id = %shared_task_id,
+                "Shared task not found on Hive, re-syncing"
+            );
+
+            let task = resync_task_to_hive(
+                deployment,
+                existing_task,
+                payload.title.clone(),
+                payload.description.clone(),
+                payload.status.clone(),
+            )
+            .await?;
+
+            Ok(ResponseJson(ApiResponse::success(task)))
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Re-sync a task to the Hive when its shared_task_id is stale.
+///
+/// This is called when an update or label operation returns 404 from the Hive,
+/// indicating that the shared_task_id no longer exists. The task is re-created
+/// on the Hive with source tracking to prevent duplicates.
+async fn resync_task_to_hive(
+    deployment: &DeploymentImpl,
+    existing_task: &Task,
+    title: Option<String>,
+    description: Option<String>,
+    status: Option<db::models::task::TaskStatus>,
+) -> Result<Task, ApiError> {
+    let pool = &deployment.db().pool;
+    let remote_client = deployment.remote_client()?;
+
+    // Get the project's remote_project_id
+    let project = Project::find_by_id(pool, existing_task.project_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Project not found".to_string()))?;
+
+    let remote_project_id = project
+        .remote_project_id
+        .ok_or_else(|| ApiError::BadRequest("Project not linked to Hive".to_string()))?;
+
+    // Get the node's ID for source tracking
+    let node_id = deployment
+        .node_proxy_client()
+        .local_node_id()
+        .ok_or_else(|| ApiError::BadRequest("Node ID not available".to_string()))?;
+
+    // Create the task on the Hive with source tracking
+    let request = CreateSharedTaskRequest {
+        project_id: remote_project_id,
+        title: title.unwrap_or_else(|| existing_task.title.clone()),
+        description: description.or_else(|| existing_task.description.clone()),
+        status: status.map(|s| task_status::to_remote(&s)),
+        assignee_user_id: None,
+        start_attempt: false,
+        source_task_id: Some(existing_task.id),
+        source_node_id: Some(node_id),
+    };
+
+    let response = remote_client.create_shared_task(&request).await?;
 
     // Build display name from user data
     let assignee_name = response
@@ -561,8 +666,7 @@ async fn update_remote_task(
         .as_ref()
         .and_then(|u| format_user_display_name(u.first_name.as_ref(), u.last_name.as_ref()));
 
-    // Upsert updated remote task locally
-    let pool = &deployment.db().pool;
+    // Update local task with the new shared_task_id
     let task = Task::upsert_remote_task(
         pool,
         existing_task.id,
@@ -575,18 +679,19 @@ async fn update_remote_task(
         assignee_name,
         response.user.as_ref().and_then(|u| u.username.clone()),
         response.task.version,
-        Some(response.task.updated_at), // Use updated_at as activity_at for task updates
+        Some(response.task.updated_at),
         response.task.archived_at,
     )
     .await?;
 
     tracing::info!(
         task_id = %task.id,
-        shared_task_id = ?task.shared_task_id,
-        "Updated remote task via Hive"
+        old_shared_task_id = ?existing_task.shared_task_id,
+        new_shared_task_id = ?task.shared_task_id,
+        "Re-synced task to Hive with new shared_task_id"
     );
 
-    Ok(ResponseJson(ApiResponse::success(task)))
+    Ok(task)
 }
 
 pub async fn delete_task(
@@ -1192,13 +1297,42 @@ pub async fn set_task_labels(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<SetTaskLabels>,
 ) -> Result<ResponseJson<ApiResponse<Vec<Label>>>, ApiError> {
-    // Tasks synced from Hive don't support local labels
-    if task.shared_task_id.is_some() {
-        return Err(ApiError::BadRequest(
-            "Labels are not supported for tasks synced from Hive".to_string(),
-        ));
+    // For tasks synced from Hive, proxy to Hive labels API
+    if let Some(shared_task_id) = task.shared_task_id {
+        let remote_client = deployment.remote_client()?;
+
+        match remote_client
+            .set_task_labels(shared_task_id, &payload.label_ids)
+            .await
+        {
+            Ok(_response) => {
+                // Labels set on Hive - return empty vec since we don't sync Hive labels locally
+                return Ok(ResponseJson(ApiResponse::success(vec![])));
+            }
+            Err(e) if e.is_not_found() => {
+                // Task doesn't exist on Hive - resync first, then retry labels
+                tracing::warn!(
+                    task_id = %task.id,
+                    shared_task_id = %shared_task_id,
+                    "Shared task not found on Hive during label update, re-syncing"
+                );
+
+                let resynced_task = resync_task_to_hive(&deployment, &task, None, None, None).await?;
+
+                // Retry setting labels with the new shared_task_id
+                if let Some(new_shared_task_id) = resynced_task.shared_task_id {
+                    remote_client
+                        .set_task_labels(new_shared_task_id, &payload.label_ids)
+                        .await?;
+                }
+
+                return Ok(ResponseJson(ApiResponse::success(vec![])));
+            }
+            Err(e) => return Err(e.into()),
+        }
     }
 
+    // Local task: use local labels
     let labels = Label::set_task_labels(&deployment.db().pool, task.id, &payload.label_ids).await?;
     Ok(ResponseJson(ApiResponse::success(labels)))
 }

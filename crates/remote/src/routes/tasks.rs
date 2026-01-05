@@ -35,6 +35,7 @@ use crate::{
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/tasks/bulk", get(bulk_shared_tasks))
+        .route("/tasks/by-source", get(find_by_source_task_id))
         .route("/tasks", post(create_shared_task))
         .route("/tasks/{task_id}", patch(update_shared_task))
         .route("/tasks/{task_id}", delete(delete_shared_task))
@@ -95,6 +96,44 @@ pub async fn bulk_shared_tasks(
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct FindBySourceQuery {
+    pub project_id: Uuid,
+    pub source_node_id: Uuid,
+    pub source_task_id: Uuid,
+}
+
+/// Find a shared task by its source task ID and source node ID.
+///
+/// This is used for duplicate detection during task re-sync from nodes.
+#[instrument(
+    name = "tasks.find_by_source_task_id",
+    skip(state, ctx, query),
+    fields(user_id = %ctx.user.id, project_id = %query.project_id)
+)]
+pub async fn find_by_source_task_id(
+    State(state): State<AppState>,
+    Extension(ctx): Extension<RequestContext>,
+    Query(query): Query<FindBySourceQuery>,
+) -> Response {
+    let pool = state.pool();
+
+    // Verify access to the project
+    if let Err(error) = ensure_project_access(pool, ctx.user.id, query.project_id).await {
+        return error.into_response();
+    }
+
+    let repo = SharedTaskRepository::new(pool);
+    match repo
+        .find_by_source_task_id(query.project_id, query.source_node_id, query.source_task_id)
+        .await
+    {
+        Ok(Some(task)) => (StatusCode::OK, Json(SharedTaskResponse { task, user: None })).into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, Json(json!({ "error": "task not found" }))).into_response(),
+        Err(error) => task_error_response(error, "failed to find task by source"),
+    }
+}
+
 #[instrument(
     name = "tasks.create_shared_task",
     skip(state, ctx, payload),
@@ -115,6 +154,8 @@ pub async fn create_shared_task(
         status,
         assignee_user_id,
         start_attempt,
+        source_task_id,
+        source_node_id,
     } = payload;
 
     if let Err(error) = ensure_text_size(&title, description.as_deref()) {
@@ -128,6 +169,27 @@ pub async fn create_shared_task(
         }
         Err(error) => return error.into_response(),
     };
+
+    // If source_task_id is provided, check for an existing task first (duplicate detection)
+    if let (Some(src_task_id), Some(src_node_id)) = (source_task_id, source_node_id) {
+        match repo.find_by_source_task_id(project_id, src_node_id, src_task_id).await {
+            Ok(Some(existing)) => {
+                tracing::info!(
+                    task_id = %existing.id,
+                    source_task_id = %src_task_id,
+                    source_node_id = %src_node_id,
+                    "Found existing task during re-sync, returning existing"
+                );
+                return (StatusCode::OK, Json(SharedTaskResponse { task: existing, user: None })).into_response();
+            }
+            Ok(None) => {
+                // No existing task, will create a new one below
+            }
+            Err(error) => {
+                return task_error_response(error, "failed to check for existing task");
+            }
+        }
+    }
 
     if let Some(assignee) = assignee_user_id.as_ref() {
         if let Err(err) = user_repo.fetch_user(*assignee).await {
@@ -153,6 +215,19 @@ pub async fn create_shared_task(
         Ok(task) => task,
         Err(error) => return task_error_response(error, "failed to create shared task"),
     };
+
+    // If source tracking was provided, set it on the created task
+    if let (Some(src_task_id), Some(src_node_id)) = (source_task_id, source_node_id)
+        && let Err(error) = repo.set_source_task_id(task.task.id, src_node_id, src_task_id).await
+    {
+        tracing::warn!(
+            task_id = %task.task.id,
+            source_task_id = %src_task_id,
+            error = %error,
+            "Failed to set source tracking on task"
+        );
+        // Don't fail the whole request - task was created successfully
+    }
 
     // Only dispatch to node if start_attempt flag is true
     if start_attempt {
@@ -469,6 +544,12 @@ pub struct CreateSharedTaskRequest {
     /// If false or not provided, the task is created but not dispatched.
     #[serde(default)]
     pub start_attempt: bool,
+    /// Original local task ID from source node, used for re-sync duplicate detection.
+    /// When provided, the Hive will check for existing tasks with this source_task_id
+    /// before creating a new one.
+    pub source_task_id: Option<Uuid>,
+    /// Node that originally created this task, required if source_task_id is provided.
+    pub source_node_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

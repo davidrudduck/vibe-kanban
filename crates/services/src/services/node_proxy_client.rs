@@ -130,6 +130,11 @@ impl NodeProxyClient {
         self.local_node_id = Some(node_id);
     }
 
+    /// Get the local node ID if set.
+    pub fn local_node_id(&self) -> Option<Uuid> {
+        self.local_node_id
+    }
+
     /// Generate a JWT token for authenticating to a remote node.
     fn generate_token(&self, target_node_id: Uuid) -> Result<String, NodeProxyError> {
         let secret = self
