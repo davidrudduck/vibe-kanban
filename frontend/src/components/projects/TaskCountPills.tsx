@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils';
 import type { TaskCounts } from 'shared/types';
 import { useNavigateWithSearch } from '@/hooks';
+import { useTranslation } from 'react-i18next';
 
 type Props = {
   counts: TaskCounts;
@@ -24,11 +25,12 @@ type StatusConfig = {
  */
 export function TaskCountPills({ counts, projectId, compact = false }: Props) {
   const navigate = useNavigateWithSearch();
+  const { t } = useTranslation('projects');
 
   const statuses: StatusConfig[] = [
     {
       key: 'todo',
-      label: 'Todo',
+      label: t('status.todo'),
       compactLabel: 'T',
       count: counts.todo,
       colorClass: 'text-muted-foreground',
@@ -36,7 +38,7 @@ export function TaskCountPills({ counts, projectId, compact = false }: Props) {
     },
     {
       key: 'inprogress',
-      label: 'In Progress',
+      label: t('status.inProgress'),
       compactLabel: 'WIP',
       count: counts.in_progress,
       colorClass: 'text-amber-600 dark:text-amber-400',
@@ -44,7 +46,7 @@ export function TaskCountPills({ counts, projectId, compact = false }: Props) {
     },
     {
       key: 'inreview',
-      label: 'Review',
+      label: t('status.review'),
       compactLabel: 'Rev',
       count: counts.in_review,
       colorClass: 'text-blue-600 dark:text-blue-400',
@@ -52,7 +54,7 @@ export function TaskCountPills({ counts, projectId, compact = false }: Props) {
     },
     {
       key: 'done',
-      label: 'Done',
+      label: t('status.done'),
       compactLabel: 'D',
       count: counts.done,
       colorClass: 'text-emerald-600 dark:text-emerald-400',
