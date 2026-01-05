@@ -29,6 +29,7 @@ fn generate_types_content() -> String {
         server::routes::projects::RemoteNodeGroup::decl(),
         server::routes::projects::MergedProject::decl(),
         server::routes::projects::NodeLocation::decl(),
+        server::routes::projects::TaskCounts::decl(),
         server::routes::projects::MergedProjectsResponse::decl(),
         db::models::cached_node::CachedNodeStatus::decl(),
         db::models::cached_node::CachedNodeCapabilities::decl(),
