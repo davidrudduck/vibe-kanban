@@ -751,6 +751,35 @@ impl Project {
         Ok(())
     }
 
+    /// Update the remote_project_id for an existing remote project.
+    ///
+    /// This is used when a remote project was synced before the remote_project_id
+    /// was properly set. It updates the link to the hive project and also updates
+    /// the sync timestamp.
+    pub async fn update_remote_project_link(
+        pool: &SqlitePool,
+        id: Uuid,
+        remote_project_id: Uuid,
+        source_node_status: Option<String>,
+    ) -> Result<(), sqlx::Error> {
+        let now = Utc::now();
+        sqlx::query!(
+            r#"UPDATE projects
+               SET remote_project_id = $2,
+                   source_node_status = $3,
+                   remote_last_synced_at = $4,
+                   updated_at = datetime('now', 'subsec')
+               WHERE id = $1"#,
+            id,
+            remote_project_id,
+            source_node_status,
+            now
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
     /// Delete remote projects that are no longer in the Hive.
     ///
     /// Uses a single bulk DELETE query with NOT IN clause for O(1) database calls

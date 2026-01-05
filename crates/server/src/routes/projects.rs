@@ -228,6 +228,13 @@ pub async fn get_projects(
 ///
 /// Remote projects are now stored in the unified projects table with is_remote=true.
 /// Projects from the current node are excluded since they're shown as local.
+///
+/// # Deprecation Notice
+///
+/// This endpoint is deprecated in favor of `get_merged_projects` which provides a more
+/// consistent view by merging projects by their remote_project_id. Use `/api/merged-projects`
+/// instead. This endpoint will be removed in a future release.
+#[deprecated(note = "Use get_merged_projects (/api/merged-projects) instead")]
 pub async fn get_unified_projects(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<UnifiedProjectsResponse>>, ApiError> {
@@ -402,10 +409,11 @@ pub async fn get_merged_projects(
 
     // Process remote projects - merge into existing or create new entries
     for remote_project in all_remote {
-        let remote_project_id = match remote_project.remote_project_id {
-            Some(id) => id,
-            None => continue, // Skip remote projects without remote_project_id (shouldn't happen)
-        };
+        // Use remote_project_id if available, otherwise use local ID as fallback key.
+        // This ensures remote projects without remote_project_id still appear in the list.
+        let merge_key = remote_project
+            .remote_project_id
+            .unwrap_or(remote_project.id);
 
         let node_location = NodeLocation {
             node_id: remote_project.source_node_id.unwrap_or_default(),
@@ -419,22 +427,24 @@ pub async fn get_merged_projects(
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(CachedNodeStatus::Pending),
             node_public_url: remote_project.source_node_public_url.clone(),
-            remote_project_id,
+            // Use the actual remote_project_id for node location, falling back to local ID
+            remote_project_id: remote_project.remote_project_id.unwrap_or(remote_project.id),
         };
 
-        if let Some(merged) = merged_map.get_mut(&remote_project_id) {
+        if let Some(merged) = merged_map.get_mut(&merge_key) {
             // Add this node to existing merged project
             merged.nodes.push(node_location);
         } else {
             // Create new entry for remote-only project
             merged_map.insert(
-                remote_project_id,
+                merge_key,
                 MergedProject {
                     id: remote_project.id, // Use remote project's local ID
                     name: remote_project.name.clone(),
                     git_repo_path: remote_project.git_repo_path.to_string_lossy().to_string(),
                     created_at: remote_project.created_at,
-                    remote_project_id: Some(remote_project_id),
+                    // Preserve the actual remote_project_id (may be None for legacy data)
+                    remote_project_id: remote_project.remote_project_id,
                     has_local: false,
                     local_project_id: None,
                     nodes: vec![node_location],

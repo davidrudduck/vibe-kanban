@@ -222,11 +222,21 @@ impl<'a> NodeCacheSyncer<'a> {
         for project in projects {
             synced_remote_project_ids.push(project.project_id);
 
+            // Convert node status to string for storage (needed for both update and insert paths)
+            let node_status_str = match node.status {
+                remote::nodes::NodeStatus::Pending => "pending",
+                remote::nodes::NodeStatus::Online => "online",
+                remote::nodes::NodeStatus::Offline => "offline",
+                remote::nodes::NodeStatus::Busy => "busy",
+                remote::nodes::NodeStatus::Draining => "draining",
+            }
+            .to_string();
+
             // Check if ANY project already exists with this git_repo_path.
-            // Skip the upsert to avoid UNIQUE constraint violation on git_repo_path.
-            // This happens when:
+            // This handles:
             // 1. A node shares the same repo path as a local project
             // 2. Multiple remote nodes have the same repo path (e.g., same repo cloned on different machines)
+            // 3. Existing remote projects that need their remote_project_id updated
             if let Some(existing) =
                 Project::find_by_git_repo_path(self.pool, &project.git_repo_path)
                     .await
@@ -239,13 +249,51 @@ impl<'a> NodeCacheSyncer<'a> {
                         local_project_id = %existing.id,
                         "skipping remote project upsert - local project exists with same path"
                     );
+                } else if existing.remote_project_id.is_none() {
+                    // Existing remote project without remote_project_id - update it!
+                    // This fixes legacy data that was synced before remote_project_id was properly set.
+                    if let Err(e) = Project::update_remote_project_link(
+                        self.pool,
+                        existing.id,
+                        project.project_id,
+                        Some(node_status_str.clone()),
+                    )
+                    .await
+                    {
+                        warn!(
+                            existing_id = %existing.id,
+                            remote_project_id = %project.project_id,
+                            error = %e,
+                            "failed to update remote_project_id on existing project"
+                        );
+                    } else {
+                        debug!(
+                            existing_id = %existing.id,
+                            remote_project_id = %project.project_id,
+                            "updated remote_project_id on existing remote project"
+                        );
+                    }
                 } else {
+                    // Already has remote_project_id, just update the status
+                    if let Err(e) = Project::update_remote_sync_status(
+                        self.pool,
+                        existing.id,
+                        Some(node_status_str.clone()),
+                    )
+                    .await
+                    {
+                        warn!(
+                            existing_id = %existing.id,
+                            error = %e,
+                            "failed to update sync status on existing project"
+                        );
+                    }
                     debug!(
                         git_repo_path = %project.git_repo_path,
                         remote_project_id = %project.project_id,
                         existing_remote_project_id = ?existing.remote_project_id,
                         existing_source_node_id = ?existing.source_node_id,
-                        "skipping remote project upsert - path already synced from another node"
+                        "updated sync status - path already synced from another node"
                     );
                 }
                 synced_count += 1;
@@ -259,16 +307,6 @@ impl<'a> NodeCacheSyncer<'a> {
                 .unwrap_or("Unknown")
                 .to_string();
 
-            // Convert node status to string for storage
-            let node_status = match node.status {
-                remote::nodes::NodeStatus::Pending => "pending",
-                remote::nodes::NodeStatus::Online => "online",
-                remote::nodes::NodeStatus::Offline => "offline",
-                remote::nodes::NodeStatus::Busy => "busy",
-                remote::nodes::NodeStatus::Draining => "draining",
-            }
-            .to_string();
-
             match Project::upsert_remote_project(
                 self.pool,
                 Uuid::new_v4(), // local_id for new projects
@@ -278,7 +316,7 @@ impl<'a> NodeCacheSyncer<'a> {
                 node.id,
                 node.name.clone(),
                 node.public_url.clone(),
-                Some(node_status),
+                Some(node_status_str.clone()),
             )
             .await
             {
