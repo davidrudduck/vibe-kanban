@@ -15,13 +15,10 @@ use std::time::Duration;
 
 use tokio::sync::mpsc;
 
-use crate::BackupService;
+use crate::{scheduled_retention, BackupService};
 
 /// Default backup interval in hours.
 const DEFAULT_BACKUP_INTERVAL_HOURS: u64 = 4;
-
-/// Number of scheduled backups to retain.
-const SCHEDULED_BACKUP_RETENTION: usize = 10;
 
 /// Configuration for the backup scheduler.
 #[derive(Clone, Debug)]
@@ -160,10 +157,10 @@ impl BackupScheduler {
                     "Scheduled backup created successfully"
                 );
 
-                // Clean up old backups, keeping more for scheduled backups
+                // Clean up old backups using configured retention
                 if let Err(e) = BackupService::cleanup_old_backups_with_retention(
                     db_path,
-                    SCHEDULED_BACKUP_RETENTION,
+                    scheduled_retention(),
                 ) {
                     tracing::warn!(error = ?e, "Failed to cleanup old backups");
                 }

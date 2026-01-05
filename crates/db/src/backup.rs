@@ -35,8 +35,80 @@ pub enum BackupError {
     Sqlite(#[from] rusqlite::Error),
 }
 
-/// Number of backups to retain (older ones are automatically deleted)
-const DEFAULT_BACKUP_RETENTION: usize = 5;
+/// Default number of pre-migration backups to retain
+const DEFAULT_PREMIGRATION_RETENTION: usize = 5;
+
+/// Default number of scheduled backups to retain
+const DEFAULT_SCHEDULED_RETENTION: usize = 10;
+
+/// Parsed backup retention configuration.
+#[derive(Debug, Clone, Copy)]
+pub struct BackupRetention {
+    /// Number of pre-migration backups to keep
+    pub premigration: usize,
+    /// Number of scheduled backups to keep
+    pub scheduled: usize,
+}
+
+impl Default for BackupRetention {
+    fn default() -> Self {
+        Self {
+            premigration: DEFAULT_PREMIGRATION_RETENTION,
+            scheduled: DEFAULT_SCHEDULED_RETENTION,
+        }
+    }
+}
+
+impl BackupRetention {
+    /// Parse retention config from VK_BACKUP_RETENTION environment variable.
+    ///
+    /// Format:
+    /// - `VK_BACKUP_RETENTION=10` - sets both pre-migration and scheduled to 10
+    /// - `VK_BACKUP_RETENTION=5,10` - sets pre-migration to 5, scheduled to 10
+    ///
+    /// Returns default values if not set or invalid.
+    pub fn from_env() -> Self {
+        match std::env::var("VK_BACKUP_RETENTION") {
+            Ok(val) => Self::parse(&val),
+            Err(_) => Self::default(),
+        }
+    }
+
+    /// Parse retention from a string value.
+    fn parse(val: &str) -> Self {
+        let val = val.trim();
+        if val.is_empty() {
+            return Self::default();
+        }
+
+        if let Some((pre, sched)) = val.split_once(',') {
+            // Format: "5,10" - pre-migration=5, scheduled=10
+            let premigration = pre.trim().parse().unwrap_or(DEFAULT_PREMIGRATION_RETENTION);
+            let scheduled = sched.trim().parse().unwrap_or(DEFAULT_SCHEDULED_RETENTION);
+            Self {
+                premigration,
+                scheduled,
+            }
+        } else {
+            // Format: "10" - both set to same value
+            let both = val.parse().unwrap_or(DEFAULT_PREMIGRATION_RETENTION);
+            Self {
+                premigration: both,
+                scheduled: both,
+            }
+        }
+    }
+}
+
+/// Get the configured pre-migration backup retention count.
+pub fn premigration_retention() -> usize {
+    BackupRetention::from_env().premigration
+}
+
+/// Get the configured scheduled backup retention count.
+pub fn scheduled_retention() -> usize {
+    BackupRetention::from_env().scheduled
+}
 
 /// Service for managing database backups
 pub struct BackupService;
@@ -83,9 +155,9 @@ impl BackupService {
 
     /// Clean up old backups, keeping only the most recent N.
     ///
-    /// Uses default retention count of 5 backups.
+    /// Uses configured retention from VK_BACKUP_RETENTION (default: 5 for pre-migration).
     pub fn cleanup_old_backups(db_path: &Path) -> Result<(), std::io::Error> {
-        Self::cleanup_old_backups_with_retention(db_path, DEFAULT_BACKUP_RETENTION)
+        Self::cleanup_old_backups_with_retention(db_path, premigration_retention())
     }
 
     /// Clean up old backups with custom retention count.
@@ -1041,5 +1113,75 @@ mod tests {
         // Verify WAL/SHM were removed
         assert!(!wal_path.exists(), "WAL file should be removed");
         assert!(!shm_path.exists(), "SHM file should be removed");
+    }
+
+    // =========================================================================
+    // BackupRetention parsing tests
+    // =========================================================================
+
+    #[test]
+    fn test_backup_retention_default() {
+        let retention = BackupRetention::default();
+        assert_eq!(retention.premigration, 5);
+        assert_eq!(retention.scheduled, 10);
+    }
+
+    #[test]
+    fn test_backup_retention_parse_single_value() {
+        // Single value sets both to the same number
+        let retention = BackupRetention::parse("10");
+        assert_eq!(retention.premigration, 10);
+        assert_eq!(retention.scheduled, 10);
+
+        let retention = BackupRetention::parse("3");
+        assert_eq!(retention.premigration, 3);
+        assert_eq!(retention.scheduled, 3);
+    }
+
+    #[test]
+    fn test_backup_retention_parse_two_values() {
+        // Two values: first is pre-migration, second is scheduled
+        let retention = BackupRetention::parse("5,10");
+        assert_eq!(retention.premigration, 5);
+        assert_eq!(retention.scheduled, 10);
+
+        let retention = BackupRetention::parse("3,20");
+        assert_eq!(retention.premigration, 3);
+        assert_eq!(retention.scheduled, 20);
+    }
+
+    #[test]
+    fn test_backup_retention_parse_with_whitespace() {
+        let retention = BackupRetention::parse("  10  ");
+        assert_eq!(retention.premigration, 10);
+        assert_eq!(retention.scheduled, 10);
+
+        let retention = BackupRetention::parse("  5 , 10  ");
+        assert_eq!(retention.premigration, 5);
+        assert_eq!(retention.scheduled, 10);
+    }
+
+    #[test]
+    fn test_backup_retention_parse_empty() {
+        // Empty string falls back to defaults
+        let retention = BackupRetention::parse("");
+        assert_eq!(retention.premigration, 5);
+        assert_eq!(retention.scheduled, 10);
+    }
+
+    #[test]
+    fn test_backup_retention_parse_invalid() {
+        // Invalid values fall back to defaults
+        let retention = BackupRetention::parse("invalid");
+        assert_eq!(retention.premigration, 5); // Default for premigration
+
+        let retention = BackupRetention::parse("abc,xyz");
+        assert_eq!(retention.premigration, 5); // Default
+        assert_eq!(retention.scheduled, 10); // Default
+
+        // Partial invalid: valid first, invalid second
+        let retention = BackupRetention::parse("7,invalid");
+        assert_eq!(retention.premigration, 7);
+        assert_eq!(retention.scheduled, 10); // Default for scheduled
     }
 }

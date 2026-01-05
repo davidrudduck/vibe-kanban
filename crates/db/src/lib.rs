@@ -20,7 +20,10 @@ pub mod test_utils;
 pub mod validation;
 pub mod wal_monitor;
 
-pub use backup::{BackupError, BackupInfo, BackupService};
+pub use backup::{
+    premigration_retention, scheduled_retention, BackupError, BackupInfo, BackupRetention,
+    BackupService,
+};
 pub use backup_scheduler::{BackupScheduler, BackupSchedulerConfig, BackupSchedulerHandle};
 pub use metrics::DbMetrics;
 pub use retry::{RetryConfig, is_retryable_error, with_retry};
