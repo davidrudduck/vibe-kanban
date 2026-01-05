@@ -188,10 +188,29 @@ impl FileSearchCache {
             return Ok(());
         }
 
+        // Filter out projects with non-existent paths (e.g., remote projects
+        // synced from other nodes with paths that don't exist locally)
         let repo_paths: Vec<PathBuf> = active_projects
             .iter()
-            .map(|p| PathBuf::from(&p.git_repo_path))
+            .filter_map(|p| {
+                let path = PathBuf::from(&p.git_repo_path);
+                if path.exists() {
+                    Some(path)
+                } else {
+                    warn!(
+                        project_id = %p.id,
+                        path = %p.git_repo_path.display(),
+                        "Skipping cache warm for project with non-existent path"
+                    );
+                    None
+                }
+            })
             .collect();
+
+        if repo_paths.is_empty() {
+            info!("No projects with valid paths found, skipping cache warming");
+            return Ok(());
+        }
 
         info!(
             "Warming cache for {} projects: {:?}",

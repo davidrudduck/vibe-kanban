@@ -92,17 +92,35 @@ export function SwarmProjectRow({
           )}
         </div>
 
-        {/* Linked Nodes Count Badge */}
-        <Badge variant="secondary" className="shrink-0 hidden sm:inline-flex">
-          {project.linked_nodes_count}{' '}
-          {project.linked_nodes_count === 1
-            ? t('settings.swarm.projects.node', 'node')
-            : t('settings.swarm.projects.nodes', 'nodes')}
+        {/* Linked Nodes Names Badge (Desktop) */}
+        <Badge
+          variant="secondary"
+          className="shrink-0 hidden sm:inline-flex gap-1.5"
+        >
+          {project.linked_node_names && project.linked_node_names.length > 0 ? (
+            <>
+              {project.linked_node_names.slice(0, 2).join(', ')}
+              {project.linked_node_names.length > 2 && (
+                <span className="text-muted-foreground">
+                  +{project.linked_node_names.length - 2}
+                </span>
+              )}
+            </>
+          ) : (
+            <>
+              {project.linked_nodes_count}{' '}
+              {project.linked_nodes_count === 1
+                ? t('settings.swarm.projects.node', 'node')
+                : t('settings.swarm.projects.nodes', 'nodes')}
+            </>
+          )}
         </Badge>
 
         {/* Mobile node count */}
         <Badge variant="secondary" className="shrink-0 sm:hidden">
-          {project.linked_nodes_count}
+          {project.linked_node_names && project.linked_node_names.length > 0
+            ? project.linked_node_names.length
+            : project.linked_nodes_count}
         </Badge>
 
         {/* Actions */}
