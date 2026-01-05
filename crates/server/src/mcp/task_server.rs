@@ -243,6 +243,34 @@ pub struct GetTaskRequest {
     pub task_id: Uuid,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetContextRequest {
+    #[schemars(
+        description = "Working directory path to identify the task attempt. Pass the absolute path where you are executing commands."
+    )]
+    pub cwd: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CwdRequest {
+    #[schemars(
+        description = "Working directory path to identify the task attempt. Pass the absolute path where you are executing commands."
+    )]
+    pub cwd: String,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct TaskIdResponse {
+    #[schemars(description = "The task ID for the current task attempt")]
+    pub task_id: String,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ProjectIdResponse {
+    #[schemars(description = "The project ID for the current task attempt")]
+    pub project_id: String,
+}
+
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct GetTaskResponse {
     pub task: TaskDetails,
@@ -540,7 +568,6 @@ pub struct TaskServer {
     client: reqwest::Client,
     base_url: String,
     tool_router: ToolRouter<TaskServer>,
-    context: Option<McpContext>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
@@ -560,32 +587,24 @@ impl TaskServer {
             client: reqwest::Client::new(),
             base_url: base_url.to_string(),
             tool_router: Self::tool_router(),
-            context: None,
         }
     }
 
-    pub async fn init(mut self) -> Self {
-        let context = self.fetch_context_at_startup().await;
-
-        if context.is_none() {
-            self.tool_router.map.remove("get_context");
-            tracing::debug!("VK context not available, get_context tool will not be registered");
-        } else {
-            tracing::info!("VK context loaded, get_context tool available");
-        }
-
-        self.context = context;
+    /// Initialize the server.
+    ///
+    /// The get_context tool requires a `cwd` parameter to identify the task attempt,
+    /// so it's always registered and context is fetched dynamically per-request.
+    pub async fn init(self) -> Self {
+        tracing::info!("MCP server initialized, get_context tool requires cwd parameter");
         self
     }
 
-    async fn fetch_context_at_startup(&self) -> Option<McpContext> {
-        let current_dir = std::env::current_dir().ok()?;
-        let canonical_path = current_dir.canonicalize().unwrap_or(current_dir);
-        let normalized_path = utils::path::normalize_macos_private_alias(&canonical_path);
-
+    /// Fetch context for a specific path by looking up the task attempt
+    /// that has this path as its container_ref.
+    async fn fetch_context_for_path(&self, path: &str) -> Option<McpContext> {
         let url = self.url("/api/containers/attempt-context");
         let query = ContainerQuery {
-            container_ref: normalized_path.to_string_lossy().to_string(),
+            container_ref: path.to_string(),
         };
 
         let response = tokio::time::timeout(
@@ -691,12 +710,60 @@ impl TaskServer {
 #[tool_router]
 impl TaskServer {
     #[tool(description = "Get current task attempt context.")]
-    async fn get_context(&self) -> Result<CallToolResult, ErrorData> {
-        // Context was fetched at startup and cached
-        // This tool is only registered if context exists, so unwrap is safe
-        let context = self.context.as_ref().expect("VK context should exist");
-        TaskServer::success(context)
+    async fn get_context(
+        &self,
+        Parameters(GetContextRequest { cwd }): Parameters<GetContextRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        // Fetch context for the provided working directory path
+        if let Some(ctx) = self.fetch_context_for_path(&cwd).await {
+            return TaskServer::success(&ctx);
+        }
+        TaskServer::err(
+            &format!(
+                "No task attempt found for path: {}. Ensure you're in a vibe-kanban task attempt worktree.",
+                cwd
+            ),
+            None,
+        )
     }
+    #[tool(description = "Get task ID for the current task attempt. Lightweight alternative to get_context.")]
+    async fn get_task_id(
+        &self,
+        Parameters(CwdRequest { cwd }): Parameters<CwdRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if let Some(ctx) = self.fetch_context_for_path(&cwd).await {
+            return TaskServer::success(&TaskIdResponse {
+                task_id: ctx.task_id.to_string(),
+            });
+        }
+        TaskServer::err(
+            &format!(
+                "No task attempt found for path: {}. Ensure you're in a vibe-kanban task attempt worktree.",
+                cwd
+            ),
+            None,
+        )
+    }
+
+    #[tool(description = "Get project ID for the current task attempt. Lightweight alternative to get_context.")]
+    async fn get_project_id(
+        &self,
+        Parameters(CwdRequest { cwd }): Parameters<CwdRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if let Some(ctx) = self.fetch_context_for_path(&cwd).await {
+            return TaskServer::success(&ProjectIdResponse {
+                project_id: ctx.project_id.to_string(),
+            });
+        }
+        TaskServer::err(
+            &format!(
+                "No task attempt found for path: {}. Ensure you're in a vibe-kanban task attempt worktree.",
+                cwd
+            ),
+            None,
+        )
+    }
+
     #[tool(description = "Create task. Requires project_id.")]
     async fn create_task(
         &self,
@@ -708,13 +775,17 @@ impl TaskServer {
             parent_task_id,
         }): Parameters<CreateTaskRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        // Determine parent_task_id: explicit value takes precedence,
-        // otherwise use context if link_to_parent is true (resolves attempt -> task)
+        // Determine parent_task_id: explicit value takes precedence
+        // Note: link_to_parent requires parent_task_id to be set explicitly
+        // (use get_context with cwd to get the current task_id first)
         let resolved_parent_task_id = if let Some(explicit) = parent_task_id {
             Some(explicit)
         } else if link_to_parent.unwrap_or(false) {
-            // Get task_id from cached context (task that owns the current attempt)
-            self.context.as_ref().map(|ctx| ctx.task_id)
+            // link_to_parent was requested but no parent_task_id provided
+            return TaskServer::err(
+                "link_to_parent requires parent_task_id. Use get_context(cwd) first to get the current task_id.",
+                None,
+            );
         } else {
             None
         };
@@ -1317,11 +1388,7 @@ impl TaskServer {
 #[tool_handler]
 impl ServerHandler for TaskServer {
     fn get_info(&self) -> ServerInfo {
-        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`.. TOOLS: 'list_projects', 'list_tasks', 'create_task', 'start_workspace_session', 'get_task', 'update_task', 'delete_task', 'list_repos'. Make sure to pass `project_id` or `task_id` where required. You can use list tools to get the available ids. Task variables: Use 'get_task_variables', 'set_task_variable', and 'delete_task_variable' to manage variables that are expanded in task descriptions using $VAR or ${VAR} syntax. Task attempts: Use 'stop_task_attempt', 'get_task_attempt_status', and 'list_task_attempts' to control and monitor task execution. Labels: Use 'get_task_labels', 'set_task_labels', and 'list_labels' to manage task labels for categorization. Nodes: Use 'list_nodes' to find swarm nodes available for a task's project.".to_string();
-        if self.context.is_some() {
-            let context_instruction = "Use 'get_context' to fetch project/task/attempt metadata for the active Vibe Kanban attempt when available.";
-            instruction = format!("{} {}", context_instruction, instruction);
-        }
+        let instruction = "Use 'get_context' with your working directory (cwd) to fetch project/task/attempt metadata for the active Vibe Kanban attempt. A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`.. TOOLS: 'list_projects', 'list_tasks', 'create_task', 'start_workspace_session', 'get_task', 'update_task', 'delete_task', 'list_repos'. Make sure to pass `project_id` or `task_id` where required. You can use list tools to get the available ids. Task variables: Use 'get_task_variables', 'set_task_variable', and 'delete_task_variable' to manage variables that are expanded in task descriptions using $VAR or ${VAR} syntax. Task attempts: Use 'stop_task_attempt', 'get_task_attempt_status', and 'list_task_attempts' to control and monitor task execution. Labels: Use 'get_task_labels', 'set_task_labels', and 'list_labels' to manage task labels for categorization. Nodes: Use 'list_nodes' to find swarm nodes available for a task's project.".to_string();
 
         ServerInfo {
             protocol_version: ProtocolVersion::V_2025_03_26,
