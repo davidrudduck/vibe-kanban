@@ -20,7 +20,7 @@ function NavItem({ icon: Icon, label, isActive, onClick }: NavItemProps) {
       className={cn(
         'flex flex-col items-center justify-center gap-0.5 h-12 min-w-[48px] px-3 rounded-lg transition-colors',
         isActive
-          ? 'text-primary'
+          ? 'text-foreground font-medium'
           : 'text-muted-foreground hover:text-foreground'
       )}
       aria-label={label}

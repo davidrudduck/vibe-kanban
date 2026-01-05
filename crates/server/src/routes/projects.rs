@@ -10,7 +10,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use db::models::{
-    cached_node::CachedNodeStatus,
+    cached_node::{CachedNode, CachedNodeStatus},
     project::{
         CreateProject, Project, ProjectError, ScanConfigRequest, ScanConfigResponse,
         SearchMatchType, SearchResult, UpdateProject,
@@ -176,6 +176,9 @@ pub struct MergedProject {
     pub github_open_prs: i32,
     #[ts(type = "Date | null")]
     pub github_last_synced_at: Option<DateTime<Utc>>,
+
+    /// Task status counts for quick display
+    pub task_counts: TaskCounts,
 }
 
 /// A node location where a project exists
@@ -190,6 +193,18 @@ pub struct NodeLocation {
     pub node_public_url: Option<String>,
     /// The project ID on that node
     pub remote_project_id: Uuid,
+    /// Operating system: "darwin", "linux", "windows"
+    pub node_os: Option<String>,
+}
+
+/// Task status counts for a project
+#[derive(Debug, Clone, Default, Serialize, TS)]
+#[ts(export)]
+pub struct TaskCounts {
+    pub todo: i32,
+    pub in_progress: i32,
+    pub in_review: i32,
+    pub done: i32,
 }
 
 /// Response for the merged projects endpoint
@@ -234,8 +249,8 @@ pub async fn get_merged_projects(
 
     let pool = &deployment.db().pool;
 
-    // Get local projects with last attempt timestamp
-    let local_projects_with_attempts = Project::find_local_projects_with_last_attempt(pool).await?;
+    // Get local projects with last attempt timestamp and task counts
+    let local_projects_with_stats = Project::find_local_projects_with_stats(pool).await?;
 
     // Get current node_id to exclude from remote list (if connected to hive)
     let current_node_id = if let Some(ctx) = deployment.node_runner_context() {
@@ -248,6 +263,13 @@ pub async fn get_merged_projects(
     let all_remote = Project::find_remote_projects(pool)
         .await
         .unwrap_or_default();
+
+    // Load cached nodes to get OS info for each node
+    let cached_nodes = CachedNode::list_all(pool).await.unwrap_or_default();
+    let node_os_map: HashMap<Uuid, String> = cached_nodes
+        .into_iter()
+        .map(|n| (n.id, n.capabilities().os))
+        .collect();
 
     // Filter out projects from current node
     let all_remote: Vec<_> = all_remote
@@ -269,7 +291,16 @@ pub async fn get_merged_projects(
     let mut local_only_projects: Vec<MergedProject> = Vec::new();
 
     // Process local projects first
-    for (project, last_attempt_at) in local_projects_with_attempts {
+    for stats in local_projects_with_stats {
+        let project = stats.project;
+        let last_attempt_at = stats.last_attempt_at;
+        let task_counts = TaskCounts {
+            todo: stats.task_counts.todo,
+            in_progress: stats.task_counts.in_progress,
+            in_review: stats.task_counts.in_review,
+            done: stats.task_counts.done,
+        };
+
         if let Some(remote_project_id) = project.remote_project_id {
             // This local project is linked to a remote project
             merged_map.insert(
@@ -290,6 +321,7 @@ pub async fn get_merged_projects(
                     github_open_issues: project.github_open_issues,
                     github_open_prs: project.github_open_prs,
                     github_last_synced_at: project.github_last_synced_at,
+                    task_counts,
                 },
             );
         } else {
@@ -310,6 +342,7 @@ pub async fn get_merged_projects(
                 github_open_issues: project.github_open_issues,
                 github_open_prs: project.github_open_prs,
                 github_last_synced_at: project.github_last_synced_at,
+                task_counts,
             });
         }
     }
@@ -322,8 +355,9 @@ pub async fn get_merged_projects(
             .remote_project_id
             .unwrap_or(remote_project.id);
 
+        let source_node_id = remote_project.source_node_id.unwrap_or_default();
         let node_location = NodeLocation {
-            node_id: remote_project.source_node_id.unwrap_or_default(),
+            node_id: source_node_id,
             node_name: remote_project.source_node_name.clone().unwrap_or_default(),
             node_short_name: truncate_node_name(
                 remote_project.source_node_name.as_deref().unwrap_or(""),
@@ -335,7 +369,11 @@ pub async fn get_merged_projects(
                 .unwrap_or(CachedNodeStatus::Pending),
             node_public_url: remote_project.source_node_public_url.clone(),
             // Use the actual remote_project_id for node location, falling back to local ID
-            remote_project_id: remote_project.remote_project_id.unwrap_or(remote_project.id),
+            remote_project_id: remote_project
+                .remote_project_id
+                .unwrap_or(remote_project.id),
+            // Lookup OS from cached node capabilities
+            node_os: node_os_map.get(&source_node_id).cloned(),
         };
 
         if let Some(merged) = merged_map.get_mut(&merge_key) {
@@ -363,6 +401,8 @@ pub async fn get_merged_projects(
                     github_open_issues: 0,
                     github_open_prs: 0,
                     github_last_synced_at: None,
+                    // Remote-only projects don't have local task counts
+                    task_counts: TaskCounts::default(),
                 },
             );
         }
