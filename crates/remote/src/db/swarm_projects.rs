@@ -69,7 +69,17 @@ pub struct LinkSwarmProjectNodeData {
     pub os_type: Option<String>,
 }
 
-/// Extended swarm project info with linked nodes count.
+/// Task counts by status for a swarm project.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SwarmTaskCounts {
+    pub todo: i64,
+    pub in_progress: i64,
+    pub in_review: i64,
+    pub done: i64,
+    pub cancelled: i64,
+}
+
+/// Extended swarm project info with linked nodes count and task counts.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct SwarmProjectWithNodesRow {
     pub id: Uuid,
@@ -81,15 +91,24 @@ pub struct SwarmProjectWithNodesRow {
     pub updated_at: DateTime<Utc>,
     pub linked_nodes_count: i64,
     pub linked_node_names: Vec<String>,
+    pub hive_project_ids: Vec<Uuid>,
+    pub task_count_todo: i64,
+    pub task_count_in_progress: i64,
+    pub task_count_in_review: i64,
+    pub task_count_done: i64,
+    pub task_count_cancelled: i64,
 }
 
-/// Extended swarm project info with linked nodes count.
+/// Extended swarm project info with linked nodes count and task counts.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SwarmProjectWithNodes {
     #[serde(flatten)]
     pub project: SwarmProject,
     pub linked_nodes_count: i64,
     pub linked_node_names: Vec<String>,
+    /// The hive project IDs linked to this swarm project (for task count lookup)
+    pub hive_project_ids: Vec<Uuid>,
+    pub task_counts: SwarmTaskCounts,
 }
 
 impl From<SwarmProjectWithNodesRow> for SwarmProjectWithNodes {
@@ -106,6 +125,14 @@ impl From<SwarmProjectWithNodesRow> for SwarmProjectWithNodes {
             },
             linked_nodes_count: row.linked_nodes_count,
             linked_node_names: row.linked_node_names,
+            hive_project_ids: row.hive_project_ids,
+            task_counts: SwarmTaskCounts {
+                todo: row.task_count_todo,
+                in_progress: row.task_count_in_progress,
+                in_review: row.task_count_in_review,
+                done: row.task_count_done,
+                cancelled: row.task_count_cancelled,
+            },
         }
     }
 }
@@ -212,13 +239,46 @@ impl SwarmProjectRepository {
         Ok(records)
     }
 
-    /// List all swarm projects for an organization with linked nodes count.
+    /// List all swarm projects for an organization with linked nodes count and task counts.
     pub async fn list_with_nodes_count(
         pool: &PgPool,
         organization_id: Uuid,
     ) -> Result<Vec<SwarmProjectWithNodes>, SwarmProjectError> {
         let records = sqlx::query_as::<_, SwarmProjectWithNodesRow>(
             r#"
+            WITH swarm_hive_projects AS (
+                -- Get hive project IDs for each swarm project
+                SELECT
+                    spn.swarm_project_id,
+                    np.project_id as hive_project_id
+                FROM swarm_project_nodes spn
+                INNER JOIN node_projects np
+                    ON np.node_id = spn.node_id
+                    AND np.local_project_id = spn.local_project_id
+            ),
+            task_counts AS (
+                -- Count tasks by status for each swarm project
+                SELECT
+                    shp.swarm_project_id,
+                    COUNT(*) FILTER (WHERE st.status = 'todo') as todo,
+                    COUNT(*) FILTER (WHERE st.status = 'in_progress') as in_progress,
+                    COUNT(*) FILTER (WHERE st.status = 'in_review') as in_review,
+                    COUNT(*) FILTER (WHERE st.status = 'done') as done,
+                    COUNT(*) FILTER (WHERE st.status = 'cancelled') as cancelled
+                FROM swarm_hive_projects shp
+                LEFT JOIN shared_tasks st
+                    ON st.project_id = shp.hive_project_id
+                    AND st.deleted_at IS NULL
+                GROUP BY shp.swarm_project_id
+            ),
+            hive_ids AS (
+                -- Aggregate hive project IDs for each swarm project
+                SELECT
+                    swarm_project_id,
+                    ARRAY_AGG(DISTINCT hive_project_id) as hive_project_ids
+                FROM swarm_hive_projects
+                GROUP BY swarm_project_id
+            )
             SELECT
                 sp.id,
                 sp.organization_id,
@@ -228,12 +288,20 @@ impl SwarmProjectRepository {
                 sp.created_at,
                 sp.updated_at,
                 COUNT(spn.id)::bigint AS linked_nodes_count,
-                COALESCE(ARRAY_AGG(DISTINCT n.name) FILTER (WHERE n.name IS NOT NULL), ARRAY[]::text[]) AS linked_node_names
+                COALESCE(ARRAY_AGG(DISTINCT n.name) FILTER (WHERE n.name IS NOT NULL), ARRAY[]::text[]) AS linked_node_names,
+                COALESCE(hi.hive_project_ids, ARRAY[]::uuid[]) AS hive_project_ids,
+                COALESCE(tc.todo, 0)::bigint AS task_count_todo,
+                COALESCE(tc.in_progress, 0)::bigint AS task_count_in_progress,
+                COALESCE(tc.in_review, 0)::bigint AS task_count_in_review,
+                COALESCE(tc.done, 0)::bigint AS task_count_done,
+                COALESCE(tc.cancelled, 0)::bigint AS task_count_cancelled
             FROM swarm_projects sp
             LEFT JOIN swarm_project_nodes spn ON sp.id = spn.swarm_project_id
             LEFT JOIN nodes n ON spn.node_id = n.id
+            LEFT JOIN task_counts tc ON sp.id = tc.swarm_project_id
+            LEFT JOIN hive_ids hi ON sp.id = hi.swarm_project_id
             WHERE sp.organization_id = $1
-            GROUP BY sp.id
+            GROUP BY sp.id, tc.todo, tc.in_progress, tc.in_review, tc.done, tc.cancelled, hi.hive_project_ids
             ORDER BY sp.created_at DESC
             "#,
         )

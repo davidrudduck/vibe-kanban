@@ -17,6 +17,14 @@ export interface SwarmProject {
   updated_at: string;
 }
 
+export interface SwarmTaskCounts {
+  todo: number;
+  in_progress: number;
+  in_review: number;
+  done: number;
+  cancelled: number;
+}
+
 export interface SwarmProjectWithNodes {
   id: string;
   organization_id: string;
@@ -27,6 +35,8 @@ export interface SwarmProjectWithNodes {
   updated_at: string;
   linked_nodes_count: number;
   linked_node_names: string[];
+  hive_project_ids: string[];
+  task_counts: SwarmTaskCounts;
 }
 
 export interface SwarmProjectNode {

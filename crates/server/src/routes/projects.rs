@@ -18,6 +18,7 @@ use db::models::{
 };
 use deployment::Deployment;
 use ignore::WalkBuilder;
+use remote::db::swarm_projects::SwarmTaskCounts;
 use serde::{Deserialize, Serialize};
 use services::services::{
     file_ranker::FileRanker,
@@ -293,6 +294,42 @@ pub async fn get_merged_projects(
         })
         .collect();
 
+    // Fetch swarm projects with task counts from Hive
+    // Build a map from hive_project_id → task counts for remote project lookup
+    let swarm_task_counts: HashMap<Uuid, SwarmTaskCounts> = if let Some(ctx) =
+        deployment.node_runner_context()
+    {
+        if let Some(org_id) = ctx.organization_id().await {
+            match deployment.remote_client() {
+                Ok(client) => match client.list_swarm_projects(org_id).await {
+                    Ok(response) => {
+                        let mut map = HashMap::new();
+                        for swarm_project in response.projects {
+                            // Map each hive_project_id to the swarm project's task counts
+                            for hive_id in swarm_project.hive_project_ids {
+                                map.insert(hive_id, swarm_project.task_counts.clone());
+                            }
+                        }
+                        tracing::debug!(
+                            swarm_project_count = map.len(),
+                            "loaded swarm project task counts"
+                        );
+                        map
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = ?e, "Failed to fetch swarm projects for task counts");
+                        HashMap::new()
+                    }
+                },
+                Err(_) => HashMap::new(),
+            }
+        } else {
+            HashMap::new()
+        }
+    } else {
+        HashMap::new()
+    };
+
     // Build a map from remote_project_id -> MergedProject
     // Key: remote_project_id (Uuid) -> Value: MergedProject being built
     let mut merged_map: HashMap<Uuid, MergedProject> = HashMap::new();
@@ -390,6 +427,18 @@ pub async fn get_merged_projects(
             // Add this node to existing merged project
             merged.nodes.push(node_location);
         } else {
+            // Look up task counts from swarm projects using the hive project ID
+            let task_counts = remote_project
+                .remote_project_id
+                .and_then(|hive_id| swarm_task_counts.get(&hive_id))
+                .map(|swarm_counts| TaskCounts {
+                    todo: swarm_counts.todo as i32,
+                    in_progress: swarm_counts.in_progress as i32,
+                    in_review: swarm_counts.in_review as i32,
+                    done: swarm_counts.done as i32,
+                })
+                .unwrap_or_default();
+
             // Create new entry for remote-only project
             merged_map.insert(
                 merge_key,
@@ -411,8 +460,8 @@ pub async fn get_merged_projects(
                     github_open_issues: 0,
                     github_open_prs: 0,
                     github_last_synced_at: None,
-                    // Remote-only projects don't have local task counts
-                    task_counts: TaskCounts::default(),
+                    // Task counts from swarm project (fetched from Hive)
+                    task_counts,
                 },
             );
         }
