@@ -365,6 +365,35 @@ impl Label {
         .await
     }
 
+    /// Find a global (org-level) label by name that hasn't been linked to hive yet.
+    /// Used during sync to avoid creating duplicates of default labels.
+    pub async fn find_global_by_name(
+        pool: &SqlitePool,
+        name: &str,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            Label,
+            r#"SELECT
+                id as "id!: Uuid",
+                project_id as "project_id: Uuid",
+                name,
+                icon,
+                color,
+                shared_label_id as "shared_label_id: Uuid",
+                version as "version!: i64",
+                synced_at as "synced_at: DateTime<Utc>",
+                created_at as "created_at!: DateTime<Utc>",
+                updated_at as "updated_at!: DateTime<Utc>"
+            FROM labels
+            WHERE project_id IS NULL
+              AND shared_label_id IS NULL
+              AND name = $1"#,
+            name
+        )
+        .fetch_optional(pool)
+        .await
+    }
+
     /// Set the shared_label_id after syncing to Hive
     pub async fn set_shared_label_id(
         pool: &SqlitePool,

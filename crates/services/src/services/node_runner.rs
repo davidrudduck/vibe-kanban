@@ -929,6 +929,10 @@ async fn auto_link_local_projects(
 /// This is called on connection to populate the local label cache with
 /// organization-global labels from the hive. These labels are used for
 /// tasks in swarm-connected projects.
+///
+/// To avoid duplicates, we check:
+/// 1. First by shared_label_id (already linked labels)
+/// 2. Then by name for org-global labels (to link default labels created at migration)
 async fn sync_swarm_labels(
     pool: &SqlitePool,
     swarm_labels: &[SwarmLabelInfo],
@@ -951,17 +955,43 @@ async fn sync_swarm_labels(
                 .await?;
             }
         } else {
-            // Create new label from hive - swarm labels have project_id = None
-            Label::create_from_hive(
-                pool,
-                label_info.id,
-                None, // Swarm labels are org-global (no project)
-                &label_info.name,
-                &label_info.icon,
-                &label_info.color,
-                label_info.version,
-            )
-            .await?;
+            // Check if there's a local org-global label with the same name but no shared_label_id
+            // This handles default labels created during migration
+            let existing_by_name =
+                Label::find_global_by_name(pool, &label_info.name).await?;
+
+            if let Some(existing) = existing_by_name {
+                // Link existing local label to hive by setting shared_label_id
+                Label::update_from_hive(
+                    pool,
+                    existing.id,
+                    &label_info.name,
+                    &label_info.icon,
+                    &label_info.color,
+                    label_info.version,
+                )
+                .await?;
+                // Also set the shared_label_id to link it
+                Label::set_shared_label_id(pool, existing.id, label_info.id).await?;
+                tracing::info!(
+                    label_name = %label_info.name,
+                    shared_label_id = %label_info.id,
+                    local_label_id = %existing.id,
+                    "Linked existing local label to hive label"
+                );
+            } else {
+                // Create new label from hive - swarm labels have project_id = None
+                Label::create_from_hive(
+                    pool,
+                    label_info.id,
+                    None, // Swarm labels are org-global (no project)
+                    &label_info.name,
+                    &label_info.icon,
+                    &label_info.color,
+                    label_info.version,
+                )
+                .await?;
+            }
         }
     }
 

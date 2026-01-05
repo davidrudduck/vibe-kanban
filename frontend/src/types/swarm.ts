@@ -26,6 +26,7 @@ export interface SwarmProjectWithNodes {
   created_at: string;
   updated_at: string;
   linked_nodes_count: number;
+  linked_node_names: string[];
 }
 
 export interface SwarmProjectNode {

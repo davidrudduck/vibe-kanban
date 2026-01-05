@@ -1016,6 +1016,87 @@ pub async fn delete_project(
     }
 }
 
+/// Response for orphaned projects (projects with non-existent paths)
+#[derive(Debug, Serialize, TS)]
+pub struct OrphanedProject {
+    pub id: Uuid,
+    pub name: String,
+    pub git_repo_path: String,
+    pub is_remote: bool,
+}
+
+/// Response for orphaned projects list
+#[derive(Debug, Serialize, TS)]
+pub struct OrphanedProjectsResponse {
+    pub projects: Vec<OrphanedProject>,
+    pub count: usize,
+}
+
+/// GET /api/projects/orphaned - List projects with non-existent git_repo_path
+pub async fn list_orphaned_projects(
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<OrphanedProjectsResponse>>, ApiError> {
+    let all_projects = Project::find_all(&deployment.db().pool).await?;
+
+    let orphaned: Vec<OrphanedProject> = all_projects
+        .into_iter()
+        .filter(|p| {
+            let path = std::path::Path::new(&p.git_repo_path);
+            // Only check local projects (remote projects have paths from other nodes)
+            !p.is_remote && !path.exists()
+        })
+        .map(|p| OrphanedProject {
+            id: p.id,
+            name: p.name,
+            git_repo_path: p.git_repo_path.display().to_string(),
+            is_remote: p.is_remote,
+        })
+        .collect();
+
+    let count = orphaned.len();
+    Ok(ResponseJson(ApiResponse::success(OrphanedProjectsResponse {
+        projects: orphaned,
+        count,
+    })))
+}
+
+/// DELETE /api/projects/orphaned - Remove projects with non-existent git_repo_path
+pub async fn delete_orphaned_projects(
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<OrphanedProjectsResponse>>, ApiError> {
+    let all_projects = Project::find_all(&deployment.db().pool).await?;
+
+    let mut deleted: Vec<OrphanedProject> = Vec::new();
+
+    for p in all_projects {
+        let path = std::path::Path::new(&p.git_repo_path);
+        // Only delete local projects (remote projects have paths from other nodes)
+        if !p.is_remote && !path.exists() {
+            if let Err(e) = Project::delete(&deployment.db().pool, p.id).await {
+                tracing::error!(project_id = %p.id, "Failed to delete orphaned project: {}", e);
+            } else {
+                tracing::info!(
+                    project_id = %p.id,
+                    path = %p.git_repo_path.display(),
+                    "Deleted orphaned project with non-existent path"
+                );
+                deleted.push(OrphanedProject {
+                    id: p.id,
+                    name: p.name,
+                    git_repo_path: p.git_repo_path.display().to_string(),
+                    is_remote: p.is_remote,
+                });
+            }
+        }
+    }
+
+    let count = deleted.len();
+    Ok(ResponseJson(ApiResponse::success(OrphanedProjectsResponse {
+        projects: deleted,
+        count,
+    })))
+}
+
 #[derive(serde::Deserialize)]
 pub struct OpenEditorRequest {
     editor_type: Option<String>,
@@ -1677,6 +1758,10 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/", get(get_projects).post(create_project))
         .route("/scan-config", post(scan_project_config))
         .route("/link-local", post(link_to_local_folder))
+        .route(
+            "/orphaned",
+            get(list_orphaned_projects).delete(delete_orphaned_projects),
+        )
         .nest("/{id}", project_id_router)
         .merge(project_files_router)
         .nest("/by-remote-id/{remote_project_id}", by_remote_id_router)

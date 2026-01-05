@@ -138,7 +138,11 @@ export function useSwarmProjectMutations(
           if (!old) return old;
           return old.map((p) =>
             p.id === project.id
-              ? { ...project, linked_nodes_count: p.linked_nodes_count }
+              ? {
+                  ...project,
+                  linked_nodes_count: p.linked_nodes_count,
+                  linked_node_names: p.linked_node_names,
+                }
               : p
           );
         }
