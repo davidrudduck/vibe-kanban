@@ -52,8 +52,43 @@ impl NodeRunnerConfig {
     /// - `VK_CONNECTION_TOKEN_SECRET`: JWT secret for validating connection tokens
     ///   (enables direct frontend-to-node log streaming)
     pub fn from_env() -> Option<Self> {
-        let hive_url = std::env::var("VK_HIVE_URL").ok()?;
-        let api_key = std::env::var("VK_NODE_API_KEY").ok()?;
+        let hive_url = std::env::var("VK_HIVE_URL").ok();
+        let api_key = std::env::var("VK_NODE_API_KEY").ok();
+        let shared_api_base = std::env::var("VK_SHARED_API_BASE").ok();
+
+        // If shared API is configured but hive URL is missing, warn the user
+        // This often indicates a typo in the .env file (e.g., "bVK_HIVE_URL" instead of "VK_HIVE_URL")
+        if shared_api_base.is_some() && hive_url.is_none() {
+            tracing::warn!(
+                "VK_SHARED_API_BASE is set but VK_HIVE_URL is missing. \
+                 Node will not connect to hive for task dispatch. \
+                 Check for typos in your .env file."
+            );
+        }
+
+        let hive_url = hive_url?;
+
+        // Validate URL format
+        if !hive_url.starts_with("ws://") && !hive_url.starts_with("wss://") {
+            tracing::error!(
+                hive_url = %hive_url,
+                "VK_HIVE_URL must start with 'ws://' or 'wss://'. \
+                 Use 'ws://' for local development or 'wss://' for production."
+            );
+            return None;
+        }
+
+        let api_key = match api_key {
+            Some(key) if !key.is_empty() => key,
+            _ => {
+                tracing::warn!(
+                    "VK_HIVE_URL is set but VK_NODE_API_KEY is missing or empty. \
+                     Node cannot authenticate with hive. \
+                     Generate an API key from the hive server."
+                );
+                return None;
+            }
+        };
 
         let node_name = std::env::var("VK_NODE_NAME").unwrap_or_else(|_| {
             hostname::get()
@@ -66,6 +101,21 @@ impl NodeRunnerConfig {
         let connection_token_secret = std::env::var("VK_CONNECTION_TOKEN_SECRET")
             .ok()
             .map(secrecy::SecretString::from);
+
+        // Log masked config for debugging
+        let masked_key = if api_key.len() > 8 {
+            format!("{}...{}", &api_key[..4], &api_key[api_key.len() - 4..])
+        } else {
+            "****".to_string()
+        };
+        tracing::debug!(
+            hive_url = %hive_url,
+            api_key = %masked_key,
+            node_name = %node_name,
+            public_url = ?public_url,
+            has_connection_secret = connection_token_secret.is_some(),
+            "Node runner config loaded from environment"
+        );
 
         Some(Self {
             hive_url,
