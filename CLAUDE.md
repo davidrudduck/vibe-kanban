@@ -487,32 +487,51 @@ cp dev_assets/backups/db_backup_YYYYMMDD_HHMMSS.sqlite dev_assets/db.sqlite
 
 ### Environment Variables
 
-Runtime:
-- `BACKEND_PORT`: Backend server port (default: auto-assign)
-- `FRONTEND_PORT`: Frontend dev port (default: 3000)
-- `HOST`: Backend host (default: 127.0.0.1)
-- `DISABLE_WORKTREE_ORPHAN_CLEANUP`: Set to `1` or `true` to disable automatic cleanup of orphaned worktrees (worktrees without matching task attempts) (default: `0`, cleanup enabled)
-- `DISABLE_WORKTREE_EXPIRED_CLEANUP`: Set to `1` or `true` to disable automatic cleanup of expired worktrees (worktrees idle for 72+ hours) (default: `0`, cleanup enabled)
+See `.env.example` for complete documentation. Key variables:
 
-Storage (see `docs/configuration-customisation/storage-configuration.mdx` for full guide):
+Network:
+- `HOST`: Backend host (default: `127.0.0.1`, use `0.0.0.0` for network access)
+- `BACKEND_PORT`: Backend server port (default: auto-assign)
+- `FRONTEND_PORT`: Frontend dev port (default: `3000`)
+- `MCP_PORT`: HTTP MCP server port. If set, spawns MCP at `http://{HOST}:{MCP_PORT}/mcp`
+
+Storage (see `docs/configuration-customisation/storage-configuration.mdx`):
 - `VK_DATABASE_PATH`: Override database file location (supports tilde expansion)
 - `VK_BACKUP_DIR`: Override backup directory (default: `{data_dir}/backups`)
 - `VK_WORKTREE_DIR`: Override worktree directory (default: `/var/tmp/vibe-kanban/worktrees`)
 
+Database Performance:
+- `VK_SQLITE_MAX_CONNECTIONS`: Connection pool size (default: `10`)
+- `VK_SLOW_QUERY_MS`: Slow query threshold in ms (default: `100`)
+
+Scheduled Backups:
+- `VK_SCHEDULED_BACKUPS`: Enable auto backups (default: `true`)
+- `VK_BACKUP_INTERVAL_HOURS`: Backup interval (default: `4`)
+- `VK_BACKUP_RETENTION`: Backups to keep - single value or `pre-migration,scheduled` (default: `5,10`)
+
+WAL Monitoring:
+- `VK_WAL_CHECK_INTERVAL_SECS`: Check interval (default: `60`)
+- `VK_WAL_WARNING_THRESHOLD_MB`: Warning threshold (default: `50`)
+- `VK_WAL_CHECKPOINT_THRESHOLD_MB`: Auto checkpoint threshold (default: `100`)
+- `VK_WAL_AUTO_CHECKPOINT`: Enable auto checkpoints (default: `true`)
+- `VK_WAL_TRUNCATE_INTERVAL_SECS`: TRUNCATE checkpoint interval for durability (default: `300`)
+
 Logging:
+- `RUST_LOG`: Log level - trace, debug, info, warn, error (default: `info`)
 - `VK_FILE_LOGGING`: Enable file-based logging (default: `false`)
 - `VK_LOG_DIR`: Override log directory (default: `{data_dir}/logs`)
 - `VK_LOG_MAX_FILES`: Max daily log files to retain (default: `7`)
 
-MCP Server:
-- `MCP_PORT`: Port for HTTP MCP server. If set, backend auto-spawns MCP HTTP server at `http://{HOST}:{MCP_PORT}/mcp`. This allows executors to connect to a locally running MCP server instead of the published npm package.
+Worktree Cleanup:
+- `DISABLE_WORKTREE_ORPHAN_CLEANUP`: Disable orphan cleanup (default: `0`)
+- `DISABLE_WORKTREE_EXPIRED_CLEANUP`: Disable expired (72h+) cleanup (default: `0`)
 
-Swarm/Hive Node Configuration (see `docs/swarm-hive-setup.mdx` for full guide):
-- `VK_HIVE_URL`: WebSocket URL of the hive server (e.g., `wss://hive.example.com`)
+Swarm/Hive Node (see `docs/swarm-hive-setup.mdx`):
+- `VK_HIVE_URL`: WebSocket URL of hive server (e.g., `wss://hive.example.com`)
 - `VK_NODE_API_KEY`: API key for authenticating with the hive
-- `VK_NODE_NAME`: Human-readable name for this node (defaults to hostname)
-- `VK_NODE_PUBLIC_URL`: Public URL for direct log streaming (e.g., `http://192.168.1.50:3000`)
-- `VK_CONNECTION_TOKEN_SECRET`: JWT secret for validating direct connection tokens
+- `VK_NODE_NAME`: Human-readable node name (defaults to hostname)
+- `VK_NODE_PUBLIC_URL`: Public URL for direct log streaming
+- `VK_CONNECTION_TOKEN_SECRET`: JWT secret for direct connection tokens
 
 ## 10. AI Coding Assistant Instructions
 
