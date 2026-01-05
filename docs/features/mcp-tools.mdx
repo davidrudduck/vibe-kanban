@@ -3,7 +3,7 @@ title: "MCP Tools Reference"
 description: "Complete reference for all Vibe Kanban MCP server tools, including parameters, responses, and usage examples."
 ---
 
-The Vibe Kanban MCP server provides 18 tools for managing projects, tasks, execution, labels, and nodes. This page provides a complete reference for all available tools.
+The Vibe Kanban MCP server provides 20 tools for managing projects, tasks, execution, labels, and nodes. This page provides a complete reference for all available tools.
 
 <Info>
 For setup instructions, see [Vibe Kanban MCP Server](/integrations/vibe-kanban-mcp-server). For configuring MCP servers within Vibe Kanban, see [Connecting MCP Servers](/integrations/mcp-server-configuration).
@@ -19,7 +19,7 @@ For setup instructions, see [Vibe Kanban MCP Server](/integrations/vibe-kanban-m
 | Variables | `get_task_variables`, `set_task_variable`, `delete_task_variable` | Manage task configuration variables |
 | Labels | `get_task_labels`, `set_task_labels`, `list_labels` | Categorise tasks with labels |
 | Nodes | `list_nodes` | Discover available swarm nodes |
-| Context | `get_context` | Get current execution context |
+| Context | `get_context`, `get_task_id`, `get_project_id` | Get current execution context and identifiers |
 
 ## Project Operations
 
@@ -471,11 +471,16 @@ Lists swarm nodes available for a task's project.
 
 ## Context
 
+These tools help identify the current task attempt context when running within a Vibe Kanban worktree.
+
 ### get_context
 
-Gets the current task attempt context. Only available when running within a Vibe Kanban task attempt.
+Gets full task attempt context by looking up the working directory against stored container references.
 
-**Parameters:** None
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `cwd` | string | Yes | Working directory path to identify the task attempt |
 
 **Response:**
 ```json
@@ -491,8 +496,40 @@ Gets the current task attempt context. Only available when running within a Vibe
 ```
 
 <Note>
-This tool is only available when the MCP server is running within the context of a Vibe Kanban task attempt. It will not appear in the tool list when running outside of an attempt.
+The `cwd` parameter should be your current working directory (e.g., the result of `pwd` or `process.cwd()`). This must match the worktree path created by Vibe Kanban for the task attempt.
 </Note>
+
+### get_task_id
+
+Lightweight alternative to `get_context` that returns only the task ID. Use this when you only need the task identifier.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `cwd` | string | Yes | Working directory path to identify the task attempt |
+
+**Response:**
+```json
+{
+  "task_id": "123e4567-e89b-12d3-a456-426614174000"
+}
+```
+
+### get_project_id
+
+Lightweight alternative to `get_context` that returns only the project ID. Use this when you only need the project identifier.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `cwd` | string | Yes | Working directory path to identify the task attempt |
+
+**Response:**
+```json
+{
+  "project_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
 
 ## Error Responses
 
