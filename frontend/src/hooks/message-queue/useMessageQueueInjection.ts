@@ -1,6 +1,8 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { executionProcessesApi } from '@/lib/api';
 import { useMessageQueue } from './useMessageQueue';
+import type { QueuedMessage } from 'shared/types';
 
 /**
  * Extended message queue hook that supports live injection into running processes.
@@ -19,6 +21,8 @@ export function useMessageQueueInjection(
   attemptId: string | undefined,
   runningProcessId: string | undefined
 ) {
+  const queryClient = useQueryClient();
+  const queryKey = useMemo(() => ['messageQueue', attemptId], [attemptId]);
   const messageQueue = useMessageQueue(attemptId);
   const { addMessage, removeMessage } = messageQueue;
   const [isInjecting, setIsInjecting] = useState(false);
@@ -58,6 +62,11 @@ export function useMessageQueueInjection(
           if (result.injected) {
             // Successfully injected - remove from queue since message was delivered
             await removeMessage(message.id);
+            // Immediately update cache to prevent race condition with invalidateQueries
+            // The removeMessage mutation's onSettled may cause a brief flicker otherwise
+            queryClient.setQueryData<QueuedMessage[]>(queryKey, (old = []) =>
+              old.filter((m) => m.id !== message.id)
+            );
             return { queued: false, injected: true };
           }
 
@@ -82,7 +91,7 @@ export function useMessageQueueInjection(
       // No running process, just queued
       return { queued: true, injected: false };
     },
-    [addMessage, removeMessage, runningProcessId]
+    [addMessage, removeMessage, runningProcessId, queryClient, queryKey]
   );
 
   /**
