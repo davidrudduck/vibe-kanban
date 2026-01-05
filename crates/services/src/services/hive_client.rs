@@ -158,6 +158,28 @@ pub struct AuthResultMessage {
     pub error: Option<String>,
     pub protocol_version: u32,
     pub linked_projects: Vec<LinkedProjectInfo>,
+    /// Swarm labels for the organization (synced from hive to nodes)
+    #[serde(default)]
+    pub swarm_labels: Vec<SwarmLabelInfo>,
+}
+
+/// Information about a swarm label sent during auth.
+///
+/// Swarm labels are organization-global labels (project_id = NULL) that are
+/// managed on the hive and synced to nodes. These labels should be used
+/// for tasks in swarm-connected projects.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SwarmLabelInfo {
+    /// Label ID on the hive
+    pub id: Uuid,
+    /// Label name
+    pub name: String,
+    /// Lucide icon name
+    pub icon: String,
+    /// Hex color code
+    pub color: String,
+    /// Version for conflict resolution
+    pub version: i64,
 }
 
 /// Information about a project in the organization sent during auth.
@@ -541,6 +563,8 @@ pub enum HiveEvent {
         node_id: Uuid,
         organization_id: Uuid,
         linked_projects: Vec<LinkedProjectInfo>,
+        /// Swarm labels synced from hive on connection
+        swarm_labels: Vec<SwarmLabelInfo>,
     },
     /// Disconnected from hive
     Disconnected { reason: String },
@@ -554,7 +578,7 @@ pub enum HiveEvent {
     NodeRemoved(NodeRemovedMessage),
     /// Task sync response received (shared_task_id assigned)
     TaskSyncResponse(TaskSyncResponseMessage),
-    /// Label sync received (label created/updated on another node)
+    /// Label sync received from hive (label created/updated/deleted on hive)
     LabelSync(LabelSyncBroadcastMessage),
     /// Error from hive
     Error { message: String },
@@ -704,19 +728,22 @@ impl HiveClient {
             state.connected = true;
         }
 
-        // Emit connected event
+        // Emit connected event with swarm labels for local storage
+        let swarm_labels_count = auth_result.swarm_labels.len();
         let _ = self
             .event_tx
             .send(HiveEvent::Connected {
                 node_id,
                 organization_id,
                 linked_projects: auth_result.linked_projects,
+                swarm_labels: auth_result.swarm_labels,
             })
             .await;
 
         tracing::info!(
             node_id = %node_id,
             organization_id = %organization_id,
+            swarm_labels = swarm_labels_count,
             "connected to hive"
         );
 
