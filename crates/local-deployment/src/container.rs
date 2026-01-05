@@ -7,6 +7,7 @@ use std::{
 };
 
 use anyhow::anyhow;
+use chrono::Utc;
 use async_trait::async_trait;
 use command_group::AsyncGroupChild;
 use db::{
@@ -33,9 +34,9 @@ use executors::{
         BaseCodingAgent, ExecutorExitResult, ExecutorExitSignal, claude::protocol::ProtocolPeer,
     },
     logs::{
-        NormalizedEntryType,
+        NormalizedEntry, NormalizedEntryType,
         utils::{
-            ConversationPatch,
+            ConversationPatch, EntryIndexProvider,
             patch::{escape_json_pointer_segment, extract_normalized_entry_from_patch},
         },
     },
@@ -72,6 +73,9 @@ pub struct LocalContainerService {
     /// Protocol peers for message injection (keyed by execution_process_id).
     /// Only Claude Code executors have protocol peers.
     protocol_peers: Arc<RwLock<HashMap<Uuid, Arc<ProtocolPeer>>>>,
+    /// Entry index providers for message injection (keyed by execution_process_id).
+    /// Used to track the next entry index for normalized log entries.
+    entry_index_providers: Arc<RwLock<HashMap<Uuid, EntryIndexProvider>>>,
     config: Arc<RwLock<Config>>,
     git: GitService,
     image_service: ImageService,
@@ -93,6 +97,7 @@ impl LocalContainerService {
     ) -> Self {
         let child_store = Arc::new(RwLock::new(HashMap::new()));
         let protocol_peers = Arc::new(RwLock::new(HashMap::new()));
+        let entry_index_providers = Arc::new(RwLock::new(HashMap::new()));
 
         // Initialize log batcher for batched database writes
         let log_batcher = LogBatcher::spawn(&db);
@@ -105,6 +110,7 @@ impl LocalContainerService {
             child_store,
             msg_stores,
             protocol_peers,
+            entry_index_providers,
             config,
             git,
             image_service,
@@ -149,6 +155,24 @@ impl LocalContainerService {
     /// Remove a protocol peer when the process exits.
     pub async fn remove_protocol_peer(&self, exec_id: &Uuid) {
         let mut map = self.protocol_peers.write().await;
+        map.remove(exec_id);
+    }
+
+    /// Get an entry index provider for log message injection.
+    pub async fn get_entry_index_provider(&self, exec_id: &Uuid) -> Option<EntryIndexProvider> {
+        let map = self.entry_index_providers.read().await;
+        map.get(exec_id).cloned()
+    }
+
+    /// Store an entry index provider for log message injection.
+    pub async fn store_entry_index_provider(&self, exec_id: Uuid, provider: EntryIndexProvider) {
+        let mut map = self.entry_index_providers.write().await;
+        map.insert(exec_id, provider);
+    }
+
+    /// Remove an entry index provider when the process exits.
+    pub async fn remove_entry_index_provider(&self, exec_id: &Uuid) {
+        let mut map = self.entry_index_providers.write().await;
         map.remove(exec_id);
     }
 
@@ -606,9 +630,10 @@ impl LocalContainerService {
                 }
             }
 
-            // Cleanup child handle and protocol peer
+            // Cleanup child handle, protocol peer, and entry index provider
             child_store.write().await.remove(&exec_id);
             container.remove_protocol_peer(&exec_id).await;
+            container.remove_entry_index_provider(&exec_id).await;
         })
     }
 
@@ -1368,6 +1393,7 @@ impl ContainerService for LocalContainerService {
         }
         self.remove_child_from_store(&execution_process.id).await;
         self.remove_protocol_peer(&execution_process.id).await;
+        self.remove_entry_index_provider(&execution_process.id).await;
 
         // Mark the process finished in the MsgStore
         if let Some(msg) = self.msg_stores.write().await.remove(&execution_process.id) {
@@ -1598,6 +1624,43 @@ impl ContainerService for LocalContainerService {
                 message_len = message.len(),
                 "Injecting message into running Claude Code process"
             );
+
+            // Emit log entry BEFORE injecting to stdin so the injected message
+            // appears in the executor logs / conversation UI
+            if let Ok(msg_stores) = self.msg_stores.try_read() {
+                if let Some(msg_store) = msg_stores.get(&execution_process_id) {
+                    // Get or create entry index provider for this execution
+                    let index_provider =
+                        match self.get_entry_index_provider(&execution_process_id).await {
+                            Some(provider) => provider,
+                            None => {
+                                // Create new provider by scanning current history
+                                let provider = EntryIndexProvider::start_from(msg_store);
+                                self.store_entry_index_provider(
+                                    execution_process_id,
+                                    provider.clone(),
+                                )
+                                .await;
+                                provider
+                            }
+                        };
+
+                    let entry = NormalizedEntry {
+                        timestamp: Some(Utc::now().to_rfc3339()),
+                        entry_type: NormalizedEntryType::UserMessage,
+                        content: message.clone(),
+                        metadata: Some(serde_json::json!({"injected": true})),
+                    };
+                    let index = index_provider.next();
+                    msg_store.push_patch(ConversationPatch::add_normalized_entry(index, entry));
+                    tracing::debug!(
+                        execution_process_id = %execution_process_id,
+                        entry_index = index,
+                        "Emitted log entry for injected message"
+                    );
+                }
+            }
+
             peer.send_user_message(message)
                 .await
                 .map_err(|e| ContainerError::Other(anyhow!("Failed to inject message: {}", e)))?;
