@@ -2,6 +2,7 @@ import { Badge } from '@/components/ui/badge';
 import { Circle, Monitor } from 'lucide-react';
 import type { MergedProject, CachedNodeStatus } from 'shared/types';
 import { cn } from '@/lib/utils';
+import { useTranslation } from 'react-i18next';
 
 type Props = {
   project: MergedProject;
@@ -76,6 +77,8 @@ function OsIcon({ os, className }: { os: string | null | undefined; className?: 
  * Nordic Clean aesthetic - subtle badges with OS-specific icons.
  */
 export function LocationBadges({ project, compact = false }: Props) {
+  const { t } = useTranslation('projects');
+
   return (
     <div className="flex flex-wrap gap-1.5">
       {/* Local badge */}
@@ -88,7 +91,7 @@ export function LocationBadges({ project, compact = false }: Props) {
           )}
         >
           <Monitor className="h-3 w-3 text-muted-foreground" />
-          {!compact && <span>local</span>}
+          {!compact && <span>{t('location.local')}</span>}
         </Badge>
       )}
 
