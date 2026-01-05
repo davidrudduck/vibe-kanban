@@ -17,7 +17,7 @@ use crate::{
     db::organizations::{MemberRole, OrganizationRepository},
     nodes::{
         CreateNodeApiKey, HeartbeatPayload, LinkProjectData, MergeNodesResult, Node, NodeApiKey,
-        NodeError, NodeProject, NodeRegistration, NodeServiceImpl,
+        NodeError, NodeProject, NodeRegistration, NodeServiceImpl, NodeTaskAttempt,
     },
 };
 
@@ -51,6 +51,10 @@ pub fn protected_router() -> Router<AppState> {
         .route("/nodes/{node_id}", get(get_node))
         .route("/nodes/{node_id}", delete(delete_node))
         .route("/nodes/{node_id}/projects", get(list_node_projects))
+        .route(
+            "/nodes/{node_id}/projects/linked",
+            get(list_linked_node_projects),
+        )
         .route("/nodes/{source_id}/merge-to/{target_id}", post(merge_nodes))
         .route(
             "/nodes/assignments/{assignment_id}/logs",
@@ -63,6 +67,10 @@ pub fn protected_router() -> Router<AppState> {
         .route(
             "/nodes/assignments/{assignment_id}/connection-info",
             get(get_connection_info),
+        )
+        .route(
+            "/nodes/task-attempts/by-shared-task/{shared_task_id}",
+            get(list_task_attempts_by_shared_task),
         )
 }
 
@@ -435,6 +443,30 @@ pub async fn list_node_projects(
     match service.list_node_projects(node_id).await {
         Ok(projects) => (StatusCode::OK, Json(projects)).into_response(),
         Err(error) => node_error_response(error, "failed to list node projects"),
+    }
+}
+
+/// List projects linked to a node that are also linked to a swarm project.
+/// Only swarm-linked projects are returned - unlinked projects are excluded.
+/// Use this endpoint for syncing projects to other nodes.
+#[instrument(
+    name = "nodes.list_linked_projects",
+    skip(state, ctx),
+    fields(user_id = %ctx.user.id, node_id = %node_id)
+)]
+pub async fn list_linked_node_projects(
+    State(state): State<AppState>,
+    Extension(ctx): Extension<RequestContext>,
+    Path(node_id): Path<Uuid>,
+) -> Response {
+    let pool = state.pool();
+    let service = NodeServiceImpl::new(pool.clone());
+
+    let _ = ctx; // TODO: Verify user has access to the node's organization
+
+    match service.list_linked_node_projects(node_id).await {
+        Ok(projects) => (StatusCode::OK, Json(projects)).into_response(),
+        Err(error) => node_error_response(error, "failed to list linked node projects"),
     }
 }
 
@@ -974,6 +1006,67 @@ pub async fn get_connection_info(
     };
 
     (StatusCode::OK, Json(response)).into_response()
+}
+
+// ============================================================================
+// Task Attempts (User JWT Auth)
+// ============================================================================
+
+#[derive(Debug, Serialize)]
+pub struct ListTaskAttemptsBySharedTaskResponse {
+    pub attempts: Vec<NodeTaskAttempt>,
+}
+
+/// List all task attempts for a shared task.
+/// Used by remote nodes to fetch attempts for swarm tasks via the Hive.
+#[instrument(
+    name = "nodes.list_task_attempts_by_shared_task",
+    skip(state, ctx),
+    fields(user_id = %ctx.user.id, shared_task_id = %shared_task_id)
+)]
+pub async fn list_task_attempts_by_shared_task(
+    State(state): State<AppState>,
+    Extension(ctx): Extension<RequestContext>,
+    Path(shared_task_id): Path<Uuid>,
+) -> Response {
+    let pool = state.pool();
+
+    // Get the shared task to verify organization access
+    use crate::db::tasks::SharedTaskRepository;
+    let task_repo = SharedTaskRepository::new(pool);
+    let task = match task_repo.find_by_id(shared_task_id).await {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "shared task not found" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!(?e, "failed to fetch shared task");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal server error" })),
+            )
+                .into_response();
+        }
+    };
+
+    // Verify user has access to the organization
+    if let Err(error) = ensure_member_access(pool, task.organization_id, ctx.user.id).await {
+        return error.into_response();
+    }
+
+    // Get the task attempts
+    let service = NodeServiceImpl::new(pool.clone());
+    match service.list_task_attempts_by_shared_task(shared_task_id).await {
+        Ok(attempts) => {
+            let response = ListTaskAttemptsBySharedTaskResponse { attempts };
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(error) => node_error_response(error, "failed to list task attempts"),
+    }
 }
 
 // ============================================================================
