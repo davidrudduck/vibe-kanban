@@ -17,7 +17,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { useUnifiedProjects } from '@/hooks/useUnifiedProjects';
+import { useMergedProjects } from '@/hooks/useMergedProjects';
 import { useProject } from '@/contexts/ProjectContext';
 
 /**
@@ -44,41 +44,39 @@ export function ProjectSwitcher({ className }: ProjectSwitcherProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { projectId, project } = useProject();
-  const { data: unifiedData, isLoading } = useUnifiedProjects();
+  const { data: mergedData, isLoading } = useMergedProjects();
 
-  // Flatten and sort all projects alphabetically
+  // Transform merged projects to flat list with node info
   const allProjects = useMemo<ProjectItem[]>(() => {
-    if (!unifiedData) return [];
+    if (!mergedData?.projects) return [];
 
     const items: ProjectItem[] = [];
 
-    // Add local projects
-    unifiedData.local.forEach((p) => {
-      items.push({
-        id: p.id,
-        name: p.name,
-        type: 'local',
-      });
-    });
-
-    // Add remote projects (grouped by node in the response)
-    // Use local id (not remote project_id) for API compatibility
-    unifiedData.remote_by_node.forEach((nodeGroup) => {
-      nodeGroup.projects.forEach((p) => {
+    mergedData.projects.forEach((p) => {
+      if (p.has_local) {
+        // Local project - show as local
         items.push({
           id: p.id,
-          name: p.project_name,
-          type: 'remote',
-          nodeName: nodeGroup.node_name,
+          name: p.name,
+          type: 'local',
         });
-      });
+      } else if (p.nodes.length > 0) {
+        // Remote-only project - use first node's info for display
+        const firstNode = p.nodes[0];
+        items.push({
+          id: p.id,
+          name: p.name,
+          type: 'remote',
+          nodeName: firstNode.node_name,
+        });
+      }
     });
 
     // Sort alphabetically by name (case-insensitive)
     return items.sort((a, b) =>
       a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
     );
-  }, [unifiedData]);
+  }, [mergedData]);
 
   const handleSelect = (value: string) => {
     setOpen(false);
