@@ -20,11 +20,10 @@ use super::{
     connection::ConnectionManager,
     message::{
         AttemptSyncMessage, AuthResultMessage, DeregisterMessage, ExecutionSyncMessage,
-        HeartbeatMessage, HiveMessage, LabelSyncBroadcastMessage, LabelSyncMessage,
-        LinkProjectMessage, LinkedProjectInfo, LogsBatchMessage, NodeMessage, NodeRemovedMessage,
-        PROTOCOL_VERSION, ProjectSyncMessage, TaskExecutionStatus, TaskOutputMessage,
-        TaskProgressMessage, TaskStatusMessage, TaskSyncMessage, TaskSyncResponseMessage,
-        UnlinkProjectMessage,
+        HeartbeatMessage, HiveMessage, LinkProjectMessage, LinkedProjectInfo, LogsBatchMessage,
+        NodeMessage, NodeRemovedMessage, PROTOCOL_VERSION, ProjectSyncMessage, SwarmLabelInfo,
+        TaskExecutionStatus, TaskOutputMessage, TaskProgressMessage, TaskStatusMessage,
+        TaskSyncMessage, TaskSyncResponseMessage, UnlinkProjectMessage,
     },
 };
 use crate::nodes::{
@@ -66,6 +65,7 @@ pub async fn handle(socket: WebSocket, pool: PgPool, connections: ConnectionMana
                     error: Some(error.to_string()),
                     protocol_version: PROTOCOL_VERSION,
                     linked_projects: vec![],
+                    swarm_labels: vec![],
                 }),
             )
             .await;
@@ -80,6 +80,14 @@ pub async fn handle(socket: WebSocket, pool: PgPool, connections: ConnectionMana
     // Clone projects for broadcast before moving into response
     let projects_for_broadcast = auth_result.linked_projects.clone();
 
+    tracing::info!(
+        node_id = %auth_result.node_id,
+        org_id = %auth_result.organization_id,
+        linked_projects = auth_result.linked_projects.len(),
+        swarm_labels = auth_result.swarm_labels.len(),
+        "sending auth success with swarm labels"
+    );
+
     // Send auth success response
     if send_message(
         &mut ws_sender,
@@ -90,6 +98,7 @@ pub async fn handle(socket: WebSocket, pool: PgPool, connections: ConnectionMana
             error: None,
             protocol_version: PROTOCOL_VERSION,
             linked_projects: auth_result.linked_projects,
+            swarm_labels: auth_result.swarm_labels,
         }),
     )
     .await
@@ -225,6 +234,8 @@ struct AuthResult {
     node_name: String,
     node_public_url: Option<String>,
     linked_projects: Vec<LinkedProjectInfo>,
+    /// Swarm labels for the organization (synced to nodes on connect)
+    swarm_labels: Vec<SwarmLabelInfo>,
 }
 
 /// Authentication error.
@@ -372,12 +383,33 @@ async fn wait_for_auth(
         })
         .collect();
 
+    // Fetch swarm labels for the organization (org-global labels with project_id = NULL)
+    // These are synced to nodes on connection so they can use them for swarm tasks
+    let swarm_labels = {
+        use crate::db::labels::LabelRepository;
+        let label_repo = LabelRepository::new(pool);
+        label_repo
+            .find_swarm_labels(node.organization_id)
+            .await
+            .map_err(|e| AuthError::RegistrationFailed(format!("failed to fetch labels: {}", e)))?
+            .into_iter()
+            .map(|l| SwarmLabelInfo {
+                id: l.id,
+                name: l.name,
+                icon: l.icon,
+                color: l.color,
+                version: l.version,
+            })
+            .collect()
+    };
+
     Ok(AuthResult {
         node_id: node.id,
         organization_id: node.organization_id,
         node_name,
         node_public_url,
         linked_projects,
+        swarm_labels,
     })
 }
 
@@ -422,8 +454,15 @@ async fn handle_node_message(
             handle_execution_sync(node_id, execution, pool).await
         }
         NodeMessage::LogsBatch(logs) => handle_logs_batch(node_id, logs, pool).await,
-        NodeMessage::LabelSync(label) => {
-            handle_label_sync(node_id, organization_id, label, pool, connections).await
+        NodeMessage::LabelSync(_label) => {
+            // Labels are no longer synced from nodes to hive.
+            // Labels are managed centrally on the hive and synced DOWN to nodes.
+            // Ignore incoming label sync messages from nodes.
+            tracing::debug!(
+                node_id = %node_id,
+                "ignoring deprecated label sync from node - labels are now hive-managed"
+            );
+            Ok(())
         }
         NodeMessage::TaskSync(task) => {
             handle_task_sync(node_id, organization_id, task, pool, ws_sender).await
@@ -1129,73 +1168,9 @@ async fn handle_logs_batch(
     Ok(())
 }
 
-/// Handle a label sync message from a node.
-///
-/// Upserts the label into the hive's labels table using version-based conflict resolution,
-/// then broadcasts the change to all other nodes in the organization.
-async fn handle_label_sync(
-    node_id: Uuid,
-    organization_id: Uuid,
-    label_sync: &LabelSyncMessage,
-    pool: &PgPool,
-    connections: &ConnectionManager,
-) -> Result<(), HandleError> {
-    use crate::db::labels::{LabelRepository, UpsertLabelFromNodeData};
-
-    let repo = LabelRepository::new(pool);
-
-    // Upsert the label with version-based conflict resolution
-    let (label, was_created) = repo
-        .upsert_from_node(UpsertLabelFromNodeData {
-            shared_label_id: label_sync.shared_label_id,
-            organization_id,
-            project_id: label_sync.remote_project_id,
-            origin_node_id: node_id,
-            name: label_sync.name.clone(),
-            icon: label_sync.icon.clone(),
-            color: label_sync.color.clone(),
-            version: label_sync.version,
-        })
-        .await
-        .map_err(|e| HandleError::Database(e.to_string()))?;
-
-    tracing::info!(
-        node_id = %node_id,
-        label_id = %label.id,
-        name = %label.name,
-        was_created = %was_created,
-        version = %label.version,
-        "synced label from node"
-    );
-
-    // Broadcast to all other nodes in the organization
-    let broadcast_msg = HiveMessage::LabelSync(LabelSyncBroadcastMessage {
-        message_id: Uuid::new_v4(),
-        shared_label_id: label.id,
-        project_id: label.project_id,
-        origin_node_id: node_id,
-        name: label.name,
-        icon: label.icon,
-        color: label.color,
-        version: label.version,
-        is_deleted: label.deleted_at.is_some(),
-    });
-
-    let failed = connections
-        .broadcast_to_org_except(organization_id, node_id, broadcast_msg)
-        .await;
-
-    if !failed.is_empty() {
-        tracing::warn!(
-            node_id = %node_id,
-            label_id = %label.id,
-            failed_count = failed.len(),
-            "failed to broadcast label sync to some nodes"
-        );
-    }
-
-    Ok(())
-}
+// NOTE: handle_label_sync has been removed.
+// Labels are now managed centrally on the hive and synced DOWN to nodes.
+// NodeMessage::LabelSync is ignored (see route_message above).
 
 /// Handle a task sync message from a node.
 async fn handle_task_sync(

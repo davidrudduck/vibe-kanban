@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use db::DBService;
-use db::models::{project::Project, task::Task, task::TaskStatus};
+use db::models::{label::Label, project::Project, task::Task, task::TaskStatus};
 use remote::db::tasks::TaskStatus as RemoteTaskStatus;
 use sqlx::SqlitePool;
 use tokio::sync::{RwLock, mpsc};
@@ -16,9 +16,9 @@ use uuid::Uuid;
 
 use super::hive_client::{
     AttemptSyncMessage, ExecutionSyncMessage, HiveClient, HiveClientConfig, HiveClientError,
-    HiveEvent, LinkProjectMessage, LinkedProjectInfo, LogsBatchMessage, NodeMessage,
-    TaskExecutionStatus, TaskStatusMessage, UnlinkProjectMessage, detect_capabilities,
-    get_machine_id,
+    HiveEvent, LabelSyncBroadcastMessage, LinkProjectMessage, LinkedProjectInfo, LogsBatchMessage,
+    NodeMessage, SwarmLabelInfo, TaskExecutionStatus, TaskStatusMessage, UnlinkProjectMessage,
+    detect_capabilities, get_machine_id,
 };
 use super::node_cache;
 use super::remote_client::{RemoteClient, RemoteClientError};
@@ -291,6 +291,7 @@ impl NodeRunnerHandle {
                 node_id,
                 organization_id,
                 linked_projects,
+                swarm_labels,
             } => {
                 let mut state = self.state.write().await;
                 state.node_id = Some(*node_id);
@@ -304,6 +305,7 @@ impl NodeRunnerHandle {
                     node_id = %node_id,
                     organization_id = %organization_id,
                     project_count = linked_projects.len(),
+                    swarm_labels_count = swarm_labels.len(),
                     "connected to hive"
                 );
             }
@@ -605,6 +607,7 @@ pub fn spawn_node_runner<C: ContainerService + Sync + Send + 'static>(
                     node_id,
                     organization_id,
                     linked_projects,
+                    swarm_labels,
                 }) => {
                     // Sync remote projects into unified schema on connect
                     if let Some(ref client) = remote_client
@@ -619,6 +622,16 @@ pub fn spawn_node_runner<C: ContainerService + Sync + Send + 'static>(
                         auto_link_local_projects(&db.pool, &command_tx, &linked_projects).await
                     {
                         tracing::warn!(error = ?e, "Failed to auto-link local projects");
+                    }
+
+                    // Sync swarm labels from hive to local database
+                    if let Err(e) = sync_swarm_labels(&db.pool, &swarm_labels).await {
+                        tracing::warn!(error = ?e, "Failed to sync swarm labels from hive");
+                    } else {
+                        tracing::info!(
+                            label_count = swarm_labels.len(),
+                            "Synced swarm labels from hive"
+                        );
                     }
                 }
                 Some(HiveEvent::TaskAssigned(assignment)) => {
@@ -678,6 +691,47 @@ pub fn spawn_node_runner<C: ContainerService + Sync + Send + 'static>(
                                 local_task_id = %response.local_task_id,
                                 shared_task_id = %response.shared_task_id,
                                 "updated local task with shared_task_id"
+                            );
+                        }
+                    }
+                }
+                Some(HiveEvent::LabelSync(label_sync)) => {
+                    // Handle label sync broadcast from hive
+                    if label_sync.is_deleted {
+                        // Delete the local label if it exists
+                        if let Some(label) =
+                            Label::find_by_shared_label_id(&db.pool, label_sync.shared_label_id)
+                                .await
+                                .ok()
+                                .flatten()
+                        {
+                            if let Err(e) = Label::delete(&db.pool, label.id).await {
+                                tracing::warn!(
+                                    error = ?e,
+                                    shared_label_id = %label_sync.shared_label_id,
+                                    "Failed to delete label from hive sync"
+                                );
+                            } else {
+                                tracing::info!(
+                                    shared_label_id = %label_sync.shared_label_id,
+                                    name = %label_sync.name,
+                                    "Deleted label from hive sync"
+                                );
+                            }
+                        }
+                    } else {
+                        // Create or update the label
+                        if let Err(e) = upsert_swarm_label(&db.pool, &label_sync).await {
+                            tracing::warn!(
+                                error = ?e,
+                                shared_label_id = %label_sync.shared_label_id,
+                                "Failed to upsert label from hive sync"
+                            );
+                        } else {
+                            tracing::info!(
+                                shared_label_id = %label_sync.shared_label_id,
+                                name = %label_sync.name,
+                                "Upserted label from hive sync"
                             );
                         }
                     }
@@ -865,6 +919,87 @@ async fn auto_link_local_projects(
 
     if linked_count > 0 {
         tracing::info!(linked_count, "Auto-linked local projects to hive");
+    }
+
+    Ok(())
+}
+
+/// Sync swarm labels from hive to local database.
+///
+/// This is called on connection to populate the local label cache with
+/// organization-global labels from the hive. These labels are used for
+/// tasks in swarm-connected projects.
+async fn sync_swarm_labels(
+    pool: &SqlitePool,
+    swarm_labels: &[SwarmLabelInfo],
+) -> Result<(), NodeRunnerError> {
+    for label_info in swarm_labels {
+        // Check if we already have this label by shared_label_id
+        let existing = Label::find_by_shared_label_id(pool, label_info.id).await?;
+
+        if let Some(existing) = existing {
+            // Update if version is newer
+            if label_info.version > existing.version {
+                Label::update_from_hive(
+                    pool,
+                    existing.id,
+                    &label_info.name,
+                    &label_info.icon,
+                    &label_info.color,
+                    label_info.version,
+                )
+                .await?;
+            }
+        } else {
+            // Create new label from hive - swarm labels have project_id = None
+            Label::create_from_hive(
+                pool,
+                label_info.id,
+                None, // Swarm labels are org-global (no project)
+                &label_info.name,
+                &label_info.icon,
+                &label_info.color,
+                label_info.version,
+            )
+            .await?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Upsert a single swarm label from a broadcast message.
+async fn upsert_swarm_label(
+    pool: &SqlitePool,
+    label_sync: &LabelSyncBroadcastMessage,
+) -> Result<(), NodeRunnerError> {
+    let existing = Label::find_by_shared_label_id(pool, label_sync.shared_label_id).await?;
+
+    if let Some(existing) = existing {
+        // Update if version is newer
+        if label_sync.version > existing.version {
+            Label::update_from_hive(
+                pool,
+                existing.id,
+                &label_sync.name,
+                &label_sync.icon,
+                &label_sync.color,
+                label_sync.version,
+            )
+            .await?;
+        }
+    } else {
+        // Create new label from hive - use project_id from broadcast if available
+        Label::create_from_hive(
+            pool,
+            label_sync.shared_label_id,
+            label_sync.project_id, // May be None for swarm labels
+            &label_sync.name,
+            &label_sync.icon,
+            &label_sync.color,
+            label_sync.version,
+        )
+        .await?;
     }
 
     Ok(())
