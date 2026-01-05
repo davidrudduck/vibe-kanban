@@ -92,8 +92,7 @@ async fn run_http_server(base_url: &str, port: u16) -> anyhow::Result<()> {
 
     tracing::info!("[MCP] Starting HTTP server at http://{}/mcp", bind_address);
 
-    // Initialize server once at startup (fetches context, removes get_context tool if unavailable)
-    // Then clone for each session to avoid re-initializing
+    // Initialize server and clone template for each session
     let template_server = Arc::new(TaskServer::new(base_url).init().await);
 
     let service = StreamableHttpService::new(

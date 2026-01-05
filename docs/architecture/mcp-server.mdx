@@ -20,10 +20,10 @@ The MCP server is implemented in Rust using the `rmcp` crate. It exposes tools v
 │                      MCP Server                                 │
 │              crates/server/src/mcp/task_server.rs               │
 │                                                                 │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
-│  │ Tool Router │  │   Context   │  │   HTTP Client           │  │
-│  │  (18 tools) │  │   Cache     │  │   (reqwest)             │  │
-│  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
+│  ┌─────────────────────┐  ┌───────────────────────────────┐  │
+│  │    Tool Router      │  │        HTTP Client            │  │
+│  │     (20 tools)      │  │         (reqwest)             │  │
+│  └─────────────────────┘  └───────────────────────────────┘  │
 └───────────────────────────┬─────────────────────────────────────┘
                             │ HTTP REST API
                             ▼
@@ -54,26 +54,23 @@ When an MCP client calls a tool, the request follows this path:
 5. **Response Processing**: Parses API response and transforms to tool result
 6. **MCP Response**: Returns CallToolResult to client
 
-### 2. Context Detection
+### 2. Context Lookup
 
-On server startup, the MCP server attempts to detect if it's running within a Vibe Kanban task attempt:
+Context tools (`get_context`, `get_task_id`, `get_project_id`) require a `cwd` parameter and perform dynamic lookup:
 
 ```rust
-async fn fetch_context_at_startup(&self) -> Option<McpContext> {
-    // Get current working directory
-    let current_dir = std::env::current_dir().ok()?;
-
-    // Query backend for attempt context
+async fn fetch_context_for_path(&self, path: &str) -> Option<McpContext> {
+    // Query backend for attempt context using provided path
     let url = self.url("/api/containers/attempt-context");
     let response = self.client.get(&url)
-        .query(&ContainerQuery { container_ref: path })
+        .query(&ContainerQuery { container_ref: path.to_string() })
         .send().await;
 
-    // Cache context if available
+    // Parse and return context if path matches a task attempt worktree
 }
 ```
 
-If context is detected, the `get_context` tool becomes available. If not, it's removed from the tool registry.
+This approach works in both stdio and HTTP modes, as context is resolved per-request based on the provided working directory rather than cached at startup.
 
 ## Key Components
 
@@ -87,7 +84,6 @@ pub struct TaskServer {
     client: reqwest::Client,    // HTTP client for backend calls
     base_url: String,           // Backend API base URL
     tool_router: ToolRouter<TaskServer>,  // Tool routing
-    context: Option<McpContext>,  // Cached attempt context
 }
 ```
 
@@ -234,20 +230,25 @@ async fn list_tasks(&self, Parameters(req): Parameters<ListTasksRequest>)
 }
 ```
 
-### Pattern 3: Create with Context
+### Pattern 3: Create with Parent Linking
 
-Use cached context to auto-populate fields:
+Create tasks with optional parent linking for subtask hierarchies:
 
 ```rust
 #[tool(description = "Create task. Requires project_id.")]
 async fn create_task(&self, Parameters(req): Parameters<CreateTaskRequest>)
     -> Result<CallToolResult, ErrorData>
 {
-    // Resolve parent task from context if link_to_parent is true
+    // Resolve parent task - explicit parent_task_id is required if link_to_parent is true
     let parent_task_id = if let Some(explicit) = req.parent_task_id {
         Some(explicit)
     } else if req.link_to_parent.unwrap_or(false) {
-        self.context.as_ref().map(|ctx| ctx.task_id)
+        // Caller must provide parent_task_id when link_to_parent is true
+        // Use get_context or get_task_id tools first to obtain the current task ID
+        return TaskServer::err(
+            "link_to_parent requires parent_task_id. Use get_context or get_task_id first.",
+            None,
+        );
     } else {
         None
     };
@@ -265,6 +266,10 @@ async fn create_task(&self, Parameters(req): Parameters<CreateTaskRequest>)
     ).await { ... };
 }
 ```
+
+<Note>
+To create subtasks, first call `get_task_id` with your current working directory to get the parent task ID, then pass it as `parent_task_id` when creating the subtask.
+</Note>
 
 ### Pattern 4: Multi-Step Operations
 
