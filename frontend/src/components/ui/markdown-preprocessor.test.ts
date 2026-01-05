@@ -9,17 +9,38 @@ describe('preprocessMarkdown', () => {
       );
     });
 
-    it('escapes closing underscore of _italic_ after word character', () => {
-      // The closing underscore follows 'c' (word char), so it gets escaped
-      // This is expected behavior - markdown-to-jsx still renders correctly
-      expect(preprocessMarkdown('this is _italic_ text')).toBe(
-        'this is _italic\\_ text'
+    it('escapes all underscores in VK_DATABASE_PATH', () => {
+      // Both underscores should be escaped to prevent _DATABASE_ becoming italic
+      expect(preprocessMarkdown('VK_DATABASE_PATH')).toBe(
+        'VK\\_DATABASE\\_PATH'
       );
     });
 
-    it('preserves _italic_ at start of line', () => {
-      // Opening underscore after space is preserved
-      expect(preprocessMarkdown('_italic_ text')).toBe('_italic\\_ text');
+    it('escapes underscores followed by word characters', () => {
+      // _DATABASE starts with underscore followed by word char
+      expect(preprocessMarkdown('_DATABASE_PATH')).toBe('\\_DATABASE\\_PATH');
+    });
+
+    it('escapes multi-underscore identifiers', () => {
+      expect(preprocessMarkdown('one_two_three_four')).toBe(
+        'one\\_two\\_three\\_four'
+      );
+    });
+
+    it('preserves intentional italic with spaces around both underscores', () => {
+      // Intentional italic: space before opening AND after closing underscore
+      // The closing underscore gets escaped because it follows a word char,
+      // but markdown-to-jsx still renders correctly
+      expect(preprocessMarkdown('this is _italic_ text')).toBe(
+        'this is \\_italic\\_ text'
+      );
+    });
+
+    it('handles mixed intentional italic and snake_case', () => {
+      // "important" underscores get escaped, as does variable_name
+      expect(preprocessMarkdown('use _important_ variable_name')).toBe(
+        'use \\_important\\_ variable\\_name'
+      );
     });
 
     it('preserves underscores inside backticks', () => {
@@ -41,6 +62,18 @@ describe('preprocessMarkdown', () => {
 
     it('handles empty string', () => {
       expect(preprocessMarkdown('')).toBe('');
+    });
+
+    it('handles underscore at end of word only', () => {
+      expect(preprocessMarkdown('test_')).toBe('test\\_');
+    });
+
+    it('handles underscore at start of word only', () => {
+      expect(preprocessMarkdown('_test')).toBe('\\_test');
+    });
+
+    it('preserves standalone underscore surrounded by spaces', () => {
+      expect(preprocessMarkdown('a _ b')).toBe('a _ b');
     });
   });
 });
