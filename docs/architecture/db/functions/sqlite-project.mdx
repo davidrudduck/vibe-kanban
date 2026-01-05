@@ -80,7 +80,7 @@ async fn find_all(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error>
 
 **Used By:**
 - `routes/projects.rs` - GET /api/projects
-- `routes/unified_projects.rs` - Merged projects view
+- `routes/projects.rs` - GET /api/merged-projects
 
 ---
 
@@ -152,7 +152,7 @@ async fn find_by_remote_project_id(
 
 **Used By:**
 - `services/hive_sync.rs` - Remote project synchronization
-- `routes/unified_projects.rs` - Project linking
+- `routes/projects.rs` - Project linking
 
 ---
 
@@ -340,7 +340,7 @@ async fn find_remote_projects(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Erro
 **Returns:** Vector of remote projects ordered by name.
 
 **Used By:**
-- `routes/unified_projects.rs` - Remote projects list
+- `routes/projects.rs` - GET /api/merged-projects
 - `services/hive_sync.rs` - Sync status
 
 ---
@@ -357,7 +357,7 @@ async fn find_local_projects(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error
 **Returns:** Vector of local projects ordered by creation date.
 
 **Used By:**
-- `routes/unified_projects.rs` - Local projects list
+- `routes/projects.rs` - GET /api/merged-projects
 - `services/hive_sync.rs` - Project sharing
 
 ---
