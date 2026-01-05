@@ -183,6 +183,39 @@ impl<'a> NodeProjectRepository<'a> {
         Ok(links)
     }
 
+    /// List project links for a node that are linked to a swarm project.
+    /// Only projects in `swarm_project_nodes` are returned - unlinked projects are excluded.
+    pub async fn list_linked_by_node(
+        &self,
+        node_id: Uuid,
+    ) -> Result<Vec<NodeProject>, NodeProjectError> {
+        let links = sqlx::query_as::<_, NodeProject>(
+            r#"
+            SELECT
+                np.id,
+                np.node_id,
+                np.project_id,
+                np.local_project_id,
+                np.git_repo_path,
+                np.default_branch,
+                np.sync_status,
+                np.last_synced_at,
+                np.created_at
+            FROM node_projects np
+            INNER JOIN swarm_project_nodes spn
+                ON spn.node_id = np.node_id
+                AND spn.local_project_id = np.local_project_id
+            WHERE np.node_id = $1
+            ORDER BY np.created_at DESC
+            "#,
+        )
+        .bind(node_id)
+        .fetch_all(self.pool)
+        .await?;
+
+        Ok(links)
+    }
+
     /// Update sync status
     pub async fn update_sync_status(
         &self,
