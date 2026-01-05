@@ -80,6 +80,7 @@ pub struct SwarmProjectWithNodesRow {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub linked_nodes_count: i64,
+    pub linked_node_names: Vec<String>,
 }
 
 /// Extended swarm project info with linked nodes count.
@@ -88,6 +89,7 @@ pub struct SwarmProjectWithNodes {
     #[serde(flatten)]
     pub project: SwarmProject,
     pub linked_nodes_count: i64,
+    pub linked_node_names: Vec<String>,
 }
 
 impl From<SwarmProjectWithNodesRow> for SwarmProjectWithNodes {
@@ -103,6 +105,7 @@ impl From<SwarmProjectWithNodesRow> for SwarmProjectWithNodes {
                 updated_at: row.updated_at,
             },
             linked_nodes_count: row.linked_nodes_count,
+            linked_node_names: row.linked_node_names,
         }
     }
 }
@@ -224,9 +227,11 @@ impl SwarmProjectRepository {
                 sp.metadata,
                 sp.created_at,
                 sp.updated_at,
-                COUNT(spn.id)::bigint AS linked_nodes_count
+                COUNT(spn.id)::bigint AS linked_nodes_count,
+                COALESCE(ARRAY_AGG(DISTINCT n.name) FILTER (WHERE n.name IS NOT NULL), ARRAY[]::text[]) AS linked_node_names
             FROM swarm_projects sp
             LEFT JOIN swarm_project_nodes spn ON sp.id = spn.swarm_project_id
+            LEFT JOIN nodes n ON spn.node_id = n.id
             WHERE sp.organization_id = $1
             GROUP BY sp.id
             ORDER BY sp.created_at DESC
