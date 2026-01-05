@@ -142,7 +142,11 @@ last_attempt_at: Date | null,
 /**
  * GitHub integration fields
  */
-github_enabled: boolean, github_owner: string | null, github_repo: string | null, github_open_issues: number, github_open_prs: number, github_last_synced_at: Date | null, };
+github_enabled: boolean, github_owner: string | null, github_repo: string | null, github_open_issues: number, github_open_prs: number, github_last_synced_at: Date | null, 
+/**
+ * Task status counts for quick display
+ */
+task_counts: TaskCounts, };
 
 export type NodeLocation = { node_id: string, 
 /**
@@ -156,7 +160,13 @@ node_short_name: string, node_status: CachedNodeStatus, node_public_url: string 
 /**
  * The project ID on that node
  */
-remote_project_id: string, };
+remote_project_id: string, 
+/**
+ * Operating system: "darwin", "linux", "windows"
+ */
+node_os: string | null, };
+
+export type TaskCounts = { todo: number, in_progress: number, in_review: number, done: number, };
 
 export type MergedProjectsResponse = { projects: Array<MergedProject>, };
 

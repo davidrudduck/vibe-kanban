@@ -156,6 +156,33 @@ pub struct CachedNodeInput {
 }
 
 impl CachedNode {
+    /// List all cached nodes (used for looking up node info like OS)
+    pub async fn list_all(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            CachedNode,
+            r#"
+            SELECT
+                id                  AS "id!: Uuid",
+                organization_id     AS "organization_id!: Uuid",
+                name                AS "name!",
+                machine_id          AS "machine_id!",
+                status              AS "status!: String",
+                capabilities        AS "capabilities_json!",
+                public_url          AS "public_url?",
+                last_heartbeat_at   AS "last_heartbeat_at?: DateTime<Utc>",
+                connected_at        AS "connected_at?: DateTime<Utc>",
+                disconnected_at     AS "disconnected_at?: DateTime<Utc>",
+                created_at          AS "created_at!: DateTime<Utc>",
+                updated_at          AS "updated_at!: DateTime<Utc>",
+                last_synced_at      AS "last_synced_at!: DateTime<Utc>"
+            FROM cached_nodes
+            ORDER BY name ASC
+            "#,
+        )
+        .fetch_all(pool)
+        .await
+    }
+
     /// List all cached nodes for an organization
     pub async fn list_by_organization(
         pool: &SqlitePool,
