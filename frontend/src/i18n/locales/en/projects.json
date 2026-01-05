@@ -5,12 +5,29 @@
   "linkToOrganization": "Link to Remote Project",
   "loading": "Loading projects...",
   "errors": {
-    "fetchFailed": "Failed to fetch projects"
+    "fetchFailed": "Failed to fetch projects",
+    "deleteFailed": "Failed to delete \"{{name}}\". Please try again.",
+    "terminalFailed": "Failed to open terminal. Please try again.",
+    "githubSettingsFailed": "Failed to open GitHub settings. Please try again.",
+    "linkFolderFailed": "Failed to link to local folder. Please try again."
   },
   "empty": {
     "title": "No projects yet",
     "description": "Get started by creating your first project.",
-    "createFirst": "Create your first project"
+    "createFirst": "Create your first project",
+    "noFilterMatch": "No projects match the current filter"
+  },
+  "tasks": {
+    "empty": "No tasks yet"
+  },
+  "location": {
+    "local": "local"
+  },
+  "status": {
+    "todo": "Todo",
+    "inProgress": "In Progress",
+    "review": "Review",
+    "done": "Done"
   },
   "linkDialog": {
     "title": "Link Project to Remote Project",

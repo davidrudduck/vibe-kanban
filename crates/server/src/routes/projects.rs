@@ -260,12 +260,22 @@ pub async fn get_merged_projects(
     };
 
     // Get all remote projects (from other nodes)
-    let all_remote = Project::find_remote_projects(pool)
-        .await
-        .unwrap_or_default();
+    let all_remote = match Project::find_remote_projects(pool).await {
+        Ok(projects) => projects,
+        Err(e) => {
+            tracing::warn!(error = ?e, "Failed to load remote projects");
+            Vec::new()
+        }
+    };
 
     // Load cached nodes to get OS info for each node
-    let cached_nodes = CachedNode::list_all(pool).await.unwrap_or_default();
+    let cached_nodes = match CachedNode::list_all(pool).await {
+        Ok(nodes) => nodes,
+        Err(e) => {
+            tracing::warn!(error = ?e, "Failed to load cached nodes for OS info");
+            Vec::new()
+        }
+    };
     let node_os_map: HashMap<Uuid, String> = cached_nodes
         .into_iter()
         .map(|n| (n.id, n.capabilities().os))

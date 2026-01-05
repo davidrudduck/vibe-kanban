@@ -43,8 +43,8 @@ type Props = {
  *
  * Layout:
  * ┌─────────────────────────────────────────┐
- * │ [Icon] Project Name            [•••]    │ ← Header with dropdown
- * │ ○ local-only  OR  ○ tardis ○ macbook    │ ← Location badges
+ * │ Project Name                   [•••]    │ ← Header with dropdown
+ * │ ○ local  ○ tardis  ○ macbook            │ ← Location badges (can show multiple)
  * ├─────────────────────────────────────────┤
  * │ GitHub: 3 issues • 1 PR                 │ ← GitHub row (if enabled)
  * ├─────────────────────────────────────────┤
@@ -81,6 +81,7 @@ function UnifiedProjectCard({ project, isFocused, onRefresh, onEdit }: Props) {
       onRefresh();
     } catch (error) {
       console.error('Failed to delete project:', error);
+      alert(t('errors.deleteFailed', { name: project.name }));
     }
   };
 
@@ -131,6 +132,7 @@ function UnifiedProjectCard({ project, isFocused, onRefresh, onEdit }: Props) {
       });
     } catch (error) {
       console.error('Failed to open terminal:', error);
+      alert(t('errors.terminalFailed'));
     }
   };
 
@@ -156,6 +158,7 @@ function UnifiedProjectCard({ project, isFocused, onRefresh, onEdit }: Props) {
       }
     } catch (error) {
       console.error('Failed to open GitHub settings:', error);
+      alert(t('errors.githubSettingsFailed'));
     }
   };
 
@@ -284,6 +287,7 @@ function UnifiedProjectCard({ project, isFocused, onRefresh, onEdit }: Props) {
                         }
                       } catch (error) {
                         console.error('Failed to link to local folder:', error);
+                        alert(t('errors.linkFolderFailed'));
                       }
                     }}
                   >
@@ -326,7 +330,7 @@ function UnifiedProjectCard({ project, isFocused, onRefresh, onEdit }: Props) {
         {/* Empty state for projects with no tasks */}
         {!hasTaskCounts && (
           <div className="text-xs text-muted-foreground/60 py-1">
-            No tasks yet
+            {t('tasks.empty')}
           </div>
         )}
       </CardContent>

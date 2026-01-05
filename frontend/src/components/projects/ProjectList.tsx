@@ -204,7 +204,7 @@ export function ProjectList() {
           </Card>
         ) : !hasFilteredProjects ? (
           <div className="text-center py-12 text-muted-foreground">
-            No projects match the current filter
+            {t('empty.noFilterMatch')}
           </div>
         ) : (
           /* Project Grid - Responsive 1-4 columns with staggered entrance */
