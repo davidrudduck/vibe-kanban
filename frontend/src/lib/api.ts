@@ -93,7 +93,6 @@ import {
   PushError,
   ScanConfigRequest,
   ScanConfigResponse,
-  UnifiedProjectsResponse,
   MergedProjectsResponse,
   CachedNodeStatus,
   ProcessInfo,
@@ -394,11 +393,6 @@ export const projectsApi = {
       body: JSON.stringify(data),
     });
     return handleApiResponse<ScanConfigResponse>(response);
-  },
-
-  getUnified: async (): Promise<UnifiedProjectsResponse> => {
-    const response = await makeRequest('/api/unified-projects');
-    return handleApiResponse<UnifiedProjectsResponse>(response);
   },
 
   getMerged: async (): Promise<MergedProjectsResponse> => {

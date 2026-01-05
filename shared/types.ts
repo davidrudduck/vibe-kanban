@@ -112,16 +112,6 @@ node_id: string,
  */
 project_id: string, project_name: string, git_repo_path: string, last_synced_at: Date | null, created_at: Date, node_name: string, node_status: CachedNodeStatus, node_public_url: string | null, };
 
-export type UnifiedProjectsResponse = { 
-/**
- * Local projects (always shown first)
- */
-local: Array<Project>, 
-/**
- * Projects from other nodes grouped by node
- */
-remote_by_node: Array<RemoteNodeGroup>, };
-
 export type RemoteNodeGroup = { node_id: string, node_name: string, node_status: CachedNodeStatus, node_public_url: string | null, projects: Array<RemoteNodeProject>, };
 
 export type MergedProject = { 
