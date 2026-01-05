@@ -8,6 +8,7 @@ use remote::{
     activity::ActivityResponse,
     nodes::{Node, NodeApiKey, NodeProject},
     routes::{
+        labels::{SetTaskLabelsRequest, TaskLabelsResponse},
         projects::ListProjectNodesResponse,
         swarm_labels::{ListSwarmLabelsResponse, MergeLabelsResult, SwarmLabelResponse},
         swarm_projects::{
@@ -79,6 +80,11 @@ impl RemoteClientError {
             Self::Http { status, .. } => (500..=599).contains(status),
             _ => false,
         }
+    }
+
+    /// Returns true if the error is a 404 Not Found.
+    pub fn is_not_found(&self) -> bool {
+        matches!(self, Self::Http { status: 404, .. })
     }
 }
 
@@ -697,6 +703,42 @@ impl RemoteClient {
         self.patch_authed::<Value, _>(&format!("/v1/tasks/{task_id}/executing-node"), &request)
             .await?;
         Ok(())
+    }
+
+    /// Finds a shared task by its source task ID and source node ID.
+    ///
+    /// This is used for duplicate detection during task re-sync.
+    /// Returns None if no task exists with the given source_task_id.
+    pub async fn find_shared_task_by_source_id(
+        &self,
+        project_id: Uuid,
+        source_node_id: Uuid,
+        source_task_id: Uuid,
+    ) -> Result<Option<SharedTaskResponse>, RemoteClientError> {
+        let path = format!(
+            "/v1/tasks/by-source?project_id={}&source_node_id={}&source_task_id={}",
+            project_id, source_node_id, source_task_id
+        );
+        match self.get_authed::<SharedTaskResponse>(&path).await {
+            Ok(response) => Ok(Some(response)),
+            Err(e) if e.is_not_found() => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Sets labels for a shared task.
+    ///
+    /// Replaces all existing labels with the provided set.
+    pub async fn set_task_labels(
+        &self,
+        task_id: Uuid,
+        label_ids: &[Uuid],
+    ) -> Result<TaskLabelsResponse, RemoteClientError> {
+        let request = SetTaskLabelsRequest {
+            label_ids: label_ids.to_vec(),
+        };
+        self.post_authed(&format!("/v1/tasks/{task_id}/labels"), Some(&request))
+            .await
     }
 
     // =====================

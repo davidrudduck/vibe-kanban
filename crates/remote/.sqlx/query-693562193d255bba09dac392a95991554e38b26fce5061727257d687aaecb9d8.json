@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO shared_tasks (\n                organization_id,\n                project_id,\n                creator_user_id,\n                assignee_user_id,\n                title,\n                description,\n                status,\n                shared_at\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, 'todo'::task_status), NOW())\n            RETURNING id                 AS \"id!\",\n                      organization_id    AS \"organization_id!: Uuid\",\n                      project_id         AS \"project_id!\",\n                      creator_user_id    AS \"creator_user_id?: Uuid\",\n                      assignee_user_id   AS \"assignee_user_id?: Uuid\",\n                      deleted_by_user_id AS \"deleted_by_user_id?: Uuid\",\n                      executing_node_id  AS \"executing_node_id?: Uuid\",\n                      title              AS \"title!\",\n                      description        AS \"description?\",\n                      status             AS \"status!: TaskStatus\",\n                      version            AS \"version!\",\n                      deleted_at         AS \"deleted_at?\",\n                      shared_at          AS \"shared_at?\",\n                      archived_at        AS \"archived_at?\",\n                      created_at         AS \"created_at!\",\n                      updated_at         AS \"updated_at!\"\n            ",
+  "query": "\n        UPDATE shared_tasks AS t\n        SET title       = COALESCE($2, t.title),\n            description = COALESCE($3, t.description),\n            status      = COALESCE($4, t.status),\n            archived_at = CASE WHEN $6 THEN $7 ELSE t.archived_at END,\n            version     = t.version + 1,\n            updated_at  = NOW()\n        WHERE t.id = $1\n          AND t.version = COALESCE($5, t.version)\n          AND t.deleted_at IS NULL\n        RETURNING\n            t.id                AS \"id!\",\n            t.organization_id   AS \"organization_id!: Uuid\",\n            t.project_id        AS \"project_id!\",\n            t.creator_user_id   AS \"creator_user_id?: Uuid\",\n            t.assignee_user_id  AS \"assignee_user_id?: Uuid\",\n            t.deleted_by_user_id AS \"deleted_by_user_id?: Uuid\",\n            t.executing_node_id AS \"executing_node_id?: Uuid\",\n            t.source_task_id    AS \"source_task_id?: Uuid\",\n            t.source_node_id    AS \"source_node_id?: Uuid\",\n            t.title             AS \"title!\",\n            t.description       AS \"description?\",\n            t.status            AS \"status!: TaskStatus\",\n            t.version           AS \"version!\",\n            t.deleted_at        AS \"deleted_at?\",\n            t.shared_at         AS \"shared_at?\",\n            t.archived_at       AS \"archived_at?\",\n            t.created_at        AS \"created_at!\",\n            t.updated_at        AS \"updated_at!\"\n        ",
   "describe": {
     "columns": [
       {
@@ -40,16 +40,26 @@
       },
       {
         "ordinal": 7,
+        "name": "source_task_id?: Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "source_node_id?: Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 9,
         "name": "title!",
         "type_info": "Text"
       },
       {
-        "ordinal": 8,
+        "ordinal": 10,
         "name": "description?",
         "type_info": "Text"
       },
       {
-        "ordinal": 9,
+        "ordinal": 11,
         "name": "status!: TaskStatus",
         "type_info": {
           "Custom": {
@@ -67,41 +77,38 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 12,
         "name": "version!",
         "type_info": "Int8"
       },
       {
-        "ordinal": 11,
+        "ordinal": 13,
         "name": "deleted_at?",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 12,
+        "ordinal": 14,
         "name": "shared_at?",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 13,
+        "ordinal": 15,
         "name": "archived_at?",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 14,
+        "ordinal": 16,
         "name": "created_at!",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 15,
+        "ordinal": 17,
         "name": "updated_at!",
         "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Uuid",
-        "Uuid",
         "Uuid",
         "Text",
         "Text",
@@ -118,13 +125,18 @@
               ]
             }
           }
-        }
+        },
+        "Int8",
+        "Bool",
+        "Timestamptz"
       ]
     },
     "nullable": [
       false,
       false,
       false,
+      true,
+      true,
       true,
       true,
       true,
@@ -140,5 +152,5 @@
       false
     ]
   },
-  "hash": "eeeb0b1b64a14009fd83f61338c23123ca3e12c9a700553cae001d22c3c49ad6"
+  "hash": "693562193d255bba09dac392a95991554e38b26fce5061727257d687aaecb9d8"
 }
