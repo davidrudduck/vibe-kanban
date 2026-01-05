@@ -16,9 +16,42 @@ impl ShareConfig {
     pub fn from_env() -> Option<Self> {
         let raw_base = std::env::var("VK_SHARED_API_BASE")
             .ok()
-            .or_else(|| option_env!("VK_SHARED_API_BASE").map(|s| s.to_string()))?;
-        let api_base = Url::parse(raw_base.trim()).ok()?;
-        let websocket_base = derive_ws_url(api_base.clone()).ok()?;
+            .or_else(|| option_env!("VK_SHARED_API_BASE").map(|s| s.to_string()));
+
+        let raw_base = match raw_base {
+            Some(b) if !b.trim().is_empty() => b,
+            _ => return None, // Not configured, that's fine - standalone mode
+        };
+
+        let api_base = match Url::parse(raw_base.trim()) {
+            Ok(url) => url,
+            Err(e) => {
+                tracing::error!(
+                    url = %raw_base,
+                    error = %e,
+                    "Failed to parse VK_SHARED_API_BASE. Check the URL format."
+                );
+                return None;
+            }
+        };
+
+        let websocket_base = match derive_ws_url(api_base.clone()) {
+            Ok(url) => url,
+            Err(e) => {
+                tracing::error!(
+                    api_base = %api_base,
+                    error = %e,
+                    "Failed to derive WebSocket URL from VK_SHARED_API_BASE"
+                );
+                return None;
+            }
+        };
+
+        tracing::debug!(
+            api_base = %api_base,
+            websocket_base = %websocket_base,
+            "Share config loaded from environment"
+        );
 
         Some(Self {
             api_base,

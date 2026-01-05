@@ -302,6 +302,30 @@ impl Deployment for LocalDeployment {
             node_cache_sync_started: Arc::new(Mutex::new(false)),
         };
 
+        // Log startup config summary for debugging connection issues
+        let has_shared_api = std::env::var("VK_SHARED_API_BASE").is_ok();
+        let has_hive_url = std::env::var("VK_HIVE_URL").is_ok();
+        let has_api_key = std::env::var("VK_NODE_API_KEY").is_ok();
+
+        match &deployment.node_runner_context {
+            Some(_) => {
+                tracing::info!("Hive connection: enabled (node runner started)");
+            }
+            None => {
+                if has_shared_api && (!has_hive_url || !has_api_key) {
+                    // This is the case where something might be misconfigured
+                    tracing::warn!(
+                        has_hive_url = has_hive_url,
+                        has_api_key = has_api_key,
+                        "Hive connection: DISABLED - VK_SHARED_API_BASE is set but hive config is incomplete. \
+                         Check VK_HIVE_URL and VK_NODE_API_KEY in your .env file for typos."
+                    );
+                } else if !has_shared_api {
+                    tracing::info!("Hive connection: not configured (standalone mode)");
+                }
+            }
+        }
+
         if let Some(sc) = share_sync_config {
             deployment.spawn_remote_sync(sc);
         }
