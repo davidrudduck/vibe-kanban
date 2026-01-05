@@ -565,6 +565,36 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
         Ok(())
     }
 
+    /// Updates the shared_task_id for a task and returns the updated task.
+    ///
+    /// This is used during re-sync when a task needs to be re-linked to the Hive.
+    pub async fn update_shared_task_id(
+        pool: &SqlitePool,
+        id: Uuid,
+        shared_task_id: Uuid,
+    ) -> Result<Self, sqlx::Error> {
+        sqlx::query_as!(
+            Self,
+            r#"UPDATE tasks
+               SET shared_task_id = $2, updated_at = CURRENT_TIMESTAMP
+               WHERE id = $1
+               RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", shared_task_id as "shared_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
+                         remote_assignee_user_id as "remote_assignee_user_id: Uuid",
+                         remote_assignee_name,
+                         remote_assignee_username,
+                         remote_version as "remote_version!: i64",
+                         remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
+                         remote_stream_node_id as "remote_stream_node_id: Uuid",
+                         remote_stream_url,
+                         archived_at as "archived_at: DateTime<Utc>",
+                         activity_at as "activity_at: DateTime<Utc>""#,
+            id,
+            shared_task_id
+        )
+        .fetch_one(pool)
+        .await
+    }
+
     pub async fn exists(
         pool: &SqlitePool,
         id: Uuid,

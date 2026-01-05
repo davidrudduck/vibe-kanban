@@ -1253,6 +1253,7 @@ async fn handle_task_sync(
             description: sanitized_description,
             status,
             version: task_sync.version,
+            source_task_id: None, // Not a re-sync operation
         })
         .await
     {

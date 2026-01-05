@@ -251,7 +251,7 @@ pub async fn delete_label(
 
 // Task label endpoints
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TaskLabelsResponse {
     pub labels: Vec<Label>,
 }
@@ -279,7 +279,7 @@ pub async fn get_task_labels(
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SetTaskLabelsRequest {
     pub label_ids: Vec<Uuid>,
 }
