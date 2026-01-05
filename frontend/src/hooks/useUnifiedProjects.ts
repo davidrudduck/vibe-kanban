@@ -7,6 +7,10 @@ import type { UnifiedProjectsResponse } from 'shared/types';
  *
  * Returns local projects first, then remote projects grouped by node.
  * Remote projects that are already linked to a local project are excluded.
+ *
+ * @deprecated Use useMergedProjects instead. This hook will be removed in a future release.
+ * The unified-projects endpoint is being replaced by merged-projects for a consistent
+ * project view across the application.
  */
 export function useUnifiedProjects() {
   return useQuery<UnifiedProjectsResponse>({
