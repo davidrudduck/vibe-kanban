@@ -341,11 +341,11 @@ impl<'a> NodeCacheSyncer<'a> {
             }
         }
 
-        // Remove stale remote projects (those no longer in the hive)
-        // Note: We pass all synced project IDs across all nodes to avoid
-        // accidentally deleting projects from other nodes
+        // Remove stale remote projects (those no longer in the hive for this specific node)
+        // Filter by source_node_id to avoid accidentally deleting projects from other nodes
         let removed =
-            Project::delete_stale_remote_projects(self.pool, &synced_remote_project_ids).await?;
+            Project::delete_stale_remote_projects(self.pool, node.id, &synced_remote_project_ids)
+                .await?;
 
         Ok((synced_count, removed as usize))
     }
