@@ -206,15 +206,18 @@ impl<'a> NodeCacheSyncer<'a> {
         Ok(stats)
     }
 
-    /// Sync projects for a specific node into the unified projects table
+    /// Sync projects for a specific node into the unified projects table.
+    /// Only syncs projects that are linked to a swarm project - unlinked projects stay local.
     async fn sync_node_projects(&self, node: &Node) -> Result<(usize, usize), NodeCacheSyncError> {
+        // Only fetch projects that are linked to a swarm project.
+        // Unlinked projects are local-only and should not sync to other nodes.
         let projects = self
             .remote_client
-            .list_node_projects(node.id)
+            .list_linked_node_projects(node.id)
             .await
             .map_err(NodeCacheSyncError::Remote)?;
 
-        debug!(node_id = %node.id, project_count = projects.len(), "fetched projects for node");
+        debug!(node_id = %node.id, project_count = projects.len(), "fetched swarm-linked projects for node");
 
         let mut synced_count = 0;
         let mut synced_remote_project_ids = Vec::with_capacity(projects.len());

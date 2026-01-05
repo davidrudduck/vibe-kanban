@@ -6,7 +6,7 @@ use backon::{ExponentialBuilder, Retryable};
 use chrono::Duration as ChronoDuration;
 use remote::{
     activity::ActivityResponse,
-    nodes::{Node, NodeApiKey, NodeProject},
+    nodes::{Node, NodeApiKey, NodeProject, NodeTaskAttempt},
     routes::{
         labels::{SetTaskLabelsRequest, TaskLabelsResponse},
         projects::ListProjectNodesResponse,
@@ -768,6 +768,35 @@ impl RemoteClient {
     ) -> Result<Vec<NodeProject>, RemoteClientError> {
         self.get_authed(&format!("/v1/nodes/{node_id}/projects"))
             .await
+    }
+
+    /// Lists projects linked to a node that are also linked to a swarm project.
+    /// Only swarm-linked projects are returned - unlinked projects are excluded.
+    /// Use this for syncing projects to other nodes.
+    pub async fn list_linked_node_projects(
+        &self,
+        node_id: Uuid,
+    ) -> Result<Vec<NodeProject>, RemoteClientError> {
+        self.get_authed(&format!("/v1/nodes/{node_id}/projects/linked"))
+            .await
+    }
+
+    /// Lists task attempts for a shared task.
+    /// Used by remote nodes to fetch attempts for swarm tasks via the Hive.
+    pub async fn list_task_attempts_by_shared_task(
+        &self,
+        shared_task_id: Uuid,
+    ) -> Result<Vec<NodeTaskAttempt>, RemoteClientError> {
+        #[derive(Deserialize)]
+        struct Response {
+            attempts: Vec<NodeTaskAttempt>,
+        }
+        let resp: Response = self
+            .get_authed(&format!(
+                "/v1/nodes/task-attempts/by-shared-task/{shared_task_id}"
+            ))
+            .await?;
+        Ok(resp.attempts)
     }
 
     /// Lists API keys for an organization.

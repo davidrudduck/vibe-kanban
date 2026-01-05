@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use super::domain::{
     CreateNodeApiKey, HeartbeatPayload, LinkProjectData, Node, NodeApiKey, NodeProject,
-    NodeRegistration, NodeStatus, NodeTaskAssignment, UpdateAssignmentData,
+    NodeRegistration, NodeStatus, NodeTaskAssignment, NodeTaskAttempt, UpdateAssignmentData,
 };
 
 /// Type alias for registration data (used by WebSocket session)
@@ -16,6 +16,7 @@ pub type RegisterNode = NodeRegistration;
 use crate::db::{
     node_api_keys::{NodeApiKeyError, NodeApiKeyRepository},
     node_projects::{NodeProjectError, NodeProjectRepository},
+    node_task_attempts::{NodeTaskAttemptError, NodeTaskAttemptRepository},
     nodes::{NodeDbError, NodeRepository},
     task_assignments::{TaskAssignmentError, TaskAssignmentRepository},
 };
@@ -117,6 +118,15 @@ impl From<TaskAssignmentError> for NodeError {
             TaskAssignmentError::NotFound => NodeError::AssignmentNotFound,
             TaskAssignmentError::AlreadyAssigned => NodeError::TaskAlreadyAssigned,
             TaskAssignmentError::Database(e) => NodeError::Database(e.to_string()),
+        }
+    }
+}
+
+impl From<NodeTaskAttemptError> for NodeError {
+    fn from(err: NodeTaskAttemptError) -> Self {
+        match err {
+            NodeTaskAttemptError::NotFound => NodeError::AssignmentNotFound,
+            NodeTaskAttemptError::Database(e) => NodeError::Database(e.to_string()),
         }
     }
 }
@@ -584,6 +594,17 @@ impl NodeServiceImpl {
         Ok(repo.list_by_node(node_id).await?)
     }
 
+    /// List project links for a node that are linked to a swarm project.
+    /// Only projects in `swarm_project_nodes` are returned - unlinked projects are excluded.
+    /// Use this for syncing projects to other nodes (only swarm-linked projects should sync).
+    pub async fn list_linked_node_projects(
+        &self,
+        node_id: Uuid,
+    ) -> Result<Vec<NodeProject>, NodeError> {
+        let repo = NodeProjectRepository::new(&self.pool);
+        Ok(repo.list_linked_by_node(node_id).await?)
+    }
+
     /// List all projects in an organization with ownership info.
     ///
     /// Returns all projects linked to any node in the organization,
@@ -710,6 +731,20 @@ impl NodeServiceImpl {
     pub async fn fail_node_assignments(&self, node_id: Uuid) -> Result<Vec<Uuid>, NodeError> {
         let repo = TaskAssignmentRepository::new(&self.pool);
         Ok(repo.fail_node_assignments(node_id).await?)
+    }
+
+    // =========================================================================
+    // Task Attempts
+    // =========================================================================
+
+    /// List all task attempts for a shared task.
+    /// Used by remote nodes to fetch attempts for swarm tasks via the Hive.
+    pub async fn list_task_attempts_by_shared_task(
+        &self,
+        shared_task_id: Uuid,
+    ) -> Result<Vec<NodeTaskAttempt>, NodeError> {
+        let repo = NodeTaskAttemptRepository::new(&self.pool);
+        Ok(repo.find_by_shared_task_id(shared_task_id).await?)
     }
 }
 
