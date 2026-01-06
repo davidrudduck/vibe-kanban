@@ -258,11 +258,12 @@ impl SwarmProjectRepository {
             ),
             task_counts AS (
                 -- Count tasks by status for each swarm project
+                -- Note: PostgreSQL enum uses hyphens (in-progress, in-review)
                 SELECT
                     shp.swarm_project_id,
                     COUNT(*) FILTER (WHERE st.status = 'todo') as todo,
-                    COUNT(*) FILTER (WHERE st.status = 'in_progress') as in_progress,
-                    COUNT(*) FILTER (WHERE st.status = 'in_review') as in_review,
+                    COUNT(*) FILTER (WHERE st.status = 'in-progress') as in_progress,
+                    COUNT(*) FILTER (WHERE st.status = 'in-review') as in_review,
                     COUNT(*) FILTER (WHERE st.status = 'done') as done,
                     COUNT(*) FILTER (WHERE st.status = 'cancelled') as cancelled
                 FROM swarm_hive_projects shp
