@@ -6,7 +6,7 @@ use backon::{ExponentialBuilder, Retryable};
 use chrono::Duration as ChronoDuration;
 use remote::{
     activity::ActivityResponse,
-    nodes::{Node, NodeApiKey, NodeProject, NodeTaskAttempt},
+    nodes::{Node, NodeApiKey, NodeLocalProjectInfo, NodeProject, NodeTaskAttempt},
     routes::{
         labels::{SetTaskLabelsRequest, TaskLabelsResponse},
         projects::ListProjectNodesResponse,
@@ -761,11 +761,11 @@ impl RemoteClient {
         self.delete_authed(&format!("/v1/nodes/{node_id}")).await
     }
 
-    /// Lists projects linked to a node.
+    /// Lists local projects synced from a node.
     pub async fn list_node_projects(
         &self,
         node_id: Uuid,
-    ) -> Result<Vec<NodeProject>, RemoteClientError> {
+    ) -> Result<Vec<NodeLocalProjectInfo>, RemoteClientError> {
         self.get_authed(&format!("/v1/nodes/{node_id}/projects"))
             .await
     }
