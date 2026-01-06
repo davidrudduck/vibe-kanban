@@ -39,6 +39,12 @@ pub struct NodeCapabilities {
     /// Vibe Kanban version running on the node
     #[serde(default)]
     pub version: String,
+    /// Git commit hash of the build
+    #[serde(default)]
+    pub git_commit: String,
+    /// Git branch of the build
+    #[serde(default)]
+    pub git_branch: String,
 }
 
 fn default_max_concurrent() -> i32 {

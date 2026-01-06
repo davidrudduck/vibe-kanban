@@ -1,6 +1,10 @@
 use std::process::Command;
 
 fn main() {
+    // Rerun if git state changes
+    println!("cargo:rerun-if-changed=../../.git/HEAD");
+    println!("cargo:rerun-if-changed=../../.git/index");
+
     // Git commit (short hash)
     if let Ok(output) = Command::new("git")
         .args(["rev-parse", "--short", "HEAD"])
