@@ -313,11 +313,13 @@ impl RemoteSync {
     }
 
     async fn linked_remote_projects(&self) -> Result<Vec<Uuid>, ShareError> {
+        // Only watch LOCAL projects that are linked to the Hive (is_remote=false).
+        // Remote projects (is_remote=true) are synced FROM other nodes and shouldn't be watched here.
         let rows = sqlx::query_scalar::<_, Uuid>(
             r#"
             SELECT remote_project_id
             FROM projects
-            WHERE remote_project_id IS NOT NULL
+            WHERE is_remote = 0 AND remote_project_id IS NOT NULL
             "#,
         )
         .fetch_all(&self.db.pool)
