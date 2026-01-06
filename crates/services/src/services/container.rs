@@ -33,7 +33,7 @@ use executors::{
 use futures::{StreamExt, future};
 use sqlx::Error as SqlxError;
 use thiserror::Error;
-use tokio::{sync::RwLock, task::JoinHandle};
+use tokio::{sync::RwLock, task::JoinHandle, time::Duration};
 use utils::{
     log_msg::LogMsg,
     msg_store::MsgStore,
@@ -342,24 +342,38 @@ pub trait ContainerService {
     }
 
     async fn try_stop(&self, task_attempt: &TaskAttempt) {
-        // stop all execution processes for this attempt
-        if let Ok(processes) =
-            ExecutionProcess::find_by_task_attempt_id(&self.db().pool, task_attempt.id, false).await
-        {
-            for process in processes {
-                if process.status == ExecutionProcessStatus::Running {
-                    self.stop_execution(&process, ExecutionProcessStatus::Killed)
-                        .await
-                        .unwrap_or_else(|e| {
-                            tracing::debug!(
-                                "Failed to stop execution process {} for task attempt {}: {}",
-                                process.id,
-                                task_attempt.id,
-                                e
-                            );
-                        });
+        const STOP_TIMEOUT: Duration = Duration::from_secs(15);
+
+        // Stop all execution processes for this attempt, with a timeout to prevent hanging
+        let stop_result = tokio::time::timeout(STOP_TIMEOUT, async {
+            if let Ok(processes) =
+                ExecutionProcess::find_by_task_attempt_id(&self.db().pool, task_attempt.id, false)
+                    .await
+            {
+                for process in processes {
+                    if process.status == ExecutionProcessStatus::Running {
+                        self.stop_execution(&process, ExecutionProcessStatus::Killed)
+                            .await
+                            .unwrap_or_else(|e| {
+                                tracing::debug!(
+                                    "Failed to stop execution process {} for task attempt {}: {}",
+                                    process.id,
+                                    task_attempt.id,
+                                    e
+                                );
+                            });
+                    }
                 }
             }
+        })
+        .await;
+
+        if stop_result.is_err() {
+            tracing::warn!(
+                task_attempt_id = %task_attempt.id,
+                timeout_secs = STOP_TIMEOUT.as_secs(),
+                "try_stop timed out - proceeding anyway to avoid blocking"
+            );
         }
     }
 

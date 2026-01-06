@@ -421,10 +421,21 @@ impl LocalContainerService {
                 // signals when processing has finished to gracefully kill the process.
                 exit_result = &mut exit_signal_future => {
                     // Executor signaled completion: kill group and use the provided result
+                    const LOCK_TIMEOUT: Duration = Duration::from_secs(5);
                     if let Some(child_lock) = child_store.read().await.get(&exec_id).cloned() {
-                        let mut child = child_lock.write().await ;
-                        if let Err(err) = command::kill_process_group(&mut child).await {
-                            tracing::error!("Failed to kill process group after exit signal: {} {}", exec_id, err);
+                        match tokio::time::timeout(LOCK_TIMEOUT, child_lock.write()).await {
+                            Ok(mut child) => {
+                                if let Err(err) = command::kill_process_group(&mut child).await {
+                                    tracing::error!("Failed to kill process group after exit signal: {} {}", exec_id, err);
+                                }
+                            }
+                            Err(_) => {
+                                tracing::warn!(
+                                    exec_id = %exec_id,
+                                    timeout_secs = LOCK_TIMEOUT.as_secs(),
+                                    "exit monitor: child lock acquisition timed out"
+                                );
+                            }
                         }
                     }
 
@@ -1380,8 +1391,23 @@ impl ContainerService for LocalContainerService {
             .await?;
 
         // Kill the child process and remove from the store
+        const LOCK_TIMEOUT: Duration = Duration::from_secs(5);
         {
-            let mut child_guard = child.write().await;
+            let child_guard = match tokio::time::timeout(LOCK_TIMEOUT, child.write()).await {
+                Ok(guard) => guard,
+                Err(_) => {
+                    tracing::warn!(
+                        execution_process_id = %execution_process.id,
+                        timeout_secs = LOCK_TIMEOUT.as_secs(),
+                        "stop_execution: child lock acquisition timed out"
+                    );
+                    return Err(ContainerError::Other(anyhow!(
+                        "Failed to acquire child lock within {}s",
+                        LOCK_TIMEOUT.as_secs()
+                    )));
+                }
+            };
+            let mut child_guard = child_guard;
             if let Err(e) = command::kill_process_group(&mut child_guard).await {
                 tracing::error!(
                     "Failed to stop execution process {}: {}",
