@@ -13,6 +13,8 @@ pub enum NodeProjectError {
     ProjectAlreadyLinked,
     #[error("local project already linked on this node")]
     LocalProjectAlreadyLinked,
+    #[error("project does not exist in hive - sync project before linking")]
+    ProjectNotInHive,
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
 }
@@ -64,6 +66,10 @@ impl<'a> NodeProjectRepository<'a> {
                 // 20251226000000_full_swarm_visibility.sql to allow multiple nodes per project
                 if db_err.constraint() == Some("node_projects_node_id_local_project_id_key") {
                     return NodeProjectError::LocalProjectAlreadyLinked;
+                }
+                // Handle foreign key violation when project doesn't exist in hive
+                if db_err.constraint() == Some("node_projects_project_id_fkey") {
+                    return NodeProjectError::ProjectNotInHive;
                 }
             }
             NodeProjectError::Database(e)
