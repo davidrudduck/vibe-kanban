@@ -142,6 +142,8 @@ export function useSwarmProjectMutations(
                   ...project,
                   linked_nodes_count: p.linked_nodes_count,
                   linked_node_names: p.linked_node_names,
+                  hive_project_ids: p.hive_project_ids,
+                  task_counts: p.task_counts,
                 }
               : p
           );

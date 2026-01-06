@@ -31,12 +31,13 @@ export interface Node {
 export interface NodeProject {
   id: string;
   node_id: string;
-  project_id: string;
   local_project_id: string;
+  name: string;
   git_repo_path: string;
   default_branch: string;
-  sync_status: string;
-  last_synced_at: string | null;
+  swarm_project_id: string | null;
+  swarm_project_name: string | null;
+  last_seen_at: string;
   created_at: string;
 }
 

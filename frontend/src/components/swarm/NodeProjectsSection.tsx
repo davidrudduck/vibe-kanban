@@ -6,11 +6,14 @@ import {
   Loader2,
   RefreshCw,
   Link2,
+  Unlink,
   FolderGit2,
   ChevronDown,
   ChevronRight,
   Plus,
+  AlertCircle,
 } from 'lucide-react';
+import { formatDistanceToNow, differenceInMinutes } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -39,12 +42,27 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { nodesApi } from '@/lib/api';
 import {
   useSwarmProjects,
   useSwarmProjectMutations,
 } from '@/hooks/useSwarmProjects';
 import type { NodeProject } from '@/types/nodes';
+
+/** Threshold in minutes after which a project is considered stale */
+const STALE_THRESHOLD_MINUTES = 10;
+
+/** Check if a project is stale based on last_seen_at */
+function isProjectStale(lastSeenAt: string): boolean {
+  const lastSeen = new Date(lastSeenAt);
+  const minutesAgo = differenceInMinutes(new Date(), lastSeen);
+  return minutesAgo > STALE_THRESHOLD_MINUTES;
+}
 
 interface NodeProjectsSectionProps {
   organizationId: string;
@@ -317,51 +335,118 @@ export function NodeProjectsSection({
                           </div>
                         ) : (
                           <div className="divide-y divide-border">
-                            {projects.map((project) => (
-                              <div
-                                key={project.id}
-                                className="flex items-center justify-between px-4 py-3 sm:px-6 pl-12 sm:pl-14"
-                              >
-                                <div className="flex items-center gap-3 min-w-0">
-                                  <FolderGit2 className="h-4 w-4 text-muted-foreground shrink-0" />
-                                  <div className="min-w-0">
-                                    <p className="font-medium truncate text-sm">
-                                      {project.git_repo_path.split('/').pop() ||
-                                        project.git_repo_path}
-                                    </p>
-                                    <p className="text-xs text-muted-foreground truncate">
-                                      {project.git_repo_path}
-                                    </p>
+                            {[...projects]
+                              .sort((a, b) => a.name.localeCompare(b.name))
+                              .map((project) => {
+                                const shortId = project.local_project_id.slice(-4);
+                                const isLinked = !!project.swarm_project_id;
+                                const stale = isProjectStale(project.last_seen_at);
+                                const lastSeenText = formatDistanceToNow(
+                                  new Date(project.last_seen_at),
+                                  { addSuffix: true }
+                                );
+
+                                return (
+                                  <div
+                                    key={project.id}
+                                    className={`flex items-center justify-between px-4 py-3 sm:px-6 pl-12 sm:pl-14 ${
+                                      stale ? 'opacity-60' : ''
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-3 min-w-0">
+                                      <FolderGit2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                                      <div className="min-w-0">
+                                        <div className="flex items-center gap-2 text-sm">
+                                          <span className="font-medium truncate">
+                                            {project.name}
+                                          </span>
+                                          <span className="text-muted-foreground shrink-0">
+                                            ({shortId})
+                                          </span>
+                                          {stale && (
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                <Badge
+                                                  variant="outline"
+                                                  className="text-amber-600 border-amber-600/50 shrink-0"
+                                                >
+                                                  <AlertCircle className="h-3 w-3 mr-1" />
+                                                  Stale
+                                                </Badge>
+                                              </TooltipTrigger>
+                                              <TooltipContent>
+                                                <p>
+                                                  Last seen {lastSeenText}. Node may have
+                                                  removed this project.
+                                                </p>
+                                              </TooltipContent>
+                                            </Tooltip>
+                                          )}
+                                        </div>
+                                        <p className="text-xs text-muted-foreground truncate">
+                                          {project.git_repo_path}
+                                        </p>
+                                      </div>
+                                    </div>
+                                    {isLinked ? (
+                                      <div className="flex items-center gap-2 shrink-0">
+                                        <Badge variant="secondary" className="hidden sm:inline-flex">
+                                          {project.swarm_project_name}
+                                        </Badge>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="text-destructive hover:text-destructive"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (project.swarm_project_id) {
+                                              mutations.unlinkNode.mutate({
+                                                projectId: project.swarm_project_id,
+                                                nodeId: node.id,
+                                              });
+                                            }
+                                          }}
+                                        >
+                                          <Unlink className="h-4 w-4 mr-1" />
+                                          <span className="hidden sm:inline">
+                                            {t(
+                                              'settings.swarm.nodeProjects.unlinkFromSwarm',
+                                              'Unlink'
+                                            )}
+                                          </span>
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="shrink-0"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setLinkingProject({
+                                            nodeId: node.id,
+                                            project,
+                                          });
+                                        }}
+                                      >
+                                        <Link2 className="h-4 w-4 mr-1" />
+                                        <span className="hidden sm:inline">
+                                          {t(
+                                            'settings.swarm.nodeProjects.linkToSwarm',
+                                            'Link to Swarm'
+                                          )}
+                                        </span>
+                                        <span className="sm:hidden">
+                                          {t(
+                                            'settings.swarm.nodeProjects.link',
+                                            'Link'
+                                          )}
+                                        </span>
+                                      </Button>
+                                    )}
                                   </div>
-                                </div>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="shrink-0"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setLinkingProject({
-                                      nodeId: node.id,
-                                      project,
-                                    });
-                                  }}
-                                >
-                                  <Link2 className="h-4 w-4 mr-1" />
-                                  <span className="hidden sm:inline">
-                                    {t(
-                                      'settings.swarm.nodeProjects.linkToSwarm',
-                                      'Link to Swarm'
-                                    )}
-                                  </span>
-                                  <span className="sm:hidden">
-                                    {t(
-                                      'settings.swarm.nodeProjects.link',
-                                      'Link'
-                                    )}
-                                  </span>
-                                </Button>
-                              </div>
-                            ))}
+                                );
+                              })}
                           </div>
                         )}
                       </div>

@@ -61,6 +61,10 @@ pub enum NodeMessage {
     #[serde(rename = "task_sync")]
     TaskSync(TaskSyncMessage),
 
+    /// Sync all local projects from node to hive
+    #[serde(rename = "projects_sync")]
+    ProjectsSync(ProjectsSyncMessage),
+
     /// Acknowledgement of a hive message
     #[serde(rename = "ack")]
     Ack { message_id: Uuid },
@@ -634,6 +638,32 @@ pub struct TaskSyncResponseMessage {
     pub success: bool,
     /// Error message if not successful
     pub error: Option<String>,
+}
+
+/// Sync all local projects from node to hive.
+///
+/// Sent by nodes on connection and periodically to keep the hive's
+/// `node_local_projects` table up to date. This enables the swarm settings
+/// UI to show all projects from all nodes for linking.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectsSyncMessage {
+    /// All local projects on this node
+    pub projects: Vec<LocalProjectInfo>,
+}
+
+/// Information about a local project from a node.
+///
+/// Used in ProjectsSyncMessage to sync project info to the hive.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalProjectInfo {
+    /// The local project ID on the node
+    pub local_project_id: Uuid,
+    /// Project name
+    pub name: String,
+    /// Git repository path on the node
+    pub git_repo_path: String,
+    /// Default branch for the project
+    pub default_branch: String,
 }
 
 /// Current protocol version.

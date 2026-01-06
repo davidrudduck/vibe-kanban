@@ -100,6 +100,8 @@ pub enum NodeMessage {
     LabelSync(LabelSyncMessage),
     #[serde(rename = "task_sync")]
     TaskSync(TaskSyncMessage),
+    #[serde(rename = "projects_sync")]
+    ProjectsSync(ProjectsSyncMessage),
     #[serde(rename = "ack")]
     Ack { message_id: Uuid },
     #[serde(rename = "error")]
@@ -550,6 +552,29 @@ pub struct LogsBatchMessage {
     /// Whether the entries are compressed (gzip)
     #[serde(default)]
     pub compressed: bool,
+}
+
+/// Message to sync all local projects from node to hive.
+///
+/// Sent on connection and periodically with heartbeats to keep the hive
+/// aware of all projects available on this node (not just linked ones).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectsSyncMessage {
+    /// All local projects on this node
+    pub projects: Vec<LocalProjectSyncInfo>,
+}
+
+/// Information about a local project for syncing to hive.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalProjectSyncInfo {
+    /// The local project ID on this node
+    pub local_project_id: Uuid,
+    /// Project name
+    pub name: String,
+    /// Path to the git repository
+    pub git_repo_path: String,
+    /// Default branch for the project
+    pub default_branch: String,
 }
 
 /// Protocol version
