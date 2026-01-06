@@ -90,6 +90,7 @@ export function NodeProjectsSection({
   const [loadingNodeProjects, setLoadingNodeProjects] = useState<Set<string>>(
     new Set()
   );
+  const [erroredNodeIds, setErroredNodeIds] = useState<Set<string>>(new Set());
 
   // State for dialog tabs and new project form
   const [dialogTab, setDialogTab] = useState<'existing' | 'create'>('existing');
@@ -135,8 +136,16 @@ export function NodeProjectsSection({
     try {
       const projects = await nodesApi.listProjects(nodeId);
       setNodeProjects((prev) => ({ ...prev, [nodeId]: projects }));
+      // Clear error on success
+      setErroredNodeIds((prev) => {
+        const next = new Set(prev);
+        next.delete(nodeId);
+        return next;
+      });
     } catch (err) {
       console.error('Failed to fetch node projects:', err);
+      // Mark as errored to prevent infinite retry
+      setErroredNodeIds((prev) => new Set(prev).add(nodeId));
     } finally {
       setLoadingNodeProjects((prev) => {
         const next = new Set(prev);
@@ -146,14 +155,24 @@ export function NodeProjectsSection({
     }
   }, []);
 
-  // Fetch projects when node is expanded
+  // Fetch projects when node is expanded (skip errored nodes to prevent infinite retry)
   useEffect(() => {
     expandedNodeIds.forEach((nodeId) => {
-      if (!nodeProjects[nodeId] && !loadingNodeProjects.has(nodeId)) {
+      if (
+        !nodeProjects[nodeId] &&
+        !loadingNodeProjects.has(nodeId) &&
+        !erroredNodeIds.has(nodeId)
+      ) {
         fetchNodeProjects(nodeId);
       }
     });
-  }, [expandedNodeIds, nodeProjects, loadingNodeProjects, fetchNodeProjects]);
+  }, [
+    expandedNodeIds,
+    nodeProjects,
+    loadingNodeProjects,
+    erroredNodeIds,
+    fetchNodeProjects,
+  ]);
 
   // Toggle node expansion
   const handleToggleNode = (nodeId: string) => {
@@ -322,7 +341,31 @@ export function NodeProjectsSection({
                     {/* Node Projects */}
                     {isExpanded && (
                       <div className="bg-muted/30 border-t border-border">
-                        {isLoadingProjects ? (
+                        {erroredNodeIds.has(node.id) ? (
+                          <div className="px-4 py-4 sm:px-6 text-sm text-destructive flex items-center gap-2">
+                            <AlertCircle className="h-4 w-4 shrink-0" />
+                            <span>
+                              {t(
+                                'settings.swarm.nodeProjects.fetchError',
+                                'Failed to load projects.'
+                              )}
+                            </span>
+                            <Button
+                              variant="link"
+                              size="sm"
+                              className="p-0 h-auto text-destructive"
+                              onClick={() => {
+                                setErroredNodeIds((prev) => {
+                                  const next = new Set(prev);
+                                  next.delete(node.id);
+                                  return next;
+                                });
+                              }}
+                            >
+                              {t('common:retry', 'Retry')}
+                            </Button>
+                          </div>
+                        ) : isLoadingProjects ? (
                           <div className="flex items-center justify-center py-4">
                             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                           </div>
