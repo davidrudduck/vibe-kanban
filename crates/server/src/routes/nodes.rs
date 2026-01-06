@@ -6,7 +6,7 @@ use axum::{
     response::Json as ResponseJson,
     routing::{delete, get},
 };
-use remote::nodes::{Node, NodeApiKey, NodeProject};
+use remote::nodes::{Node, NodeApiKey, NodeLocalProjectInfo};
 use serde::{Deserialize, Serialize};
 use utils::response::ApiResponse;
 use uuid::Uuid;
@@ -65,11 +65,11 @@ pub async fn delete_node(
     Ok(ResponseJson(ApiResponse::success(())))
 }
 
-/// List projects linked to a node.
+/// List local projects synced from a node.
 pub async fn list_node_projects(
     State(deployment): State<DeploymentImpl>,
     Path(node_id): Path<Uuid>,
-) -> Result<ResponseJson<ApiResponse<Vec<NodeProject>>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<Vec<NodeLocalProjectInfo>>>, ApiError> {
     let client = deployment.remote_client()?;
     let projects = client.list_node_projects(node_id).await?;
     Ok(ResponseJson(ApiResponse::success(projects)))
