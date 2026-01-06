@@ -4,7 +4,7 @@ pub mod drafts;
 pub mod gh_cli_setup;
 pub mod util;
 
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration};
 
 use axum::{
     Extension, Json, Router,
@@ -709,16 +709,45 @@ pub async fn follow_up(
                 .map(|is_clean| !is_clean)
                 .unwrap_or(false);
 
-            deployment.git().reconcile_worktree_to_commit(
-                wt,
-                target_oid,
-                WorktreeResetOptions::new(
-                    perform_git_reset,
-                    force_when_dirty,
-                    is_dirty,
-                    perform_git_reset,
-                ),
+            // Wrap git operation in timeout + spawn_blocking to prevent hangs
+            const GIT_OP_TIMEOUT: Duration = Duration::from_secs(30);
+            let git_service = deployment.git().clone();
+            let wt_owned = wt.to_path_buf();
+            let target_oid_owned = target_oid.clone();
+            let opts = WorktreeResetOptions::new(
+                perform_git_reset,
+                force_when_dirty,
+                is_dirty,
+                perform_git_reset,
             );
+
+            let git_result = tokio::time::timeout(
+                GIT_OP_TIMEOUT,
+                tokio::task::spawn_blocking(move || {
+                    git_service.reconcile_worktree_to_commit(&wt_owned, &target_oid_owned, opts);
+                }),
+            )
+            .await;
+
+            match git_result {
+                Ok(Ok(())) => {
+                    // Git operation completed successfully
+                }
+                Ok(Err(join_err)) => {
+                    tracing::warn!(
+                        task_attempt_id = %task_attempt.id,
+                        error = %join_err,
+                        "git reconcile_worktree_to_commit task panicked"
+                    );
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        task_attempt_id = %task_attempt.id,
+                        timeout_secs = GIT_OP_TIMEOUT.as_secs(),
+                        "git reconcile_worktree_to_commit timed out - proceeding anyway"
+                    );
+                }
+            }
         }
 
         // Stop any running processes for this attempt
