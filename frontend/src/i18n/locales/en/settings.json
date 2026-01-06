@@ -622,6 +622,48 @@
           "warning": "\"{{source}}\" will be deleted after merging. This action cannot be undone.",
           "confirm": "Merge Templates"
         }
+      },
+      "nodeProjects": {
+        "title": "Node Projects",
+        "description": "View local projects on each node and link them to swarm projects for cross-node task sharing.",
+        "noOrganization": "Please select an organization to view node projects.",
+        "refresh": "Refresh",
+        "error": "Failed to load nodes. Please try again.",
+        "noNodes": "No nodes connected to this organization yet.",
+        "noProjects": "No projects registered on this node.",
+        "fetchError": "Failed to load projects.",
+        "linkToSwarm": "Link to Swarm",
+        "link": "Link",
+        "unlinkFromSwarm": "Unlink",
+        "linkDialog": {
+          "title": "Link to Swarm Project",
+          "description": "Select a swarm project to link this local project to. Tasks will be shared across all linked nodes.",
+          "localProject": "Local Project",
+          "swarmProject": "Swarm Project",
+          "selectProject": "Select a swarm project...",
+          "noProjects": "No swarm projects available",
+          "linkExisting": "Link to Existing",
+          "createNew": "Create New",
+          "projectName": "Project Name",
+          "projectNamePlaceholder": "Enter project name...",
+          "projectDescription": "Description",
+          "projectDescriptionPlaceholder": "Enter description...",
+          "confirm": "Link Project",
+          "createAndLink": "Create & Link"
+        }
+      },
+      "nodeTemplates": {
+        "title": "Local Templates",
+        "description": "Promote local templates to make them available across all nodes in the organization.",
+        "refresh": "Refresh",
+        "promote": "Promote to Swarm",
+        "promoteShort": "Promote",
+        "promoted": "In Swarm",
+        "promoteDialog": {
+          "title": "Promote Template",
+          "description": "This will make the template available across all nodes in the organization.",
+          "confirm": "Promote"
+        }
       }
     },
     "projects": {
