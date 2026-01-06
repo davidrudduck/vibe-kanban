@@ -5,6 +5,7 @@ import { usePinnedTodos } from '@/hooks/usePinnedTodos';
 import { useMessageQueue } from '@/hooks/message-queue';
 import { TodosBadge } from './TodosBadge';
 import { MessageQueueBadge } from './message-queue';
+import { VariablesBadge } from './variables';
 import { TaskInfoSheet } from './TaskInfoSheet';
 import type { TaskWithAttemptStatus } from 'shared/types';
 
@@ -94,15 +95,21 @@ export function MobileConversationLayout({
               isClearing={isClearingQueue}
             />
           </div>
-          {hasTaskInfo && (
-            <button
-              type="button"
-              onClick={() => setIsTaskInfoOpen(true)}
-              className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted"
-            >
-              Task Info
-            </button>
-          )}
+          <div className="flex items-center gap-1">
+            <VariablesBadge
+              taskId={task.id}
+              taskDescription={task.description}
+            />
+            {hasTaskInfo && (
+              <button
+                type="button"
+                onClick={() => setIsTaskInfoOpen(true)}
+                className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted"
+              >
+                Task Info
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Follow-up input - capped height on mobile */}
@@ -162,15 +169,21 @@ export function MobileConversationLayout({
                 isClearing={isClearingQueue}
               />
             </div>
-            {hasTaskInfo && (
-              <button
-                type="button"
-                onClick={() => setIsTaskInfoOpen(true)}
-                className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted"
-              >
-                Task Info
-              </button>
-            )}
+            <div className="flex items-center gap-1">
+              <VariablesBadge
+                taskId={task.id}
+                taskDescription={task.description}
+              />
+              {hasTaskInfo && (
+                <button
+                  type="button"
+                  onClick={() => setIsTaskInfoOpen(true)}
+                  className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted"
+                >
+                  Task Info
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
