@@ -49,6 +49,10 @@ pub struct NodeCapabilities {
     pub arch: String,
     #[serde(default)]
     pub version: String,
+    #[serde(default)]
+    pub git_commit: String,
+    #[serde(default)]
+    pub git_branch: String,
 }
 
 fn default_max_concurrent() -> i32 {
@@ -1060,12 +1064,16 @@ pub enum HiveClientError {
 
 /// Detect node capabilities from the system.
 pub fn detect_capabilities() -> NodeCapabilities {
+    use utils::build_info::BUILD_INFO;
+
     NodeCapabilities {
         executors: vec!["CLAUDE_CODE".to_string()], // Default supported executor
         max_concurrent_tasks: 1,
         os: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: BUILD_INFO.version.to_string(),
+        git_commit: BUILD_INFO.git_commit.to_string(),
+        git_branch: BUILD_INFO.git_branch.to_string(),
     }
 }
 

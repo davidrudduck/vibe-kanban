@@ -187,8 +187,16 @@ export function NodeDetailPanel({
               <div className="text-sm font-medium text-muted-foreground">
                 Version
               </div>
-              <div className="mt-1">
+              <div className="mt-1 font-mono text-sm">
                 {node.capabilities.version || 'Unknown'}
+                {node.capabilities.git_commit && (
+                  <span className="text-muted-foreground ml-2">
+                    ({node.capabilities.git_commit}
+                    {node.capabilities.git_branch &&
+                      ` @ ${node.capabilities.git_branch}`}
+                    )
+                  </span>
+                )}
               </div>
             </div>
 

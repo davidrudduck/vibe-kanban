@@ -3,6 +3,10 @@ use std::{fs, path::Path, process::Command};
 fn main() {
     dotenv::dotenv().ok();
 
+    // Rerun if git state changes
+    println!("cargo:rerun-if-changed=../../.git/HEAD");
+    println!("cargo:rerun-if-changed=../../.git/index");
+
     if let Ok(vk_shared_api_base) = std::env::var("VK_SHARED_API_BASE") {
         println!("cargo:rustc-env=VK_SHARED_API_BASE={}", vk_shared_api_base);
     }

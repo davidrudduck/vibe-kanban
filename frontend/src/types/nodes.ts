@@ -11,6 +11,8 @@ export interface NodeCapabilities {
   os: string;
   arch: string;
   version: string;
+  git_commit: string;
+  git_branch: string;
 }
 
 export interface Node {
