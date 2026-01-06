@@ -18,9 +18,12 @@ use super::{error::ErrorResponse, organization_members::ensure_member_access};
 use crate::{
     AppState,
     auth::RequestContext,
-    db::swarm_projects::{
-        CreateSwarmProjectData, LinkSwarmProjectNodeData, SwarmProject, SwarmProjectError,
-        SwarmProjectNode, SwarmProjectRepository, SwarmProjectWithNodes, UpdateSwarmProjectData,
+    db::{
+        node_local_projects::NodeLocalProjectRepository,
+        swarm_projects::{
+            CreateSwarmProjectData, LinkSwarmProjectNodeData, SwarmProject, SwarmProjectError,
+            SwarmProjectNode, SwarmProjectRepository, SwarmProjectWithNodes, UpdateSwarmProjectData,
+        },
     },
 };
 
@@ -459,7 +462,7 @@ async fn link_node(
             swarm_project_id: project_id,
             node_id: payload.node_id,
             local_project_id: payload.local_project_id,
-            git_repo_path: payload.git_repo_path,
+            git_repo_path: payload.git_repo_path.clone(),
             os_type: payload.os_type,
         },
     )
@@ -473,6 +476,25 @@ async fn link_node(
             ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to link node")
         }
     })?;
+
+    // Also update node_local_projects.swarm_project_id so the Node Projects UI shows correct linked status
+    if let Err(error) = NodeLocalProjectRepository::link_to_swarm(
+        &mut tx,
+        payload.node_id,
+        payload.local_project_id,
+        project_id,
+    )
+    .await
+    {
+        // Log but don't fail - the swarm_project_nodes link is the primary source of truth
+        tracing::warn!(
+            ?error,
+            node_id = %payload.node_id,
+            local_project_id = %payload.local_project_id,
+            swarm_project_id = %project_id,
+            "failed to update node_local_projects.swarm_project_id (non-fatal)"
+        );
+    }
 
     tx.commit().await.map_err(|error| {
         tracing::error!(?error, "failed to commit transaction");
@@ -503,6 +525,15 @@ async fn unlink_node(
 
     ensure_member_access(state.pool(), project.organization_id, ctx.user.id).await?;
 
+    // First, find the link to get the local_project_id (needed for updating node_local_projects)
+    let link = SwarmProjectRepository::find_node_link(state.pool(), project_id, node_id)
+        .await
+        .map_err(|error| {
+            tracing::error!(?error, "failed to find node link");
+            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
+        })?
+        .ok_or_else(|| ErrorResponse::new(StatusCode::NOT_FOUND, "node link not found"))?;
+
     let mut tx = state.pool().begin().await.map_err(|error| {
         tracing::error!(?error, "failed to start transaction");
         ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
@@ -519,6 +550,19 @@ async fn unlink_node(
                 ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to unlink node")
             }
         })?;
+
+    // Also clear node_local_projects.swarm_project_id so the Node Projects UI shows correct unlinked status
+    if let Err(error) =
+        NodeLocalProjectRepository::unlink_from_swarm(&mut tx, node_id, link.local_project_id).await
+    {
+        // Log but don't fail - the swarm_project_nodes unlink is the primary operation
+        tracing::warn!(
+            ?error,
+            node_id = %node_id,
+            local_project_id = %link.local_project_id,
+            "failed to clear node_local_projects.swarm_project_id (non-fatal)"
+        );
+    }
 
     tx.commit().await.map_err(|error| {
         tracing::error!(?error, "failed to commit transaction");
