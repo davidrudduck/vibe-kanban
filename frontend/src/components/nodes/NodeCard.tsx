@@ -47,6 +47,12 @@ export function NodeCard({ node, onClick }: NodeCardProps) {
               {node.capabilities.arch || 'Unknown arch'}
             </span>
           </div>
+          {node.capabilities.version && (
+            <div className="text-xs text-muted-foreground font-mono">
+              v{node.capabilities.version}
+              {node.capabilities.git_commit && ` (${node.capabilities.git_commit})`}
+            </div>
+          )}
           {node.capabilities.executors.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {node.capabilities.executors.map((executor) => (
