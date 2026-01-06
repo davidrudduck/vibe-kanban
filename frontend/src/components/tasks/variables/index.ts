@@ -1,0 +1,1 @@
+export { VariablesBadge } from './VariablesBadge';
