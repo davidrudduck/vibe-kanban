@@ -18,7 +18,10 @@ use local_deployment::message_queue::{
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError, middleware::load_task_attempt_middleware};
+use crate::{
+    DeploymentImpl, error::ApiError,
+    middleware::{load_task_attempt_middleware, load_task_attempt_middleware_with_uuid_suffix},
+};
 
 /// List all queued messages for a task attempt.
 pub async fn list_queued_messages(
@@ -158,25 +161,34 @@ pub async fn clear_queued_messages(
 }
 
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
-    // Routes for individual messages (need message_id in path)
-    let message_routes = Router::new()
-        .route("/", put(update_queued_message))
-        .route("/", delete(remove_queued_message));
-
-    // Routes for the queue itself
+    // Base queue routes - single path param (task_attempt_id)
     let queue_routes = Router::new()
         .route("/", get(list_queued_messages))
         .route("/", post(add_queued_message))
         .route("/", delete(clear_queued_messages))
         .route("/reorder", post(reorder_queued_messages))
-        .nest("/{message_id}", message_routes)
         .layer(from_fn_with_state(
             deployment.clone(),
             load_task_attempt_middleware,
         ));
 
-    Router::new().nest(
-        "/task-attempts/{task_attempt_id}/message-queue",
-        queue_routes,
-    )
+    // Individual message routes - two path params (task_attempt_id, message_id)
+    // These need a separate middleware that extracts both UUIDs from the path.
+    let message_routes = Router::new()
+        .route("/{message_id}", put(update_queued_message))
+        .route("/{message_id}", delete(remove_queued_message))
+        .layer(from_fn_with_state(
+            deployment.clone(),
+            load_task_attempt_middleware_with_uuid_suffix,
+        ));
+
+    Router::new()
+        .nest(
+            "/task-attempts/{task_attempt_id}/message-queue",
+            queue_routes,
+        )
+        .nest(
+            "/task-attempts/{task_attempt_id}/message-queue",
+            message_routes,
+        )
 }
