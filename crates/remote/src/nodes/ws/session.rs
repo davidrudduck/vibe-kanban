@@ -686,6 +686,23 @@ async fn handle_link_project(
     use crate::db::projects::ProjectRepository;
     use crate::nodes::domain::LinkProjectData;
 
+    // Validate that the project exists in the hive before attempting to link.
+    // This prevents foreign key constraint violations on node_projects.project_id.
+    let project = ProjectRepository::fetch_by_id(pool, link.project_id)
+        .await
+        .map_err(|e| HandleError::Database(e.to_string()))?;
+
+    if project.is_none() {
+        tracing::warn!(
+            node_id = %node_id,
+            project_id = %link.project_id,
+            local_project_id = %link.local_project_id,
+            "node tried to link non-existent project - project must be synced to hive first"
+        );
+        return Err(HandleError::InvalidProject(link.project_id));
+    }
+
+    let project = project.unwrap();
     let service = NodeServiceImpl::new(pool.clone());
 
     let link_data = LinkProjectData {
@@ -709,21 +726,13 @@ async fn handle_link_project(
     );
 
     // Broadcast the new project link to other nodes
-    // Get node info and project name for the broadcast
+    // Get node info for the broadcast (project already fetched above)
     let node = service
         .get_node(node_id)
         .await
         .map_err(|e| HandleError::Database(e.to_string()))?;
 
-    let project_name = match ProjectRepository::fetch_by_id(pool, link.project_id).await {
-        Ok(Some(project)) => project.name,
-        _ => link
-            .git_repo_path
-            .rsplit('/')
-            .next()
-            .unwrap_or(&link.git_repo_path)
-            .to_string(),
-    };
+    let project_name = project.name;
 
     let sync_msg = HiveMessage::ProjectSync(ProjectSyncMessage {
         message_id: Uuid::new_v4(),
@@ -901,6 +910,8 @@ enum HandleError {
     Database(String),
     #[error("failed to send message")]
     Send,
+    #[error("project {0} not found in hive")]
+    InvalidProject(Uuid),
 }
 
 /// Sanitize a string by removing null bytes (0x00).

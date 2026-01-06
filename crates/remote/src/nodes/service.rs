@@ -65,6 +65,8 @@ pub enum NodeError {
     ApiKeyAlreadyBound,
     #[error("project already linked to a node")]
     ProjectAlreadyLinked,
+    #[error("project not found in hive - sync project before linking")]
+    ProjectNotInHive,
     #[error("task already has an active assignment")]
     TaskAlreadyAssigned,
     #[error("assignment not found")]
@@ -107,6 +109,7 @@ impl From<NodeProjectError> for NodeError {
             NodeProjectError::LocalProjectAlreadyLinked => {
                 NodeError::Database("local project already linked".to_string())
             }
+            NodeProjectError::ProjectNotInHive => NodeError::ProjectNotInHive,
             NodeProjectError::Database(e) => NodeError::Database(e.to_string()),
         }
     }

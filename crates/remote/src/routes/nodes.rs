@@ -1126,6 +1126,10 @@ fn node_error_response(error: NodeError, context: &str) -> Response {
             StatusCode::CONFLICT,
             "project already linked to a node".to_string(),
         ),
+        NodeError::ProjectNotInHive => (
+            StatusCode::BAD_REQUEST,
+            "project not found in hive - sync project before linking".to_string(),
+        ),
         NodeError::TaskAlreadyAssigned => (
             StatusCode::CONFLICT,
             "task already has an active assignment".to_string(),
