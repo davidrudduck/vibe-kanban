@@ -94,6 +94,13 @@ impl RemoteTaskAttemptContext {
     }
 }
 
+/// Marker extension indicating the attempt wasn't found locally
+/// and needs to be fetched from the Hive for cross-node viewing.
+#[derive(Debug, Clone)]
+pub struct RemoteAttemptNeeded {
+    pub attempt_id: Uuid,
+}
+
 pub async fn load_project_middleware(
     State(deployment): State<DeploymentImpl>,
     Path(project_id): Path<Uuid>,
@@ -330,16 +337,24 @@ async fn load_task_attempt_impl(
 ) -> Result<Response, StatusCode> {
     // Load the TaskAttempt from the database
     let attempt = match TaskAttempt::find_by_id(&deployment.db().pool, task_attempt_id).await {
-        Ok(Some(a)) => a,
+        Ok(Some(a)) => Some(a),
         Ok(None) => {
-            tracing::warn!("TaskAttempt {} not found", task_attempt_id);
-            return Err(StatusCode::NOT_FOUND);
+            // Attempt not found locally - signal handler to try Hive fallback
+            tracing::debug!(
+                attempt_id = %task_attempt_id,
+                "TaskAttempt not found locally, signaling for Hive fallback"
+            );
+            request.extensions_mut().insert(RemoteAttemptNeeded {
+                attempt_id: task_attempt_id,
+            });
+            return Ok(next.run(request).await);
         }
         Err(e) => {
             tracing::error!("Failed to fetch TaskAttempt {}: {}", task_attempt_id, e);
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     };
+    let attempt = attempt.expect("attempt is Some at this point");
 
     // Load the parent Task to check if it belongs to a remote project
     let task = match Task::find_by_id(&deployment.db().pool, attempt.task_id).await {

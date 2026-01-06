@@ -1,8 +1,10 @@
+pub mod backfill;
 mod domain;
 mod heartbeat;
 mod service;
 pub mod ws;
 
+pub use backfill::{BackfillConfig, BackfillError, BackfillService};
 pub use domain::{
     CreateNodeApiKey, HeartbeatPayload, LinkProjectData, Node, NodeApiKey, NodeCapabilities,
     NodeExecutionProcess, NodeLocalProjectInfo, NodeProject, NodeRegistration, NodeStatus,

@@ -113,6 +113,8 @@ pub enum NodeMessage {
         message_id: Option<Uuid>,
         error: String,
     },
+    #[serde(rename = "backfill_response")]
+    BackfillResponse(BackfillResponseMessage),
 }
 
 /// Messages sent from hive to node.
@@ -144,6 +146,8 @@ pub enum HiveMessage {
     TaskSyncResponse(TaskSyncResponseMessage),
     #[serde(rename = "label_sync")]
     LabelSync(LabelSyncBroadcastMessage),
+    #[serde(rename = "backfill_request")]
+    BackfillRequest(BackfillRequestMessage),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -581,6 +585,49 @@ pub struct LocalProjectSyncInfo {
     pub default_branch: String,
 }
 
+/// Type of backfill request from hive to node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BackfillType {
+    /// Request full attempt data (attempt + all executions + all logs)
+    FullAttempt,
+    /// Request execution processes only
+    Executions,
+    /// Request logs only (with optional timestamp filter)
+    Logs,
+}
+
+/// Backfill request from hive to node.
+///
+/// Sent by the hive when it needs to pull missing data from a node.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackfillRequestMessage {
+    /// Unique message ID for tracking
+    pub message_id: Uuid,
+    /// Type of data to backfill
+    pub backfill_type: BackfillType,
+    /// Entity IDs to backfill (attempt IDs or execution IDs depending on type)
+    pub entity_ids: Vec<Uuid>,
+    /// For Logs backfill: only send logs after this timestamp
+    #[serde(default)]
+    pub logs_after: Option<chrono::DateTime<Utc>>,
+}
+
+/// Backfill response from node to hive.
+///
+/// Sent by the node after processing a backfill request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackfillResponseMessage {
+    /// ID of the request this is responding to
+    pub request_id: Uuid,
+    /// Whether the backfill was successful
+    pub success: bool,
+    /// Error message if not successful
+    pub error: Option<String>,
+    /// Number of entities sent
+    pub entities_sent: u32,
+}
+
 /// Protocol version
 const PROTOCOL_VERSION: u32 = 1;
 
@@ -609,6 +656,8 @@ pub enum HiveEvent {
     TaskSyncResponse(TaskSyncResponseMessage),
     /// Label sync received from hive (label created/updated/deleted on hive)
     LabelSync(LabelSyncBroadcastMessage),
+    /// Backfill request received from hive
+    BackfillRequest(BackfillRequestMessage),
     /// Error from hive
     Error { message: String },
 }
@@ -973,6 +1022,18 @@ impl HiveClient {
                 tracing::info!(reason = %reason, "hive requested close");
                 return Err(HiveClientError::Connection(reason));
             }
+            HiveMessage::BackfillRequest(request) => {
+                tracing::info!(
+                    message_id = %request.message_id,
+                    backfill_type = ?request.backfill_type,
+                    entity_count = request.entity_ids.len(),
+                    "received backfill request from hive"
+                );
+                let _ = self
+                    .event_tx
+                    .send(HiveEvent::BackfillRequest(request))
+                    .await;
+            }
             _ => {
                 tracing::debug!(?hive_msg, "ignoring unhandled hive message");
             }
@@ -1038,6 +1099,17 @@ impl HiveClient {
     ) -> Result<(), HiveClientError> {
         self.command_tx
             .send(NodeMessage::UnlinkProject(unlink))
+            .await
+            .map_err(|_| HiveClientError::Send("channel closed".to_string()))
+    }
+
+    /// Send a backfill response to the hive.
+    pub async fn send_backfill_response(
+        &self,
+        response: BackfillResponseMessage,
+    ) -> Result<(), HiveClientError> {
+        self.command_tx
+            .send(NodeMessage::BackfillResponse(response))
             .await
             .map_err(|_| HiveClientError::Send("channel closed".to_string()))
     }
