@@ -79,6 +79,10 @@ pub enum NodeMessage {
         message_id: Option<Uuid>,
         error: String,
     },
+
+    /// Response to a backfill request from hive
+    #[serde(rename = "backfill_response")]
+    BackfillResponse(BackfillResponseMessage),
 }
 
 /// Messages sent from the hive to a node.
@@ -131,6 +135,10 @@ pub enum HiveMessage {
     /// Response to a task sync request from node
     #[serde(rename = "task_sync_response")]
     TaskSyncResponse(TaskSyncResponseMessage),
+
+    /// Request data backfill from node
+    #[serde(rename = "backfill_request")]
+    BackfillRequest(BackfillRequestMessage),
 }
 
 /// Authentication message from node to hive.
@@ -664,6 +672,51 @@ pub struct LocalProjectInfo {
     pub git_repo_path: String,
     /// Default branch for the project
     pub default_branch: String,
+}
+
+/// Type of backfill request from hive to node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BackfillType {
+    /// Request full attempt data (attempt + all executions + all logs)
+    FullAttempt,
+    /// Request execution processes only
+    Executions,
+    /// Request logs only (with optional timestamp filter)
+    Logs,
+}
+
+/// Backfill request from hive to node.
+///
+/// Sent by the hive when it needs to pull missing data from a node.
+/// This can happen on-demand (client viewing), periodically, or on node reconnect.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackfillRequestMessage {
+    /// Unique message ID for tracking
+    pub message_id: Uuid,
+    /// Type of data to backfill
+    pub backfill_type: BackfillType,
+    /// Entity IDs to backfill (attempt IDs or execution IDs depending on type)
+    pub entity_ids: Vec<Uuid>,
+    /// For Logs backfill: only send logs after this timestamp
+    #[serde(default)]
+    pub logs_after: Option<DateTime<Utc>>,
+}
+
+/// Backfill response from node to hive.
+///
+/// Sent by the node after processing a backfill request.
+/// The actual data is sent via normal AttemptSync/ExecutionSync/LogsBatch messages.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackfillResponseMessage {
+    /// ID of the request this is responding to
+    pub request_id: Uuid,
+    /// Whether the backfill was successful
+    pub success: bool,
+    /// Error message if not successful
+    pub error: Option<String>,
+    /// Number of entities sent
+    pub entities_sent: u32,
 }
 
 /// Current protocol version.

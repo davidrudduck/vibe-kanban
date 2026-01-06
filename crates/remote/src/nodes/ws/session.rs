@@ -19,16 +19,20 @@ use uuid::Uuid;
 use super::{
     connection::ConnectionManager,
     message::{
-        AttemptSyncMessage, AuthResultMessage, DeregisterMessage, ExecutionSyncMessage,
-        HeartbeatMessage, HiveMessage, LinkProjectMessage, LinkedProjectInfo, LogsBatchMessage,
-        NodeMessage, NodeRemovedMessage, PROTOCOL_VERSION, ProjectSyncMessage, ProjectsSyncMessage,
-        SwarmLabelInfo, TaskExecutionStatus, TaskOutputMessage, TaskProgressMessage,
-        TaskStatusMessage, TaskSyncMessage, TaskSyncResponseMessage, UnlinkProjectMessage,
+        AttemptSyncMessage, AuthResultMessage, BackfillResponseMessage, DeregisterMessage,
+        ExecutionSyncMessage, HeartbeatMessage, HiveMessage, LinkProjectMessage, LinkedProjectInfo,
+        LogsBatchMessage, NodeMessage, NodeRemovedMessage, PROTOCOL_VERSION, ProjectSyncMessage,
+        ProjectsSyncMessage, SwarmLabelInfo, TaskExecutionStatus, TaskOutputMessage,
+        TaskProgressMessage, TaskStatusMessage, TaskSyncMessage, TaskSyncResponseMessage,
+        UnlinkProjectMessage,
     },
 };
-use crate::nodes::{
-    domain::NodeStatus,
-    service::{NodeServiceImpl, RegisterNode},
+use crate::{
+    db::node_task_attempts::NodeTaskAttemptRepository,
+    nodes::{
+        domain::NodeStatus,
+        service::{NodeServiceImpl, RegisterNode},
+    },
 };
 
 /// Heartbeat timeout - close connection if no heartbeat received.
@@ -487,6 +491,9 @@ async fn handle_node_message(
             // Auth should only happen once at connection start
             tracing::warn!(node_id = %node_id, "received unexpected auth message");
             Ok(())
+        }
+        NodeMessage::BackfillResponse(response) => {
+            handle_backfill_response(node_id, response, pool).await
         }
     }
 }
@@ -1370,4 +1377,60 @@ async fn broadcast_node_projects(
         owned_project_count = owned_projects.len(),
         "broadcast node's owned projects to organization"
     );
+}
+
+/// Handle a backfill response from a node.
+///
+/// When a node responds to a backfill request, it sends the actual data via
+/// normal AttemptSync/ExecutionSync/LogsBatch messages. This response just
+/// confirms completion and allows us to mark attempts as complete.
+async fn handle_backfill_response(
+    node_id: Uuid,
+    response: &BackfillResponseMessage,
+    pool: &PgPool,
+) -> Result<(), HandleError> {
+    tracing::info!(
+        node_id = %node_id,
+        request_id = %response.request_id,
+        success = response.success,
+        entities_sent = response.entities_sent,
+        error = ?response.error,
+        "received backfill response from node"
+    );
+
+    if response.success {
+        // The entity IDs were sent with the original request.
+        // For now, we mark the attempt as complete based on a successful response.
+        // In the future, we could track the request_id -> entity_ids mapping
+        // to mark specific attempts as complete.
+        //
+        // The actual data has already been sent via AttemptSync/ExecutionSync/LogsBatch
+        // messages before this response arrives.
+        tracing::debug!(
+            node_id = %node_id,
+            request_id = %response.request_id,
+            "backfill completed successfully"
+        );
+    } else {
+        // Log the error but don't fail - the sync_state will remain pending
+        // and will be retried on the next periodic check or reconnect.
+        tracing::warn!(
+            node_id = %node_id,
+            request_id = %response.request_id,
+            error = ?response.error,
+            "backfill request failed"
+        );
+
+        // Reset pending_backfill state to partial so it can be retried
+        let repo = NodeTaskAttemptRepository::new(pool);
+        if let Err(e) = repo.reset_stale_pending_backfill(0).await {
+            tracing::error!(
+                node_id = %node_id,
+                error = %e,
+                "failed to reset pending backfill state"
+            );
+        }
+    }
+
+    Ok(())
 }

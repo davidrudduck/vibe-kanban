@@ -53,9 +53,9 @@ impl<'a> NodeTaskAttemptRepository<'a> {
                 id, assignment_id, shared_task_id, node_id,
                 executor, executor_variant, branch, target_branch,
                 container_ref, worktree_deleted, setup_completed_at,
-                created_at, updated_at
+                created_at, updated_at, sync_state
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'partial')
             ON CONFLICT (id) DO UPDATE SET
                 assignment_id = EXCLUDED.assignment_id,
                 executor = EXCLUDED.executor,
@@ -70,7 +70,7 @@ impl<'a> NodeTaskAttemptRepository<'a> {
                 id, assignment_id, shared_task_id, node_id,
                 executor, executor_variant, branch, target_branch,
                 container_ref, worktree_deleted, setup_completed_at,
-                created_at, updated_at
+                created_at, updated_at, sync_state, sync_requested_at, last_full_sync_at
             "#,
         )
         .bind(data.id)
@@ -103,7 +103,7 @@ impl<'a> NodeTaskAttemptRepository<'a> {
                 id, assignment_id, shared_task_id, node_id,
                 executor, executor_variant, branch, target_branch,
                 container_ref, worktree_deleted, setup_completed_at,
-                created_at, updated_at
+                created_at, updated_at, sync_state, sync_requested_at, last_full_sync_at
             FROM node_task_attempts
             WHERE id = $1
             "#,
@@ -126,7 +126,7 @@ impl<'a> NodeTaskAttemptRepository<'a> {
                 id, assignment_id, shared_task_id, node_id,
                 executor, executor_variant, branch, target_branch,
                 container_ref, worktree_deleted, setup_completed_at,
-                created_at, updated_at
+                created_at, updated_at, sync_state, sync_requested_at, last_full_sync_at
             FROM node_task_attempts
             WHERE shared_task_id = $1
             ORDER BY created_at DESC
@@ -150,7 +150,7 @@ impl<'a> NodeTaskAttemptRepository<'a> {
                 id, assignment_id, shared_task_id, node_id,
                 executor, executor_variant, branch, target_branch,
                 container_ref, worktree_deleted, setup_completed_at,
-                created_at, updated_at
+                created_at, updated_at, sync_state, sync_requested_at, last_full_sync_at
             FROM node_task_attempts
             WHERE node_id = $1
             ORDER BY created_at DESC
@@ -171,5 +171,117 @@ impl<'a> NodeTaskAttemptRepository<'a> {
             .await?;
 
         Ok(result.rows_affected() > 0)
+    }
+
+    /// Find incomplete attempts for a specific node (for reconciliation on reconnect)
+    pub async fn find_incomplete_for_node(
+        &self,
+        node_id: Uuid,
+    ) -> Result<Vec<NodeTaskAttempt>, NodeTaskAttemptError> {
+        let attempts = sqlx::query_as::<_, NodeTaskAttempt>(
+            r#"
+            SELECT
+                id, assignment_id, shared_task_id, node_id,
+                executor, executor_variant, branch, target_branch,
+                container_ref, worktree_deleted, setup_completed_at,
+                created_at, updated_at, sync_state, sync_requested_at, last_full_sync_at
+            FROM node_task_attempts
+            WHERE node_id = $1 AND sync_state != 'complete'
+            ORDER BY created_at DESC
+            "#,
+        )
+        .bind(node_id)
+        .fetch_all(self.pool)
+        .await?;
+
+        Ok(attempts)
+    }
+
+    /// Find all incomplete attempts where the node is currently online
+    /// Used by periodic reconciliation
+    pub async fn find_incomplete_with_online_nodes(
+        &self,
+    ) -> Result<Vec<NodeTaskAttempt>, NodeTaskAttemptError> {
+        let attempts = sqlx::query_as::<_, NodeTaskAttempt>(
+            r#"
+            SELECT
+                nta.id, nta.assignment_id, nta.shared_task_id, nta.node_id,
+                nta.executor, nta.executor_variant, nta.branch, nta.target_branch,
+                nta.container_ref, nta.worktree_deleted, nta.setup_completed_at,
+                nta.created_at, nta.updated_at, nta.sync_state, nta.sync_requested_at, nta.last_full_sync_at
+            FROM node_task_attempts nta
+            INNER JOIN nodes n ON nta.node_id = n.id
+            WHERE nta.sync_state != 'complete'
+              AND n.last_seen_at > NOW() - INTERVAL '5 minutes'
+            ORDER BY nta.created_at DESC
+            LIMIT 100
+            "#,
+        )
+        .fetch_all(self.pool)
+        .await?;
+
+        Ok(attempts)
+    }
+
+    /// Mark attempts as pending backfill
+    pub async fn mark_pending_backfill(
+        &self,
+        ids: &[Uuid],
+    ) -> Result<u64, NodeTaskAttemptError> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+
+        let result = sqlx::query(
+            r#"
+            UPDATE node_task_attempts
+            SET sync_state = 'pending_backfill',
+                sync_requested_at = NOW()
+            WHERE id = ANY($1) AND sync_state = 'partial'
+            "#,
+        )
+        .bind(ids)
+        .execute(self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
+    /// Mark an attempt as complete (fully synced)
+    pub async fn mark_complete(&self, id: Uuid) -> Result<bool, NodeTaskAttemptError> {
+        let result = sqlx::query(
+            r#"
+            UPDATE node_task_attempts
+            SET sync_state = 'complete',
+                last_full_sync_at = NOW()
+            WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .execute(self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Reset pending backfill attempts that have timed out (node went offline)
+    /// Called periodically to reset stale pending_backfill states
+    pub async fn reset_stale_pending_backfill(
+        &self,
+        timeout_minutes: i32,
+    ) -> Result<u64, NodeTaskAttemptError> {
+        let result = sqlx::query(
+            r#"
+            UPDATE node_task_attempts
+            SET sync_state = 'partial'
+            WHERE sync_state = 'pending_backfill'
+              AND sync_requested_at < NOW() - make_interval(mins => $1)
+            "#,
+        )
+        .bind(timeout_minutes)
+        .execute(self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
     }
 }

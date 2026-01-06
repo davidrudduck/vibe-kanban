@@ -469,6 +469,16 @@ impl NodeRunnerHandle {
                 // Note: DB update for label sync should happen in run_node_runner
                 // where we have access to the pool, or in a dedicated label sync handler
             }
+            HiveEvent::BackfillRequest(request) => {
+                tracing::info!(
+                    message_id = %request.message_id,
+                    backfill_type = ?request.backfill_type,
+                    entity_count = request.entity_ids.len(),
+                    "backfill request received from hive"
+                );
+                // Note: Backfill handling should happen in run_node_runner where we have
+                // access to the database pool to query local data and send it to the hive.
+            }
         }
 
         Some(event)

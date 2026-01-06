@@ -6,7 +6,9 @@ use backon::{ExponentialBuilder, Retryable};
 use chrono::Duration as ChronoDuration;
 use remote::{
     activity::ActivityResponse,
-    nodes::{Node, NodeApiKey, NodeLocalProjectInfo, NodeProject, NodeTaskAttempt},
+    nodes::{
+        Node, NodeApiKey, NodeExecutionProcess, NodeLocalProjectInfo, NodeProject, NodeTaskAttempt,
+    },
     routes::{
         labels::{SetTaskLabelsRequest, TaskLabelsResponse},
         projects::ListProjectNodesResponse,
@@ -118,6 +120,15 @@ fn map_error_code(code: Option<&str>) -> HandoffErrorCode {
 #[derive(Deserialize)]
 struct ApiErrorResponse {
     error: String,
+}
+
+/// Response from the Hive for getting a single node task attempt.
+#[derive(Debug, Clone, Deserialize)]
+pub struct NodeTaskAttemptResponse {
+    pub attempt: NodeTaskAttempt,
+    pub executions: Vec<NodeExecutionProcess>,
+    /// Whether all executions are in a terminal state (complete/failed/killed)
+    pub is_complete: bool,
 }
 
 /// HTTP client for the remote OAuth server with automatic retries.
@@ -797,6 +808,21 @@ impl RemoteClient {
             ))
             .await?;
         Ok(resp.attempts)
+    }
+
+    /// Gets a single task attempt by ID from the Hive.
+    /// Used by remote nodes to fetch attempt details for cross-node viewing.
+    /// Returns None if the attempt is not found on the Hive.
+    pub async fn get_node_task_attempt(
+        &self,
+        attempt_id: Uuid,
+    ) -> Result<Option<NodeTaskAttemptResponse>, RemoteClientError> {
+        let path = format!("/v1/nodes/task-attempts/{attempt_id}");
+        match self.get_authed::<NodeTaskAttemptResponse>(&path).await {
+            Ok(resp) => Ok(Some(resp)),
+            Err(RemoteClientError::Http { status: 404, .. }) => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 
     /// Lists API keys for an organization.

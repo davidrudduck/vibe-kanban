@@ -205,6 +205,12 @@ pub struct NodeTaskAttempt {
     pub setup_completed_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Sync state: 'partial', 'pending_backfill', 'complete'
+    pub sync_state: String,
+    /// When backfill was last requested
+    pub sync_requested_at: Option<DateTime<Utc>>,
+    /// When full sync was last confirmed
+    pub last_full_sync_at: Option<DateTime<Utc>>,
 }
 
 /// Execution process synced from a node
