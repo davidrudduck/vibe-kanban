@@ -224,6 +224,16 @@ pub struct GetTaskResponse {
     pub task: TaskDetails,
 }
 
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct TaskIdResponse {
+    pub task_id: String,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ProjectIdResponse {
+    pub project_id: String,
+}
+
 // ===== Task Variables MCP Types =====
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -614,6 +624,45 @@ impl TaskServer {
             None,
         )
     }
+
+    #[tool(description = "Get task ID from cwd. Lightweight alternative to get_context.")]
+    async fn get_task_id(
+        &self,
+        Parameters(GetContextRequest { cwd }): Parameters<GetContextRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if let Some(ctx) = self.fetch_context_for_path(&cwd).await {
+            return TaskServer::success(&TaskIdResponse {
+                task_id: ctx.task_id.to_string(),
+            });
+        }
+        TaskServer::err(
+            &format!(
+                "No task attempt found for path: {}. Ensure you're in a vibe-kanban task attempt worktree.",
+                cwd
+            ),
+            None,
+        )
+    }
+
+    #[tool(description = "Get project ID from cwd. Lightweight alternative to get_context.")]
+    async fn get_project_id(
+        &self,
+        Parameters(GetContextRequest { cwd }): Parameters<GetContextRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if let Some(ctx) = self.fetch_context_for_path(&cwd).await {
+            return TaskServer::success(&ProjectIdResponse {
+                project_id: ctx.project_id.to_string(),
+            });
+        }
+        TaskServer::err(
+            &format!(
+                "No task attempt found for path: {}. Ensure you're in a vibe-kanban task attempt worktree.",
+                cwd
+            ),
+            None,
+        )
+    }
+
     #[tool(description = "Create task. Requires project_id.")]
     async fn create_task(
         &self,
