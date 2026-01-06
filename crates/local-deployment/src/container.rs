@@ -1653,38 +1653,35 @@ impl ContainerService for LocalContainerService {
 
             // Emit log entry BEFORE injecting to stdin so the injected message
             // appears in the executor logs / conversation UI
-            if let Ok(msg_stores) = self.msg_stores.try_read() {
-                if let Some(msg_store) = msg_stores.get(&execution_process_id) {
-                    // Get or create entry index provider for this execution
-                    let index_provider =
-                        match self.get_entry_index_provider(&execution_process_id).await {
-                            Some(provider) => provider,
-                            None => {
-                                // Create new provider by scanning current history
-                                let provider = EntryIndexProvider::start_from(msg_store);
-                                self.store_entry_index_provider(
-                                    execution_process_id,
-                                    provider.clone(),
-                                )
+            if let Ok(msg_stores) = self.msg_stores.try_read()
+                && let Some(msg_store) = msg_stores.get(&execution_process_id)
+            {
+                // Get or create entry index provider for this execution
+                let index_provider =
+                    match self.get_entry_index_provider(&execution_process_id).await {
+                        Some(provider) => provider,
+                        None => {
+                            // Create new provider by scanning current history
+                            let provider = EntryIndexProvider::start_from(msg_store);
+                            self.store_entry_index_provider(execution_process_id, provider.clone())
                                 .await;
-                                provider
-                            }
-                        };
-
-                    let entry = NormalizedEntry {
-                        timestamp: Some(Utc::now().to_rfc3339()),
-                        entry_type: NormalizedEntryType::UserMessage,
-                        content: message.clone(),
-                        metadata: Some(serde_json::json!({"injected": true})),
+                            provider
+                        }
                     };
-                    let index = index_provider.next();
-                    msg_store.push_patch(ConversationPatch::add_normalized_entry(index, entry));
-                    tracing::debug!(
-                        execution_process_id = %execution_process_id,
-                        entry_index = index,
-                        "Emitted log entry for injected message"
-                    );
-                }
+
+                let entry = NormalizedEntry {
+                    timestamp: Some(Utc::now().to_rfc3339()),
+                    entry_type: NormalizedEntryType::UserMessage,
+                    content: message.clone(),
+                    metadata: Some(serde_json::json!({"injected": true})),
+                };
+                let index = index_provider.next();
+                msg_store.push_patch(ConversationPatch::add_normalized_entry(index, entry));
+                tracing::debug!(
+                    execution_process_id = %execution_process_id,
+                    entry_index = index,
+                    "Emitted log entry for injected message"
+                );
             }
 
             peer.send_user_message(message)

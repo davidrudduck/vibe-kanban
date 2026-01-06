@@ -361,9 +361,13 @@ async fn test_delete_stale_shared_tasks_project_isolation() {
 // =============================================================================
 
 /// Create a remote project for testing.
-async fn create_remote_project(pool: &SqlitePool, name: &str, remote_project_id: Uuid) -> Project {
+async fn create_remote_project(
+    pool: &SqlitePool,
+    name: &str,
+    remote_project_id: Uuid,
+    source_node_id: Uuid,
+) -> Project {
     let local_id = Uuid::new_v4();
-    let source_node_id = Uuid::new_v4();
 
     Project::upsert_remote_project(
         pool,
@@ -384,22 +388,29 @@ async fn create_remote_project(pool: &SqlitePool, name: &str, remote_project_id:
 async fn test_delete_stale_remote_projects_bulk_delete() {
     let (pool, _temp_dir) = setup_test_pool().await;
 
+    // All projects from the same source node
+    let source_node_id = Uuid::new_v4();
+
     // Create 4 remote projects
     let remote_id_1 = Uuid::new_v4();
     let remote_id_2 = Uuid::new_v4();
     let remote_id_3 = Uuid::new_v4();
     let remote_id_4 = Uuid::new_v4();
 
-    let _project1 = create_remote_project(&pool, "Remote Project 1", remote_id_1).await;
-    let project2 = create_remote_project(&pool, "Remote Project 2", remote_id_2).await;
-    let _project3 = create_remote_project(&pool, "Remote Project 3", remote_id_3).await;
-    let project4 = create_remote_project(&pool, "Remote Project 4", remote_id_4).await;
+    let _project1 =
+        create_remote_project(&pool, "Remote Project 1", remote_id_1, source_node_id).await;
+    let project2 =
+        create_remote_project(&pool, "Remote Project 2", remote_id_2, source_node_id).await;
+    let _project3 =
+        create_remote_project(&pool, "Remote Project 3", remote_id_3, source_node_id).await;
+    let project4 =
+        create_remote_project(&pool, "Remote Project 4", remote_id_4, source_node_id).await;
 
     // Active remote_project_ids (these should NOT be deleted)
     let active_ids = vec![remote_id_2, remote_id_4];
 
     // Delete stale projects (1 and 3 should be deleted)
-    let rows_deleted = Project::delete_stale_remote_projects(&pool, &active_ids)
+    let rows_deleted = Project::delete_stale_remote_projects(&pool, source_node_id, &active_ids)
         .await
         .expect("delete_stale_remote_projects failed");
 
@@ -426,15 +437,20 @@ async fn test_delete_stale_remote_projects_bulk_delete() {
 async fn test_delete_stale_remote_projects_empty_active_list_noop() {
     let (pool, _temp_dir) = setup_test_pool().await;
 
+    // All projects from the same source node
+    let source_node_id = Uuid::new_v4();
+
     // Create 2 remote projects
     let remote_id_1 = Uuid::new_v4();
     let remote_id_2 = Uuid::new_v4();
 
-    let project1 = create_remote_project(&pool, "Remote Project 1", remote_id_1).await;
-    let project2 = create_remote_project(&pool, "Remote Project 2", remote_id_2).await;
+    let project1 =
+        create_remote_project(&pool, "Remote Project 1", remote_id_1, source_node_id).await;
+    let project2 =
+        create_remote_project(&pool, "Remote Project 2", remote_id_2, source_node_id).await;
 
     // Call with empty active list - should NOT delete anything (safety check)
-    let rows_deleted = Project::delete_stale_remote_projects(&pool, &[])
+    let rows_deleted = Project::delete_stale_remote_projects(&pool, source_node_id, &[])
         .await
         .expect("delete_stale_remote_projects with empty list should not fail");
 
@@ -462,18 +478,23 @@ async fn test_delete_stale_remote_projects_empty_active_list_noop() {
 async fn test_delete_stale_remote_projects_only_affects_remote() {
     let (pool, _temp_dir) = setup_test_pool().await;
 
+    // Source node for the remote project
+    let source_node_id = Uuid::new_v4();
+
     // Create a local project
     let local_project = create_test_project(&pool).await;
 
     // Create a remote project
     let remote_id = Uuid::new_v4();
-    let remote_project = create_remote_project(&pool, "Remote Project", remote_id).await;
+    let remote_project =
+        create_remote_project(&pool, "Remote Project", remote_id, source_node_id).await;
 
     // Delete stale with active list that doesn't include the remote project
     let unrelated_id = Uuid::new_v4();
-    let rows_deleted = Project::delete_stale_remote_projects(&pool, &[unrelated_id])
-        .await
-        .expect("delete_stale_remote_projects failed");
+    let rows_deleted =
+        Project::delete_stale_remote_projects(&pool, source_node_id, &[unrelated_id])
+            .await
+            .expect("delete_stale_remote_projects failed");
 
     // Only the remote project should be deleted
     assert_eq!(rows_deleted, 1, "Should have deleted 1 remote project");

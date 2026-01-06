@@ -146,44 +146,41 @@ pub async fn get_task_attempts(
     let pool = &deployment.db().pool;
 
     // If task_id is provided, check if it's a swarm task and query Hive
-    if let Some(task_id) = query.task_id {
-        if let Some(task) = Task::find_by_id(pool, task_id).await? {
-            // If this is a swarm task, query the Hive for attempts
-            if let Some(shared_task_id) = task.shared_task_id {
-                // Try to get attempts from Hive
-                if let Ok(client) = deployment.remote_client() {
-                    match client.list_task_attempts_by_shared_task(shared_task_id).await {
-                        Ok(hive_attempts) => {
-                            // Convert NodeTaskAttempt to TaskAttempt
-                            let attempts: Vec<TaskAttempt> = hive_attempts
-                                .into_iter()
-                                .map(|nta| TaskAttempt {
-                                    id: nta.id,
-                                    task_id, // Map back to local task_id
-                                    container_ref: nta.container_ref,
-                                    branch: nta.branch,
-                                    target_branch: nta.target_branch,
-                                    executor: nta.executor,
-                                    worktree_deleted: nta.worktree_deleted,
-                                    setup_completed_at: nta.setup_completed_at,
-                                    created_at: nta.created_at,
-                                    updated_at: nta.updated_at,
-                                    hive_synced_at: Some(nta.updated_at), // Came from Hive, so it's synced
-                                    hive_assignment_id: nta.assignment_id,
-                                })
-                                .collect();
-                            return Ok(ResponseJson(ApiResponse::success(attempts)));
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                shared_task_id = %shared_task_id,
-                                error = %e,
-                                "Failed to fetch task attempts from Hive, falling back to local"
-                            );
-                            // Fall through to local query
-                        }
-                    }
-                }
+    if let Some(task_id) = query.task_id
+        && let Some(task) = Task::find_by_id(pool, task_id).await?
+        && let Some(shared_task_id) = task.shared_task_id
+        && let Ok(client) = deployment.remote_client()
+    {
+        // Try to get attempts from Hive
+        match client.list_task_attempts_by_shared_task(shared_task_id).await {
+            Ok(hive_attempts) => {
+                // Convert NodeTaskAttempt to TaskAttempt
+                let attempts: Vec<TaskAttempt> = hive_attempts
+                    .into_iter()
+                    .map(|nta| TaskAttempt {
+                        id: nta.id,
+                        task_id, // Map back to local task_id
+                        container_ref: nta.container_ref,
+                        branch: nta.branch,
+                        target_branch: nta.target_branch,
+                        executor: nta.executor,
+                        worktree_deleted: nta.worktree_deleted,
+                        setup_completed_at: nta.setup_completed_at,
+                        created_at: nta.created_at,
+                        updated_at: nta.updated_at,
+                        hive_synced_at: Some(nta.updated_at), // Came from Hive, so it's synced
+                        hive_assignment_id: nta.assignment_id,
+                    })
+                    .collect();
+                return Ok(ResponseJson(ApiResponse::success(attempts)));
+            }
+            Err(e) => {
+                tracing::warn!(
+                    shared_task_id = %shared_task_id,
+                    error = %e,
+                    "Failed to fetch task attempts from Hive, falling back to local"
+                );
+                // Fall through to local query
             }
         }
     }
