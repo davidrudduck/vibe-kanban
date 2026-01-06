@@ -34,9 +34,7 @@ pub struct CreateTaskRequest {
     #[schemars(description = "Optional description of the task")]
     #[serde(default)]
     pub description: Option<String>,
-    #[schemars(
-        description = "Link as subtask of a parent task. If true and in context of an attempt, auto-links to current task."
-    )]
+    #[schemars(description = "Link as subtask of a parent task. If true and in context of an attempt, auto-links to current task.")]
     #[serde(default)]
     pub link_to_parent: Option<bool>,
     #[schemars(description = "Explicit parent task ID. Overrides link_to_parent.")]
@@ -51,21 +49,13 @@ pub struct CreateTaskResponse {
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct ProjectSummary {
-    #[schemars(description = "The unique identifier of the project")]
     pub id: String,
-    #[schemars(description = "The name of the project")]
     pub name: String,
-    #[schemars(description = "The path to the git repository")]
     pub git_repo_path: PathBuf,
-    #[schemars(description = "Optional setup script for the project")]
     pub setup_script: Option<String>,
-    #[schemars(description = "Optional cleanup script for the project")]
     pub cleanup_script: Option<String>,
-    #[schemars(description = "Optional development script for the project")]
     pub dev_script: Option<String>,
-    #[schemars(description = "When the project was created")]
     pub created_at: String,
-    #[schemars(description = "When the project was last updated")]
     pub updated_at: String,
 }
 
@@ -92,33 +82,23 @@ pub struct ListProjectsResponse {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ListTasksRequest {
-    #[schemars(description = "The ID of the project to list tasks from")]
+    #[schemars(description = "Project ID")]
     pub project_id: Uuid,
-    #[schemars(
-        description = "Optional status filter: 'todo', 'inprogress', 'inreview', 'done', 'cancelled'"
-    )]
+    #[schemars(description = "Status filter: 'todo', 'inprogress', 'inreview', 'done', 'cancelled'")]
     pub status: Option<String>,
-    #[schemars(description = "Maximum number of tasks to return (default: 50)")]
+    #[schemars(description = "Max results (default: 50)")]
     pub limit: Option<i32>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct TaskSummary {
-    #[schemars(description = "The unique identifier of the task")]
     pub id: String,
-    #[schemars(description = "The title of the task")]
     pub title: String,
-    #[schemars(description = "Current status of the task")]
     pub status: String,
-    #[schemars(description = "When the task was created")]
     pub created_at: String,
-    #[schemars(description = "When the task was last updated")]
     pub updated_at: String,
-    #[schemars(description = "Whether the task has an in-progress execution attempt")]
     pub has_in_progress_attempt: Option<bool>,
-    #[schemars(description = "Whether the task has a merged execution attempt")]
     pub has_merged_attempt: Option<bool>,
-    #[schemars(description = "Whether the last execution attempt failed")]
     pub last_attempt_failed: Option<bool>,
 }
 
@@ -139,23 +119,14 @@ impl TaskSummary {
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct TaskDetails {
-    #[schemars(description = "The unique identifier of the task")]
     pub id: String,
-    #[schemars(description = "The title of the task")]
     pub title: String,
-    #[schemars(description = "Optional description of the task")]
     pub description: Option<String>,
-    #[schemars(description = "Current status of the task")]
     pub status: String,
-    #[schemars(description = "When the task was created")]
     pub created_at: String,
-    #[schemars(description = "When the task was last updated")]
     pub updated_at: String,
-    #[schemars(description = "Whether the task has an in-progress execution attempt")]
     pub has_in_progress_attempt: Option<bool>,
-    #[schemars(description = "Whether the task has a merged execution attempt")]
     pub has_merged_attempt: Option<bool>,
-    #[schemars(description = "Whether the last execution attempt failed")]
     pub last_attempt_failed: Option<bool>,
 }
 
@@ -191,11 +162,11 @@ pub struct ListTasksFilters {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct UpdateTaskRequest {
-    #[schemars(description = "The ID of the task to update")]
+    #[schemars(description = "Task ID")]
     pub task_id: Uuid,
-    #[schemars(description = "New title for the task")]
+    #[schemars(description = "New title")]
     pub title: Option<String>,
-    #[schemars(description = "New description for the task")]
+    #[schemars(description = "New description")]
     pub description: Option<String>,
     #[schemars(description = "New status: 'todo', 'inprogress', 'inreview', 'done', 'cancelled'")]
     pub status: Option<String>,
@@ -208,21 +179,19 @@ pub struct UpdateTaskResponse {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct DeleteTaskRequest {
-    #[schemars(description = "The ID of the task to delete")]
+    #[schemars(description = "Task ID")]
     pub task_id: Uuid,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct StartTaskAttemptRequest {
-    #[schemars(description = "The ID of the task to start")]
+    #[schemars(description = "Task ID")]
     pub task_id: Uuid,
-    #[schemars(
-        description = "The coding agent executor to run ('CLAUDE_CODE', 'CODEX', 'GEMINI', 'CURSOR_AGENT', 'OPENCODE')"
-    )]
+    #[schemars(description = "Executor: 'CLAUDE_CODE', 'CODEX', 'GEMINI', 'CURSOR_AGENT', 'OPENCODE'")]
     pub executor: String,
-    #[schemars(description = "Optional executor variant, if needed")]
+    #[schemars(description = "Executor variant (optional)")]
     pub variant: Option<String>,
-    #[schemars(description = "The base branch to use for the attempt")]
+    #[schemars(description = "Base branch")]
     pub base_branch: String,
 }
 
@@ -239,37 +208,16 @@ pub struct DeleteTaskResponse {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GetTaskRequest {
-    #[schemars(description = "The ID of the task to retrieve")]
+    #[schemars(description = "Task ID")]
     pub task_id: Uuid,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GetContextRequest {
-    #[schemars(
-        description = "Working directory path to identify the task attempt. Pass the absolute path where you are executing commands."
-    )]
+    #[schemars(description = "Absolute working directory path")]
     pub cwd: String,
 }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct CwdRequest {
-    #[schemars(
-        description = "Working directory path to identify the task attempt. Pass the absolute path where you are executing commands."
-    )]
-    pub cwd: String,
-}
-
-#[derive(Debug, Serialize, schemars::JsonSchema)]
-pub struct TaskIdResponse {
-    #[schemars(description = "The task ID for the current task attempt")]
-    pub task_id: String,
-}
-
-#[derive(Debug, Serialize, schemars::JsonSchema)]
-pub struct ProjectIdResponse {
-    #[schemars(description = "The project ID for the current task attempt")]
-    pub project_id: String,
-}
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct GetTaskResponse {
@@ -280,19 +228,15 @@ pub struct GetTaskResponse {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GetTaskVariablesRequest {
-    #[schemars(description = "The ID of the task to get variables for")]
+    #[schemars(description = "Task ID")]
     pub task_id: Uuid,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct TaskVariableDetails {
-    #[schemars(description = "The variable name")]
     pub name: String,
-    #[schemars(description = "The variable value")]
     pub value: String,
-    #[schemars(description = "The task ID where this variable was defined")]
     pub source_task_id: String,
-    #[schemars(description = "True if this variable was inherited from a parent task")]
     pub inherited: bool,
 }
 
@@ -309,53 +253,41 @@ impl TaskVariableDetails {
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct GetTaskVariablesResponse {
-    #[schemars(description = "The task ID these variables belong to")]
     pub task_id: String,
-    #[schemars(description = "The resolved variables (including inherited from parent tasks)")]
     pub variables: Vec<TaskVariableDetails>,
-    #[schemars(description = "Number of variables returned")]
     pub count: usize,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SetTaskVariableRequest {
-    #[schemars(description = "The ID of the task to set the variable on")]
+    #[schemars(description = "Task ID")]
     pub task_id: Uuid,
-    #[schemars(
-        description = "The variable name. Must start with uppercase letter and contain only uppercase letters, digits, and underscores (e.g., MY_VAR, API_KEY_2)"
-    )]
+    #[schemars(description = "Variable name (UPPER_SNAKE_CASE, e.g. MY_VAR)")]
     pub name: String,
-    #[schemars(description = "The variable value")]
+    #[schemars(description = "Variable value")]
     pub value: String,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct SetTaskVariableResponse {
-    #[schemars(description = "The variable ID")]
     pub id: String,
-    #[schemars(description = "The variable name")]
     pub name: String,
-    #[schemars(description = "The variable value")]
     pub value: String,
-    #[schemars(description = "The task ID this variable was set on")]
     pub task_id: String,
-    #[schemars(description = "Whether a new variable was created (false if existing was updated)")]
     pub created: bool,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct DeleteTaskVariableRequest {
-    #[schemars(description = "The ID of the task to delete the variable from")]
+    #[schemars(description = "Task ID")]
     pub task_id: Uuid,
-    #[schemars(description = "The name of the variable to delete")]
+    #[schemars(description = "Variable name to delete")]
     pub name: String,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct DeleteTaskVariableResponse {
-    #[schemars(description = "The name of the deleted variable")]
     pub deleted_variable_name: String,
-    #[schemars(description = "The task ID the variable was deleted from")]
     pub task_id: String,
 }
 
@@ -363,85 +295,63 @@ pub struct DeleteTaskVariableResponse {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct StopTaskAttemptRequest {
-    #[schemars(description = "The ID of the task attempt to stop")]
+    #[schemars(description = "Attempt ID to stop")]
     pub attempt_id: Uuid,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct StopTaskAttemptResponse {
-    #[schemars(description = "The ID of the task attempt that was stopped")]
     pub attempt_id: String,
-    #[schemars(description = "Whether the stop operation was successful")]
     pub stopped: bool,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GetTaskAttemptStatusRequest {
-    #[schemars(description = "The ID of the task attempt to get status for")]
+    #[schemars(description = "Attempt ID")]
     pub attempt_id: Uuid,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct ExecutionProcessSummary {
-    #[schemars(description = "The unique identifier of the execution process")]
     pub id: String,
-    #[schemars(description = "The reason this process was run (e.g., 'initial', 'follow_up')")]
     pub run_reason: String,
-    #[schemars(description = "Current status of the execution process")]
     pub status: String,
-    #[schemars(description = "When the process started")]
     pub started_at: String,
-    #[schemars(description = "When the process completed (if finished)")]
     pub completed_at: Option<String>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct TaskAttemptStatusResponse {
-    #[schemars(description = "The unique identifier of the task attempt")]
     pub attempt_id: String,
-    #[schemars(description = "The ID of the task this attempt belongs to")]
     pub task_id: String,
-    #[schemars(description = "The git branch name for this attempt")]
     pub branch: String,
-    #[schemars(description = "The executor used for this attempt")]
     pub executor: String,
-    #[schemars(description = "Whether the worktree has been deleted")]
     pub worktree_deleted: bool,
-    #[schemars(description = "When the attempt was created")]
     pub created_at: String,
-    #[schemars(description = "List of execution processes for this attempt")]
     pub processes: Vec<ExecutionProcessSummary>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ListTaskAttemptsRequest {
-    #[schemars(description = "The ID of the task to list attempts for")]
+    #[schemars(description = "Task ID")]
     pub task_id: Uuid,
-    #[schemars(description = "Maximum number of attempts to return (default: 50)")]
+    #[schemars(description = "Max results (default: 50)")]
     pub limit: Option<i32>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct TaskAttemptSummary {
-    #[schemars(description = "The unique identifier of the task attempt")]
     pub id: String,
-    #[schemars(description = "The git branch name for this attempt")]
     pub branch: String,
-    #[schemars(description = "The executor used for this attempt")]
     pub executor: String,
-    #[schemars(description = "When the attempt was created")]
     pub created_at: String,
-    #[schemars(description = "Whether the worktree has been deleted")]
     pub worktree_deleted: bool,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct ListTaskAttemptsResponse {
-    #[schemars(description = "The ID of the task these attempts belong to")]
     pub task_id: String,
-    #[schemars(description = "List of task attempts")]
     pub attempts: Vec<TaskAttemptSummary>,
-    #[schemars(description = "Number of attempts returned")]
     pub count: usize,
 }
 
@@ -449,13 +359,9 @@ pub struct ListTaskAttemptsResponse {
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct LabelSummary {
-    #[schemars(description = "The unique identifier of the label")]
     pub id: String,
-    #[schemars(description = "The name of the label")]
     pub name: String,
-    #[schemars(description = "Lucide icon name (e.g., 'tag', 'bug', 'code')")]
     pub icon: String,
-    #[schemars(description = "Hex color code (e.g., '#3b82f6')")]
     pub color: String,
 }
 
@@ -472,53 +378,42 @@ impl LabelSummary {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GetTaskLabelsRequest {
-    #[schemars(description = "The ID of the task to get labels for")]
+    #[schemars(description = "Task ID")]
     pub task_id: Uuid,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct GetTaskLabelsResponse {
-    #[schemars(description = "The ID of the task")]
     pub task_id: String,
-    #[schemars(description = "Labels assigned to the task")]
     pub labels: Vec<LabelSummary>,
-    #[schemars(description = "Number of labels returned")]
     pub count: usize,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SetTaskLabelsRequest {
-    #[schemars(description = "The ID of the task to set labels for")]
+    #[schemars(description = "Task ID")]
     pub task_id: Uuid,
-    #[schemars(description = "List of label IDs to assign to the task (replaces existing labels)")]
+    #[schemars(description = "Label IDs to assign (replaces existing)")]
     pub label_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct SetTaskLabelsResponse {
-    #[schemars(description = "The ID of the task")]
     pub task_id: String,
-    #[schemars(description = "Labels now assigned to the task")]
     pub labels: Vec<LabelSummary>,
-    #[schemars(description = "Number of labels set")]
     pub count: usize,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ListLabelsRequest {
-    #[schemars(
-        description = "Optional project ID. If provided, returns global + project-specific labels. If not, returns only global labels."
-    )]
+    #[schemars(description = "Project ID (if set, includes project-specific labels)")]
     pub project_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct ListLabelsResponse {
-    #[schemars(description = "Available labels")]
     pub labels: Vec<LabelSummary>,
-    #[schemars(description = "Number of labels returned")]
     pub count: usize,
-    #[schemars(description = "Project ID filter that was applied (null if global only)")]
     pub project_id: Option<String>,
 }
 
@@ -526,19 +421,15 @@ pub struct ListLabelsResponse {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ListNodesRequest {
-    #[schemars(description = "The ID of the task to list available nodes for")]
+    #[schemars(description = "Task ID")]
     pub task_id: Uuid,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct NodeSummary {
-    #[schemars(description = "The unique identifier of the node")]
     pub node_id: String,
-    #[schemars(description = "The name of the node")]
     pub node_name: String,
-    #[schemars(description = "Current status of the node (pending, online, offline, busy, draining)")]
     pub status: String,
-    #[schemars(description = "Public URL for direct connection to the node (if available)")]
     pub public_url: Option<String>,
 }
 
@@ -555,11 +446,8 @@ impl NodeSummary {
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct ListNodesResponse {
-    #[schemars(description = "The ID of the task")]
     pub task_id: String,
-    #[schemars(description = "Available nodes that have this task's project linked")]
     pub nodes: Vec<NodeSummary>,
-    #[schemars(description = "Number of nodes returned")]
     pub count: usize,
 }
 
@@ -726,44 +614,6 @@ impl TaskServer {
             None,
         )
     }
-    #[tool(description = "Get task ID for the current task attempt. Lightweight alternative to get_context.")]
-    async fn get_task_id(
-        &self,
-        Parameters(CwdRequest { cwd }): Parameters<CwdRequest>,
-    ) -> Result<CallToolResult, ErrorData> {
-        if let Some(ctx) = self.fetch_context_for_path(&cwd).await {
-            return TaskServer::success(&TaskIdResponse {
-                task_id: ctx.task_id.to_string(),
-            });
-        }
-        TaskServer::err(
-            &format!(
-                "No task attempt found for path: {}. Ensure you're in a vibe-kanban task attempt worktree.",
-                cwd
-            ),
-            None,
-        )
-    }
-
-    #[tool(description = "Get project ID for the current task attempt. Lightweight alternative to get_context.")]
-    async fn get_project_id(
-        &self,
-        Parameters(CwdRequest { cwd }): Parameters<CwdRequest>,
-    ) -> Result<CallToolResult, ErrorData> {
-        if let Some(ctx) = self.fetch_context_for_path(&cwd).await {
-            return TaskServer::success(&ProjectIdResponse {
-                project_id: ctx.project_id.to_string(),
-            });
-        }
-        TaskServer::err(
-            &format!(
-                "No task attempt found for path: {}. Ensure you're in a vibe-kanban task attempt worktree.",
-                cwd
-            ),
-            None,
-        )
-    }
-
     #[tool(description = "Create task. Requires project_id.")]
     async fn create_task(
         &self,
@@ -1388,7 +1238,7 @@ impl TaskServer {
 #[tool_handler]
 impl ServerHandler for TaskServer {
     fn get_info(&self) -> ServerInfo {
-        let instruction = "Use 'get_context' with your working directory (cwd) to fetch project/task/attempt metadata for the active Vibe Kanban attempt. A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`.. TOOLS: 'list_projects', 'list_tasks', 'create_task', 'start_workspace_session', 'get_task', 'update_task', 'delete_task', 'list_repos'. Make sure to pass `project_id` or `task_id` where required. You can use list tools to get the available ids. Task variables: Use 'get_task_variables', 'set_task_variable', and 'delete_task_variable' to manage variables that are expanded in task descriptions using $VAR or ${VAR} syntax. Task attempts: Use 'stop_task_attempt', 'get_task_attempt_status', and 'list_task_attempts' to control and monitor task execution. Labels: Use 'get_task_labels', 'set_task_labels', and 'list_labels' to manage task labels for categorization. Nodes: Use 'list_nodes' to find swarm nodes available for a task's project.".to_string();
+        let instruction = "Use 'get_context' with your working directory (cwd) to fetch project/task/attempt metadata for the active Vibe Kanban attempt. A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`.. TOOLS: 'list_projects', 'list_tasks', 'create_task', 'start_task_attempt', 'get_task', 'update_task', 'delete_task'. Make sure to pass `project_id` or `task_id` where required. You can use list tools to get the available ids. Task variables: Use 'get_task_variables', 'set_task_variable', and 'delete_task_variable' to manage variables that are expanded in task descriptions using $VAR or ${VAR} syntax. Task attempts: Use 'stop_task_attempt', 'get_task_attempt_status', and 'list_task_attempts' to control and monitor task execution. Labels: Use 'get_task_labels', 'set_task_labels', and 'list_labels' to manage task labels for categorization. Nodes: Use 'list_nodes' to find swarm nodes available for a task's project.".to_string();
 
         ServerInfo {
             protocol_version: ProtocolVersion::V_2025_03_26,
