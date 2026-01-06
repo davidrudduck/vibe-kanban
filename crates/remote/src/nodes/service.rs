@@ -15,6 +15,7 @@ use super::domain::{
 pub type RegisterNode = NodeRegistration;
 use crate::db::{
     node_api_keys::{NodeApiKeyError, NodeApiKeyRepository},
+    node_local_projects::{NodeLocalProjectError, NodeLocalProjectRepository},
     node_projects::{NodeProjectError, NodeProjectRepository},
     node_task_attempts::{NodeTaskAttemptError, NodeTaskAttemptRepository},
     nodes::{NodeDbError, NodeRepository},
@@ -111,6 +112,15 @@ impl From<NodeProjectError> for NodeError {
             }
             NodeProjectError::ProjectNotInHive => NodeError::ProjectNotInHive,
             NodeProjectError::Database(e) => NodeError::Database(e.to_string()),
+        }
+    }
+}
+
+impl From<NodeLocalProjectError> for NodeError {
+    fn from(err: NodeLocalProjectError) -> Self {
+        match err {
+            NodeLocalProjectError::NotFound => NodeError::NodeProjectNotFound,
+            NodeLocalProjectError::Database(e) => NodeError::Database(e.to_string()),
         }
     }
 }
@@ -606,6 +616,17 @@ impl NodeServiceImpl {
     ) -> Result<Vec<NodeProject>, NodeError> {
         let repo = NodeProjectRepository::new(&self.pool);
         Ok(repo.list_linked_by_node(node_id).await?)
+    }
+
+    /// List all local projects for a node with swarm project info.
+    ///
+    /// Returns all projects synced from the node, including whether each project
+    /// is linked to a swarm project. Used by the swarm settings UI.
+    pub async fn list_node_local_projects(
+        &self,
+        node_id: Uuid,
+    ) -> Result<Vec<super::NodeLocalProjectInfo>, NodeError> {
+        Ok(NodeLocalProjectRepository::list_by_node_with_swarm_info(&self.pool, node_id).await?)
     }
 
     /// List all projects in an organization with ownership info.

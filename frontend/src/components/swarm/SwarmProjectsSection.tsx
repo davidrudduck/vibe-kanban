@@ -242,7 +242,9 @@ export function SwarmProjectsSection({
             </div>
           ) : (
             <div className="border-t border-border">
-              {projects.map((project) => (
+              {[...projects]
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map((project) => (
                 <SwarmProjectRow
                   key={project.id}
                   project={project}

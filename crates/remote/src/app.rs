@@ -15,6 +15,7 @@ use crate::{
     mail::LoopsMailer,
     nodes::ConnectionManager,
     routes,
+    services::spawn_stale_cleanup_service,
 };
 
 pub struct Server;
@@ -35,6 +36,9 @@ impl Server {
             .context("failed to run database migrations")?;
 
         db::maintenance::spawn_activity_partition_maintenance(pool.clone());
+
+        // Spawn stale node local projects cleanup service
+        spawn_stale_cleanup_service(pool.clone(), None);
 
         let broker = ActivityBroker::new(
             config.activity_broadcast_shards,

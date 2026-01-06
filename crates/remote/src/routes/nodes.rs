@@ -440,7 +440,8 @@ pub async fn list_node_projects(
 
     let _ = ctx; // TODO: Verify user has access to the node's organization
 
-    match service.list_node_projects(node_id).await {
+    // Return local projects with swarm project info for the settings UI
+    match service.list_node_local_projects(node_id).await {
         Ok(projects) => (StatusCode::OK, Json(projects)).into_response(),
         Err(error) => node_error_response(error, "failed to list node projects"),
     }

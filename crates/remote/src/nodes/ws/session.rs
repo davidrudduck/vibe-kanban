@@ -21,9 +21,9 @@ use super::{
     message::{
         AttemptSyncMessage, AuthResultMessage, DeregisterMessage, ExecutionSyncMessage,
         HeartbeatMessage, HiveMessage, LinkProjectMessage, LinkedProjectInfo, LogsBatchMessage,
-        NodeMessage, NodeRemovedMessage, PROTOCOL_VERSION, ProjectSyncMessage, SwarmLabelInfo,
-        TaskExecutionStatus, TaskOutputMessage, TaskProgressMessage, TaskStatusMessage,
-        TaskSyncMessage, TaskSyncResponseMessage, UnlinkProjectMessage,
+        NodeMessage, NodeRemovedMessage, PROTOCOL_VERSION, ProjectSyncMessage, ProjectsSyncMessage,
+        SwarmLabelInfo, TaskExecutionStatus, TaskOutputMessage, TaskProgressMessage,
+        TaskStatusMessage, TaskSyncMessage, TaskSyncResponseMessage, UnlinkProjectMessage,
     },
 };
 use crate::nodes::{
@@ -466,6 +466,9 @@ async fn handle_node_message(
         }
         NodeMessage::TaskSync(task) => {
             handle_task_sync(node_id, organization_id, task, pool, ws_sender).await
+        }
+        NodeMessage::ProjectsSync(projects) => {
+            handle_projects_sync(node_id, projects, pool).await
         }
         NodeMessage::Ack { message_id } => {
             tracing::trace!(node_id = %node_id, message_id = %message_id, "received ack");
@@ -1264,6 +1267,51 @@ async fn handle_task_sync(
             let _ = send_message(ws_sender, &HiveMessage::TaskSyncResponse(r)).await;
         }
     }
+    Ok(())
+}
+
+/// Handle a projects sync message from a node.
+///
+/// This upserts all local projects from the node into the `node_local_projects`
+/// table, enabling the swarm settings UI to show all projects for linking.
+async fn handle_projects_sync(
+    node_id: Uuid,
+    projects: &ProjectsSyncMessage,
+    pool: &PgPool,
+) -> Result<(), HandleError> {
+    use crate::db::node_local_projects::{NodeLocalProjectRepository, UpsertLocalProjectData};
+
+    let projects_data: Vec<UpsertLocalProjectData> = projects
+        .projects
+        .iter()
+        .map(|p| UpsertLocalProjectData {
+            node_id,
+            local_project_id: p.local_project_id,
+            name: p.name.clone(),
+            git_repo_path: p.git_repo_path.clone(),
+            default_branch: p.default_branch.clone(),
+        })
+        .collect();
+
+    let count = projects_data.len();
+    match NodeLocalProjectRepository::bulk_upsert(pool, node_id, projects_data).await {
+        Ok(upserted) => {
+            tracing::info!(
+                node_id = %node_id,
+                total = count,
+                upserted = upserted,
+                "synced local projects from node"
+            );
+        }
+        Err(e) => {
+            tracing::error!(
+                node_id = %node_id,
+                error = ?e,
+                "failed to sync local projects"
+            );
+        }
+    }
+
     Ok(())
 }
 

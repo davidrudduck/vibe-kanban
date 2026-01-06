@@ -127,6 +127,24 @@ pub struct NodeProject {
     pub created_at: DateTime<Utc>,
 }
 
+/// Local project from a node for the swarm settings UI.
+///
+/// This is returned from node_local_projects table and includes
+/// swarm project link info if the project is linked.
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct NodeLocalProjectInfo {
+    pub id: Uuid,
+    pub node_id: Uuid,
+    pub local_project_id: Uuid,
+    pub name: String,
+    pub git_repo_path: String,
+    pub default_branch: String,
+    pub swarm_project_id: Option<Uuid>,
+    pub swarm_project_name: Option<String>,
+    pub last_seen_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+}
+
 /// Data for linking a project to a node
 #[derive(Debug, Clone, Deserialize)]
 pub struct LinkProjectData {

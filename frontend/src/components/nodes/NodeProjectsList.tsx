@@ -7,27 +7,29 @@ import {
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Folder, GitBranch, RefreshCw, Clock } from 'lucide-react';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { Folder, GitBranch, Clock, Link2, AlertCircle } from 'lucide-react';
 import { useNodeProjects } from '@/hooks/useNodeProjects';
 import type { NodeProject } from '@/types/nodes';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, differenceInMinutes } from 'date-fns';
+
+/** Threshold in minutes after which a project is considered stale */
+const STALE_THRESHOLD_MINUTES = 10;
+
+/** Check if a project is stale based on last_seen_at */
+function isProjectStale(lastSeenAt: string): boolean {
+  const lastSeen = new Date(lastSeenAt);
+  const minutesAgo = differenceInMinutes(new Date(), lastSeen);
+  return minutesAgo > STALE_THRESHOLD_MINUTES;
+}
 
 interface NodeProjectsListProps {
   nodeId: string;
 }
-
-const syncStatusConfig: Record<
-  string,
-  {
-    label: string;
-    variant: 'default' | 'secondary' | 'destructive' | 'outline';
-  }
-> = {
-  synced: { label: 'Synced', variant: 'secondary' },
-  pending: { label: 'Pending', variant: 'outline' },
-  syncing: { label: 'Syncing', variant: 'default' },
-  error: { label: 'Error', variant: 'destructive' },
-};
 
 export function NodeProjectsList({ nodeId }: NodeProjectsListProps) {
   const { data: projects, isLoading, isError, error } = useNodeProjects(nodeId);
@@ -113,42 +115,69 @@ interface ProjectItemProps {
 }
 
 function ProjectItem({ project }: ProjectItemProps) {
-  const statusConfig = syncStatusConfig[project.sync_status] || {
-    label: project.sync_status,
-    variant: 'outline' as const,
-  };
-
-  const lastSynced = project.last_synced_at
-    ? formatDistanceToNow(new Date(project.last_synced_at), { addSuffix: true })
+  const lastSeen = project.last_seen_at
+    ? formatDistanceToNow(new Date(project.last_seen_at), { addSuffix: true })
     : null;
 
+  const isLinked = !!project.swarm_project_id;
+  const stale = isProjectStale(project.last_seen_at);
+
   return (
-    <div className="flex items-start justify-between p-3 border rounded-lg">
+    <div
+      className={`flex items-start justify-between p-3 border rounded-lg ${
+        stale ? 'opacity-60' : ''
+      }`}
+    >
       <div className="flex items-start gap-3 min-w-0 flex-1">
         <div className="p-2 bg-secondary rounded">
           <Folder className="h-4 w-4 text-muted-foreground" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="font-medium text-sm truncate">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-sm truncate">{project.name}</span>
+            {stale && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge
+                    variant="outline"
+                    className="text-amber-600 border-amber-600/50 shrink-0"
+                  >
+                    <AlertCircle className="h-3 w-3 mr-1" />
+                    Stale
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>
+                    Last seen {lastSeen}. Node may have removed this project.
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+          <div className="text-xs text-muted-foreground truncate">
             {project.git_repo_path}
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
             <GitBranch className="h-3 w-3" />
             <span>{project.default_branch}</span>
           </div>
-          {lastSynced && (
+          {lastSeen && !stale && (
             <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
               <Clock className="h-3 w-3" />
-              <span>Synced {lastSynced}</span>
+              <span>Seen {lastSeen}</span>
             </div>
           )}
         </div>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
-        {project.sync_status === 'syncing' && (
-          <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
+        {isLinked ? (
+          <Badge variant="secondary" className="flex items-center gap-1">
+            <Link2 className="h-3 w-3" />
+            {project.swarm_project_name}
+          </Badge>
+        ) : (
+          <Badge variant="outline">Unlinked</Badge>
         )}
-        <Badge variant={statusConfig.variant}>{statusConfig.label}</Badge>
       </div>
     </div>
   );

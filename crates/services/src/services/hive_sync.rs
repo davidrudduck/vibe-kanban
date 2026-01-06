@@ -35,8 +35,8 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use super::hive_client::{
-    AttemptSyncMessage, ExecutionSyncMessage, LogsBatchMessage, NodeMessage, SyncLogEntry,
-    TaskOutputType, TaskSyncMessage,
+    AttemptSyncMessage, ExecutionSyncMessage, LocalProjectSyncInfo, LogsBatchMessage, NodeMessage,
+    ProjectsSyncMessage, SyncLogEntry, TaskOutputType, TaskSyncMessage,
 };
 
 /// Configuration for the Hive sync service.
@@ -121,12 +121,18 @@ impl HiveSyncService {
 
     /// Perform one sync cycle.
     ///
-    /// This syncs tasks first (to get shared_task_id), then attempts, executions,
-    /// and logs in order.
+    /// This syncs local projects first (so hive knows available projects), then
+    /// tasks (to get shared_task_id), then attempts, executions, and logs in order.
     ///
     /// Note: Labels are NOT synced from nodes to hive. Labels are managed centrally
     /// on the hive and synced DOWN to nodes via the auth response and broadcast messages.
     pub async fn sync_once(&self) -> Result<(), HiveSyncError> {
+        // Sync local projects first (so hive knows what's available on this node)
+        if let Err(e) = self.sync_local_projects().await {
+            // Log but don't fail the entire sync - other syncs can continue
+            warn!(error = ?e, "Failed to sync local projects");
+        }
+
         // Sync tasks first (to ensure shared_task_id exists for attempts)
         let tasks_synced = self.sync_tasks().await?;
         if tasks_synced > 0 {
@@ -480,6 +486,46 @@ impl HiveSyncService {
     // NOTE: sync_labels has been removed.
     // Labels are now managed centrally on the hive and synced DOWN to nodes.
     // See the auth response and HiveMessage::LabelSync broadcast for the new flow.
+
+    /// Sync all local projects to the Hive.
+    ///
+    /// This sends a snapshot of all local projects to the Hive so it knows
+    /// what projects are available on this node for linking to swarm projects.
+    /// Called on each sync cycle to keep the Hive's view of node projects current.
+    pub async fn sync_local_projects(&self) -> Result<usize, HiveSyncError> {
+        // Fetch only local projects (is_remote=false) - don't sync remote projects back to hive
+        let projects = Project::find_local_projects(&self.pool).await?;
+
+        if projects.is_empty() {
+            return Ok(0);
+        }
+
+        // Convert to sync format
+        // Note: Project model doesn't have default_branch field, so we use "main" as default
+        let project_infos: Vec<LocalProjectSyncInfo> = projects
+            .iter()
+            .map(|p| LocalProjectSyncInfo {
+                local_project_id: p.id,
+                name: p.name.clone(),
+                git_repo_path: p.git_repo_path.to_string_lossy().into_owned(),
+                default_branch: "main".to_string(),
+            })
+            .collect();
+
+        let count = project_infos.len();
+
+        let message = ProjectsSyncMessage {
+            projects: project_infos,
+        };
+
+        if let Err(e) = self.command_tx.send(NodeMessage::ProjectsSync(message)).await {
+            error!(error = ?e, "Failed to send projects sync");
+            return Err(HiveSyncError::Send(e.to_string()));
+        }
+
+        debug!(count = count, "Synced local projects to Hive");
+        Ok(count)
+    }
 }
 
 /// Parse output type string to TaskOutputType.

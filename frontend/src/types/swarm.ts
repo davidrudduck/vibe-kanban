@@ -43,7 +43,9 @@ export interface SwarmProjectNode {
   id: string;
   swarm_project_id: string;
   node_id: string;
+  node_name: string;
   local_project_id: string;
+  project_name: string;
   git_repo_path: string;
   os_type: string | null;
   linked_at: string;

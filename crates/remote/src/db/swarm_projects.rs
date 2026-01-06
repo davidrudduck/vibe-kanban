@@ -52,7 +52,9 @@ pub struct SwarmProjectNode {
     pub id: Uuid,
     pub swarm_project_id: Uuid,
     pub node_id: Uuid,
+    pub node_name: String,
     pub local_project_id: Uuid,
+    pub project_name: String,
     pub git_repo_path: String,
     pub os_type: Option<String>,
     pub linked_at: DateTime<Utc>,
@@ -505,22 +507,34 @@ impl SwarmProjectRepository {
     ) -> Result<SwarmProjectNode, SwarmProjectError> {
         let record = sqlx::query_as::<_, SwarmProjectNode>(
             r#"
-            INSERT INTO swarm_project_nodes (
-                swarm_project_id,
-                node_id,
-                local_project_id,
-                git_repo_path,
-                os_type
+            WITH inserted AS (
+                INSERT INTO swarm_project_nodes (
+                    swarm_project_id,
+                    node_id,
+                    local_project_id,
+                    git_repo_path,
+                    os_type
+                )
+                VALUES ($1, $2, $3, $4, $5)
+                RETURNING *
             )
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING
-                id,
-                swarm_project_id,
-                node_id,
-                local_project_id,
-                git_repo_path,
-                os_type,
-                linked_at
+            SELECT
+                i.id,
+                i.swarm_project_id,
+                i.node_id,
+                n.name as node_name,
+                i.local_project_id,
+                COALESCE(
+                    nlp.name,
+                    SUBSTRING(i.git_repo_path FROM '[^/]+$')
+                ) as project_name,
+                i.git_repo_path,
+                i.os_type,
+                i.linked_at
+            FROM inserted i
+            JOIN nodes n ON i.node_id = n.id
+            LEFT JOIN node_local_projects nlp ON i.node_id = nlp.node_id
+                AND i.local_project_id = nlp.local_project_id
             "#,
         )
         .bind(data.swarm_project_id)
@@ -577,16 +591,24 @@ impl SwarmProjectRepository {
         let records = sqlx::query_as::<_, SwarmProjectNode>(
             r#"
             SELECT
-                id,
-                swarm_project_id,
-                node_id,
-                local_project_id,
-                git_repo_path,
-                os_type,
-                linked_at
-            FROM swarm_project_nodes
-            WHERE swarm_project_id = $1
-            ORDER BY linked_at ASC
+                spn.id,
+                spn.swarm_project_id,
+                spn.node_id,
+                n.name as node_name,
+                spn.local_project_id,
+                COALESCE(
+                    nlp.name,
+                    SUBSTRING(spn.git_repo_path FROM '[^/]+$')
+                ) as project_name,
+                spn.git_repo_path,
+                spn.os_type,
+                spn.linked_at
+            FROM swarm_project_nodes spn
+            JOIN nodes n ON spn.node_id = n.id
+            LEFT JOIN node_local_projects nlp ON spn.node_id = nlp.node_id
+                AND spn.local_project_id = nlp.local_project_id
+            WHERE spn.swarm_project_id = $1
+            ORDER BY spn.linked_at ASC
             "#,
         )
         .bind(swarm_project_id)
@@ -605,15 +627,23 @@ impl SwarmProjectRepository {
         let record = sqlx::query_as::<_, SwarmProjectNode>(
             r#"
             SELECT
-                id,
-                swarm_project_id,
-                node_id,
-                local_project_id,
-                git_repo_path,
-                os_type,
-                linked_at
-            FROM swarm_project_nodes
-            WHERE swarm_project_id = $1 AND node_id = $2
+                spn.id,
+                spn.swarm_project_id,
+                spn.node_id,
+                n.name as node_name,
+                spn.local_project_id,
+                COALESCE(
+                    nlp.name,
+                    SUBSTRING(spn.git_repo_path FROM '[^/]+$')
+                ) as project_name,
+                spn.git_repo_path,
+                spn.os_type,
+                spn.linked_at
+            FROM swarm_project_nodes spn
+            JOIN nodes n ON spn.node_id = n.id
+            LEFT JOIN node_local_projects nlp ON spn.node_id = nlp.node_id
+                AND spn.local_project_id = nlp.local_project_id
+            WHERE spn.swarm_project_id = $1 AND spn.node_id = $2
             "#,
         )
         .bind(swarm_project_id)
@@ -632,16 +662,24 @@ impl SwarmProjectRepository {
         let records = sqlx::query_as::<_, SwarmProjectNode>(
             r#"
             SELECT
-                id,
-                swarm_project_id,
-                node_id,
-                local_project_id,
-                git_repo_path,
-                os_type,
-                linked_at
-            FROM swarm_project_nodes
-            WHERE node_id = $1
-            ORDER BY linked_at DESC
+                spn.id,
+                spn.swarm_project_id,
+                spn.node_id,
+                n.name as node_name,
+                spn.local_project_id,
+                COALESCE(
+                    nlp.name,
+                    SUBSTRING(spn.git_repo_path FROM '[^/]+$')
+                ) as project_name,
+                spn.git_repo_path,
+                spn.os_type,
+                spn.linked_at
+            FROM swarm_project_nodes spn
+            JOIN nodes n ON spn.node_id = n.id
+            LEFT JOIN node_local_projects nlp ON spn.node_id = nlp.node_id
+                AND spn.local_project_id = nlp.local_project_id
+            WHERE spn.node_id = $1
+            ORDER BY spn.linked_at DESC
             "#,
         )
         .bind(node_id)

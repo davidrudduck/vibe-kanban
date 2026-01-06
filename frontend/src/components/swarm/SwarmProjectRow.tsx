@@ -17,7 +17,6 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import type { SwarmProjectWithNodes, SwarmProjectNode } from '@/types/swarm';
-import { formatDistanceToNow } from 'date-fns';
 
 interface SwarmProjectRowProps {
   project: SwarmProjectWithNodes;
@@ -187,49 +186,67 @@ export function SwarmProjectRow({
             </div>
           ) : (
             <div className="divide-y divide-border">
-              {nodes.map((node) => (
-                <div
-                  key={node.id}
-                  className="flex items-center gap-3 px-4 py-2 sm:px-6"
-                >
-                  <Monitor className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">
-                      {node.git_repo_path}
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      {node.os_type && <span>{getOsIcon(node.os_type)}</span>}
-                      <span>
-                        {t('settings.swarm.projects.linkedAt', 'Linked')}{' '}
-                        {formatDistanceToNow(new Date(node.linked_at), {
-                          addSuffix: true,
-                        })}
-                      </span>
-                    </div>
-                  </div>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 p-0"
-                        onClick={() => onUnlinkNode(node.node_id)}
-                      >
-                        <Unlink className="h-3.5 w-3.5" />
-                        <span className="sr-only">
-                          {t('settings.swarm.projects.unlink', 'Unlink')}
+              {nodes.map((node) => {
+                // Get last 4 characters of local project ID
+                const shortId = node.local_project_id.slice(-4);
+
+                return (
+                  <div
+                    key={node.id}
+                    className="flex items-center gap-3 px-4 py-2 sm:px-6"
+                  >
+                    <div className="flex-1 min-w-0">
+                      {/* Project Name (ID) [OS] node-name */}
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="font-medium truncate">
+                          {node.project_name}
                         </span>
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t(
-                        'settings.swarm.projects.unlinkTooltip',
-                        'Unlink this node'
-                      )}
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-              ))}
+                        <span className="text-muted-foreground shrink-0">
+                          ({shortId})
+                        </span>
+                        {node.os_type && (
+                          <Badge
+                            variant="outline"
+                            className="shrink-0 text-xs px-1.5 py-0"
+                          >
+                            {getOsIcon(node.os_type)}
+                          </Badge>
+                        )}
+                        <Badge variant="secondary" className="shrink-0 gap-1">
+                          <Monitor className="h-3 w-3" />
+                          {node.node_name}
+                        </Badge>
+                      </div>
+                      {/* Path: [path] */}
+                      <div className="text-xs text-muted-foreground truncate mt-0.5">
+                        {t('settings.swarm.projects.path', 'Path')}:{' '}
+                        {node.git_repo_path}
+                      </div>
+                    </div>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-destructive hover:text-destructive"
+                          onClick={() => onUnlinkNode(node.node_id)}
+                        >
+                          <Unlink className="h-3.5 w-3.5 mr-1" />
+                          <span className="hidden sm:inline">
+                            {t('settings.swarm.projects.unlink', 'Unlink')}
+                          </span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t(
+                          'settings.swarm.projects.unlinkTooltip',
+                          'Unlink this node'
+                        )}
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
