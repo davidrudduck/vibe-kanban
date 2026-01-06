@@ -175,11 +175,6 @@ export function MobileConversationLayout({
         </div>
       </div>
 
-      {/* Variables Panel - shown when task has variables */}
-      <div className="shrink-0 border-t">
-        <div className="mx-auto w-full max-w-[50rem]">{variables}</div>
-      </div>
-
       {/* Follow-up input */}
       <div className="min-h-0 max-h-[50%] border-t overflow-hidden">
         <div className="mx-auto w-full max-w-[50rem] h-full min-h-0">
