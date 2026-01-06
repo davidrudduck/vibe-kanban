@@ -310,6 +310,17 @@ pub async fn load_task_attempt_middleware_with_wildcard(
     load_task_attempt_impl(deployment, task_attempt_id, request, next).await
 }
 
+/// Variant of load_task_attempt_middleware for routes with two UUID path params.
+/// Use this for routes like `/{id}/.../{uuid}` where both are UUIDs.
+pub async fn load_task_attempt_middleware_with_uuid_suffix(
+    State(deployment): State<DeploymentImpl>,
+    Path((task_attempt_id, _suffix_id)): Path<(Uuid, Uuid)>,
+    request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    load_task_attempt_impl(deployment, task_attempt_id, request, next).await
+}
+
 /// Internal implementation shared by load_task_attempt_middleware variants.
 async fn load_task_attempt_impl(
     deployment: DeploymentImpl,
