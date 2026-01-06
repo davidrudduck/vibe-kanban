@@ -17,7 +17,8 @@ use crate::{
     db::organizations::{MemberRole, OrganizationRepository},
     nodes::{
         CreateNodeApiKey, HeartbeatPayload, LinkProjectData, MergeNodesResult, Node, NodeApiKey,
-        NodeError, NodeProject, NodeRegistration, NodeServiceImpl, NodeTaskAttempt,
+        NodeError, NodeExecutionProcess, NodeProject, NodeRegistration, NodeServiceImpl,
+        NodeTaskAttempt,
     },
 };
 
@@ -71,6 +72,10 @@ pub fn protected_router() -> Router<AppState> {
         .route(
             "/nodes/task-attempts/by-shared-task/{shared_task_id}",
             get(list_task_attempts_by_shared_task),
+        )
+        .route(
+            "/nodes/task-attempts/{attempt_id}",
+            get(get_node_task_attempt),
         )
 }
 
@@ -1068,6 +1073,112 @@ pub async fn list_task_attempts_by_shared_task(
         }
         Err(error) => node_error_response(error, "failed to list task attempts"),
     }
+}
+
+/// Response for getting a single node task attempt
+#[derive(Debug, Serialize)]
+pub struct GetNodeTaskAttemptResponse {
+    pub attempt: NodeTaskAttempt,
+    pub executions: Vec<NodeExecutionProcess>,
+    /// Whether all executions are in a terminal state (complete/failed/killed)
+    pub is_complete: bool,
+}
+
+/// Get a single task attempt by ID.
+/// Used by remote nodes to fetch attempt details for cross-node viewing.
+#[instrument(
+    name = "nodes.get_node_task_attempt",
+    skip(state, ctx),
+    fields(user_id = %ctx.user.id, attempt_id = %attempt_id)
+)]
+pub async fn get_node_task_attempt(
+    State(state): State<AppState>,
+    Extension(ctx): Extension<RequestContext>,
+    Path(attempt_id): Path<Uuid>,
+) -> Response {
+    let pool = state.pool();
+
+    // Get the attempt
+    use crate::db::node_task_attempts::NodeTaskAttemptRepository;
+    let attempt_repo = NodeTaskAttemptRepository::new(pool);
+    let attempt = match attempt_repo.find_by_id(attempt_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "task attempt not found" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!(?e, "failed to fetch task attempt");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal server error" })),
+            )
+                .into_response();
+        }
+    };
+
+    // Get the shared task to verify organization access
+    use crate::db::tasks::SharedTaskRepository;
+    let task_repo = SharedTaskRepository::new(pool);
+    let task = match task_repo.find_by_id(attempt.shared_task_id).await {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            tracing::warn!(
+                attempt_id = %attempt_id,
+                shared_task_id = %attempt.shared_task_id,
+                "attempt references non-existent shared task"
+            );
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "shared task not found" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!(?e, "failed to fetch shared task");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal server error" })),
+            )
+                .into_response();
+        }
+    };
+
+    // Verify user has access to the organization
+    if let Err(error) = ensure_member_access(pool, task.organization_id, ctx.user.id).await {
+        return error.into_response();
+    }
+
+    // Get the execution processes for this attempt
+    use crate::db::node_execution_processes::NodeExecutionProcessRepository;
+    let exec_repo = NodeExecutionProcessRepository::new(pool);
+    let executions = match exec_repo.find_by_attempt_id(attempt_id).await {
+        Ok(execs) => execs,
+        Err(e) => {
+            tracing::error!(?e, "failed to fetch execution processes");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal server error" })),
+            )
+                .into_response();
+        }
+    };
+
+    // Determine if the attempt is complete (all executions in terminal state)
+    let is_complete = executions.iter().all(|e| {
+        matches!(e.status.as_str(), "completed" | "failed" | "killed")
+    });
+
+    let response = GetNodeTaskAttemptResponse {
+        attempt,
+        executions,
+        is_complete,
+    };
+
+    (StatusCode::OK, Json(response)).into_response()
 }
 
 // ============================================================================
