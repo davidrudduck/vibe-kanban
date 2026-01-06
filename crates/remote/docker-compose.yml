@@ -26,6 +26,11 @@ services:
       start_period: 5s
     ports:
       - "${POSTGRES_PORT:-5434}:5432"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Initialize Electric prerequisites before Electric starts
   # This creates the electric_sync role AND the publication that Electric needs.
@@ -103,6 +108,11 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   remote-server:
     build:
@@ -142,6 +152,11 @@ services:
     ports:
       - "0.0.0.0:3000:8081"
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   remote-db-data:
