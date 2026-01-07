@@ -621,6 +621,9 @@ async fn update_remote_task(
 /// This is called when an update or label operation returns 404 from the Hive,
 /// indicating that the shared_task_id no longer exists. The task is re-created
 /// on the Hive with source tracking to prevent duplicates.
+///
+/// If the node is not connected to the Hive (no node_id available), this function
+/// will clear the stale shared_task_id and update the task locally instead.
 async fn resync_task_to_hive(
     deployment: &DeploymentImpl,
     existing_task: &Task,
@@ -629,6 +632,37 @@ async fn resync_task_to_hive(
     status: Option<db::models::task::TaskStatus>,
 ) -> Result<Task, ApiError> {
     let pool = &deployment.db().pool;
+
+    // Check if node is connected to Hive
+    let node_id = deployment.node_proxy_client().local_node_id();
+
+    if node_id.is_none() {
+        // Node not connected to Hive - clear stale shared_task_id and update locally
+        tracing::warn!(
+            task_id = %existing_task.id,
+            old_shared_task_id = ?existing_task.shared_task_id,
+            "Cannot resync task: node not connected to Hive. Clearing stale shared_task_id."
+        );
+
+        // Clear the shared_task_id and update the task locally
+        let task = Task::clear_shared_task_id(pool, existing_task.id).await?;
+
+        // Now update the task locally with the requested changes
+        let task = Task::update(
+            pool,
+            task.id,
+            task.project_id,
+            title.unwrap_or(task.title),
+            description.or(task.description),
+            status.unwrap_or(task.status),
+            task.parent_task_id,
+        )
+        .await?;
+
+        return Ok(task);
+    }
+
+    let node_id = node_id.unwrap();
     let remote_client = deployment.remote_client()?;
 
     // Get the project's remote_project_id
@@ -639,12 +673,6 @@ async fn resync_task_to_hive(
     let remote_project_id = project
         .remote_project_id
         .ok_or_else(|| ApiError::BadRequest("Project not linked to Hive".to_string()))?;
-
-    // Get the node's ID for source tracking
-    let node_id = deployment
-        .node_proxy_client()
-        .local_node_id()
-        .ok_or_else(|| ApiError::BadRequest("Node ID not available".to_string()))?;
 
     // Create the task on the Hive with source tracking
     let request = CreateSharedTaskRequest {
