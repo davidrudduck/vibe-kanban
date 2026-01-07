@@ -532,38 +532,40 @@ const ToolCallCard: React.FC<{
   return (
     <div className="inline-block w-full flex flex-col gap-4">
       <HeaderWrapper {...headerProps} className={headerClassName}>
-        <span className=" min-w-0 flex items-center gap-1.5">
+        <span className="min-w-0 flex items-center gap-1.5">
           <span>
             {entryType && getStatusIndicator(entryType)}
             {entryType && getEntryIcon(entryType)}
           </span>
           {showInlineSummary ? (
-            <span className="font-light">{inlineText}</span>
+            <span className="font-light inline-flex items-center gap-1">
+              {inlineText}
+              {/* View file link for ~/.claude/ paths - inline after filename */}
+              {claudeRelativePath && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleViewFile();
+                        }}
+                        className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors p-0.5"
+                        aria-label="View file"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>View file</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+            </span>
           ) : (
             <span className="font-normal">{label}</span>
           )}
         </span>
-        {/* View file link for ~/.claude/ paths */}
-        {claudeRelativePath && (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleViewFile();
-                  }}
-                  className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors p-0.5"
-                  aria-label="View file"
-                >
-                  <ExternalLink className="h-3 w-3" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>View file</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        )}
       </HeaderWrapper>
 
       {effectiveExpanded && (

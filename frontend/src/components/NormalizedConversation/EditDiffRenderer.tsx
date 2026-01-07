@@ -131,9 +131,9 @@ function EditDiffRenderer({
     <div>
       <div className={headerClass}>
         <SquarePen className="h-3 w-3 flex-shrink-0" />
-        <p
+        <span
           onClick={() => setExpanded()}
-          className="text-sm font-mono overflow-x-auto flex-1 cursor-pointer"
+          className="text-sm font-mono overflow-x-auto cursor-pointer inline-flex items-center gap-1"
         >
           {path}{' '}
           <span style={{ color: 'hsl(var(--console-success))' }}>
@@ -142,28 +142,28 @@ function EditDiffRenderer({
           <span style={{ color: 'hsl(var(--console-error))' }}>
             -{deletions}
           </span>
-        </p>
-        {/* View file link - on RIGHT, after filename (only for ~/.claude/ paths) */}
-        {claudeRelativePath && (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleViewFile();
-                  }}
-                  className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors p-0.5"
-                  aria-label="View file"
-                >
-                  <ExternalLink className="h-3 w-3" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>View file</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        )}
+          {/* View file link - inline after filename (only for ~/.claude/ paths) */}
+          {claudeRelativePath && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleViewFile();
+                    }}
+                    className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors p-0.5"
+                    aria-label="View file"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>View file</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </span>
       </div>
 
       {effectiveExpanded && (

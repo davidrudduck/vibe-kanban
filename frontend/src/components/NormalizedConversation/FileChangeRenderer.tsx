@@ -168,33 +168,33 @@ const FileChangeRenderer = ({
     <div>
       <div className={headerClass}>
         {icon}
-        <p
+        <span
           onClick={() => expandable && setExpanded()}
-          className="text-sm font-light overflow-x-auto flex-1 cursor-pointer"
+          className="text-sm font-light overflow-x-auto cursor-pointer inline-flex items-center gap-1"
         >
           {titleNode}
-        </p>
-        {/* View file link for ~/.claude/ paths */}
-        {claudeRelativePath && (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleViewFile();
-                  }}
-                  className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors p-0.5"
-                  aria-label="View file"
-                >
-                  <ExternalLink className="h-3 w-3" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>View file</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        )}
+          {/* View file link for ~/.claude/ paths - inline after filename */}
+          {claudeRelativePath && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleViewFile();
+                    }}
+                    className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors p-0.5"
+                    aria-label="View file"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>View file</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </span>
       </div>
 
       {/* Body */}
