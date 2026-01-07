@@ -18,10 +18,8 @@ use local_deployment::message_queue::{
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use crate::{
-    DeploymentImpl, error::ApiError,
-    middleware::{load_task_attempt_middleware, load_task_attempt_middleware_with_uuid_suffix},
-};
+use crate::{DeploymentImpl, error::ApiError, middleware::load_task_attempt_middleware};
+use deployment::Deployment;
 
 /// List all queued messages for a task attempt.
 pub async fn list_queued_messages(
@@ -74,13 +72,29 @@ pub async fn add_queued_message(
     Ok(ResponseJson(ApiResponse::success(message)))
 }
 
+/// Path parameters for routes with both task_attempt_id and message_id.
+/// Using a struct allows Axum to extract named path parameters that are
+/// separated by literal segments (like "message-queue").
+#[derive(serde::Deserialize)]
+pub struct MessageQueueParams {
+    task_attempt_id: Uuid,
+    message_id: Uuid,
+}
+
 /// Update an existing queued message.
+/// This handler loads the TaskAttempt directly instead of using middleware,
+/// because Axum's Path<(Uuid, Uuid)> tuple extraction requires consecutive
+/// parameters, but this route has a literal segment between the UUIDs.
 pub async fn update_queued_message(
-    Extension(task_attempt): Extension<TaskAttempt>,
     State(deployment): State<DeploymentImpl>,
-    Path((_, message_id)): Path<(Uuid, Uuid)>,
+    Path(params): Path<MessageQueueParams>,
     ResponseJson(payload): ResponseJson<UpdateQueuedMessageRequest>,
 ) -> Result<ResponseJson<ApiResponse<QueuedMessage>>, ApiError> {
+    // Load task attempt directly (not using middleware due to path param limitations)
+    let task_attempt = TaskAttempt::find_by_id(&deployment.db().pool, params.task_attempt_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Task attempt not found".into()))?;
+
     // Validate content if provided
     if let Some(ref content) = payload.content
         && content.trim().is_empty()
@@ -95,7 +109,7 @@ pub async fn update_queued_message(
         .message_queue()
         .update(
             task_attempt.id,
-            message_id,
+            params.message_id,
             payload.content,
             payload.variant,
         )
@@ -108,15 +122,22 @@ pub async fn update_queued_message(
 }
 
 /// Remove a queued message.
+/// This handler loads the TaskAttempt directly instead of using middleware,
+/// because Axum's Path<(Uuid, Uuid)> tuple extraction requires consecutive
+/// parameters, but this route has a literal segment between the UUIDs.
 pub async fn remove_queued_message(
-    Extension(task_attempt): Extension<TaskAttempt>,
     State(deployment): State<DeploymentImpl>,
-    Path((_, message_id)): Path<(Uuid, Uuid)>,
+    Path(params): Path<MessageQueueParams>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    // Load task attempt directly (not using middleware due to path param limitations)
+    let task_attempt = TaskAttempt::find_by_id(&deployment.db().pool, params.task_attempt_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Task attempt not found".into()))?;
+
     let removed = deployment
         .local_container()
         .message_queue()
-        .remove(task_attempt.id, message_id)
+        .remove(task_attempt.id, params.message_id)
         .await;
 
     if removed {
@@ -161,7 +182,7 @@ pub async fn clear_queued_messages(
 }
 
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
-    // Routes without {message_id} - use load_task_attempt_middleware (extracts single UUID)
+    // Base routes (without {message_id}) use middleware to load TaskAttempt via Extension
     let base_routes = Router::new()
         .route("/", get(list_queued_messages))
         .route("/", post(add_queued_message))
@@ -172,20 +193,15 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             load_task_attempt_middleware,
         ));
 
-    // Routes with {message_id} - use load_task_attempt_middleware_with_uuid_suffix
-    // (extracts two UUIDs: task_attempt_id and message_id).
-    // The handlers extract both path params via Path<(Uuid, Uuid)> and use message_id.
-    let message_id_routes = Router::new()
-        .route("/{message_id}", put(update_queued_message))
-        .route("/{message_id}", delete(remove_queued_message))
-        .layer(from_fn_with_state(
-            deployment.clone(),
-            load_task_attempt_middleware_with_uuid_suffix,
-        ));
+    // Routes with {message_id} do NOT use middleware - they extract both path params
+    // using a struct (MessageQueueParams) and load TaskAttempt directly in the handler.
+    // This avoids Axum's limitation where Path<(Uuid, Uuid)> requires consecutive params.
+    let message_routes = Router::new().route(
+        "/task-attempts/{task_attempt_id}/message-queue/{message_id}",
+        put(update_queued_message).delete(remove_queued_message),
+    );
 
     Router::new()
-        .nest(
-            "/task-attempts/{task_attempt_id}/message-queue",
-            base_routes.merge(message_id_routes),
-        )
+        .nest("/task-attempts/{task_attempt_id}/message-queue", base_routes)
+        .merge(message_routes)
 }
