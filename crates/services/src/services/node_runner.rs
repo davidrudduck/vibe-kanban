@@ -1161,6 +1161,56 @@ async fn upsert_swarm_label(
     Ok(())
 }
 
+/// Build an ExecutionSyncMessage from an ExecutionProcess.
+fn build_execution_sync_message(
+    exec: &db::models::execution_process::ExecutionProcess,
+) -> super::hive_client::ExecutionSyncMessage {
+    super::hive_client::ExecutionSyncMessage {
+        execution_id: exec.id,
+        attempt_id: exec.task_attempt_id,
+        run_reason: format!("{:?}", exec.run_reason).to_lowercase(),
+        executor_action: Some(serde_json::to_value(&exec.executor_action).unwrap_or_default()),
+        before_head_commit: exec.before_head_commit.clone(),
+        after_head_commit: exec.after_head_commit.clone(),
+        status: format!("{:?}", exec.status).to_lowercase(),
+        exit_code: exec.exit_code.map(|c| c as i32),
+        dropped: exec.dropped,
+        pid: exec.pid,
+        started_at: exec.started_at,
+        completed_at: exec.completed_at,
+        created_at: exec.created_at,
+    }
+}
+
+/// Build a LogsBatchMessage from log entries for an execution.
+fn build_logs_batch_message(
+    logs: &[db::models::log_entry::DbLogEntry],
+    execution_id: Uuid,
+    assignment_id: Uuid,
+) -> super::hive_client::LogsBatchMessage {
+    use super::hive_client::{SyncLogEntry, TaskOutputType};
+
+    let entries: Vec<SyncLogEntry> = logs
+        .iter()
+        .map(|log| SyncLogEntry {
+            output_type: match log.output_type.as_str() {
+                "stdout" => TaskOutputType::Stdout,
+                "stderr" => TaskOutputType::Stderr,
+                _ => TaskOutputType::System,
+            },
+            content: log.content.clone(),
+            timestamp: log.timestamp,
+        })
+        .collect();
+
+    super::hive_client::LogsBatchMessage {
+        assignment_id,
+        execution_process_id: Some(execution_id),
+        entries,
+        compressed: false,
+    }
+}
+
 /// Handle a backfill request for a single attempt.
 ///
 /// This function queries the local database for the specified attempt and its associated
@@ -1188,10 +1238,7 @@ pub async fn handle_backfill_attempt(
         task::Task,
         task_attempt::TaskAttempt,
     };
-    use super::hive_client::{
-        AttemptSyncMessage, BackfillType, ExecutionSyncMessage, LogsBatchMessage,
-        SyncLogEntry, TaskOutputType,
-    };
+    use super::hive_client::{AttemptSyncMessage, BackfillType};
 
     // Fetch the attempt
     let attempt = TaskAttempt::find_by_id(pool, attempt_id)
@@ -1239,21 +1286,7 @@ pub async fn handle_backfill_attempt(
 
             for exec in &executions {
                 // Send execution sync
-                let exec_msg = ExecutionSyncMessage {
-                    execution_id: exec.id,
-                    attempt_id: exec.task_attempt_id,
-                    run_reason: format!("{:?}", exec.run_reason).to_lowercase(),
-                    executor_action: Some(serde_json::to_value(&exec.executor_action).unwrap_or_default()),
-                    before_head_commit: exec.before_head_commit.clone(),
-                    after_head_commit: exec.after_head_commit.clone(),
-                    status: format!("{:?}", exec.status).to_lowercase(),
-                    exit_code: exec.exit_code.map(|c| c as i32),
-                    dropped: exec.dropped,
-                    pid: exec.pid,
-                    started_at: exec.started_at,
-                    completed_at: exec.completed_at,
-                    created_at: exec.created_at,
-                };
+                let exec_msg = build_execution_sync_message(exec);
                 command_tx
                     .send(NodeMessage::ExecutionSync(exec_msg))
                     .await
@@ -1262,26 +1295,11 @@ pub async fn handle_backfill_attempt(
                 // Get logs for this execution
                 let logs = DbLogEntry::find_by_execution_id(pool, exec.id).await?;
                 if !logs.is_empty() {
-                    // Convert to SyncLogEntry format
-                    let entries: Vec<SyncLogEntry> = logs
-                        .iter()
-                        .map(|log| SyncLogEntry {
-                            output_type: match log.output_type.as_str() {
-                                "stdout" => TaskOutputType::Stdout,
-                                "stderr" => TaskOutputType::Stderr,
-                                _ => TaskOutputType::System,
-                            },
-                            content: log.content.clone(),
-                            timestamp: log.timestamp,
-                        })
-                        .collect();
-
-                    let logs_msg = LogsBatchMessage {
-                        assignment_id: attempt.hive_assignment_id.unwrap_or(attempt_id),
-                        execution_process_id: Some(exec.id),
-                        entries,
-                        compressed: false,
-                    };
+                    let logs_msg = build_logs_batch_message(
+                        &logs,
+                        exec.id,
+                        attempt.hive_assignment_id.unwrap_or(attempt_id),
+                    );
                     command_tx
                         .send(NodeMessage::LogsBatch(logs_msg))
                         .await
@@ -1297,21 +1315,7 @@ pub async fn handle_backfill_attempt(
 
             let mut count = 0u32;
             for exec in &executions {
-                let exec_msg = ExecutionSyncMessage {
-                    execution_id: exec.id,
-                    attempt_id: exec.task_attempt_id,
-                    run_reason: format!("{:?}", exec.run_reason).to_lowercase(),
-                    executor_action: Some(serde_json::to_value(&exec.executor_action).unwrap_or_default()),
-                    before_head_commit: exec.before_head_commit.clone(),
-                    after_head_commit: exec.after_head_commit.clone(),
-                    status: format!("{:?}", exec.status).to_lowercase(),
-                    exit_code: exec.exit_code.map(|c| c as i32),
-                    dropped: exec.dropped,
-                    pid: exec.pid,
-                    started_at: exec.started_at,
-                    completed_at: exec.completed_at,
-                    created_at: exec.created_at,
-                };
+                let exec_msg = build_execution_sync_message(exec);
                 command_tx
                     .send(NodeMessage::ExecutionSync(exec_msg))
                     .await
@@ -1335,25 +1339,11 @@ pub async fn handle_backfill_attempt(
                 };
 
                 if !logs.is_empty() {
-                    let entries: Vec<SyncLogEntry> = logs
-                        .iter()
-                        .map(|log| SyncLogEntry {
-                            output_type: match log.output_type.as_str() {
-                                "stdout" => TaskOutputType::Stdout,
-                                "stderr" => TaskOutputType::Stderr,
-                                _ => TaskOutputType::System,
-                            },
-                            content: log.content.clone(),
-                            timestamp: log.timestamp,
-                        })
-                        .collect();
-
-                    let logs_msg = LogsBatchMessage {
-                        assignment_id: attempt.hive_assignment_id.unwrap_or(attempt_id),
-                        execution_process_id: Some(exec.id),
-                        entries,
-                        compressed: false,
-                    };
+                    let logs_msg = build_logs_batch_message(
+                        &logs,
+                        exec.id,
+                        attempt.hive_assignment_id.unwrap_or(attempt_id),
+                    );
                     command_tx
                         .send(NodeMessage::LogsBatch(logs_msg))
                         .await
