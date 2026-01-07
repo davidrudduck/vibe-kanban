@@ -9,17 +9,38 @@ describe('preprocessMarkdown', () => {
       );
     });
 
-    it('escapes closing underscore of _italic_ after word character', () => {
-      // The closing underscore follows 'c' (word char), so it gets escaped
-      // This is expected behavior - markdown-to-jsx still renders correctly
-      expect(preprocessMarkdown('this is _italic_ text')).toBe(
-        'this is _italic\\_ text'
+    it('escapes all underscores in VK_DATABASE_PATH', () => {
+      // Both underscores should be escaped to prevent _DATABASE_ becoming italic
+      expect(preprocessMarkdown('VK_DATABASE_PATH')).toBe(
+        'VK\\_DATABASE\\_PATH'
       );
     });
 
-    it('preserves _italic_ at start of line', () => {
-      // Opening underscore after space is preserved
-      expect(preprocessMarkdown('_italic_ text')).toBe('_italic\\_ text');
+    it('preserves leading underscores (only right side is word char)', () => {
+      // _DATABASE starts with underscore but has no word char on left
+      // Only the middle underscore (between DATABASE and PATH) gets escaped
+      expect(preprocessMarkdown('_DATABASE_PATH')).toBe('_DATABASE\\_PATH');
+    });
+
+    it('escapes multi-underscore identifiers', () => {
+      expect(preprocessMarkdown('one_two_three_four')).toBe(
+        'one\\_two\\_three\\_four'
+      );
+    });
+
+    it('preserves intentional italic with spaces around both underscores', () => {
+      // Intentional italic: space before opening underscore, space after closing
+      // Neither underscore is escaped because neither has word chars on BOTH sides
+      expect(preprocessMarkdown('this is _italic_ text')).toBe(
+        'this is _italic_ text'
+      );
+    });
+
+    it('handles mixed intentional italic and snake_case', () => {
+      // _important_ preserved (spaces around), variable_name escaped (word chars both sides)
+      expect(preprocessMarkdown('use _important_ variable_name')).toBe(
+        'use _important_ variable\\_name'
+      );
     });
 
     it('preserves underscores inside backticks', () => {
@@ -41,6 +62,20 @@ describe('preprocessMarkdown', () => {
 
     it('handles empty string', () => {
       expect(preprocessMarkdown('')).toBe('');
+    });
+
+    it('preserves underscore at end of word only (trailing)', () => {
+      // Trailing underscore: word char on left, nothing on right - not escaped
+      expect(preprocessMarkdown('test_')).toBe('test_');
+    });
+
+    it('preserves underscore at start of word only (leading)', () => {
+      // Leading underscore: nothing on left, word char on right - not escaped
+      expect(preprocessMarkdown('_test')).toBe('_test');
+    });
+
+    it('preserves standalone underscore surrounded by spaces', () => {
+      expect(preprocessMarkdown('a _ b')).toBe('a _ b');
     });
   });
 });
