@@ -179,7 +179,7 @@ Ready for PR creation and merge to main.
 
 ---
 
-## Validation Report (2026-01-08)
+## Validation Report (2026-01-08) - Initial Review
 
 **Validator**: Automated Plan Validation
 
@@ -225,3 +225,97 @@ All 6 sessions/tasks have been successfully implemented according to the plan. T
 
 ### Conclusion
 **APPROVED FOR MERGE** - Implementation complete and functional.
+
+---
+
+## Final Validation Report (2026-01-08) - Independent Review
+
+**Validator**: Independent Code Review (Opus 4.5)
+
+### Executive Summary
+Thorough independent review confirms implementation is complete, functional, and ready for merge to main. All 9 git commits reviewed, all 6 backfill tests passing, clippy clean.
+
+### Implementation Status (Re-verified)
+
+| Session | Task | Status | Commit |
+|---------|------|--------|--------|
+| 1 | Node-Side Backfill Handler (FullAttempt) | ✅ DONE | `379bd9e88` |
+| 2 | Backfill Handler (Executions & Logs Types) | ✅ DONE | `e3da9e4f6` |
+| 3 | BackfillService Injection into AppState | ✅ DONE | `d1c248759` |
+| 4 | Reconnect Backfill Trigger | ✅ DONE | `6d520c330` |
+| 5 | On-Demand Backfill Trigger | ✅ DONE | `ba724f113` |
+| 6 | Documentation | ✅ DONE | `c71fd9ba9` |
+
+Additional commits verified:
+- `5ca82236b` - Track init.sh (infrastructure)
+- `855d3a236` - Previous validation report
+- `6e7390d41` - Refactor: extract message-building helper functions
+
+### Detailed Scores
+
+| Area | Score | Justification |
+|------|-------|---------------|
+| **Following The Plan** | 9/10 | All sessions implemented; helper function extraction was done in follow-up refactor commit rather than inline |
+| **Code Quality** | 9/10 | Clean, well-documented code with comprehensive doc comments; proper use of async patterns |
+| **Following CLAUDE.md Rules** | 9/10 | Proper error handling with thiserror, stateless services, naming conventions followed |
+| **Best Practice** | 9/10 | TDD followed with 6 comprehensive tests; non-blocking patterns used correctly |
+| **Efficiency** | 8/10 | Good batching (10 per node); minor note: dual BackfillService creation in app.rs |
+| **Performance** | 8/10 | Non-blocking triggers, 60s periodic reconciliation, efficient partial index documented |
+| **Security** | 10/10 | No security issues; proper access control checks in routes |
+
+**Overall Score: 8.9/10**
+
+### Code Review Highlights
+
+**Strengths:**
+1. `handle_backfill_attempt` properly handles all 3 backfill types (FullAttempt, Executions, Logs)
+2. Reconnect trigger in `session.rs` correctly uses `tokio::spawn` for non-blocking execution
+3. On-demand trigger in `routes/nodes.rs` logs at debug level (node offline is expected)
+4. Documentation is comprehensive with ASCII/Mermaid diagrams and troubleshooting guide
+
+**Minor Observations (Not Blocking):**
+1. `app.rs` lines 110-124 create two BackfillService instances - one for state, one for spawn(). This matches the original BackfillService design but could be consolidated.
+2. Test `test_backfill_logs_with_timestamp_filter` uses 2-second sleep for timestamp differentiation - functional but adds test latency.
+
+### Test Verification (Re-run)
+```text
+running 6 tests
+test_backfill_attempt_without_shared_task_id_returns_error ... ok
+test_backfill_logs_only ... ok
+test_backfill_executions_only ... ok
+test_backfill_missing_attempt_returns_error ... ok
+test_backfill_full_attempt_sends_all_messages ... ok
+test_backfill_logs_with_timestamp_filter ... ok
+
+test result: ok. 6 passed; 0 failed
+```
+
+Clippy: ✅ No warnings on services and remote crates
+
+### Deviations from Plan
+
+**Acceptable Deviations:**
+1. Helper functions (`build_execution_sync_message`, `build_logs_batch_message`) extracted in separate refactor commit `6e7390d41` rather than in Session 2 - achieves same result
+2. Test naming differs slightly but coverage is comprehensive
+3. Extra infrastructure commits (init.sh, validation report) unrelated to feature
+
+**No Corrections Needed** - Implementation is correct.
+
+### Recommendations
+
+1. **Ready for Merge**: No blocking issues identified
+2. **Future Improvements** (non-blocking):
+   - Consider consolidating dual BackfillService instances in app.rs
+   - Consider using mock timestamps in tests to reduce latency
+   - Integration tests for end-to-end backfill flows would strengthen confidence
+
+### Final Verdict
+
+**APPROVED FOR MERGE**
+
+The implementation completely addresses the 3 critical missing pieces identified in the plan:
+1. ✅ Node-side backfill handler - responds to Hive requests with AttemptSync, ExecutionSync, LogsBatch
+2. ✅ Reconnect trigger - BackfillService.trigger_reconnect_backfill() called after successful auth
+3. ✅ On-demand trigger - get_node_task_attempt triggers backfill for sync_state=partial
+
+Cross-node task attempt viewing will now properly backfill missing data.
