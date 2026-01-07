@@ -1152,6 +1152,30 @@ pub async fn get_node_task_attempt(
         return error.into_response();
     }
 
+    // Trigger on-demand backfill for partial sync attempts (non-blocking)
+    // This ensures that subsequent requests will have complete data
+    if attempt.sync_state == "partial" {
+        let backfill = state.backfill().clone();
+        let node_id = attempt.node_id;
+        let attempt_id_for_backfill = attempt.id;
+
+        // Non-blocking - spawn and forget
+        tokio::spawn(async move {
+            if let Err(e) = backfill
+                .request_immediate_backfill(node_id, attempt_id_for_backfill)
+                .await
+            {
+                // Log at debug level since node being offline is expected
+                tracing::debug!(
+                    node_id = %node_id,
+                    attempt_id = %attempt_id_for_backfill,
+                    error = %e,
+                    "on-demand backfill request failed (node may be offline)"
+                );
+            }
+        });
+    }
+
     // Get the execution processes for this attempt
     use crate::db::node_execution_processes::NodeExecutionProcessRepository;
     let exec_repo = NodeExecutionProcessRepository::new(pool);
