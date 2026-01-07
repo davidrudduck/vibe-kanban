@@ -10,7 +10,7 @@ use crate::{
     },
     config::RemoteServerConfig,
     mail::Mailer,
-    nodes::ConnectionManager,
+    nodes::{BackfillService, ConnectionManager},
     services::LogCache,
 };
 
@@ -28,6 +28,7 @@ pub struct AppState {
     pub connection_token: Arc<ConnectionTokenService>,
     pub log_cache: LogCache,
     pub http_client: reqwest::Client,
+    pub backfill: Arc<BackfillService>,
 }
 
 impl AppState {
@@ -44,6 +45,7 @@ impl AppState {
         node_connections: ConnectionManager,
         connection_token: Arc<ConnectionTokenService>,
         http_client: reqwest::Client,
+        backfill: Arc<BackfillService>,
     ) -> Self {
         Self {
             pool,
@@ -58,6 +60,7 @@ impl AppState {
             connection_token,
             log_cache: LogCache::new(),
             http_client,
+            backfill,
         }
     }
 
@@ -100,5 +103,10 @@ impl AppState {
 
     pub fn connection_token(&self) -> Arc<ConnectionTokenService> {
         Arc::clone(&self.connection_token)
+    }
+
+    /// Get a reference to the backfill service.
+    pub fn backfill(&self) -> &Arc<BackfillService> {
+        &self.backfill
     }
 }
