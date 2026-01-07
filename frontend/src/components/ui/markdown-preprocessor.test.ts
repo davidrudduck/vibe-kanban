@@ -16,9 +16,10 @@ describe('preprocessMarkdown', () => {
       );
     });
 
-    it('escapes underscores followed by word characters', () => {
-      // _DATABASE starts with underscore followed by word char
-      expect(preprocessMarkdown('_DATABASE_PATH')).toBe('\\_DATABASE\\_PATH');
+    it('preserves leading underscores (only right side is word char)', () => {
+      // _DATABASE starts with underscore but has no word char on left
+      // Only the middle underscore (between DATABASE and PATH) gets escaped
+      expect(preprocessMarkdown('_DATABASE_PATH')).toBe('_DATABASE\\_PATH');
     });
 
     it('escapes multi-underscore identifiers', () => {
@@ -28,18 +29,17 @@ describe('preprocessMarkdown', () => {
     });
 
     it('preserves intentional italic with spaces around both underscores', () => {
-      // Intentional italic: space before opening AND after closing underscore
-      // The closing underscore gets escaped because it follows a word char,
-      // but markdown-to-jsx still renders correctly
+      // Intentional italic: space before opening underscore, space after closing
+      // Neither underscore is escaped because neither has word chars on BOTH sides
       expect(preprocessMarkdown('this is _italic_ text')).toBe(
-        'this is \\_italic\\_ text'
+        'this is _italic_ text'
       );
     });
 
     it('handles mixed intentional italic and snake_case', () => {
-      // "important" underscores get escaped, as does variable_name
+      // _important_ preserved (spaces around), variable_name escaped (word chars both sides)
       expect(preprocessMarkdown('use _important_ variable_name')).toBe(
-        'use \\_important\\_ variable\\_name'
+        'use _important_ variable\\_name'
       );
     });
 
@@ -64,12 +64,14 @@ describe('preprocessMarkdown', () => {
       expect(preprocessMarkdown('')).toBe('');
     });
 
-    it('handles underscore at end of word only', () => {
-      expect(preprocessMarkdown('test_')).toBe('test\\_');
+    it('preserves underscore at end of word only (trailing)', () => {
+      // Trailing underscore: word char on left, nothing on right - not escaped
+      expect(preprocessMarkdown('test_')).toBe('test_');
     });
 
-    it('handles underscore at start of word only', () => {
-      expect(preprocessMarkdown('_test')).toBe('\\_test');
+    it('preserves underscore at start of word only (leading)', () => {
+      // Leading underscore: nothing on left, word char on right - not escaped
+      expect(preprocessMarkdown('_test')).toBe('_test');
     });
 
     it('preserves standalone underscore surrounded by spaces', () => {
