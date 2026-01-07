@@ -318,10 +318,12 @@ pub async fn load_task_attempt_middleware_with_wildcard(
 }
 
 /// Variant of load_task_attempt_middleware for routes with two UUID path params.
-/// Use this for routes like `/{id}/.../{uuid}` where both are UUIDs.
+/// Use this for routes like `/{task_attempt_id}/message-queue/{message_id}` where
+/// there are 2 UUIDs in the path. The middleware extracts the first (task_attempt_id)
+/// and ignores the second (which the handler will extract separately).
 pub async fn load_task_attempt_middleware_with_uuid_suffix(
     State(deployment): State<DeploymentImpl>,
-    Path((task_attempt_id, _suffix_id)): Path<(Uuid, Uuid)>,
+    Path((task_attempt_id, _message_id)): Path<(Uuid, Uuid)>,
     request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
