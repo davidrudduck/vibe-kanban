@@ -201,52 +201,54 @@ pub async fn get_task_attempt(
     }
 
     // If attempt not found locally, try Hive fallback
-    if let Some(Extension(remote)) = remote_needed {
-        if let Ok(client) = deployment.remote_client() {
-            match client.get_node_task_attempt(remote.attempt_id).await {
-                Ok(Some(hive_response)) => {
-                    // Find local task by shared_task_id to map back to local task_id
-                    let pool = &deployment.db().pool;
-                    let task = Task::find_by_shared_task_id(pool, hive_response.attempt.shared_task_id).await?;
+    if let Some(Extension(remote)) = remote_needed
+        && let Ok(client) = deployment.remote_client()
+    {
+        match client.get_node_task_attempt(remote.attempt_id).await {
+            Ok(Some(hive_response)) => {
+                // Find local task by shared_task_id to map back to local task_id
+                let pool = &deployment.db().pool;
+                let task =
+                    Task::find_by_shared_task_id(pool, hive_response.attempt.shared_task_id)
+                        .await?;
 
-                    if let Some(task) = task {
-                        // Convert NodeTaskAttempt to local TaskAttempt format
-                        let attempt = TaskAttempt {
-                            id: hive_response.attempt.id,
-                            task_id: task.id, // Map to local task_id
-                            container_ref: hive_response.attempt.container_ref,
-                            branch: hive_response.attempt.branch,
-                            target_branch: hive_response.attempt.target_branch,
-                            executor: hive_response.attempt.executor,
-                            worktree_deleted: hive_response.attempt.worktree_deleted,
-                            setup_completed_at: hive_response.attempt.setup_completed_at,
-                            created_at: hive_response.attempt.created_at,
-                            updated_at: hive_response.attempt.updated_at,
-                            hive_synced_at: Some(hive_response.attempt.updated_at),
-                            hive_assignment_id: hive_response.attempt.assignment_id,
-                        };
-                        return Ok(ResponseJson(ApiResponse::success(attempt)));
-                    }
-                    // Task not found locally - can't map the attempt
-                    tracing::warn!(
-                        attempt_id = %remote.attempt_id,
-                        shared_task_id = %hive_response.attempt.shared_task_id,
-                        "Attempt found on Hive but shared task not linked locally"
-                    );
+                if let Some(task) = task {
+                    // Convert NodeTaskAttempt to local TaskAttempt format
+                    let attempt = TaskAttempt {
+                        id: hive_response.attempt.id,
+                        task_id: task.id, // Map to local task_id
+                        container_ref: hive_response.attempt.container_ref,
+                        branch: hive_response.attempt.branch,
+                        target_branch: hive_response.attempt.target_branch,
+                        executor: hive_response.attempt.executor,
+                        worktree_deleted: hive_response.attempt.worktree_deleted,
+                        setup_completed_at: hive_response.attempt.setup_completed_at,
+                        created_at: hive_response.attempt.created_at,
+                        updated_at: hive_response.attempt.updated_at,
+                        hive_synced_at: Some(hive_response.attempt.updated_at),
+                        hive_assignment_id: hive_response.attempt.assignment_id,
+                    };
+                    return Ok(ResponseJson(ApiResponse::success(attempt)));
                 }
-                Ok(None) => {
-                    tracing::debug!(
-                        attempt_id = %remote.attempt_id,
-                        "Attempt not found on Hive"
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        attempt_id = %remote.attempt_id,
-                        error = %e,
-                        "Failed to fetch attempt from Hive"
-                    );
-                }
+                // Task not found locally - can't map the attempt
+                tracing::warn!(
+                    attempt_id = %remote.attempt_id,
+                    shared_task_id = %hive_response.attempt.shared_task_id,
+                    "Attempt found on Hive but shared task not linked locally"
+                );
+            }
+            Ok(None) => {
+                tracing::debug!(
+                    attempt_id = %remote.attempt_id,
+                    "Attempt not found on Hive"
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    attempt_id = %remote.attempt_id,
+                    error = %e,
+                    "Failed to fetch attempt from Hive"
+                );
             }
         }
     }

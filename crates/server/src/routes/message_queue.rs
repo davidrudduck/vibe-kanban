@@ -78,7 +78,7 @@ pub async fn add_queued_message(
 pub async fn update_queued_message(
     Extension(task_attempt): Extension<TaskAttempt>,
     State(deployment): State<DeploymentImpl>,
-    Path(message_id): Path<Uuid>,
+    Path((_, message_id)): Path<(Uuid, Uuid)>,
     ResponseJson(payload): ResponseJson<UpdateQueuedMessageRequest>,
 ) -> Result<ResponseJson<ApiResponse<QueuedMessage>>, ApiError> {
     // Validate content if provided
@@ -111,7 +111,7 @@ pub async fn update_queued_message(
 pub async fn remove_queued_message(
     Extension(task_attempt): Extension<TaskAttempt>,
     State(deployment): State<DeploymentImpl>,
-    Path(message_id): Path<Uuid>,
+    Path((_, message_id)): Path<(Uuid, Uuid)>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
     let removed = deployment
         .local_container()
@@ -161,8 +161,8 @@ pub async fn clear_queued_messages(
 }
 
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
-    // Base queue routes - single path param (task_attempt_id)
-    let queue_routes = Router::new()
+    // Routes without {message_id} - use load_task_attempt_middleware (extracts single UUID)
+    let base_routes = Router::new()
         .route("/", get(list_queued_messages))
         .route("/", post(add_queued_message))
         .route("/", delete(clear_queued_messages))
@@ -172,9 +172,10 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             load_task_attempt_middleware,
         ));
 
-    // Individual message routes - two path params (task_attempt_id, message_id)
-    // These need a separate middleware that extracts both UUIDs from the path.
-    let message_routes = Router::new()
+    // Routes with {message_id} - use load_task_attempt_middleware_with_uuid_suffix
+    // (extracts two UUIDs: task_attempt_id and message_id).
+    // The handlers extract both path params via Path<(Uuid, Uuid)> and use message_id.
+    let message_id_routes = Router::new()
         .route("/{message_id}", put(update_queued_message))
         .route("/{message_id}", delete(remove_queued_message))
         .layer(from_fn_with_state(
@@ -185,10 +186,6 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     Router::new()
         .nest(
             "/task-attempts/{task_attempt_id}/message-queue",
-            queue_routes,
-        )
-        .nest(
-            "/task-attempts/{task_attempt_id}/message-queue",
-            message_routes,
+            base_routes.merge(message_id_routes),
         )
 }
