@@ -375,6 +375,12 @@ function MarkdownRenderer({
           </pre>
         ),
       },
+      // Disable ==highlight== syntax by rendering <mark> as plain text
+      mark: {
+        component: ({ children, ...props }: React.ComponentProps<'mark'>) => (
+          <span {...props}>{children}</span>
+        ),
+      },
     }),
     [imageOverride]
   );
