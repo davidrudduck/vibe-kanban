@@ -18,14 +18,16 @@ import FileContentView from '@/components/NormalizedConversation/FileContentView
 export interface FileViewDialogProps {
   /** Full file path for display in title */
   filePath: string;
-  /** Relative path within ~/.claude/ for API request */
-  relativePath: string;
+  /** Relative path within ~/.claude/ for API request (for claude files) */
+  relativePath?: string;
+  /** Attempt ID for fetching worktree files */
+  attemptId?: string;
 }
 
 type ViewMode = 'preview' | 'raw';
 
 const FileViewDialogImpl = NiceModal.create<FileViewDialogProps>(
-  ({ filePath, relativePath }) => {
+  ({ filePath, relativePath, attemptId }) => {
     const modal = useModal();
     const containerRef = useRef<HTMLDivElement>(null);
     const [viewMode, setViewMode] = useState<ViewMode>('preview');
@@ -33,9 +35,17 @@ const FileViewDialogImpl = NiceModal.create<FileViewDialogProps>(
     const isMarkdown = /\.(md|markdown|mdx)$/i.test(filePath);
 
     const { data, isLoading, error } = useQuery({
-      queryKey: ['claude-file', relativePath],
-      queryFn: () => fileBrowserApi.readClaudeFile(relativePath),
-      enabled: modal.visible,
+      queryKey: ['file-view', relativePath || filePath, attemptId],
+      queryFn: () => {
+        if (relativePath) {
+          return fileBrowserApi.readClaudeFile(relativePath);
+        }
+        if (attemptId) {
+          return fileBrowserApi.readWorktreeFile(attemptId, filePath);
+        }
+        throw new Error('No file source specified');
+      },
+      enabled: modal.visible && !!(relativePath || attemptId),
     });
 
     // Focus container for keyboard events

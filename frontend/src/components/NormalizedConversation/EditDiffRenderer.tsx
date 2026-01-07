@@ -19,6 +19,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { FileViewDialog } from '@/components/dialogs';
+import { isMarkdownFile } from '@/utils/fileHelpers';
 
 type Props = {
   path: string;
@@ -28,6 +29,7 @@ type Props = {
   defaultExpanded?: boolean;
   statusAppearance?: 'default' | 'denied' | 'timed_out';
   forceExpanded?: boolean;
+  attemptId?: string;
 };
 
 /**
@@ -89,6 +91,7 @@ function EditDiffRenderer({
   defaultExpanded = false,
   statusAppearance = 'default',
   forceExpanded = false,
+  attemptId,
 }: Props) {
   const { config } = useUserSystem();
   const [expanded, setExpanded] = useExpandable(expansionKey, defaultExpanded);
@@ -97,11 +100,23 @@ function EditDiffRenderer({
   const theme = getActualTheme(config?.theme);
   const claudeRelativePath = getClaudeRelativePath(path);
 
+  // Show view button for .claude/ files or any markdown file
+  const showViewButton = claudeRelativePath || isMarkdownFile(path);
+
   const handleViewFile = () => {
+    if (!showViewButton) return;
+
     if (claudeRelativePath) {
+      // Claude file - use relativePath
       void FileViewDialog.show({
         filePath: path,
         relativePath: claudeRelativePath,
+      });
+    } else if (attemptId) {
+      // Worktree file - use attemptId
+      void FileViewDialog.show({
+        filePath: path,
+        attemptId,
       });
     }
   };
@@ -142,8 +157,8 @@ function EditDiffRenderer({
           <span style={{ color: 'hsl(var(--console-error))' }}>
             -{deletions}
           </span>
-          {/* View file link - inline after filename (only for ~/.claude/ paths) */}
-          {claudeRelativePath && (
+          {/* View file link for .claude/ paths or markdown files */}
+          {showViewButton && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>

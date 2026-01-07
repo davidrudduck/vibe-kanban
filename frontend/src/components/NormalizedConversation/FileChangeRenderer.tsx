@@ -22,6 +22,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { isMarkdownFile } from '@/utils/fileHelpers';
 
 type Props = {
   path: string;
@@ -30,6 +31,7 @@ type Props = {
   defaultExpanded?: boolean;
   statusAppearance?: 'default' | 'denied' | 'timed_out';
   forceExpanded?: boolean;
+  attemptId?: string;
 };
 
 function isWrite(
@@ -69,6 +71,7 @@ const FileChangeRenderer = ({
   defaultExpanded = false,
   statusAppearance = 'default',
   forceExpanded = false,
+  attemptId,
 }: Props) => {
   const { config } = useUserSystem();
   const [expanded, setExpanded] = useExpandable(expansionKey, defaultExpanded);
@@ -79,11 +82,24 @@ const FileChangeRenderer = ({
 
   // Detect .claude/ paths for view file link
   const claudeRelativePath = getClaudeRelativePath(path);
+
+  // Show view button for .claude/ files or any markdown file
+  const showViewButton = claudeRelativePath || isMarkdownFile(path);
+
   const handleViewFile = () => {
+    if (!showViewButton) return;
+
     if (claudeRelativePath) {
+      // Claude file - use relativePath
       void FileViewDialog.show({
         filePath: path,
         relativePath: claudeRelativePath,
+      });
+    } else if (attemptId) {
+      // Worktree file - use attemptId
+      void FileViewDialog.show({
+        filePath: path,
+        attemptId,
       });
     }
   };
@@ -117,6 +133,7 @@ const FileChangeRenderer = ({
         defaultExpanded={defaultExpanded}
         statusAppearance={statusAppearance}
         forceExpanded={forceExpanded}
+        attemptId={attemptId}
       />
     );
   }
@@ -173,8 +190,8 @@ const FileChangeRenderer = ({
           className="text-sm font-light overflow-x-auto cursor-pointer inline-flex items-center gap-1"
         >
           {titleNode}
-          {/* View file link for ~/.claude/ paths - inline after filename */}
-          {claudeRelativePath && (
+          {/* View file link for .claude/ paths or markdown files */}
+          {showViewButton && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>

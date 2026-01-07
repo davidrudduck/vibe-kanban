@@ -45,6 +45,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { isMarkdownFile } from '@/utils/fileHelpers';
 
 type Props = {
   entry: NormalizedEntry | ProcessStartPayload;
@@ -443,7 +444,8 @@ const ToolCallCard: React.FC<{
   entry: NormalizedEntry | ProcessStartPayload;
   expansionKey: string;
   forceExpanded?: boolean;
-}> = ({ entry, expansionKey, forceExpanded = false }) => {
+  attemptId?: string;
+}> = ({ entry, expansionKey, forceExpanded = false, attemptId }) => {
   const { t } = useTranslation('common');
 
   // Determine if this is a NormalizedEntry with tool_use
@@ -490,18 +492,31 @@ const ToolCallCard: React.FC<{
   const hasArgs = isTool && !!actionType.arguments;
   const hasResult = isTool && !!actionType.result;
 
-  // File read with .claude/ path detection for view file link
+  // File read with path detection for view file link
   const isFileRead = actionType?.action === 'file_read';
   const fileReadPath = isFileRead ? actionType.path : null;
   const claudeRelativePath = fileReadPath
     ? getClaudeRelativePath(fileReadPath)
     : null;
 
+  // Show view button for .claude/ files or any markdown file
+  const showViewButton =
+    fileReadPath && (claudeRelativePath || isMarkdownFile(fileReadPath));
+
   const handleViewFile = () => {
-    if (fileReadPath && claudeRelativePath) {
+    if (!fileReadPath || !showViewButton) return;
+
+    if (claudeRelativePath) {
+      // Claude file - use relativePath
       void FileViewDialog.show({
         filePath: fileReadPath,
         relativePath: claudeRelativePath,
+      });
+    } else if (attemptId) {
+      // Worktree file - use attemptId
+      void FileViewDialog.show({
+        filePath: fileReadPath,
+        attemptId,
       });
     }
   };
@@ -540,8 +555,8 @@ const ToolCallCard: React.FC<{
           {showInlineSummary ? (
             <span className="font-light inline-flex items-center gap-1">
               {inlineText}
-              {/* View file link for ~/.claude/ paths - inline after filename */}
-              {claudeRelativePath && (
+              {/* View file link for .claude/ paths or markdown files */}
+              {showViewButton && (
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -779,7 +794,11 @@ function DisplayConversationEntry({
   if (isProcessStart(entry)) {
     return (
       <div className={greyed ? 'opacity-50 pointer-events-none' : undefined}>
-        <ToolCallCard entry={entry} expansionKey={expansionKey} />
+        <ToolCallCard
+          entry={entry}
+          expansionKey={expansionKey}
+          attemptId={taskAttempt?.id}
+        />
       </div>
     );
   }
@@ -857,6 +876,7 @@ function DisplayConversationEntry({
                 defaultExpanded={defaultExpanded}
                 statusAppearance={statusAppearance}
                 forceExpanded={isPendingApproval || isPendingQuestion}
+                attemptId={taskAttempt?.id}
               />
             ))}
           </div>
@@ -879,6 +899,7 @@ function DisplayConversationEntry({
           entry={entry}
           expansionKey={expansionKey}
           forceExpanded={isPendingApproval || isPendingQuestion}
+          attemptId={taskAttempt?.id}
         />
       );
     })();
