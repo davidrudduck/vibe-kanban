@@ -12,3 +12,4 @@ export {
 } from './FileLink';
 export { FileViewerSheet } from './FileViewerSheet';
 export type { FileViewerSheetProps } from './FileViewerSheet';
+export { FileViewerSidePanel } from './FileViewerSidePanel';
