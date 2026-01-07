@@ -1,0 +1,158 @@
+---
+title: "Markdown Rendering"
+description: "How markdown is rendered in task descriptions and conversations"
+---
+
+Vibe Kanban renders markdown content throughout the application, including task descriptions, conversation messages, and notes. This document covers the supported syntax, known behaviors, and workarounds.
+
+## Supported Markdown Syntax
+
+The markdown renderer supports **GitHub Flavored Markdown (GFM)** and **CommonMark** syntax:
+
+| Feature | Syntax | Example |
+|---------|--------|---------|
+| Bold | `**text**` | **bold text** |
+| Italic | `_text_` (with spaces) | _italic text_ |
+| Inline code | `` `code` `` | `code` |
+| Code blocks | ` ``` ` fenced | Syntax highlighted |
+| Links | `[text](url)` | External links open in new tab |
+| Images | `![alt](url)` | Thumbnail with lightbox |
+| Headings | `# H1` to `###### H6` | Hierarchical sizing |
+| Lists | `- item` or `1. item` | Bullet or numbered |
+
+## Underscore Handling
+
+Variable names like `VK_DATABASE_PATH` or `snake_case` render correctly without italic formatting.
+
+### How It Works
+
+The preprocessor escapes underscores that appear **between** word characters:
+
+| Input | Output | Rendering |
+|-------|--------|-----------|
+| `VK_DATABASE_PATH` | `VK\_DATABASE\_PATH` | VK_DATABASE_PATH |
+| `snake_case` | `snake\_case` | snake_case |
+| `_italic_` (with spaces) | `_italic_` | _italic_ |
+
+### Rules
+
+1. **Underscores between word characters are escaped** - Prevents snake_case from becoming italic
+2. **Underscores with surrounding spaces are preserved** - ` _text_ ` renders as italic
+3. **Code blocks are preserved** - No escaping inside backticks or fenced blocks
+4. **URLs are preserved** - Underscores in URLs remain unchanged
+
+### Examples
+
+```markdown
+# These render WITHOUT italic:
+- VK_DATABASE_PATH (environment variable)
+- connection_token_service (identifier)
+- one_two_three_four (multiple underscores)
+
+# This renders WITH italic:
+- This is _italic_ text (spaces around underscores)
+
+# These are preserved:
+- `snake_case` (inline code)
+- https://example.com/path_with_underscores (URL)
+```
+
+## Code Blocks
+
+### Inline Code
+
+Inline code uses backticks and displays with a subtle background:
+
+```markdown
+Use the `preprocessMarkdown` function.
+```
+
+### Fenced Code Blocks
+
+Fenced code blocks have a visible border and background for clear visual separation:
+
+```markdown
+```rust
+fn main() {
+    let token = "test";
+    println!("Hello!");
+}
+```
+```bash
+
+Code blocks preserve:
+- Original formatting and indentation
+- Underscore characters (no escaping)
+- Language-specific syntax (for highlighting)
+
+## Heading Hierarchy
+
+Headings render with clear visual hierarchy:
+
+| Level | Font Size | Weight |
+|-------|-----------|--------|
+| `# H1` | xl (20px) | semibold |
+| `## H2` | lg (18px) | semibold |
+| `### H3` | base (16px) | semibold |
+| `#### H4` | base (16px) | medium |
+| `##### H5` | sm (14px) | semibold |
+| `###### H6` | sm (14px) | medium |
+
+## Links
+
+### External Links
+
+Links to external URLs (https://) open in a new tab with security attributes:
+
+```markdown
+See [React docs](https://react.dev) for more info.
+```
+
+### Internal Links
+
+Relative paths, anchors, and non-https URLs are displayed as disabled links (styled but not clickable) to prevent navigation issues within the app.
+
+## Images
+
+Images render as thumbnails with a hover effect. Clicking an image opens a lightbox for full-size viewing.
+
+### .vibe-images Support
+
+Images in task `.vibe-images/` directories are automatically resolved and displayed. The lightbox supports navigating between all images attached to a task.
+
+## Disabled Features
+
+### Mark/Highlight Syntax
+
+The `==highlight==` syntax is disabled. Text wrapped in double equals signs renders as plain text instead of highlighted (yellow background).
+
+**Why?** Technical content often contains patterns like `================` separators that would otherwise trigger unwanted highlighting.
+
+## Troubleshooting
+
+### Italic Appearing Where Not Expected
+
+If text appears italic unexpectedly, check for underscores that might be interpreted as markdown:
+
+- **Workaround**: Wrap in backticks (`` `like_this` ``) to render as code
+- **Pattern**: Underscores need word characters on **both** sides to be escaped
+
+### Variables Not Rendering Correctly
+
+If environment variables or identifiers show italic sections:
+
+1. Check that there are no spaces between underscores and words
+2. Verify the text isn't inside a quote or special context
+3. Use inline code for guaranteed correct rendering: `` `VK_DATABASE_PATH` ``
+
+### Code Blocks Not Distinct
+
+If code blocks blend into surrounding text:
+
+- Code blocks should have a visible border and background
+- If not visible, check theme settings or CSS customizations
+
+## Related Documentation
+
+- [Markdown Renderer Architecture](/architecture/frontend/markdown-renderer) - Technical implementation details
+- [Task Cards](/core-features/task-cards) - Where markdown appears in the UI

@@ -1,0 +1,343 @@
+---
+title: "Markdown Renderer Architecture"
+description: "Technical documentation for the markdown rendering system"
+---
+
+This document covers the technical architecture of Vibe Kanban's markdown rendering system, including component structure, preprocessing pipeline, and extension points.
+
+## Component Overview
+
+The markdown rendering system consists of two main modules:
+
+```text
+frontend/src/components/ui/
+├── markdown-renderer.tsx      # Main component with overrides
+└── markdown-preprocessor.ts   # Text preprocessing pipeline
+```
+
+### Dependencies
+
+- **markdown-to-jsx**: Core markdown parser and React renderer
+- **lucide-react**: Icons for copy button and image lightbox
+
+## MarkdownRenderer Component
+
+The main component (`markdown-renderer.tsx`) wraps `markdown-to-jsx` with custom overrides for consistent styling and behavior.
+
+### Props Interface
+
+```typescript
+interface MarkdownRendererProps {
+  content: string;              // Raw markdown content
+  className?: string;           // Additional CSS classes
+  enableCopyButton?: boolean;   // Show "Copy as Markdown" button
+  taskImages?: ImageResponse[]; // For lightbox navigation
+}
+```
+
+### Usage
+
+```tsx
+import MarkdownRenderer from '@/components/ui/markdown-renderer';
+
+<MarkdownRenderer
+  content={task.description}
+  enableCopyButton
+  taskImages={task.images}
+/>
+```
+
+## Preprocessing Pipeline
+
+The `preprocessMarkdown` function transforms raw markdown before rendering to handle edge cases.
+
+### Pipeline Flow
+
+```bash
+Raw Content
+    ↓
+Split by protected regions (code blocks, inline code, URLs)
+    ↓
+Escape mid-word underscores in non-protected regions
+    ↓
+Rejoin all parts
+    ↓
+Pass to markdown-to-jsx
+```
+
+### Protected Region Detection
+
+The preprocessor uses a regex to identify regions that should not be modified:
+
+```typescript
+const parts = content.split(/(```[\s\S]*?```|`[^`]+`|https?:\/\/[^\s)>\]]+)/);
+```
+
+This captures:
+- **Fenced code blocks**: ` ```...``` ` (preserves language specifier)
+- **Inline code**: `` `...` ``
+- **URLs**: `https://...` or `http://...`
+
+### Underscore Escaping
+
+Only underscores with word characters on **both** sides are escaped:
+
+```typescript
+return part.replace(/(?<=\w)_(?=\w)/g, '\\_');
+```
+
+| Pattern | Match? | Reason |
+|---------|--------|--------|
+| `snake_case` | Yes | Word chars both sides |
+| `_italic_` | No | Space before opening `_` |
+| `test_` | No | No word char after `_` |
+| `_test` | No | No word char before `_` |
+
+### Test Cases
+
+The preprocessor has comprehensive tests (`markdown-preprocessor.test.ts`):
+
+```typescript
+describe('underscore handling', () => {
+  it('escapes underscores in snake_case', () => {
+    expect(preprocessMarkdown('variable_name'))
+      .toBe('variable\\_name');
+  });
+
+  it('escapes all underscores in VK_DATABASE_PATH', () => {
+    expect(preprocessMarkdown('VK_DATABASE_PATH'))
+      .toBe('VK\\_DATABASE\\_PATH');
+  });
+
+  it('preserves intentional italic with spaces', () => {
+    expect(preprocessMarkdown('this is _italic_ text'))
+      .toBe('this is _italic_ text');
+  });
+
+  it('preserves underscores in URLs', () => {
+    expect(preprocessMarkdown('https://example.com/foo_bar'))
+      .toBe('https://example.com/foo_bar');
+  });
+});
+```
+
+## Element Overrides
+
+The renderer customizes rendering for various HTML elements:
+
+### Typography
+
+```typescript
+overrides: {
+  h1: { className: 'text-xl font-semibold leading-tight mt-4 mb-2' },
+  h2: { className: 'text-lg font-semibold leading-tight mt-4 mb-2' },
+  h3: { className: 'text-base font-semibold leading-tight mt-3 mb-2' },
+  // ... h4-h6
+  p: { className: 'leading-tight my-2' },
+  strong: { className: 'font-semibold' },
+  em: { className: 'italic' },
+}
+```
+
+### Lists
+
+```typescript
+overrides: {
+  ul: { className: 'list-disc list-outside ps-8 my-3 space-y-1.5' },
+  ol: { className: 'list-decimal list-outside ps-8 my-3 space-y-1.5' },
+  li: { className: 'leading-tight' },
+}
+```
+
+<Note>
+Lists use `ps-8` (32px) padding to prevent number clipping on multi-digit ordered lists.
+</Note>
+
+### Code
+
+```typescript
+overrides: {
+  code: {
+    // Inline code: subtle background
+    component: InlineCodeOverride,
+  },
+  pre: {
+    className: 'overflow-x-auto whitespace-pre-wrap break-words font-code ' +
+               'text-sm bg-muted rounded-md p-3 my-3 border border-border',
+  },
+}
+```
+
+### Links
+
+The `LinkOverride` component handles URL safety and external link behavior:
+
+```typescript
+function LinkOverride({ href, children, title }) {
+  const safeHref = sanitizeHref(href);
+
+  if (!safeHref || !isExternalHref(safeHref)) {
+    // Render as disabled span for internal/unsafe links
+    return <span role="link" aria-disabled>{children}</span>;
+  }
+
+  // External link with security attributes
+  return (
+    <a href={safeHref} target="_blank" rel="noopener noreferrer">
+      {children}
+    </a>
+  );
+}
+```
+
+**Security**:
+- Blocks `javascript:`, `vbscript:`, `data:` protocols
+- Only allows `https://` for external links
+- Internal paths rendered as disabled spans
+
+### Images
+
+The `ImageOverride` component provides:
+- Thumbnail sizing with responsive breakpoints
+- Error state handling
+- Lightbox integration via `ImageLightboxDialog`
+- `.vibe-images/` path resolution
+
+### Mark (Disabled)
+
+The `==highlight==` syntax is disabled by rendering `<mark>` as plain `<span>`:
+
+```typescript
+overrides: {
+  mark: {
+    component: ({ children, ...props }) => (
+      <span {...props}>{children}</span>
+    ),
+  },
+}
+```
+
+## Styling Constants
+
+Shared styling constants ensure consistency:
+
+```typescript
+const HIGHLIGHT_LINK =
+  'rounded-sm bg-muted/50 px-1 py-0.5 underline-offset-2 transition-colors';
+const HIGHLIGHT_LINK_HOVER = 'hover:bg-muted';
+const HIGHLIGHT_CODE =
+  'rounded-sm bg-muted/50 px-1 py-0.5 font-code text-[0.9em]';
+```
+
+## Performance
+
+### Memoization
+
+The component uses React's `memo` and `useMemo` for optimal performance:
+
+```typescript
+// Preprocess only when content changes
+const processedContent = useMemo(
+  () => preprocessMarkdown(content),
+  [content]
+);
+
+// Override object stable across renders
+const overrides = useMemo(() => ({ ... }), [imageOverride]);
+
+// Component memoized
+export default memo(MarkdownRenderer);
+```
+
+### Configuration
+
+```typescript
+<Markdown options={{
+  overrides,
+  disableParsingRawHTML: true  // Security: no raw HTML
+}}>
+  {processedContent}
+</Markdown>
+```
+
+## Copy Button Feature
+
+When `enableCopyButton` is true, a floating button appears on hover:
+
+```typescript
+{enableCopyButton && (
+  <div className="sticky top-2 right-2 z-10">
+    <Button onClick={handleCopy}>
+      {copied ? <Check /> : <Clipboard />}
+    </Button>
+  </div>
+)}
+```
+
+Uses `writeClipboardViaBridge` for VS Code webview compatibility.
+
+## Extension Points
+
+### Adding New Element Overrides
+
+Add to the `overrides` object in `markdown-renderer.tsx`:
+
+```typescript
+const overrides = useMemo(() => ({
+  // ... existing overrides
+  blockquote: {
+    component: ({ children, ...props }) => (
+      <blockquote {...props} className="border-l-4 border-muted pl-4 my-2">
+        {children}
+      </blockquote>
+    ),
+  },
+}), []);
+```
+
+### Adding New Preprocessing Rules
+
+Extend `preprocessMarkdown` with additional transformations:
+
+```typescript
+export function preprocessMarkdown(content: string): string {
+  if (!content) return content;
+
+  // Split by protected regions
+  const parts = content.split(/(...)/);
+
+  return parts.map((part, index) => {
+    if (index % 2 === 1) return part;
+
+    // Existing: escape mid-word underscores
+    let result = part.replace(/(?<=\w)_(?=\w)/g, '\\_');
+
+    // New: additional transformations
+    result = customTransform(result);
+
+    return result;
+  }).join('');
+}
+```
+
+## Testing
+
+Run tests with Vitest:
+
+```bash
+cd frontend
+pnpm test:run                    # Run once
+pnpm test                        # Watch mode
+pnpm test -- markdown-pre       # Filter by name
+```
+
+### Test File Location
+
+```text
+frontend/src/components/ui/markdown-preprocessor.test.ts
+```
+
+## Related Documentation
+
+- [Markdown Rendering](/features/markdown-rendering) - User-facing documentation
+- [Responsive Design](/architecture/ui-responsive-design) - UI responsiveness patterns
