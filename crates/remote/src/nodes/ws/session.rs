@@ -3,6 +3,7 @@
 //! This module handles the lifecycle of a single node WebSocket connection,
 //! including authentication, message routing, and heartbeat management.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
@@ -30,6 +31,7 @@ use super::{
 use crate::{
     db::node_task_attempts::NodeTaskAttemptRepository,
     nodes::{
+        BackfillService,
         domain::NodeStatus,
         service::{NodeServiceImpl, RegisterNode},
     },
@@ -44,14 +46,19 @@ const OUTGOING_BUFFER_SIZE: usize = 64;
 /// Handle a new node WebSocket connection.
 #[instrument(
     name = "node_ws.session",
-    skip(socket, pool, connections),
+    skip(socket, pool, connections, backfill),
     fields(
         node_id = tracing::field::Empty,
         org_id = tracing::field::Empty,
         machine_id = tracing::field::Empty
     )
 )]
-pub async fn handle(socket: WebSocket, pool: PgPool, connections: ConnectionManager) {
+pub async fn handle(
+    socket: WebSocket,
+    pool: PgPool,
+    connections: ConnectionManager,
+    backfill: Arc<BackfillService>,
+) {
     let (mut ws_sender, mut ws_receiver) = socket.split();
     let (tx, mut rx) = mpsc::channel::<HiveMessage>(OUTGOING_BUFFER_SIZE);
 
@@ -127,6 +134,33 @@ pub async fn handle(socket: WebSocket, pool: PgPool, connections: ConnectionMana
         &connections,
     )
     .await;
+
+    // Trigger backfill for incomplete attempts (non-blocking)
+    let node_id_for_backfill = auth_result.node_id;
+    let backfill_service = Arc::clone(&backfill);
+    tokio::spawn(async move {
+        match backfill_service
+            .trigger_reconnect_backfill(node_id_for_backfill)
+            .await
+        {
+            Ok(count) => {
+                if count > 0 {
+                    tracing::info!(
+                        node_id = %node_id_for_backfill,
+                        count = count,
+                        "triggered backfill for incomplete attempts on reconnect"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    node_id = %node_id_for_backfill,
+                    error = %e,
+                    "failed to trigger backfill on reconnect"
+                );
+            }
+        }
+    });
 
     // Set up heartbeat timeout
     let mut heartbeat_timeout = time::interval(HEARTBEAT_TIMEOUT);
