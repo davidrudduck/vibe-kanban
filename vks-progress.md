@@ -1,14 +1,23 @@
 **VK-Swarm Task ID**: `4a7a450e-2a38-4f67-bda1-edc7786729ad`
 
 ## 📊 Current Status
-Progress: 1/12 tasks (8%)
-Completed Tasks: 001
-Current Task: #002 - Write tests for .env loading
+Progress: 2/12 tasks (17%)
+Completed Tasks: 001, 002
+Current Task: #003 - Write test for log batcher finish signal
 
 ## 🎯 Known Issues & Blockers
 - None
 
 ## 📝 Recent Sessions
+
+### Session 2 (2026-01-08) - Task 002: Verify tests for .env loading
+**Completed:** Task #002
+**Key Changes:**
+- Verified existing tests in `utils::assets` cover all acceptance criteria
+- No new tests required - `test_database_path_env_override`, `test_database_path_default`, and `test_database_path_tilde_expansion` cover the requirements
+- Ran `cargo test -p utils` - all 69 tests pass
+- Documented rationale in task file
+**Git Commits:** 3e3728b42
 
 ### Session 1 (2026-01-08) - Task 001: dotenvy fix for migrate_logs
 **Completed:** Task #001
