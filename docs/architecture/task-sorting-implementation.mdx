@@ -199,6 +199,47 @@ export function useColumnSortState() {
 
 **Default directions:** All columns default to `'asc'` (oldest first).
 
+### Persistence
+
+Sort directions are persisted to `localStorage` under the key `kanban-sort-directions-v1`. This allows users to maintain their preferred sort order across page reloads.
+
+**Storage Format:**
+```json
+{
+  "todo": "asc",
+  "inprogress": "desc",
+  "inreview": "asc",
+  "done": "asc",
+  "cancelled": "asc"
+}
+```
+
+**Validation:**
+- Invalid JSON falls back to defaults
+- Missing or invalid direction values fall back to defaults
+- Storage errors are silently caught (localStorage may be disabled or quota exceeded)
+
+**Implementation:**
+- `loadSortDirections()` — Reads and validates persisted directions on hook initialization
+- `saveSortDirections()` — Writes to localStorage via `useEffect` whenever directions change
+- Storage key is versioned (`v1`) to allow future migrations
+
+### Internationalization
+
+Sort labels are localized via i18next. Translation keys are in the `tasks` namespace under the `sorting` key:
+
+| Key | English | Purpose |
+|-----|---------|---------|
+| `sorting.ascending` | "Oldest first" | Label for ascending sort |
+| `sorting.descending` | "Newest first" | Label for descending sort |
+| `sorting.sortBy` | "Sort by {{column}}, currently {{direction}}" | Aria-label template for screen readers |
+
+**Translations are available in:**
+- English (`frontend/src/i18n/locales/en/tasks.json`)
+- Japanese (`frontend/src/i18n/locales/ja/tasks.json`)
+- Korean (`frontend/src/i18n/locales/ko/tasks.json`)
+- Spanish (`frontend/src/i18n/locales/es/tasks.json`)
+
 ## Frontend: UI Components
 
 ### KanbanHeader Component
@@ -265,6 +306,7 @@ interface KanbanHeaderProps {
 | Test File | Coverage |
 |-----------|----------|
 | `frontend/src/lib/taskSorting.test.ts` | 19 unit tests covering all sorting scenarios |
+| `frontend/src/hooks/useColumnSortState.test.ts` | 9 unit tests for sort state hook and localStorage persistence |
 | `crates/db/tests/task_execution_timestamps.rs` | 8 integration tests for timestamp queries |
 
 ## File Locations
@@ -276,12 +318,13 @@ Backend:
 └── crates/db/tests/task_execution_timestamps.rs  # Integration tests
 
 Frontend:
-├── frontend/src/lib/taskSorting.ts           # Sorting utility functions
-├── frontend/src/lib/taskSorting.test.ts      # Unit tests
-├── frontend/src/hooks/useColumnSortState.ts  # Sort state hook
-├── frontend/src/hooks/useProjectTasks.ts     # Task fetching with sorting
-├── frontend/src/pages/projects/ProjectTasks.tsx    # Main project view
-├── frontend/src/pages/AllProjectsTasks.tsx         # All projects view
+├── frontend/src/lib/taskSorting.ts                # Sorting utility functions
+├── frontend/src/lib/taskSorting.test.ts           # Unit tests for sorting
+├── frontend/src/hooks/useColumnSortState.ts       # Sort state hook with persistence
+├── frontend/src/hooks/useColumnSortState.test.ts  # Unit tests for hook
+├── frontend/src/hooks/useProjectTasks.ts          # Task fetching with sorting
+├── frontend/src/pages/projects/ProjectTasks.tsx   # Main project view
+├── frontend/src/pages/AllProjectsTasks.tsx        # All projects view
 └── frontend/src/components/ui/shadcn-io/kanban/index.tsx  # KanbanHeader
 
 Shared Types:
