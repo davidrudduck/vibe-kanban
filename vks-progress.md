@@ -1,14 +1,28 @@
 **VK-Swarm Task ID**: `8a7151ce-f9df-4557-9c59-d81a3cb84eb3`
 
 ## Current Status
-Progress: 5/10 tasks (50%)
-Completed Tasks: 5/10
-Current Task: #006 - Update handle_backfill_response with Tracking
+Progress: 6/10 tasks (60%)
+Completed Tasks: 6/10
+Current Task: #007 - Wire Tracker Through WebSocket Handler
 
 ## Known Issues & Blockers
 - None
 
 ## Recent Sessions
+
+### Session 6 (2026-01-09) - Task 006: Update handle_backfill_response with Tracking
+**Completed:** Task #006 - Response Handler Integration
+**Key Changes:**
+- Added `use crate::nodes::backfill::BackfillRequestTracker` import to session.rs
+- Added tracker extraction in `handle()`: `let tracker = backfill.tracker();`
+- Updated `handle_node_message()` to accept `tracker: &BackfillRequestTracker` parameter
+- Updated `handle_backfill_response()` to use tracker for correlating responses
+- Success path: calls `tracker.complete()` then `repo.mark_complete()` for each attempt
+- Failure path: calls `tracker.complete()` then `repo.reset_attempt_to_partial()` for each attempt
+- Added fallback to `repo.reset_failed_backfill()` when no tracker mapping exists
+- Added `#[allow(clippy::too_many_arguments)]` for handle_node_message
+- All tests pass, clippy clean
+**Git Commits:** 79671edf1
 
 ### Session 5 (2026-01-09) - Task 005: Add Tracker Getter to AppState
 **Completed:** Task #005 - AppState Integration
@@ -28,18 +42,6 @@ Current Task: #006 - Update handle_backfill_response with Tracking
 - All 54 tests pass, clippy clean
 **Git Commits:** f0c80050d
 
-### Session 3 (2026-01-09) - Task 003: Integrate Tracker into BackfillService
-**Completed:** Task #003 - BackfillService Integration
-**Key Changes:**
-- Added `tracker: Arc<BackfillRequestTracker>` field to BackfillService
-- Initialized tracker in `BackfillService::new()`
-- Added `tracker()` getter method returning Arc clone
-- Integrated `tracker.track()` calls in `request_immediate_backfill()` and `request_batch_backfill()`
-- Added stale request cleanup in `run_periodic_reconciliation()`
-- Added `test_backfill_service_tracks_requests` integration test
-- All 4 backfill tests pass, clippy clean
-**Git Commits:** f64dee6d9, df8524914
-
 ---
 
 ## Session 0 Complete - Initialization
@@ -53,7 +55,7 @@ Initialized the development environment and decomposed the backfill request trac
 - [x] 003.md - Integrate Tracker into BackfillService
 - [x] 004.md - Add reset_attempt_to_partial Repository Method (parallel)
 - [x] 005.md - Add Tracker Getter to AppState
-- [ ] 006.md - Update handle_backfill_response with Tracking
+- [x] 006.md - Update handle_backfill_response with Tracking
 - [ ] 007.md - Wire Tracker Through WebSocket Handler
 - [ ] 008.md - Add Disconnect Cleanup Logic
 - [ ] 009.md - Final Verification and Testing
