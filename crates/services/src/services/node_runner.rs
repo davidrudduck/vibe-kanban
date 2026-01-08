@@ -796,6 +796,72 @@ pub fn spawn_node_runner<C: ContainerService + Sync + Send + 'static>(
                         }
                     }
                 }
+                Some(HiveEvent::BackfillRequest(request)) => {
+                    // Handle backfill request from hive
+                    tracing::info!(
+                        message_id = %request.message_id,
+                        backfill_type = ?request.backfill_type,
+                        entity_count = request.entity_ids.len(),
+                        "Processing backfill request from hive"
+                    );
+
+                    let mut entities_sent = 0u32;
+                    let mut errors = Vec::new();
+
+                    // Process each entity ID (attempt IDs for FullAttempt backfill)
+                    for entity_id in &request.entity_ids {
+                        match handle_backfill_attempt(
+                            &db.pool,
+                            &command_tx,
+                            *entity_id,
+                            &request.backfill_type,
+                            request.logs_after,
+                        )
+                        .await
+                        {
+                            Ok(count) => {
+                                entities_sent += count;
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    entity_id = %entity_id,
+                                    error = ?e,
+                                    "Failed to backfill entity"
+                                );
+                                errors.push(format!("{}: {}", entity_id, e));
+                            }
+                        }
+                    }
+
+                    // Send backfill response
+                    let response = super::hive_client::BackfillResponseMessage {
+                        request_id: request.message_id,
+                        success: errors.is_empty(),
+                        error: if errors.is_empty() {
+                            None
+                        } else {
+                            Some(errors.join("; "))
+                        },
+                        entities_sent,
+                    };
+
+                    if let Err(e) = command_tx
+                        .send(super::hive_client::NodeMessage::BackfillResponse(response))
+                        .await
+                    {
+                        tracing::error!(
+                            error = ?e,
+                            message_id = %request.message_id,
+                            "Failed to send backfill response"
+                        );
+                    } else {
+                        tracing::info!(
+                            message_id = %request.message_id,
+                            entities_sent = entities_sent,
+                            "Sent backfill response to hive"
+                        );
+                    }
+                }
                 Some(_) => {
                     // Other events are handled in process_event
                 }
@@ -1093,4 +1159,599 @@ async fn upsert_swarm_label(
     }
 
     Ok(())
+}
+
+/// Build an ExecutionSyncMessage from an ExecutionProcess.
+fn build_execution_sync_message(
+    exec: &db::models::execution_process::ExecutionProcess,
+) -> super::hive_client::ExecutionSyncMessage {
+    super::hive_client::ExecutionSyncMessage {
+        execution_id: exec.id,
+        attempt_id: exec.task_attempt_id,
+        run_reason: format!("{:?}", exec.run_reason).to_lowercase(),
+        executor_action: Some(serde_json::to_value(&exec.executor_action).unwrap_or_default()),
+        before_head_commit: exec.before_head_commit.clone(),
+        after_head_commit: exec.after_head_commit.clone(),
+        status: format!("{:?}", exec.status).to_lowercase(),
+        exit_code: exec.exit_code.map(|c| c as i32),
+        dropped: exec.dropped,
+        pid: exec.pid,
+        started_at: exec.started_at,
+        completed_at: exec.completed_at,
+        created_at: exec.created_at,
+    }
+}
+
+/// Build a LogsBatchMessage from log entries for an execution.
+fn build_logs_batch_message(
+    logs: &[db::models::log_entry::DbLogEntry],
+    execution_id: Uuid,
+    assignment_id: Uuid,
+) -> super::hive_client::LogsBatchMessage {
+    use super::hive_client::{SyncLogEntry, TaskOutputType};
+
+    let entries: Vec<SyncLogEntry> = logs
+        .iter()
+        .map(|log| SyncLogEntry {
+            output_type: match log.output_type.as_str() {
+                "stdout" => TaskOutputType::Stdout,
+                "stderr" => TaskOutputType::Stderr,
+                _ => TaskOutputType::System,
+            },
+            content: log.content.clone(),
+            timestamp: log.timestamp,
+        })
+        .collect();
+
+    super::hive_client::LogsBatchMessage {
+        assignment_id,
+        execution_process_id: Some(execution_id),
+        entries,
+        compressed: false,
+    }
+}
+
+/// Handle a backfill request for a single attempt.
+///
+/// This function queries the local database for the specified attempt and its associated
+/// data (executions, logs) and sends sync messages to the Hive via the provided channel.
+///
+/// # Arguments
+/// * `pool` - Database connection pool
+/// * `command_tx` - Channel to send NodeMessage to the Hive
+/// * `attempt_id` - The task attempt ID to backfill
+/// * `backfill_type` - Type of data to backfill (FullAttempt, Executions, or Logs)
+/// * `logs_after` - Optional timestamp filter for Logs backfill
+///
+/// # Returns
+/// The count of entities processed/sent, or an error if the operation fails.
+pub async fn handle_backfill_attempt(
+    pool: &SqlitePool,
+    command_tx: &mpsc::Sender<NodeMessage>,
+    attempt_id: Uuid,
+    backfill_type: &super::hive_client::BackfillType,
+    logs_after: Option<chrono::DateTime<chrono::Utc>>,
+) -> Result<u32, NodeRunnerError> {
+    use db::models::{
+        execution_process::ExecutionProcess,
+        log_entry::DbLogEntry,
+        task::Task,
+        task_attempt::TaskAttempt,
+    };
+    use super::hive_client::{AttemptSyncMessage, BackfillType};
+
+    // Fetch the attempt
+    let attempt = TaskAttempt::find_by_id(pool, attempt_id)
+        .await?
+        .ok_or_else(|| NodeRunnerError::SyncError(format!("attempt {} not found", attempt_id)))?;
+
+    // Fetch the associated task
+    let task = Task::find_by_id(pool, attempt.task_id)
+        .await?
+        .ok_or_else(|| NodeRunnerError::SyncError(format!("task {} not found", attempt.task_id)))?;
+
+    // Get shared_task_id, required for sync
+    let shared_task_id = task.shared_task_id.ok_or_else(|| {
+        NodeRunnerError::SyncError(format!(
+            "task {} has no shared_task_id, cannot backfill",
+            task.id
+        ))
+    })?;
+
+    match backfill_type {
+        BackfillType::FullAttempt => {
+            // Send attempt sync
+            let attempt_msg = AttemptSyncMessage {
+                attempt_id: attempt.id,
+                assignment_id: attempt.hive_assignment_id,
+                shared_task_id,
+                executor: attempt.executor.clone(),
+                executor_variant: None,
+                branch: attempt.branch.clone(),
+                target_branch: attempt.target_branch.clone(),
+                container_ref: attempt.container_ref.clone(),
+                worktree_deleted: attempt.worktree_deleted,
+                setup_completed_at: attempt.setup_completed_at,
+                created_at: attempt.created_at,
+                updated_at: attempt.updated_at,
+            };
+            command_tx
+                .send(NodeMessage::AttemptSync(attempt_msg))
+                .await
+                .map_err(|e| NodeRunnerError::SyncError(e.to_string()))?;
+
+            // Get all executions for this attempt
+            let executions =
+                ExecutionProcess::find_by_task_attempt_id(pool, attempt_id, false).await?;
+
+            for exec in &executions {
+                // Send execution sync
+                let exec_msg = build_execution_sync_message(exec);
+                command_tx
+                    .send(NodeMessage::ExecutionSync(exec_msg))
+                    .await
+                    .map_err(|e| NodeRunnerError::SyncError(e.to_string()))?;
+
+                // Get logs for this execution
+                let logs = DbLogEntry::find_by_execution_id(pool, exec.id).await?;
+                if !logs.is_empty() {
+                    let logs_msg = build_logs_batch_message(
+                        &logs,
+                        exec.id,
+                        attempt.hive_assignment_id.unwrap_or(attempt_id),
+                    );
+                    command_tx
+                        .send(NodeMessage::LogsBatch(logs_msg))
+                        .await
+                        .map_err(|e| NodeRunnerError::SyncError(e.to_string()))?;
+                }
+            }
+            Ok(1) // 1 attempt processed
+        }
+        BackfillType::Executions => {
+            // Get all executions for this attempt and send only ExecutionSync messages
+            let executions =
+                ExecutionProcess::find_by_task_attempt_id(pool, attempt_id, false).await?;
+
+            let mut count = 0u32;
+            for exec in &executions {
+                let exec_msg = build_execution_sync_message(exec);
+                command_tx
+                    .send(NodeMessage::ExecutionSync(exec_msg))
+                    .await
+                    .map_err(|e| NodeRunnerError::SyncError(e.to_string()))?;
+                count += 1;
+            }
+            Ok(count)
+        }
+        BackfillType::Logs => {
+            // Get all executions for this attempt
+            let executions =
+                ExecutionProcess::find_by_task_attempt_id(pool, attempt_id, false).await?;
+
+            let mut count = 0u32;
+            for exec in &executions {
+                // Get logs for this execution, optionally filtered by timestamp
+                let logs = if let Some(after_ts) = logs_after {
+                    DbLogEntry::find_by_execution_id_after(pool, exec.id, after_ts).await?
+                } else {
+                    DbLogEntry::find_by_execution_id(pool, exec.id).await?
+                };
+
+                if !logs.is_empty() {
+                    let logs_msg = build_logs_batch_message(
+                        &logs,
+                        exec.id,
+                        attempt.hive_assignment_id.unwrap_or(attempt_id),
+                    );
+                    command_tx
+                        .send(NodeMessage::LogsBatch(logs_msg))
+                        .await
+                        .map_err(|e| NodeRunnerError::SyncError(e.to_string()))?;
+                    count += 1;
+                }
+            }
+            Ok(count)
+        }
+    }
+}
+
+#[cfg(test)]
+mod backfill_tests {
+    use super::*;
+    use db::models::{
+        log_entry::{CreateLogEntry, DbLogEntry},
+        project::{CreateProject, Project},
+        task::{CreateTask, Task},
+    };
+    use tokio::sync::mpsc;
+
+    /// Helper to create test data for backfill tests.
+    /// Creates a project -> task -> attempt -> execution -> logs chain.
+    async fn create_test_attempt_data(
+        pool: &SqlitePool,
+    ) -> (Uuid, Uuid, Uuid, Uuid) {
+        // Create project
+        let project_id = Uuid::new_v4();
+        let project_data = CreateProject {
+            name: "Test Project".to_string(),
+            git_repo_path: format!("/tmp/test-repo-{}", project_id),
+            use_existing_repo: true,
+            clone_url: None,
+            setup_script: None,
+            dev_script: None,
+            cleanup_script: None,
+            copy_files: None,
+        };
+        let _project = Project::create(pool, &project_data, project_id)
+            .await
+            .expect("Failed to create project");
+
+        // Create task with shared_task_id
+        let task_id = Uuid::new_v4();
+        let shared_task_id = Uuid::new_v4();
+        let task_data = CreateTask::from_title_description(
+            project_id,
+            "Test Task".to_string(),
+            Some("Test description".to_string()),
+        );
+        let _task = Task::create(pool, &task_data, task_id)
+            .await
+            .expect("Failed to create task");
+
+        // Set shared_task_id
+        Task::set_shared_task_id(pool, task_id, Some(shared_task_id))
+            .await
+            .expect("Failed to set shared_task_id");
+
+        // Create task attempt
+        let attempt_id = Uuid::new_v4();
+        sqlx::query(
+            r#"INSERT INTO task_attempts (id, task_id, executor, branch, target_branch)
+               VALUES ($1, $2, 'CLAUDE_CODE', 'test-branch', 'main')"#,
+        )
+        .bind(attempt_id)
+        .bind(task_id)
+        .execute(pool)
+        .await
+        .expect("Failed to create task attempt");
+
+        // Create execution process
+        let execution_id = Uuid::new_v4();
+        sqlx::query(
+            r#"INSERT INTO execution_processes (id, task_attempt_id, status, run_reason, executor_action)
+               VALUES ($1, $2, 'completed', 'codingagent', '{}')"#,
+        )
+        .bind(execution_id)
+        .bind(attempt_id)
+        .execute(pool)
+        .await
+        .expect("Failed to create execution process");
+
+        // Create log entries
+        for i in 0..3 {
+            DbLogEntry::create(
+                pool,
+                CreateLogEntry {
+                    execution_id,
+                    output_type: "stdout".to_string(),
+                    content: format!("Test log message {}", i),
+                },
+            )
+            .await
+            .expect("Failed to create log entry");
+        }
+
+        (project_id, task_id, attempt_id, execution_id)
+    }
+
+    #[tokio::test]
+    async fn test_backfill_full_attempt_sends_all_messages() {
+        use super::super::hive_client::BackfillType;
+
+        // Setup: Create test pool with attempt, execution, logs
+        let (pool, _temp) = db::test_utils::create_test_pool().await;
+        let (tx, mut rx) = mpsc::channel::<NodeMessage>(10);
+
+        // Create test data
+        let (_project_id, _task_id, attempt_id, _execution_id) =
+            create_test_attempt_data(&pool).await;
+
+        // Act: Call handle_backfill_attempt
+        let result = handle_backfill_attempt(
+            &pool,
+            &tx,
+            attempt_id,
+            &BackfillType::FullAttempt,
+            None,
+        )
+        .await;
+
+        // Assert: Should succeed and return 1 attempt processed
+        assert!(result.is_ok(), "Expected Ok, got {:?}", result);
+        assert_eq!(result.unwrap(), 1);
+
+        // Verify messages sent: AttemptSync, ExecutionSync, LogsBatch
+        let msg1 = rx.recv().await.expect("Expected AttemptSync message");
+        assert!(
+            matches!(msg1, NodeMessage::AttemptSync(_)),
+            "Expected AttemptSync, got {:?}",
+            msg1
+        );
+
+        let msg2 = rx.recv().await.expect("Expected ExecutionSync message");
+        assert!(
+            matches!(msg2, NodeMessage::ExecutionSync(_)),
+            "Expected ExecutionSync, got {:?}",
+            msg2
+        );
+
+        let msg3 = rx.recv().await.expect("Expected LogsBatch message");
+        assert!(
+            matches!(msg3, NodeMessage::LogsBatch(_)),
+            "Expected LogsBatch, got {:?}",
+            msg3
+        );
+    }
+
+    #[tokio::test]
+    async fn test_backfill_missing_attempt_returns_error() {
+        use super::super::hive_client::BackfillType;
+
+        let (pool, _temp) = db::test_utils::create_test_pool().await;
+        let (tx, _rx) = mpsc::channel::<NodeMessage>(10);
+
+        // Try to backfill a non-existent attempt
+        let fake_attempt_id = Uuid::new_v4();
+        let result = handle_backfill_attempt(
+            &pool,
+            &tx,
+            fake_attempt_id,
+            &BackfillType::FullAttempt,
+            None,
+        )
+        .await;
+
+        // Should return an error
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("not found"),
+            "Expected 'not found' error, got: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn test_backfill_attempt_without_shared_task_id_returns_error() {
+        use super::super::hive_client::BackfillType;
+
+        let (pool, _temp) = db::test_utils::create_test_pool().await;
+        let (tx, _rx) = mpsc::channel::<NodeMessage>(10);
+
+        // Create project and task without shared_task_id
+        let project_id = Uuid::new_v4();
+        let project_data = CreateProject {
+            name: "Test Project".to_string(),
+            git_repo_path: format!("/tmp/test-repo-{}", project_id),
+            use_existing_repo: true,
+            clone_url: None,
+            setup_script: None,
+            dev_script: None,
+            cleanup_script: None,
+            copy_files: None,
+        };
+        let _project = Project::create(&pool, &project_data, project_id)
+            .await
+            .expect("Failed to create project");
+
+        let task_id = Uuid::new_v4();
+        let task_data = CreateTask::from_title_description(
+            project_id,
+            "Test Task".to_string(),
+            None,
+        );
+        let _task = Task::create(&pool, &task_data, task_id)
+            .await
+            .expect("Failed to create task");
+        // Note: NOT setting shared_task_id
+
+        let attempt_id = Uuid::new_v4();
+        sqlx::query(
+            r#"INSERT INTO task_attempts (id, task_id, executor, branch, target_branch)
+               VALUES ($1, $2, 'CLAUDE_CODE', 'test-branch', 'main')"#,
+        )
+        .bind(attempt_id)
+        .bind(task_id)
+        .execute(&pool)
+        .await
+        .expect("Failed to create task attempt");
+
+        // Try to backfill - should fail because no shared_task_id
+        let result = handle_backfill_attempt(
+            &pool,
+            &tx,
+            attempt_id,
+            &BackfillType::FullAttempt,
+            None,
+        )
+        .await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("shared_task_id"),
+            "Expected error about shared_task_id, got: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn test_backfill_executions_only() {
+        use super::super::hive_client::BackfillType;
+
+        // Setup: Create test pool with attempt, execution, logs
+        let (pool, _temp) = db::test_utils::create_test_pool().await;
+        let (tx, mut rx) = mpsc::channel::<NodeMessage>(10);
+
+        // Create test data with 2 executions
+        let (_, _, attempt_id, _) = create_test_attempt_data(&pool).await;
+
+        // Add a second execution
+        let execution_id_2 = Uuid::new_v4();
+        sqlx::query(
+            r#"INSERT INTO execution_processes (id, task_attempt_id, status, run_reason, executor_action)
+               VALUES ($1, $2, 'completed', 'codingagent', '{}')"#,
+        )
+        .bind(execution_id_2)
+        .bind(attempt_id)
+        .execute(&pool)
+        .await
+        .expect("Failed to create second execution process");
+
+        // Act: Call handle_backfill_attempt with BackfillType::Executions
+        let result = handle_backfill_attempt(
+            &pool,
+            &tx,
+            attempt_id,
+            &BackfillType::Executions,
+            None,
+        )
+        .await;
+
+        // Assert: Should succeed and return 2 executions processed
+        assert!(result.is_ok(), "Expected Ok, got {:?}", result);
+        assert_eq!(result.unwrap(), 2, "Should have processed 2 executions");
+
+        // Verify only ExecutionSync messages sent (no AttemptSync, no LogsBatch)
+        let msg1 = rx.recv().await.expect("Expected first ExecutionSync message");
+        assert!(
+            matches!(msg1, NodeMessage::ExecutionSync(_)),
+            "Expected ExecutionSync, got {:?}",
+            msg1
+        );
+
+        let msg2 = rx.recv().await.expect("Expected second ExecutionSync message");
+        assert!(
+            matches!(msg2, NodeMessage::ExecutionSync(_)),
+            "Expected ExecutionSync, got {:?}",
+            msg2
+        );
+
+        // Channel should be empty - no more messages
+        assert!(
+            rx.try_recv().is_err(),
+            "Expected no more messages after ExecutionSync"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_backfill_logs_only() {
+        use super::super::hive_client::BackfillType;
+
+        // Setup: Create test pool with attempt, execution, logs
+        let (pool, _temp) = db::test_utils::create_test_pool().await;
+        let (tx, mut rx) = mpsc::channel::<NodeMessage>(10);
+
+        // Create test data (includes 3 logs)
+        let (_, _, attempt_id, _) = create_test_attempt_data(&pool).await;
+
+        // Act: Call handle_backfill_attempt with BackfillType::Logs
+        let result = handle_backfill_attempt(
+            &pool,
+            &tx,
+            attempt_id,
+            &BackfillType::Logs,
+            None,
+        )
+        .await;
+
+        // Assert: Should succeed and return 1 (one execution with logs)
+        assert!(result.is_ok(), "Expected Ok, got {:?}", result);
+        assert_eq!(result.unwrap(), 1, "Should have processed 1 execution's logs");
+
+        // Verify only LogsBatch message sent
+        let msg = rx.recv().await.expect("Expected LogsBatch message");
+        match msg {
+            NodeMessage::LogsBatch(logs_msg) => {
+                assert_eq!(logs_msg.entries.len(), 3, "Should have 3 log entries");
+            }
+            _ => panic!("Expected LogsBatch, got {:?}", msg),
+        }
+
+        // Channel should be empty - no AttemptSync or ExecutionSync
+        assert!(
+            rx.try_recv().is_err(),
+            "Expected no more messages after LogsBatch"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_backfill_logs_with_timestamp_filter() {
+        use super::super::hive_client::BackfillType;
+        use chrono::Duration;
+
+        // Setup: Create test pool
+        let (pool, _temp) = db::test_utils::create_test_pool().await;
+        let (tx, mut rx) = mpsc::channel::<NodeMessage>(10);
+
+        // Create test data (includes 3 logs)
+        let (_, _, attempt_id, execution_id) = create_test_attempt_data(&pool).await;
+
+        // Get all logs to find the latest timestamp
+        let all_logs = DbLogEntry::find_by_execution_id(&pool, execution_id)
+            .await
+            .expect("Failed to get logs");
+
+        // Use a cutoff time that is definitely after all existing logs
+        // We take the max timestamp and add 1 second to be safe
+        let max_timestamp = all_logs.iter().map(|l| l.timestamp).max().unwrap();
+        let cutoff_time = max_timestamp + Duration::seconds(1);
+
+        // Add one more log entry after the cutoff (this will have timestamp > cutoff)
+        // We need to wait a bit so the new log's timestamp is after our cutoff
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        DbLogEntry::create(
+            &pool,
+            CreateLogEntry {
+                execution_id,
+                output_type: "stdout".to_string(),
+                content: "New log after cutoff".to_string(),
+            },
+        )
+        .await
+        .expect("Failed to create new log entry");
+
+        // Act: Call handle_backfill_attempt with logs_after filter
+        let result = handle_backfill_attempt(
+            &pool,
+            &tx,
+            attempt_id,
+            &BackfillType::Logs,
+            Some(cutoff_time),
+        )
+        .await;
+
+        // Assert: Should succeed
+        assert!(result.is_ok(), "Expected Ok, got {:?}", result);
+        assert_eq!(result.unwrap(), 1, "Should have processed 1 execution's logs");
+
+        // Verify LogsBatch only contains the new log
+        let msg = rx.recv().await.expect("Expected LogsBatch message");
+        match msg {
+            NodeMessage::LogsBatch(logs_msg) => {
+                assert_eq!(
+                    logs_msg.entries.len(),
+                    1,
+                    "Should only have 1 log entry (after cutoff)"
+                );
+                assert_eq!(
+                    logs_msg.entries[0].content, "New log after cutoff",
+                    "Should be the new log entry"
+                );
+            }
+            _ => panic!("Expected LogsBatch, got {:?}", msg),
+        }
+    }
 }
