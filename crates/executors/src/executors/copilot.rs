@@ -190,16 +190,16 @@ impl StandardCodingAgentExecutor for Copilot {
     /// Each entry is converted into an `AssistantMessage` or `ErrorMessage` and emitted as patches.
     /// Additionally, starts a log file watcher to extract structured information like model info
     /// from Copilot's debug log files.
-    fn normalize_logs(&self, msg_store: Arc<MsgStore>, worktree_path: &Path) {
+    fn normalize_logs(&self, msg_store: Arc<MsgStore>, worktree_path: &Path) -> tokio::task::JoinHandle<()> {
         let entry_index_counter = EntryIndexProvider::start_from(&msg_store);
-        normalize_stderr_logs(msg_store.clone(), entry_index_counter.clone());
+        let stderr_handle = normalize_stderr_logs(msg_store.clone(), entry_index_counter.clone());
 
         let worktree_path = worktree_path.to_path_buf();
         let entry_index_for_log_watcher = entry_index_counter.clone();
         let msg_store_for_log_watcher = msg_store.clone();
 
         // Normalize Agent logs
-        tokio::spawn(async move {
+        let stdout_handle = tokio::spawn(async move {
             let mut stdout_lines = msg_store.stdout_lines_stream();
 
             let mut processor = Self::create_simple_stdout_normalizer(entry_index_counter);
@@ -227,6 +227,12 @@ impl StandardCodingAgentExecutor for Copilot {
                 }
             }
         });
+
+        // Return a handle that awaits both normalization tasks
+        tokio::spawn(async move {
+            let _ = stderr_handle.await;
+            let _ = stdout_handle.await;
+        })
     }
 
     // MCP configuration methods
