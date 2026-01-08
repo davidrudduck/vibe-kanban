@@ -20,8 +20,8 @@ Current Task: #007 - Await normalization handles before finalization
   - `claude.rs:195`, `amp.rs:159`, `codex.rs:168`, `copilot.rs:193`, `droid.rs:164`, `gemini.rs:75`, `qwen.rs:66`
 - Updated helper functions: `normalize_stderr_logs`, `acp/normalize_logs`, `codex/normalize_logs`, `droid/normalize_logs`, `ClaudeLogProcessor::process_logs`
 - Pattern: Functions spawning multiple tasks return a wrapper that awaits all inner tasks
-- All tests pass: executors (63), services (30+)
-**Git Commits:** (pending)
+- All tests pass: executors (63), services (185+)
+**Git Commits:** ce36443ca
 
 ### Session 5 (2026-01-09) - Task 005: Write test for normalization completion synchronization
 **Completed:** Task #005
