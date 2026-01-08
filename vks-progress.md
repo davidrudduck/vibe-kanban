@@ -1,14 +1,28 @@
 **VK-Swarm Task ID**: `4a7a450e-2a38-4f67-bda1-edc7786729ad`
 
 ## 📊 Current Status
-Progress: 7/12 tasks (58%)
-Completed Tasks: 001, 002, 003, 004, 005, 006, 007
-Current Task: #008 - Write tests for MCP failure status
+Progress: 8/12 tasks (67%)
+Completed Tasks: 001, 002, 003, 004, 005, 006, 007, 008
+Current Task: #009 - Fix Cursor MCP status assignment
 
 ## 🎯 Known Issues & Blockers
 - None
 
 ## 📝 Recent Sessions
+
+### Session 8 (2026-01-09) - Task 008: Write tests for MCP failure status
+**Completed:** Task #008
+**Key Changes:**
+- Added `extract_tool_status()` method to `CursorMcpResult` (cursor.rs:997-1012)
+- Added `PartialEq` derive to `ToolStatus` enum (logs/mod.rs:261)
+- Added `PartialEq` derive to `QuestionOption` and `Question` structs (approvals.rs:11,19)
+- Added 3 tests for MCP failure status handling:
+  - `test_mcp_failure_marked_as_failed` - Tests `is_error=true` → `ToolStatus::Failed`
+  - `test_mcp_success_marked_as_success` - Tests `is_error=false` → `ToolStatus::Success`
+  - `test_mcp_missing_is_error_defaults_success` - Tests `is_error=None` → `ToolStatus::Success`
+- All 66 executor tests pass
+- Clippy passes with no warnings
+**Git Commits:** 8880daccc
 
 ### Session 7 (2026-01-09) - Task 007: Await normalization handles before finalization
 **Completed:** Task #007
@@ -105,9 +119,9 @@ Current Task: #008 - Write tests for MCP failure status
 - [x] 005.md - Write test for normalization completion synchronization (S) ✅
 - [x] 006.md - Modify normalize_logs to return JoinHandle (S) ✅
 - [x] 007.md - Await normalization handles before finalization (M) ✅
+- [x] 008.md - Write tests for MCP failure status (S) ✅
 
 ### Remaining
-- [ ] 008.md - Write tests for MCP failure status (S)
 - [ ] 009.md - Fix Cursor MCP status assignment (XS) - depends on 008
 - [ ] 010.md - Audit and remove dead code in Copilot executor (S)
 - [ ] 011.md - Create executor logging feature documentation (M) - depends on 004, 007, 009
