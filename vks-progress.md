@@ -1,14 +1,25 @@
 **VK-Swarm Task ID**: `4a7a450e-2a38-4f67-bda1-edc7786729ad`
 
 ## 📊 Current Status
-Progress: 2/12 tasks (17%)
-Completed Tasks: 001, 002
-Current Task: #003 - Write test for log batcher finish signal
+Progress: 3/12 tasks (25%)
+Completed Tasks: 001, 002, 003
+Current Task: #004 - Add LogBatcher to Container and call finish on exit
 
 ## 🎯 Known Issues & Blockers
 - None
 
 ## 📝 Recent Sessions
+
+### Session 3 (2026-01-09) - Task 003: Write test for log batcher finish signal
+**Completed:** Task #003
+**Key Changes:**
+- Created `crates/services/tests/log_batcher_test.rs` with 3 integration tests
+- `test_finish_flushes_remaining_logs` - Verifies finish() flushes buffered logs [PASS]
+- `test_finish_idempotent` - Calling finish() twice doesn't duplicate logs [PASS]
+- `test_finish_no_pending` - finish() on empty buffer is safe [PASS]
+- Tests confirm LogBatcher::finish() implementation already works correctly
+- Discovered: FK constraint requires full entity hierarchy (project -> task -> task_attempt -> execution_process) for log tests
+**Git Commits:** (pending)
 
 ### Session 2 (2026-01-08) - Task 002: Verify tests for .env loading
 **Completed:** Task #002
@@ -36,8 +47,8 @@ Set up the development environment and decomposed the executor logging bug fix p
 
 ### Tasks Created
 - [x] 001.md - Add dotenvy call to migrate_logs binary (XS) ✅ DONE
-- [ ] 002.md - Write tests for .env loading in migrate_logs (S) - depends on 001
-- [ ] 003.md - Write test for log batcher finish signal (S)
+- [x] 002.md - Write tests for .env loading in migrate_logs (S) ✅ DONE
+- [x] 003.md - Write test for log batcher finish signal (S) ✅ DONE
 - [ ] 004.md - Add LogBatcher to Container and call finish on exit (M) - depends on 003
 - [ ] 005.md - Write test for normalization completion synchronization (S)
 - [ ] 006.md - Modify normalize_logs to return JoinHandle (S) - depends on 005
@@ -67,6 +78,6 @@ Session 5 (Cleanup):      010 (independent)
 - `FRONTEND_PORT`: 6500
 - `BACKEND_PORT`: 6501
 - `SESSION`: 1
-- `TASK`: 2 (next)
+- `TASK`: 004 (next)
 - `TASKS`: .claude/tasks/golden-singing-manatee
 - `TASKSMAX`: 012
