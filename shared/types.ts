@@ -292,7 +292,15 @@ archived_at: Date | null,
  */
 activity_at: Date | null, };
 
-export type TaskWithAttemptStatus = { has_in_progress_attempt: boolean, has_merged_attempt: boolean, last_attempt_failed: boolean, executor: string, id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_task_id: string | null, shared_task_id: string | null, created_at: string, updated_at: string, remote_assignee_user_id: string | null, remote_assignee_name: string | null, remote_assignee_username: string | null, remote_version: bigint, remote_last_synced_at: string | null, remote_stream_node_id: string | null, remote_stream_url: string | null, 
+export type TaskWithAttemptStatus = { has_in_progress_attempt: boolean, has_merged_attempt: boolean, last_attempt_failed: boolean, executor: string, 
+/**
+ * Latest execution start timestamp for sorting (codingagent only, non-dropped)
+ */
+latest_execution_started_at: Date | null, 
+/**
+ * Latest execution completion timestamp for sorting (codingagent only, non-dropped)
+ */
+latest_execution_completed_at: Date | null, id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_task_id: string | null, shared_task_id: string | null, created_at: string, updated_at: string, remote_assignee_user_id: string | null, remote_assignee_name: string | null, remote_assignee_username: string | null, remote_version: bigint, remote_last_synced_at: string | null, remote_stream_node_id: string | null, remote_stream_url: string | null, 
 /**
  * Timestamp when task was archived. NULL means not archived.
  */
@@ -309,7 +317,15 @@ export type TaskWithProjectInfo = { id: string, project_id: string, title: strin
 /**
  * Timestamp of last significant activity (status change, execution start).
  */
-activity_at: Date | null, assignee_first_name: string | null, assignee_last_name: string | null, assignee_username: string | null, has_in_progress_attempt: boolean, has_merged_attempt: boolean, last_attempt_failed: boolean, executor: string, project_name: string, source_node_name: string | null, };
+activity_at: Date | null, assignee_first_name: string | null, assignee_last_name: string | null, assignee_username: string | null, has_in_progress_attempt: boolean, has_merged_attempt: boolean, last_attempt_failed: boolean, executor: string, 
+/**
+ * Latest execution start timestamp for sorting (codingagent only, non-dropped)
+ */
+latest_execution_started_at: Date | null, 
+/**
+ * Latest execution completion timestamp for sorting (codingagent only, non-dropped)
+ */
+latest_execution_completed_at: Date | null, project_name: string, source_node_name: string | null, };
 
 export type AllTasksResponse = { tasks: Array<TaskWithProjectInfo>, };
 

@@ -48,6 +48,8 @@ const createMockTask = (
   has_merged_attempt: false,
   last_attempt_failed: false,
   executor: 'claude',
+  latest_execution_started_at: null,
+  latest_execution_completed_at: null,
   project_name: projectName,
   source_node_name: null,
 });
