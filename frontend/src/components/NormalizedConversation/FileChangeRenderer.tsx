@@ -15,7 +15,6 @@ import FileContentView from './FileContentView';
 import '@/styles/diff-style-overrides.css';
 import { useExpandable } from '@/stores/useExpandableStore';
 import { cn } from '@/lib/utils';
-import { FileViewDialog } from '@/components/dialogs';
 import {
   Tooltip,
   TooltipContent,
@@ -23,6 +22,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { isMarkdownFile } from '@/utils/fileHelpers';
+import { useFileViewer } from '@/contexts/FileViewerContext';
 
 type Props = {
   path: string;
@@ -74,6 +74,7 @@ const FileChangeRenderer = ({
   attemptId,
 }: Props) => {
   const { config } = useUserSystem();
+  const { openFile } = useFileViewer();
   const [expanded, setExpanded] = useExpandable(expansionKey, defaultExpanded);
   const effectiveExpanded = forceExpanded || expanded;
 
@@ -91,14 +92,14 @@ const FileChangeRenderer = ({
 
     if (claudeRelativePath) {
       // Claude file - use relativePath
-      void FileViewDialog.show({
-        filePath: path,
+      openFile({
+        path,
         relativePath: claudeRelativePath,
       });
     } else if (attemptId) {
       // Worktree file - use attemptId
-      void FileViewDialog.show({
-        filePath: path,
+      openFile({
+        path,
         attemptId,
       });
     }
