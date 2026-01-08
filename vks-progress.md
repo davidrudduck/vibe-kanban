@@ -1,14 +1,27 @@
 **VK-Swarm Task ID**: `4a7a450e-2a38-4f67-bda1-edc7786729ad`
 
 ## 📊 Current Status
-Progress: 5/12 tasks (42%)
-Completed Tasks: 001, 002, 003, 004, 005
-Current Task: #006 - Modify normalize_logs to return JoinHandle
+Progress: 6/12 tasks (50%)
+Completed Tasks: 001, 002, 003, 004, 005, 006
+Current Task: #007 - Await normalization handles before finalization
 
 ## 🎯 Known Issues & Blockers
 - None
 
 ## 📝 Recent Sessions
+
+### Session 6 (2026-01-09) - Task 006: Modify normalize_logs to return JoinHandle
+**Completed:** Task #006
+**Key Changes:**
+- Updated `StandardCodingAgentExecutor::normalize_logs` trait to return `JoinHandle<()>`
+- Modified all executor implementations to return `JoinHandle<()>`:
+  - `cursor.rs:134`: Returns wrapper that awaits stderr + stdout handles
+  - `opencode.rs:272`: Returns wrapper that awaits log_lines + share_events handles
+  - `claude.rs:195`, `amp.rs:159`, `codex.rs:168`, `copilot.rs:193`, `droid.rs:164`, `gemini.rs:75`, `qwen.rs:66`
+- Updated helper functions: `normalize_stderr_logs`, `acp/normalize_logs`, `codex/normalize_logs`, `droid/normalize_logs`, `ClaudeLogProcessor::process_logs`
+- Pattern: Functions spawning multiple tasks return a wrapper that awaits all inner tasks
+- All tests pass: executors (63), services (30+)
+**Git Commits:** (pending)
 
 ### Session 5 (2026-01-09) - Task 005: Write test for normalization completion synchronization
 **Completed:** Task #005
@@ -74,7 +87,7 @@ Set up the development environment and decomposed the executor logging bug fix p
 - [x] 003.md - Write test for log batcher finish signal (S) ✅ DONE
 - [x] 004.md - Add LogBatcher to Container and call finish on exit (M) ✅ DONE
 - [x] 005.md - Write test for normalization completion synchronization (S) ✅ DONE
-- [ ] 006.md - Modify normalize_logs to return JoinHandle (S) - depends on 005
+- [x] 006.md - Modify normalize_logs to return JoinHandle (S) ✅ DONE
 - [ ] 007.md - Await normalization handles before finalization (M) - depends on 004, 006
 - [ ] 008.md - Write tests for MCP failure status (S)
 - [ ] 009.md - Fix Cursor MCP status assignment (XS) - depends on 008
