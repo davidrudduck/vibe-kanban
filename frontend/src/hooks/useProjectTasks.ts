@@ -6,6 +6,7 @@ import {
   useRegisterArchivedCallback,
 } from '@/contexts/TaskOptimisticContext';
 import type { TaskStatus, TaskWithAttemptStatus } from 'shared/types';
+import { sortTaskGroups, type SortDirection } from '@/lib/taskSorting';
 
 type TasksState = {
   tasks: Record<string, TaskWithAttemptStatus>;
@@ -40,6 +41,8 @@ export interface UseProjectTasksResult {
 
 export interface UseProjectTasksOptions {
   includeArchived?: boolean;
+  /** Sort directions for each status column. Defaults to ascending (oldest first) for all. */
+  sortDirections?: Partial<Record<TaskStatus, SortDirection>>;
 }
 
 /**
@@ -55,7 +58,7 @@ export const useProjectTasks = (
   projectId: string,
   options: UseProjectTasksOptions = {}
 ): UseProjectTasksResult => {
-  const { includeArchived = false } = options;
+  const { includeArchived = false, sortDirections } = options;
   const endpoint = projectId
     ? `/api/tasks/stream/ws?project_id=${encodeURIComponent(projectId)}&include_archived=${includeArchived}`
     : undefined;
@@ -189,42 +192,18 @@ export const useProjectTasks = (
       byStatus[task.status]?.push(task);
     });
 
-    // Helper: get activity time (fallback to created_at)
-    const getActivityTime = (task: TaskWithAttemptStatus) =>
-      new Date(
-        ((task.activity_at ?? task.created_at) as string | Date).toString()
-      ).getTime();
+    // Apply status-aware sorting using centralized utility
+    const sortedByStatus = sortTaskGroups(byStatus, sortDirections);
 
-    const sorted = Object.values(merged).sort(
-      (a, b) => getActivityTime(b) - getActivityTime(a)
-    );
-
-    // Apply status-aware sorting:
-    // - Todo: oldest first (FIFO queue - prevents older tasks from being buried)
-    // - All others: most recent activity first
-    const TASK_STATUSES: TaskStatus[] = [
-      'todo',
-      'inprogress',
-      'inreview',
-      'done',
-      'cancelled',
-    ];
-    TASK_STATUSES.forEach((status) => {
-      if (status === 'todo') {
-        // Todo: oldest first (ascending by activity_at)
-        byStatus[status].sort(
-          (a, b) => getActivityTime(a) - getActivityTime(b)
-        );
-      } else {
-        // All others: most recent first (descending by activity_at)
-        byStatus[status].sort(
-          (a, b) => getActivityTime(b) - getActivityTime(a)
-        );
-      }
+    // Flatten sorted tasks for the 'tasks' array (most recent first overall)
+    const sorted = Object.values(merged).sort((a, b) => {
+      const aTime = new Date(a.created_at).getTime();
+      const bTime = new Date(b.created_at).getTime();
+      return bTime - aTime;
     });
 
-    return { tasks: sorted, tasksById: merged, tasksByStatus: byStatus };
-  }, [localTasksById]);
+    return { tasks: sorted, tasksById: merged, tasksByStatus: sortedByStatus };
+  }, [localTasksById, sortDirections]);
 
   const isLoading = !data && !error; // until first snapshot
 
