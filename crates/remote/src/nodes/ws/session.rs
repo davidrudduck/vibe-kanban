@@ -32,6 +32,7 @@ use crate::{
     db::node_task_attempts::NodeTaskAttemptRepository,
     nodes::{
         BackfillService,
+        backfill::BackfillRequestTracker,
         domain::NodeStatus,
         service::{NodeServiceImpl, RegisterNode},
     },
@@ -173,6 +174,9 @@ pub async fn handle(
         "node session started"
     );
 
+    // Get tracker for correlating backfill responses
+    let tracker = backfill.tracker();
+
     // Main message loop
     loop {
         tokio::select! {
@@ -197,6 +201,7 @@ pub async fn handle(
                                     &connections,
                                     &mut ws_sender,
                                     &mut last_heartbeat,
+                                    &tracker,
                                 ).await {
                                     tracing::warn!(?error, "error handling node message");
                                 }
@@ -452,6 +457,7 @@ async fn wait_for_auth(
 }
 
 /// Handle an incoming message from a node.
+#[allow(clippy::too_many_arguments)]
 async fn handle_node_message(
     msg: &NodeMessage,
     node_id: Uuid,
@@ -460,6 +466,7 @@ async fn handle_node_message(
     connections: &ConnectionManager,
     ws_sender: &mut futures::stream::SplitSink<WebSocket, Message>,
     last_heartbeat: &mut chrono::DateTime<Utc>,
+    tracker: &BackfillRequestTracker,
 ) -> Result<(), HandleError> {
     match msg {
         NodeMessage::Heartbeat(heartbeat) => {
@@ -527,7 +534,7 @@ async fn handle_node_message(
             Ok(())
         }
         NodeMessage::BackfillResponse(response) => {
-            handle_backfill_response(node_id, response, pool).await
+            handle_backfill_response(node_id, response, pool, tracker).await
         }
     }
 }
@@ -1422,6 +1429,7 @@ async fn handle_backfill_response(
     node_id: Uuid,
     response: &BackfillResponseMessage,
     pool: &PgPool,
+    tracker: &BackfillRequestTracker,
 ) -> Result<(), HandleError> {
     tracing::info!(
         node_id = %node_id,
@@ -1432,22 +1440,47 @@ async fn handle_backfill_response(
         "received backfill response from node"
     );
 
+    // Look up the attempt IDs that were tracked for this request
+    let attempt_ids = tracker.complete(response.request_id).await;
+
+    let repo = NodeTaskAttemptRepository::new(pool);
+
     if response.success {
-        // The entity IDs were sent with the original request.
-        // For now, we mark the attempt as complete based on a successful response.
-        // In the future, we could track the request_id -> entity_ids mapping
-        // to mark specific attempts as complete.
-        //
-        // The actual data has already been sent via AttemptSync/ExecutionSync/LogsBatch
-        // messages before this response arrives.
-        tracing::debug!(
-            node_id = %node_id,
-            request_id = %response.request_id,
-            "backfill completed successfully"
-        );
+        // Mark each tracked attempt as complete
+        match attempt_ids {
+            Some(ids) if !ids.is_empty() => {
+                tracing::debug!(
+                    node_id = %node_id,
+                    request_id = %response.request_id,
+                    attempt_count = ids.len(),
+                    "marking tracked attempts as complete"
+                );
+
+                for attempt_id in ids {
+                    if let Err(e) = repo.mark_complete(attempt_id).await {
+                        tracing::error!(
+                            node_id = %node_id,
+                            attempt_id = %attempt_id,
+                            error = %e,
+                            "failed to mark attempt as complete"
+                        );
+                    }
+                }
+            }
+            _ => {
+                // No tracked mapping found - this could happen if:
+                // - Request was made before tracker was integrated
+                // - Tracker was cleared due to node disconnect/reconnect
+                // - Stale cleanup removed the mapping
+                tracing::warn!(
+                    node_id = %node_id,
+                    request_id = %response.request_id,
+                    "no tracked attempts found for backfill response"
+                );
+            }
+        }
     } else {
-        // Log the error but don't fail - the sync_state will remain pending
-        // and will be retried on the next periodic check or reconnect.
+        // Log the error - attempts need to be reset to partial state
         tracing::warn!(
             node_id = %node_id,
             request_id = %response.request_id,
@@ -1455,14 +1488,43 @@ async fn handle_backfill_response(
             "backfill request failed"
         );
 
-        // Reset pending_backfill state to partial so it can be retried
-        let repo = NodeTaskAttemptRepository::new(pool);
-        if let Err(e) = repo.reset_failed_backfill(node_id).await {
-            tracing::error!(
-                node_id = %node_id,
-                error = %e,
-                "failed to reset failed backfill state"
-            );
+        // Reset tracked attempts to partial state so they can be retried
+        match attempt_ids {
+            Some(ids) if !ids.is_empty() => {
+                tracing::debug!(
+                    node_id = %node_id,
+                    request_id = %response.request_id,
+                    attempt_count = ids.len(),
+                    "resetting tracked attempts to partial"
+                );
+
+                for attempt_id in ids {
+                    if let Err(e) = repo.reset_attempt_to_partial(attempt_id).await {
+                        tracing::error!(
+                            node_id = %node_id,
+                            attempt_id = %attempt_id,
+                            error = %e,
+                            "failed to reset attempt to partial"
+                        );
+                    }
+                }
+            }
+            _ => {
+                // No tracked mapping found - fall back to resetting all failed backfills for node
+                tracing::warn!(
+                    node_id = %node_id,
+                    request_id = %response.request_id,
+                    "no tracked attempts found, falling back to reset_failed_backfill"
+                );
+
+                if let Err(e) = repo.reset_failed_backfill(node_id).await {
+                    tracing::error!(
+                        node_id = %node_id,
+                        error = %e,
+                        "failed to reset failed backfill state"
+                    );
+                }
+            }
         }
     }
 
