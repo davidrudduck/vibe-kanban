@@ -5,8 +5,10 @@
 //! - Periodic reconciliation discovers incomplete attempts
 //! - A node reconnects after being offline
 
+use std::collections::HashMap;
 use std::time::Duration;
 
+use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use tokio::{sync::mpsc, time::MissedTickBehavior};
 use uuid::Uuid;
@@ -16,6 +18,54 @@ use super::ws::{
     message::{BackfillRequestMessage, BackfillType, HiveMessage},
 };
 use crate::db::node_task_attempts::NodeTaskAttemptRepository;
+
+/// Tracks pending backfill requests to correlate responses with original attempt IDs.
+#[derive(Debug, Default)]
+pub struct BackfillRequestTracker {
+    // TODO(task-002): Remove allow(dead_code) once implementation is complete
+    #[allow(dead_code)]
+    pending: tokio::sync::RwLock<HashMap<Uuid, PendingRequest>>,
+}
+
+#[derive(Debug)]
+// TODO(task-002): Remove allow(dead_code) once implementation is complete
+#[allow(dead_code)]
+struct PendingRequest {
+    node_id: Uuid,
+    attempt_ids: Vec<Uuid>,
+    requested_at: DateTime<Utc>,
+}
+
+impl BackfillRequestTracker {
+    pub fn new() -> Self {
+        Self {
+            pending: tokio::sync::RwLock::new(HashMap::new()),
+        }
+    }
+
+    /// Record a backfill request.
+    pub async fn track(&self, _request_id: Uuid, _node_id: Uuid, _attempt_ids: Vec<Uuid>) {
+        // TODO: Implement in task 002
+    }
+
+    /// Get and remove attempt IDs for a completed request.
+    pub async fn complete(&self, _request_id: Uuid) -> Option<Vec<Uuid>> {
+        // TODO: Implement in task 002
+        None
+    }
+
+    /// Remove all requests for a node (on disconnect). Returns cleared attempt IDs.
+    pub async fn clear_node(&self, _node_id: Uuid) -> Vec<Uuid> {
+        // TODO: Implement in task 002
+        Vec::new()
+    }
+
+    /// Remove stale requests older than timeout_minutes. Returns expired attempt IDs.
+    pub async fn cleanup_stale(&self, _timeout_minutes: i64) -> Vec<Uuid> {
+        // TODO: Implement in task 002
+        Vec::new()
+    }
+}
 
 /// Configuration for the backfill service.
 #[derive(Debug, Clone)]
@@ -334,4 +384,72 @@ pub enum BackfillError {
     SendFailed(Uuid),
     #[error("database error: {0}")]
     Database(#[from] crate::db::node_task_attempts::NodeTaskAttemptError),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_tracker_track_and_complete() {
+        let tracker = BackfillRequestTracker::new();
+        let request_id = Uuid::new_v4();
+        let node_id = Uuid::new_v4();
+        let attempt_ids = vec![Uuid::new_v4(), Uuid::new_v4()];
+
+        tracker
+            .track(request_id, node_id, attempt_ids.clone())
+            .await;
+        let completed = tracker.complete(request_id).await;
+        assert_eq!(completed, Some(attempt_ids));
+
+        // Second complete returns None (already consumed)
+        assert_eq!(tracker.complete(request_id).await, None);
+    }
+
+    #[tokio::test]
+    async fn test_tracker_clear_node() {
+        let tracker = BackfillRequestTracker::new();
+        let node1 = Uuid::new_v4();
+        let node2 = Uuid::new_v4();
+        let attempt1 = Uuid::new_v4();
+        let attempt2 = Uuid::new_v4();
+
+        tracker.track(Uuid::new_v4(), node1, vec![attempt1]).await;
+        tracker.track(Uuid::new_v4(), node2, vec![attempt2]).await;
+
+        let cleared = tracker.clear_node(node1).await;
+        assert_eq!(cleared, vec![attempt1]);
+
+        // node2's request still exists
+        let pending = tracker.pending.read().await;
+        assert_eq!(pending.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_tracker_cleanup_stale() {
+        let tracker = BackfillRequestTracker::new();
+        let node_id = Uuid::new_v4();
+        let attempt_id = Uuid::new_v4();
+
+        // Insert with past timestamp
+        {
+            let mut pending = tracker.pending.write().await;
+            pending.insert(
+                Uuid::new_v4(),
+                PendingRequest {
+                    node_id,
+                    attempt_ids: vec![attempt_id],
+                    requested_at: chrono::Utc::now() - chrono::Duration::minutes(10),
+                },
+            );
+        }
+
+        let stale = tracker.cleanup_stale(5).await;
+        assert_eq!(stale, vec![attempt_id]);
+
+        // Should be empty now
+        let pending = tracker.pending.read().await;
+        assert!(pending.is_empty());
+    }
 }
