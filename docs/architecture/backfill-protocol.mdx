@@ -1,0 +1,466 @@
+---
+title: "Backfill Protocol"
+description: "Technical specification for the hive-to-node backfill protocol"
+---
+
+The backfill protocol enables the hive to pull missing task attempt data from nodes on-demand. This ensures clients can view complete execution information even when real-time sync is delayed or interrupted.
+
+## Overview
+
+```text
+┌─────────────────┐                    ┌─────────────────┐
+│      HIVE       │                    │      NODE       │
+│   (PostgreSQL)  │                    │    (SQLite)     │
+└────────┬────────┘                    └────────┬────────┘
+         │                                      │
+         │  BackfillRequest                     │
+         │  {message_id, type, entity_ids}      │
+         │─────────────────────────────────────►│
+         │                                      │
+         │                           ┌──────────┴──────────┐
+         │                           │ Load attempt data   │
+         │                           │ Load executions     │
+         │                           │ Load log entries    │
+         │                           └──────────┬──────────┘
+         │                                      │
+         │  AttemptSync {attempt_data}          │
+         │◄─────────────────────────────────────│
+         │                                      │
+         │  ExecutionSync {exec_data} (n times) │
+         │◄─────────────────────────────────────│
+         │                                      │
+         │  LogsBatch {logs} (n times)          │
+         │◄─────────────────────────────────────│
+         │                                      │
+         │  BackfillResponse                    │
+         │  {request_id, success, count}        │
+         │◄─────────────────────────────────────│
+         │                                      │
+```
+
+## Message Types
+
+### BackfillRequest (Hive → Node)
+
+Sent by the hive when it needs to pull missing data from a node.
+
+```typescript
+interface BackfillRequest {
+  type: "backfill_request";
+  data: {
+    message_id: string;      // UUID for tracking
+    backfill_type: BackfillType;
+    entity_ids: string[];    // UUIDs of attempts to backfill
+    logs_after?: string;     // ISO timestamp for incremental log sync
+  };
+}
+
+type BackfillType = "full_attempt" | "executions" | "logs";
+```
+
+### BackfillResponse (Node → Hive)
+
+Sent by the node after processing a backfill request.
+
+```typescript
+interface BackfillResponse {
+  type: "backfill_response";
+  data: {
+    request_id: string;      // UUID from the request
+    success: boolean;
+    error?: string;          // Error message if not successful
+    entities_sent: number;   // Count of entities processed
+  };
+}
+```
+
+## Backfill Types
+
+### FullAttempt
+
+Requests complete data for one or more task attempts:
+
+1. **AttemptSync** - Attempt metadata (executor, branch, timestamps)
+2. **ExecutionSync** - For each execution process in the attempt
+3. **LogsBatch** - Log entries for each execution
+
+```rust
+BackfillType::FullAttempt => {
+    // Send attempt metadata
+    send(AttemptSync { ... });
+
+    // For each execution in this attempt
+    for exec in executions {
+        send(ExecutionSync { ... });
+
+        // Send logs for this execution
+        let logs = load_logs(exec.id);
+        send(LogsBatch { logs });
+    }
+}
+```
+
+### Executions
+
+Requests only execution process records (no logs):
+
+```rust
+BackfillType::Executions => {
+    for exec in executions {
+        send(ExecutionSync { ... });
+    }
+}
+```
+
+### Logs
+
+Requests only log entries, with optional timestamp filter:
+
+```rust
+BackfillType::Logs => {
+    for exec in executions {
+        let logs = if let Some(after) = logs_after {
+            load_logs_after(exec.id, after)
+        } else {
+            load_all_logs(exec.id)
+        };
+        send(LogsBatch { logs });
+    }
+}
+```
+
+## Hive-Side Implementation
+
+### BackfillService
+
+The `BackfillService` manages backfill operations on the hive:
+
+```rust
+pub struct BackfillService {
+    pool: PgPool,
+    connections: ConnectionManager,
+    config: BackfillConfig,
+}
+
+pub struct BackfillConfig {
+    /// How often to run periodic reconciliation (default: 60s)
+    pub reconciliation_interval: Duration,
+    /// Maximum attempts to backfill per batch (default: 10)
+    pub batch_size: usize,
+    /// Timeout for pending requests before retry (default: 5 min)
+    pub backfill_timeout_minutes: i32,
+}
+```
+
+### Trigger Methods
+
+#### Immediate Backfill
+
+Called when a client requests incomplete attempt data:
+
+```rust
+pub async fn request_immediate_backfill(
+    &self,
+    node_id: Uuid,
+    attempt_id: Uuid,
+) -> Result<(), BackfillError>
+```
+
+#### Batch Backfill
+
+Called during periodic reconciliation:
+
+```rust
+pub async fn request_batch_backfill(
+    &self,
+    node_id: Uuid,
+    attempt_ids: Vec<Uuid>,
+) -> Result<u32, BackfillError>
+```
+
+#### Reconnect Backfill
+
+Called when a node reconnects after being offline:
+
+```rust
+pub async fn trigger_reconnect_backfill(
+    &self,
+    node_id: Uuid,
+) -> Result<u32, BackfillError>
+```
+
+### Periodic Reconciliation
+
+The service runs a background loop that:
+
+1. Resets stale `pending_backfill` states (timeout exceeded)
+2. Finds incomplete attempts where the node is online
+3. Groups attempts by node
+4. Sends batch backfill requests (limited by `batch_size`)
+
+```rust
+async fn run_periodic_reconciliation(&self) -> Result<u32, BackfillError> {
+    // Reset stale pending states
+    repo.reset_stale_pending_backfill(self.config.backfill_timeout_minutes).await?;
+
+    // Paginate through incomplete attempts
+    loop {
+        let incomplete = repo
+            .find_incomplete_with_online_nodes(page_size, offset)
+            .await?;
+
+        if incomplete.is_empty() {
+            break;
+        }
+
+        // Group by node and send requests
+        for (node_id, attempt_ids) in group_by_node(incomplete) {
+            self.request_batch_backfill(node_id, attempt_ids).await?;
+        }
+
+        offset += page_size;
+    }
+}
+```
+
+### Database Schema
+
+```sql
+-- PostgreSQL: node_task_attempts table
+CREATE TABLE node_task_attempts (
+    id UUID PRIMARY KEY,
+    node_id UUID NOT NULL REFERENCES nodes(id),
+    shared_task_id UUID NOT NULL REFERENCES shared_tasks(id),
+    executor TEXT NOT NULL,
+    branch TEXT,
+    target_branch TEXT,
+
+    -- Backfill tracking
+    pending_backfill BOOLEAN DEFAULT FALSE,
+    pending_backfill_at TIMESTAMPTZ,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Index for finding pending backfills
+CREATE INDEX idx_node_task_attempts_pending_backfill
+ON node_task_attempts(node_id) WHERE pending_backfill = TRUE;
+
+-- Index for finding incomplete attempts
+CREATE INDEX idx_node_task_attempts_incomplete
+ON node_task_attempts(node_id, created_at)
+WHERE pending_backfill = FALSE;
+```
+
+## Node-Side Implementation
+
+### Message Handler
+
+The node's `NodeRunner` handles incoming `BackfillRequest` messages:
+
+```rust
+HiveEvent::BackfillRequest(request) => {
+    let mut entities_sent = 0u32;
+    let mut errors = Vec::new();
+
+    for attempt_id in &request.entity_ids {
+        match handle_backfill_attempt(
+            &pool,
+            &command_tx,
+            *attempt_id,
+            &request.backfill_type,
+            request.logs_after,
+        ).await {
+            Ok(count) => entities_sent += count,
+            Err(e) => errors.push(e.to_string()),
+        }
+    }
+
+    // Send response
+    let response = BackfillResponseMessage {
+        request_id: request.message_id,
+        success: errors.is_empty(),
+        error: if errors.is_empty() { None } else { Some(errors.join("; ")) },
+        entities_sent,
+    };
+    send(NodeMessage::BackfillResponse(response)).await;
+}
+```
+
+### Data Loading
+
+```rust
+pub async fn handle_backfill_attempt(
+    pool: &SqlitePool,
+    command_tx: &mpsc::Sender<NodeMessage>,
+    attempt_id: Uuid,
+    backfill_type: &BackfillType,
+    logs_after: Option<DateTime<Utc>>,
+) -> Result<u32, NodeRunnerError> {
+    // Load attempt
+    let attempt = TaskAttempt::find_by_id(pool, attempt_id).await?;
+
+    // Load associated task for shared_task_id
+    let task = Task::find_by_id(pool, attempt.task_id).await?;
+    let shared_task_id = task.shared_task_id
+        .ok_or(NodeRunnerError::SyncError("no shared_task_id"))?;
+
+    match backfill_type {
+        BackfillType::FullAttempt => { /* ... */ }
+        BackfillType::Executions => { /* ... */ }
+        BackfillType::Logs => { /* ... */ }
+    }
+}
+```
+
+## Error Handling
+
+### Node Offline
+
+If the target node is offline, the backfill request fails immediately:
+
+```rust
+if !self.connections.is_connected(node_id).await {
+    return Err(BackfillError::NodeOffline(node_id));
+}
+```
+
+The attempt remains in its current state and will be picked up by periodic reconciliation when the node reconnects.
+
+### Request Timeout
+
+If a node doesn't respond within 5 minutes:
+
+1. `pending_backfill_at` is checked during reconciliation
+2. If older than timeout, `pending_backfill` is reset to `FALSE`
+3. The attempt becomes eligible for another backfill request
+
+### Missing Data on Node
+
+If the node can't find the requested attempt:
+
+```rust
+Err(NodeRunnerError::SyncError(format!("attempt {} not found", attempt_id)))
+```
+
+The response includes the error message, and the hive logs the failure.
+
+### Response Processing
+
+When the hive receives a `BackfillResponse`:
+
+```rust
+NodeMessage::BackfillResponse(response) => {
+    if response.success {
+        // Clear pending_backfill for affected attempts
+        repo.clear_pending_backfill(attempt_ids).await?;
+    } else {
+        // Reset to allow retry, log the error
+        repo.reset_failed_backfill(node_id).await?;
+        tracing::warn!(error = ?response.error, "backfill failed");
+    }
+}
+```
+
+## Sequence Diagrams
+
+### On-Demand Backfill (Client Request)
+
+```text
+┌────────┐      ┌────────┐      ┌────────┐      ┌────────┐
+│ Client │      │  API   │      │  Hive  │      │  Node  │
+└───┬────┘      └───┬────┘      └───┬────┘      └───┬────┘
+    │               │               │               │
+    │ GET /attempt  │               │               │
+    │──────────────►│               │               │
+    │               │ find_by_id()  │               │
+    │               │──────────────►│               │
+    │               │               │               │
+    │               │ incomplete!   │               │
+    │               │◄──────────────│               │
+    │               │               │               │
+    │               │ request_      │               │
+    │               │ immediate_    │               │
+    │               │ backfill()    │               │
+    │               │──────────────►│               │
+    │               │               │ BackfillReq   │
+    │               │               │──────────────►│
+    │               │               │               │
+    │               │               │ AttemptSync   │
+    │               │               │◄──────────────│
+    │               │               │ ExecutionSync │
+    │               │               │◄──────────────│
+    │               │               │ LogsBatch     │
+    │               │               │◄──────────────│
+    │               │               │ BackfillResp  │
+    │               │               │◄──────────────│
+    │               │               │               │
+    │ 200 OK        │               │               │
+    │◄──────────────│               │               │
+    │ (data)        │               │               │
+```
+
+### Reconnect Backfill
+
+```text
+┌────────┐                    ┌────────┐
+│  Hive  │                    │  Node  │
+└───┬────┘                    └───┬────┘
+    │                              │
+    │◄──────── WebSocket ─────────►│
+    │         (reconnect)          │
+    │                              │
+    │ AuthResult {success: true}   │
+    │─────────────────────────────►│
+    │                              │
+    │ trigger_reconnect_backfill() │
+    │──┐                           │
+    │  │ find_incomplete_for_node()│
+    │◄─┘                           │
+    │                              │
+    │ BackfillRequest              │
+    │ {type: full_attempt,         │
+    │  entity_ids: [...]}          │
+    │─────────────────────────────►│
+    │                              │
+    │         (data sync)          │
+    │◄─────────────────────────────│
+    │                              │
+    │ BackfillResponse             │
+    │◄─────────────────────────────│
+    │                              │
+```
+
+## Monitoring
+
+### Logs
+
+The backfill service emits structured logs:
+
+```text
+INFO  sent immediate backfill request  node_id=abc attempt_id=xyz
+INFO  sent batch backfill request  node_id=abc attempt_count=5
+INFO  periodic reconciliation requested backfill  count=12
+INFO  reset stale pending_backfill states  count=3
+WARN  failed to send backfill request to node  node_id=abc error=...
+ERROR periodic reconciliation failed  error=...
+```
+
+### Metrics
+
+Key metrics to monitor:
+
+| Metric | Description |
+|--------|-------------|
+| `backfill_requests_total` | Total backfill requests sent |
+| `backfill_success_total` | Successful backfill completions |
+| `backfill_failures_total` | Failed backfill attempts |
+| `backfill_pending_count` | Current pending backfill requests |
+| `backfill_latency_seconds` | Time from request to response |
+
+## Related Documentation
+
+- [Database Synchronization](/architecture/db/database-synchronization) - Overall sync architecture
+- [Cross-Node Task Viewing](/features/cross-node-viewing) - User guide for viewing remote tasks
+- [Swarm Sync Architecture](/architecture/swarm-sync) - Swarm data model and sync protocols
