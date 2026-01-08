@@ -1,6 +1,6 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { X, Code, Eye, Copy, Check, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
+import { X, Code, Eye, Copy, Check, Loader2, AlertCircle, RefreshCw, GripVertical } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,9 +18,15 @@ import { fileBrowserApi } from '@/lib/api';
 import { useFileViewer } from '@/contexts/FileViewerContext';
 import { cn } from '@/lib/utils';
 
+const STORAGE_KEY = 'file-viewer-panel-width';
+const MIN_WIDTH = 300;
+const MAX_WIDTH = 600;
+const DEFAULT_WIDTH = 400;
+
 /**
  * Desktop/tablet side panel for viewing files.
- * Slides in from the right and takes 45% width.
+ * Slides in from the right with a resizable width (300-600px).
+ * Width preference is persisted in localStorage.
  * Supports viewing multiple files with a dropdown selector.
  */
 export function FileViewerSidePanel() {
@@ -35,6 +41,18 @@ export function FileViewerSidePanel() {
   } = useFileViewer();
 
   const [copied, setCopied] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [panelWidth, setPanelWidth] = useState<number>(() => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const parsed = parseInt(stored, 10);
+      if (!isNaN(parsed) && parsed >= MIN_WIDTH && parsed <= MAX_WIDTH) {
+        return parsed;
+      }
+    }
+    return DEFAULT_WIDTH;
+  });
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const activeFile = files[activeFileIndex];
   const fileName = activeFile?.path.split('/').pop() || '';
@@ -90,6 +108,37 @@ export function FileViewerSidePanel() {
     }
   }, [content]);
 
+  // Handle resize drag
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      // Calculate new width based on distance from right edge of viewport
+      const newWidth = window.innerWidth - e.clientX;
+      const clampedWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, newWidth));
+      setPanelWidth(clampedWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      // Persist to localStorage on drag end
+      localStorage.setItem(STORAGE_KEY, panelWidth.toString());
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, panelWidth]);
+
   if (!isOpen || files.length === 0) {
     return null;
   }
@@ -98,17 +147,43 @@ export function FileViewerSidePanel() {
     <AnimatePresence>
       {isOpen && (
         <motion.div
+          ref={panelRef}
           className={cn(
-            'w-[45%] min-w-[300px] max-w-[600px]',
             'border-l border-border',
             'flex flex-col h-full',
-            'bg-background'
+            'bg-background',
+            'relative',
+            isDragging && 'select-none'
           )}
+          style={{ width: `${panelWidth}px` }}
           initial={{ x: '100%', opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
           exit={{ x: '100%', opacity: 0 }}
           transition={{ type: 'spring', damping: 30, stiffness: 300 }}
         >
+          {/* Resize handle */}
+          <div
+            className={cn(
+              'absolute left-0 top-0 bottom-0 w-1',
+              'cursor-col-resize',
+              'group hover:bg-primary/20',
+              isDragging && 'bg-primary/30'
+            )}
+            onMouseDown={handleMouseDown}
+            aria-label="Resize panel"
+          >
+            <div
+              className={cn(
+                'absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2',
+                'opacity-0 group-hover:opacity-100 transition-opacity',
+                'text-muted-foreground',
+                isDragging && 'opacity-100'
+              )}
+            >
+              <GripVertical className="h-6 w-6" />
+            </div>
+          </div>
+
           {/* Header */}
           <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
             <span className="text-sm font-medium">File Preview</span>
