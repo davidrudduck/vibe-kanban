@@ -1,14 +1,23 @@
 **VK-Swarm Task ID**: `8a7151ce-f9df-4557-9c59-d81a3cb84eb3`
 
-## 📊 Current Status
-Progress: 4/10 tasks (40%)
-Completed Tasks: 4/10
-Current Task: #005 - Add Tracker Getter to AppState
+## Current Status
+Progress: 5/10 tasks (50%)
+Completed Tasks: 5/10
+Current Task: #006 - Update handle_backfill_response with Tracking
 
-## 🎯 Known Issues & Blockers
+## Known Issues & Blockers
 - None
 
-## 📝 Recent Sessions
+## Recent Sessions
+
+### Session 5 (2026-01-09) - Task 005: Add Tracker Getter to AppState
+**Completed:** Task #005 - AppState Integration
+**Key Changes:**
+- Added import `use crate::nodes::backfill::BackfillRequestTracker;` to state.rs
+- Added `backfill_tracker(&self) -> Arc<BackfillRequestTracker>` method to AppState impl block
+- Method delegates to `self.backfill.tracker()`
+- All tests pass (298 total), clippy clean
+**Git Commits:** 5efdd48d3
 
 ### Session 4 (2026-01-09) - Task 004: Add reset_attempt_to_partial Repository Method
 **Completed:** Task #004 - Repository Method
@@ -31,28 +40,6 @@ Current Task: #005 - Add Tracker Getter to AppState
 - All 4 backfill tests pass, clippy clean
 **Git Commits:** f64dee6d9, df8524914
 
-### Session 2 (2026-01-09) - Task 002: BackfillRequestTracker Implementation
-**Completed:** Task #002 - TDD GREEN phase
-**Key Changes:**
-- Implemented `track()` method to record request_id -> (node_id, attempt_ids)
-- Implemented `complete()` method to get and remove attempt IDs
-- Implemented `clear_node()` method to remove all requests for a node
-- Implemented `cleanup_stale()` method to remove stale requests
-- Removed `#[allow(dead_code)]` attributes
-- All 3 tests pass, clippy clean
-**Git Commits:** 121e478c0
-
-### Session 1 (2026-01-09) - Task 001: BackfillRequestTracker Core Tests
-**Completed:** Task #001 - TDD RED phase
-**Key Changes:**
-- Added BackfillRequestTracker struct with stub implementation
-- Added PendingRequest struct for tracking request metadata
-- Implemented 3 unit tests (all fail as expected for RED phase):
-  - `test_tracker_track_and_complete`
-  - `test_tracker_clear_node`
-  - `test_tracker_cleanup_stale`
-**Git Commits:** cfe4ee582
-
 ---
 
 ## Session 0 Complete - Initialization
@@ -60,19 +47,12 @@ Current Task: #005 - Add Tracker Getter to AppState
 ### Progress Summary
 Initialized the development environment and decomposed the backfill request tracking implementation plan into 10 actionable tasks.
 
-### Accomplished
-- Read and analyzed implementation plan at `/home/david/.claude/plans/eager-discovering-moonbeam.md`
-- Created/updated `init.sh` with proper port configuration (5800, 5801, 5802)
-- Created `.env` with development configuration
-- Copied production database to `dev_assets/db.sqlite` for local testing
-- Created 10 task files in `.claude/tasks/eager-discovering-moonbeam/`
-
 ### Tasks Created
 - [x] 001.md - BackfillRequestTracker Core Tests (TDD RED phase)
 - [x] 002.md - BackfillRequestTracker Implementation (TDD GREEN phase)
 - [x] 003.md - Integrate Tracker into BackfillService
-- [ ] 004.md - Add reset_attempt_to_partial Repository Method (parallel)
-- [ ] 005.md - Add Tracker Getter to AppState
+- [x] 004.md - Add reset_attempt_to_partial Repository Method (parallel)
+- [x] 005.md - Add Tracker Getter to AppState
 - [ ] 006.md - Update handle_backfill_response with Tracking
 - [ ] 007.md - Wire Tracker Through WebSocket Handler
 - [ ] 008.md - Add Disconnect Cleanup Logic
@@ -81,9 +61,9 @@ Initialized the development environment and decomposed the backfill request trac
 
 ### Task Dependencies
 ```text
-001 → 002 → 003 → 005 → 006 → 007 → 008 → 009 → 010
-                   ↗
-      004 ────────┘
+001 -> 002 -> 003 -> 005 -> 006 -> 007 -> 008 -> 009 -> 010
+                   /
+      004 --------
 ```
 
 Tasks 001-003 are sequential (TDD flow). Task 004 can run in parallel with 001-003.
