@@ -1,0 +1,161 @@
+---
+title: "Cross-Node Task Viewing"
+description: "View task details and execution logs from any node in your swarm"
+---
+
+When connected to a hive, you can view tasks and their execution attempts from any node in your organization's swarm, regardless of which node executed the task. The hive automatically synchronizes attempt data so you always have visibility into your distributed workload.
+
+## How It Works
+
+Cross-node viewing is enabled automatically when you're connected to a hive. The system works through two complementary mechanisms:
+
+1. **Real-time sync**: As nodes execute tasks, they stream attempt data, execution processes, and logs to the hive via WebSocket
+2. **On-demand backfill**: If you request data that hasn't synced yet, the hive pulls it directly from the source node
+
+## Viewing Remote Task Attempts
+
+### From the Kanban Board
+
+1. Navigate to any project in the Projects view
+2. Remote projects show a node indicator badge showing which node owns the project
+3. Click any task card to open the task detail panel
+4. Attempt information displays automatically if available
+
+### From Task Details
+
+When viewing a task, the attempt panel shows:
+
+- **Executor**: Which AI agent ran the task (Claude Code, Cursor, etc.)
+- **Branch**: The git branch created for the attempt
+- **Status**: Current execution state (running, completed, failed)
+- **Timestamps**: When the attempt started and finished
+- **Logs**: Full conversation and execution logs (if synced)
+
+## Data Availability
+
+### Immediately Available
+
+These fields are available as soon as an attempt is created:
+
+| Field | Description |
+|-------|-------------|
+| Attempt ID | Unique identifier for the attempt |
+| Executor | AI agent used (claude_code, cursor, etc.) |
+| Branch | Git branch name |
+| Target branch | Base branch for the PR |
+| Status | Current execution state |
+| Created/Updated timestamps | When the attempt was created and last modified |
+
+### Synced from Node
+
+These fields require sync from the source node:
+
+| Field | Sync Method |
+|-------|-------------|
+| Execution processes | Periodic sync + on-demand backfill |
+| Log entries | Periodic sync + on-demand backfill |
+| Progress events | Periodic sync |
+
+## Backfill Process
+
+When you view an attempt that has incomplete data, the hive automatically triggers a backfill:
+
+```text
+1. You open task detail for a remote task attempt
+2. UI requests attempt data from API
+3. Hive checks if data is complete
+4. If incomplete AND node is online:
+   - Hive sends BackfillRequest to node
+   - Node responds with full attempt data
+   - Data syncs to hive database
+   - UI receives updated data
+5. If node is offline:
+   - Partial data displayed with notice
+   - Backfill queued for when node reconnects
+```
+
+### Backfill Types
+
+The system supports three types of backfill requests:
+
+| Type | Description |
+|------|-------------|
+| `FullAttempt` | Complete attempt with all executions and logs |
+| `Executions` | Only execution process records |
+| `Logs` | Only log entries (can filter by timestamp) |
+
+## Node Status Indicators
+
+The UI shows node connection status to help you understand data availability:
+
+| Status | Icon | Meaning |
+|--------|------|---------|
+| Online | Green dot | Node connected, data available |
+| Offline | Gray dot | Node disconnected, may have stale data |
+| Busy | Orange dot | Node executing tasks |
+
+## Limitations
+
+### Offline Nodes
+
+When a node is offline:
+
+- Existing synced data remains viewable
+- New data cannot be fetched until reconnect
+- Backfill requests are queued and processed on reconnect
+
+### Network Latency
+
+Backfill requests require a round-trip to the source node. For geographically distributed swarms, you may notice a brief delay when viewing data that hasn't been pre-synced.
+
+### Log Retention
+
+Logs are stored locally on nodes and synced to the hive. The sync is eventual-consistent:
+
+- Logs stream in real-time during execution
+- Older logs may require backfill if sync was interrupted
+- Log timestamps allow incremental backfill (only missing logs)
+
+## Configuration
+
+Cross-node viewing requires no additional configuration beyond standard hive setup. Ensure your nodes are properly connected:
+
+```bash
+# Verify hive connection
+VK_HIVE_URL=wss://your-hive.example.com
+VK_NODE_API_KEY=your-api-key
+```
+
+See [Swarm/Hive Setup](/swarm-hive-setup) for complete configuration instructions.
+
+## Troubleshooting
+
+### Attempt Shows No Logs
+
+1. Check if the source node is online (node status indicator)
+2. Wait a few seconds for backfill to complete
+3. Refresh the page to fetch latest synced data
+4. If node is offline, logs will sync when it reconnects
+
+### Data Appears Stale
+
+The periodic reconciliation runs every 60 seconds. For immediate updates:
+
+1. Open the task detail panel (triggers on-demand backfill)
+2. Close and reopen the panel after a few seconds
+3. Check node connectivity in the Swarm Management view
+
+### Node Not Appearing
+
+If a remote project's node doesn't show:
+
+1. Verify the node is registered in the hive
+2. Check the node's API key is valid
+3. Ensure the project is linked to a swarm project
+
+## Related Documentation
+
+- [Swarm Management](/core-features/swarm-management) - Managing nodes in your swarm
+- [Understanding Execution Logs](/core-features/understanding-execution-logs) - Reading log output
+- [Database Synchronization](/architecture/db/database-synchronization) - Technical sync details
+- [Backfill Protocol](/architecture/backfill-protocol) - Implementation details

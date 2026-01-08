@@ -452,6 +452,98 @@ The `HiveSyncService` syncs entities in this order:
 
 ---
 
+## Backfill Reconciliation
+
+The sync from node to hive is eventual-consistent. When clients request data that hasn't synced yet, the **BackfillService** pulls missing data directly from the source node.
+
+### Trigger Conditions
+
+Backfill is triggered in three scenarios:
+
+| Trigger | When | Scope |
+|---------|------|-------|
+| **On-demand** | Client requests incomplete attempt data | Single attempt |
+| **Periodic** | Every 60 seconds (reconciliation loop) | Batch of attempts |
+| **Reconnect** | Node reconnects after being offline | All incomplete for that node |
+
+### Backfill Flow
+
+```text
+1. Client requests attempt data via API
+2. Hive checks node_task_attempts for completeness
+3. If incomplete AND node online:
+   a. Mark attempt as pending_backfill
+   b. Send BackfillRequest message to node
+4. Node receives request and sends:
+   - AttemptSync (attempt metadata)
+   - ExecutionSync (for each execution process)
+   - LogsBatch (logs for each execution)
+5. Node sends BackfillResponse with entity count
+6. Hive clears pending_backfill status
+```
+
+### Backfill States
+
+The `node_task_attempts` table tracks backfill status using a state machine:
+
+```sql
+-- PostgreSQL: Backfill tracking columns
+ALTER TABLE node_task_attempts
+ADD COLUMN sync_state VARCHAR(20) NOT NULL DEFAULT 'partial',
+ADD COLUMN sync_requested_at TIMESTAMPTZ,
+ADD COLUMN last_full_sync_at TIMESTAMPTZ;
+
+-- sync_state values:
+--   'partial'          - Initial state, data may be incomplete
+--   'pending_backfill' - Backfill requested, awaiting response
+--   'complete'         - All data confirmed synchronized
+
+-- Index for finding incomplete attempts
+CREATE INDEX idx_node_task_attempts_incomplete
+ON node_task_attempts (node_id, sync_state)
+WHERE sync_state != 'complete';
+
+-- Index for pending backfill requests
+CREATE INDEX idx_node_task_attempts_pending
+ON node_task_attempts (node_id)
+WHERE sync_state = 'pending_backfill';
+```
+
+### Backfill Types
+
+| Type | Data Sent | Use Case |
+|------|-----------|----------|
+| `FullAttempt` | Attempt + all executions + all logs | First request for attempt |
+| `Executions` | Execution processes only | Execution data missing |
+| `Logs` | Log entries (with optional timestamp) | Incremental log sync |
+
+### Timeout Handling
+
+Pending backfill requests timeout after 5 minutes:
+
+```rust
+// Periodic reconciliation resets stale pending states
+repo.reset_stale_pending_backfill(5).await?;
+```
+
+This prevents attempts from being stuck in pending state if a node disconnects during backfill.
+
+### Configuration
+
+```rust
+let config = BackfillConfig {
+    reconciliation_interval: Duration::from_secs(60),
+    batch_size: 10,
+    backfill_timeout_minutes: 5,
+};
+let service = BackfillService::new(pool, connections, config);
+service.spawn();
+```
+
+See [Backfill Protocol](../backfill-protocol.mdx) for detailed protocol specification.
+
+---
+
 ## Monitoring and Debugging
 
 ### Check Sync Status
@@ -503,4 +595,6 @@ GET /v1/shape?table=shared_tasks&offset=0_0
 - [Database Overview](./database-overview.mdx) - Architecture overview
 - [SQLite Local Schema](./sqlite-local-schema.mdx) - Local node database schema
 - [PostgreSQL Hive Schema](./postgresql-hive-schema.mdx) - Central hive schema
+- [Backfill Protocol](../backfill-protocol.mdx) - Detailed backfill protocol specification
+- [Cross-Node Task Viewing](../../features/cross-node-viewing.mdx) - User guide for viewing remote tasks
 - [Swarm/Hive Setup Guide](../../swarm-hive-setup.mdx) - Configuration guide

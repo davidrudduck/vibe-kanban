@@ -199,8 +199,14 @@ impl<'a> NodeTaskAttemptRepository<'a> {
 
     /// Find all incomplete attempts where the node is currently online
     /// Used by periodic reconciliation
+    ///
+    /// # Arguments
+    /// * `limit` - Maximum number of results to return
+    /// * `offset` - Number of results to skip (for pagination)
     pub async fn find_incomplete_with_online_nodes(
         &self,
+        limit: i64,
+        offset: i64,
     ) -> Result<Vec<NodeTaskAttempt>, NodeTaskAttemptError> {
         let attempts = sqlx::query_as::<_, NodeTaskAttempt>(
             r#"
@@ -214,9 +220,11 @@ impl<'a> NodeTaskAttemptRepository<'a> {
             WHERE nta.sync_state != 'complete'
               AND n.last_seen_at > NOW() - INTERVAL '5 minutes'
             ORDER BY nta.created_at DESC
-            LIMIT 100
+            LIMIT $1 OFFSET $2
             "#,
         )
+        .bind(limit)
+        .bind(offset)
         .fetch_all(self.pool)
         .await?;
 
@@ -279,6 +287,28 @@ impl<'a> NodeTaskAttemptRepository<'a> {
             "#,
         )
         .bind(timeout_minutes)
+        .execute(self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
+    /// Reset specific failed backfill attempts to partial state.
+    ///
+    /// Called when a BackfillResponse indicates failure, allowing the attempts
+    /// to be retried on the next periodic check or reconnect.
+    pub async fn reset_failed_backfill(
+        &self,
+        node_id: Uuid,
+    ) -> Result<u64, NodeTaskAttemptError> {
+        let result = sqlx::query(
+            r#"
+            UPDATE node_task_attempts
+            SET sync_state = 'partial'
+            WHERE node_id = $1 AND sync_state = 'pending_backfill'
+            "#,
+        )
+        .bind(node_id)
         .execute(self.pool)
         .await?;
 

@@ -207,6 +207,7 @@ impl BackfillService {
     /// Run periodic reconciliation.
     ///
     /// This finds incomplete attempts where the node is online and requests backfill.
+    /// Uses pagination to process incomplete attempts in batches.
     async fn run_periodic_reconciliation(&self) -> Result<u32, BackfillError> {
         let repo = NodeTaskAttemptRepository::new(&self.pool);
 
@@ -221,41 +222,61 @@ impl BackfillService {
             );
         }
 
-        // Find incomplete attempts where node is online
-        let incomplete = repo.find_incomplete_with_online_nodes().await?;
-        if incomplete.is_empty() {
-            tracing::trace!("no incomplete attempts to reconcile");
-            return Ok(0);
-        }
-
-        // Group by node_id
-        let mut by_node: std::collections::HashMap<Uuid, Vec<Uuid>> =
-            std::collections::HashMap::new();
-        for attempt in &incomplete {
-            by_node
-                .entry(attempt.node_id)
-                .or_default()
-                .push(attempt.id);
-        }
-
         let mut total_requested = 0u32;
-        for (node_id, attempt_ids) in by_node {
-            // Limit batch size per node
-            let batch: Vec<Uuid> = attempt_ids
-                .into_iter()
-                .take(self.config.batch_size)
-                .collect();
+        let page_size: i64 = 100;
+        let mut offset: i64 = 0;
 
-            match self.request_batch_backfill(node_id, batch).await {
-                Ok(count) => total_requested += count,
-                Err(e) => {
-                    tracing::warn!(
-                        node_id = %node_id,
-                        error = %e,
-                        "failed to request batch backfill"
-                    );
+        // Paginate through incomplete attempts
+        loop {
+            // Find incomplete attempts where node is online
+            let incomplete = repo
+                .find_incomplete_with_online_nodes(page_size, offset)
+                .await?;
+
+            if incomplete.is_empty() {
+                if offset == 0 {
+                    tracing::trace!("no incomplete attempts to reconcile");
+                }
+                break;
+            }
+
+            let page_count = incomplete.len();
+
+            // Group by node_id
+            let mut by_node: std::collections::HashMap<Uuid, Vec<Uuid>> =
+                std::collections::HashMap::new();
+            for attempt in &incomplete {
+                by_node
+                    .entry(attempt.node_id)
+                    .or_default()
+                    .push(attempt.id);
+            }
+
+            for (node_id, attempt_ids) in by_node {
+                // Limit batch size per node
+                let batch: Vec<Uuid> = attempt_ids
+                    .into_iter()
+                    .take(self.config.batch_size)
+                    .collect();
+
+                match self.request_batch_backfill(node_id, batch).await {
+                    Ok(count) => total_requested += count,
+                    Err(e) => {
+                        tracing::warn!(
+                            node_id = %node_id,
+                            error = %e,
+                            "failed to request batch backfill"
+                        );
+                    }
                 }
             }
+
+            // If we got fewer results than page_size, we're done
+            if (page_count as i64) < page_size {
+                break;
+            }
+
+            offset += page_size;
         }
 
         if total_requested > 0 {
