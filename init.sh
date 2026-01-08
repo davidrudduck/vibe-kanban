@@ -176,6 +176,7 @@ start_servers() {
     # Export ports for pnpm dev
     export FRONTEND_PORT
     export BACKEND_PORT
+    export MCP_PORT
 
     # Start using pnpm dev
     pnpm run dev
