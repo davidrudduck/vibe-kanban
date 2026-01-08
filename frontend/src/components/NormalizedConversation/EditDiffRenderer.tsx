@@ -18,8 +18,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { FileViewDialog } from '@/components/dialogs';
 import { isMarkdownFile } from '@/utils/fileHelpers';
+import { useFileViewer } from '@/contexts/FileViewerContext';
 
 type Props = {
   path: string;
@@ -94,6 +94,7 @@ function EditDiffRenderer({
   attemptId,
 }: Props) {
   const { config } = useUserSystem();
+  const { openFile } = useFileViewer();
   const [expanded, setExpanded] = useExpandable(expansionKey, defaultExpanded);
   const effectiveExpanded = forceExpanded || expanded;
 
@@ -108,14 +109,14 @@ function EditDiffRenderer({
 
     if (claudeRelativePath) {
       // Claude file - use relativePath
-      void FileViewDialog.show({
-        filePath: path,
+      openFile({
+        path,
         relativePath: claudeRelativePath,
       });
     } else if (attemptId) {
       // Worktree file - use attemptId
-      void FileViewDialog.show({
-        filePath: path,
+      openFile({
+        path,
         attemptId,
       });
     }

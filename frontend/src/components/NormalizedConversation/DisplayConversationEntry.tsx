@@ -38,7 +38,6 @@ import PendingQuestionEntry from './PendingQuestionEntry';
 import { NextActionCard } from './NextActionCard';
 import { cn } from '@/lib/utils';
 import { useRetryUi } from '@/contexts/RetryUiContext';
-import { FileViewDialog } from '@/components/dialogs';
 import {
   Tooltip,
   TooltipContent,
@@ -46,6 +45,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { isMarkdownFile } from '@/utils/fileHelpers';
+import { useFileViewer } from '@/contexts/FileViewerContext';
 
 type Props = {
   entry: NormalizedEntry | ProcessStartPayload;
@@ -447,6 +447,7 @@ const ToolCallCard: React.FC<{
   attemptId?: string;
 }> = ({ entry, expansionKey, forceExpanded = false, attemptId }) => {
   const { t } = useTranslation('common');
+  const { openFile } = useFileViewer();
 
   // Determine if this is a NormalizedEntry with tool_use
   const isNormalizedEntry = 'entry_type' in entry;
@@ -508,14 +509,14 @@ const ToolCallCard: React.FC<{
 
     if (claudeRelativePath) {
       // Claude file - use relativePath
-      void FileViewDialog.show({
-        filePath: fileReadPath,
+      openFile({
+        path: fileReadPath,
         relativePath: claudeRelativePath,
       });
     } else if (attemptId) {
       // Worktree file - use attemptId
-      void FileViewDialog.show({
-        filePath: fileReadPath,
+      openFile({
+        path: fileReadPath,
         attemptId,
       });
     }
