@@ -8,7 +8,7 @@ use uuid::Uuid;
 pub const APPROVAL_TIMEOUT_SECONDS: i64 = 3600; // 1 hour
 
 /// Individual option within a question for AskUserQuestion
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]
 pub struct QuestionOption {
     pub label: String,
@@ -16,7 +16,7 @@ pub struct QuestionOption {
 }
 
 /// Single question with header, options, and multiSelect flag for AskUserQuestion
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]
 pub struct Question {
     pub question: String,

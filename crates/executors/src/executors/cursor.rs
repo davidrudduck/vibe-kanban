@@ -990,6 +990,26 @@ impl CursorMcpResult {
             Some(parts.join("\n\n"))
         }
     }
+
+    /// Extracts the tool status based on the `is_error` field.
+    /// - `is_error: Some(true)` → `ToolStatus::Failed`
+    /// - `is_error: Some(false)` or `is_error: None` → `ToolStatus::Success`
+    pub fn extract_tool_status(&self) -> ToolStatus {
+        let is_error = match self {
+            CursorMcpResult::Flat(o) => o.is_error,
+            CursorMcpResult::Wrapped(w) => {
+                // Check success first, then failure outcome
+                w.success.as_ref().and_then(|o| o.is_error)
+                    .or_else(|| w.failure.as_ref().and_then(|o| o.is_error))
+            }
+            CursorMcpResult::Unknown(_) => None,
+        };
+
+        match is_error {
+            Some(true) => ToolStatus::Failed,
+            Some(false) | None => ToolStatus::Success,
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
@@ -1267,5 +1287,91 @@ mod tests {
             }
             _ => panic!("Expected Unknown variant"),
         }
+    }
+
+    #[test]
+    fn test_mcp_failure_marked_as_failed() {
+        // Test Flat variant with is_error=true
+        let result = CursorMcpResult::Flat(CursorMcpOutcome {
+            is_error: Some(true),
+            content: Some(vec![CursorMcpContentItem {
+                text: Some(CursorMcpTextInner {
+                    text: "Error occurred".to_string(),
+                }),
+            }]),
+        });
+        assert_eq!(result.extract_tool_status(), ToolStatus::Failed);
+
+        // Test Wrapped variant with is_error=true in success field
+        let result_wrapped = CursorMcpResult::Wrapped(CursorMcpWrappedResult {
+            success: Some(CursorMcpOutcome {
+                is_error: Some(true),
+                content: None,
+            }),
+            failure: None,
+        });
+        assert_eq!(result_wrapped.extract_tool_status(), ToolStatus::Failed);
+
+        // Test Wrapped variant with is_error=true in failure field
+        let result_failure = CursorMcpResult::Wrapped(CursorMcpWrappedResult {
+            success: None,
+            failure: Some(CursorMcpOutcome {
+                is_error: Some(true),
+                content: None,
+            }),
+        });
+        assert_eq!(result_failure.extract_tool_status(), ToolStatus::Failed);
+    }
+
+    #[test]
+    fn test_mcp_success_marked_as_success() {
+        // Test Flat variant with is_error=false
+        let result = CursorMcpResult::Flat(CursorMcpOutcome {
+            is_error: Some(false),
+            content: Some(vec![CursorMcpContentItem {
+                text: Some(CursorMcpTextInner {
+                    text: "Success".to_string(),
+                }),
+            }]),
+        });
+        assert_eq!(result.extract_tool_status(), ToolStatus::Success);
+
+        // Test Wrapped variant with is_error=false
+        let result_wrapped = CursorMcpResult::Wrapped(CursorMcpWrappedResult {
+            success: Some(CursorMcpOutcome {
+                is_error: Some(false),
+                content: None,
+            }),
+            failure: None,
+        });
+        assert_eq!(result_wrapped.extract_tool_status(), ToolStatus::Success);
+    }
+
+    #[test]
+    fn test_mcp_missing_is_error_defaults_success() {
+        // Test Flat variant with is_error=None (missing)
+        let result = CursorMcpResult::Flat(CursorMcpOutcome {
+            is_error: None,
+            content: Some(vec![CursorMcpContentItem {
+                text: Some(CursorMcpTextInner {
+                    text: "OK".to_string(),
+                }),
+            }]),
+        });
+        assert_eq!(result.extract_tool_status(), ToolStatus::Success);
+
+        // Test Wrapped variant with is_error=None
+        let result_wrapped = CursorMcpResult::Wrapped(CursorMcpWrappedResult {
+            success: Some(CursorMcpOutcome {
+                is_error: None,
+                content: None,
+            }),
+            failure: None,
+        });
+        assert_eq!(result_wrapped.extract_tool_status(), ToolStatus::Success);
+
+        // Test Unknown variant (always defaults to Success)
+        let result_unknown = CursorMcpResult::Unknown(serde_json::json!({"some": "data"}));
+        assert_eq!(result_unknown.extract_tool_status(), ToolStatus::Success);
     }
 }
