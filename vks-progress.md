@@ -146,6 +146,6 @@ Session 5 (Cleanup):      010 (independent)
 - `FRONTEND_PORT`: 6500
 - `BACKEND_PORT`: 6501
 - `SESSION`: 1
-- `TASK`: 008
+- `TASK`: 009
 - `TASKS`: .claude/tasks/golden-singing-manatee
 - `TASKSMAX`: 012
