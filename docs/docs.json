@@ -93,6 +93,7 @@
         "group": "Architecture",
         "pages": [
           "architecture/ui-responsive-design",
+          "architecture/frontend/file-viewer-components",
           "architecture/storage-paths",
           "architecture/executor-normalization"
         ]
