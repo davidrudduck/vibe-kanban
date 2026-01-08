@@ -87,6 +87,14 @@ pub trait ContainerService {
     /// Returns None if batching is disabled (falls back to direct writes).
     fn log_batcher(&self) -> Option<&LogBatcherHandle>;
 
+    /// Store a normalization task handle for an execution process.
+    /// Called after starting log normalization to track the async task.
+    async fn store_normalization_handle(&self, exec_id: Uuid, handle: JoinHandle<()>);
+
+    /// Take (remove and return) a normalization handle for an execution process.
+    /// Used to await normalization completion before signaling finished.
+    async fn take_normalization_handle(&self, exec_id: &Uuid) -> Option<JoinHandle<()>>;
+
     fn task_attempt_to_current_dir(&self, task_attempt: &TaskAttempt) -> PathBuf;
 
     async fn create(&self, task_attempt: &TaskAttempt) -> Result<ContainerRef, ContainerError>;
@@ -1092,7 +1100,10 @@ pub trait ContainerService {
             if let Some(executor) =
                 ExecutorConfigs::get_cached().get_coding_agent(executor_profile_id)
             {
-                executor.normalize_logs(msg_store, &self.task_attempt_to_current_dir(task_attempt));
+                let handle =
+                    executor.normalize_logs(msg_store, &self.task_attempt_to_current_dir(task_attempt));
+                self.store_normalization_handle(execution_process.id, handle)
+                    .await;
             } else {
                 tracing::error!(
                     "Failed to resolve profile '{:?}' for normalization",
