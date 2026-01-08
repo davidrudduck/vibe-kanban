@@ -83,6 +83,9 @@ pub struct LocalContainerService {
     publisher: Result<SharePublisher, RemoteClientNotConfigured>,
     log_batcher: LogBatcherHandle,
     message_queue: crate::message_queue::MessageQueueStore,
+    /// Normalization task handles keyed by execution_process_id.
+    /// Used to await normalization completion before signaling finished.
+    normalization_handles: Arc<RwLock<HashMap<Uuid, JoinHandle<()>>>>,
 }
 
 impl LocalContainerService {
@@ -105,6 +108,9 @@ impl LocalContainerService {
         // Initialize in-memory message queue store
         let message_queue = crate::message_queue::MessageQueueStore::new();
 
+        // Initialize normalization handles store
+        let normalization_handles = Arc::new(RwLock::new(HashMap::new()));
+
         let container = LocalContainerService {
             db,
             child_store,
@@ -118,6 +124,7 @@ impl LocalContainerService {
             publisher,
             log_batcher,
             message_queue,
+            normalization_handles,
         };
 
         container.spawn_worktree_cleanup();
@@ -174,6 +181,19 @@ impl LocalContainerService {
     pub async fn remove_entry_index_provider(&self, exec_id: &Uuid) {
         let mut map = self.entry_index_providers.write().await;
         map.remove(exec_id);
+    }
+
+    /// Store a normalization task handle for an execution process.
+    pub async fn store_normalization_handle(&self, exec_id: Uuid, handle: JoinHandle<()>) {
+        let mut map = self.normalization_handles.write().await;
+        map.insert(exec_id, handle);
+    }
+
+    /// Take (remove and return) a normalization handle for an execution process.
+    /// Returns None if no handle was stored for this execution.
+    pub async fn take_normalization_handle(&self, exec_id: &Uuid) -> Option<JoinHandle<()>> {
+        let mut map = self.normalization_handles.write().await;
+        map.remove(exec_id)
     }
 
     /// Get the in-memory message queue store.
@@ -632,10 +652,22 @@ impl LocalContainerService {
                 log_batcher.finish(exec_id).await;
             }
 
+            // Await normalization completion before signaling finished
+            // This ensures all log entries are processed before push_finished()
+            if let Some(norm_handle) = container.take_normalization_handle(&exec_id).await
+                && tokio::time::timeout(Duration::from_secs(5), norm_handle)
+                    .await
+                    .is_err()
+            {
+                tracing::warn!(
+                    exec_id = %exec_id,
+                    "Normalization timed out after 5 seconds"
+                );
+            }
+
             // Cleanup msg store
             if let Some(msg_arc) = msg_stores.write().await.remove(&exec_id) {
                 msg_arc.push_finished();
-                tokio::time::sleep(Duration::from_millis(50)).await; // Wait for the finish message to propogate
                 match Arc::try_unwrap(msg_arc) {
                     Ok(inner) => drop(inner),
                     Err(arc) => tracing::error!(
@@ -1161,6 +1193,14 @@ impl ContainerService for LocalContainerService {
         Some(&self.log_batcher)
     }
 
+    async fn store_normalization_handle(&self, exec_id: Uuid, handle: JoinHandle<()>) {
+        self.store_normalization_handle(exec_id, handle).await;
+    }
+
+    async fn take_normalization_handle(&self, exec_id: &Uuid) -> Option<JoinHandle<()>> {
+        self.take_normalization_handle(exec_id).await
+    }
+
     async fn git_branch_prefix(&self) -> String {
         self.config.read().await.git_branch_prefix.clone()
     }
@@ -1429,6 +1469,19 @@ impl ContainerService for LocalContainerService {
         // Flush any remaining buffered logs before signaling finished
         if let Some(log_batcher) = self.log_batcher() {
             log_batcher.finish(execution_process.id).await;
+        }
+
+        // Await normalization completion before signaling finished
+        // This ensures all log entries are processed before push_finished()
+        if let Some(norm_handle) = self.take_normalization_handle(&execution_process.id).await
+            && tokio::time::timeout(Duration::from_secs(5), norm_handle)
+                .await
+                .is_err()
+        {
+            tracing::warn!(
+                execution_process_id = %execution_process.id,
+                "Normalization timed out after 5 seconds"
+            );
         }
 
         // Mark the process finished in the MsgStore
