@@ -22,14 +22,10 @@ use crate::db::node_task_attempts::NodeTaskAttemptRepository;
 /// Tracks pending backfill requests to correlate responses with original attempt IDs.
 #[derive(Debug, Default)]
 pub struct BackfillRequestTracker {
-    // TODO(task-002): Remove allow(dead_code) once implementation is complete
-    #[allow(dead_code)]
     pending: tokio::sync::RwLock<HashMap<Uuid, PendingRequest>>,
 }
 
 #[derive(Debug)]
-// TODO(task-002): Remove allow(dead_code) once implementation is complete
-#[allow(dead_code)]
 struct PendingRequest {
     node_id: Uuid,
     attempt_ids: Vec<Uuid>,
@@ -44,26 +40,57 @@ impl BackfillRequestTracker {
     }
 
     /// Record a backfill request.
-    pub async fn track(&self, _request_id: Uuid, _node_id: Uuid, _attempt_ids: Vec<Uuid>) {
-        // TODO: Implement in task 002
+    pub async fn track(&self, request_id: Uuid, node_id: Uuid, attempt_ids: Vec<Uuid>) {
+        let mut pending = self.pending.write().await;
+        pending.insert(
+            request_id,
+            PendingRequest {
+                node_id,
+                attempt_ids,
+                requested_at: Utc::now(),
+            },
+        );
     }
 
     /// Get and remove attempt IDs for a completed request.
-    pub async fn complete(&self, _request_id: Uuid) -> Option<Vec<Uuid>> {
-        // TODO: Implement in task 002
-        None
+    pub async fn complete(&self, request_id: Uuid) -> Option<Vec<Uuid>> {
+        let mut pending = self.pending.write().await;
+        pending.remove(&request_id).map(|req| req.attempt_ids)
     }
 
     /// Remove all requests for a node (on disconnect). Returns cleared attempt IDs.
-    pub async fn clear_node(&self, _node_id: Uuid) -> Vec<Uuid> {
-        // TODO: Implement in task 002
-        Vec::new()
+    pub async fn clear_node(&self, node_id: Uuid) -> Vec<Uuid> {
+        let mut pending = self.pending.write().await;
+        let mut cleared = Vec::new();
+
+        pending.retain(|_, req| {
+            if req.node_id == node_id {
+                cleared.extend(req.attempt_ids.iter().copied());
+                false
+            } else {
+                true
+            }
+        });
+
+        cleared
     }
 
     /// Remove stale requests older than timeout_minutes. Returns expired attempt IDs.
-    pub async fn cleanup_stale(&self, _timeout_minutes: i64) -> Vec<Uuid> {
-        // TODO: Implement in task 002
-        Vec::new()
+    pub async fn cleanup_stale(&self, timeout_minutes: i64) -> Vec<Uuid> {
+        let mut pending = self.pending.write().await;
+        let mut stale = Vec::new();
+        let cutoff = Utc::now() - chrono::Duration::minutes(timeout_minutes);
+
+        pending.retain(|_, req| {
+            if req.requested_at < cutoff {
+                stale.extend(req.attempt_ids.iter().copied());
+                false
+            } else {
+                true
+            }
+        });
+
+        stale
     }
 }
 
