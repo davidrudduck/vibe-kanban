@@ -1,14 +1,25 @@
 **VK-Swarm Task ID**: `8a7151ce-f9df-4557-9c59-d81a3cb84eb3`
 
 ## 📊 Current Status
-Progress: 1/10 tasks (10%)
-Completed Tasks: 1/10
-Current Task: #002 - BackfillRequestTracker Implementation (GREEN phase)
+Progress: 2/10 tasks (20%)
+Completed Tasks: 2/10
+Current Task: #003 - Integrate Tracker into BackfillService
 
 ## 🎯 Known Issues & Blockers
 - None
 
 ## 📝 Recent Sessions
+
+### Session 2 (2026-01-09) - Task 002: BackfillRequestTracker Implementation
+**Completed:** Task #002 - TDD GREEN phase
+**Key Changes:**
+- Implemented `track()` method to record request_id -> (node_id, attempt_ids)
+- Implemented `complete()` method to get and remove attempt IDs
+- Implemented `clear_node()` method to remove all requests for a node
+- Implemented `cleanup_stale()` method to remove stale requests
+- Removed `#[allow(dead_code)]` attributes
+- All 3 tests pass, clippy clean
+**Git Commits:** 121e478c0
 
 ### Session 1 (2026-01-09) - Task 001: BackfillRequestTracker Core Tests
 **Completed:** Task #001 - TDD RED phase
