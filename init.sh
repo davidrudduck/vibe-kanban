@@ -13,8 +13,8 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Load existing .env if present (respect user's configured values)
 if [ -f "$PROJECT_DIR/.env" ]; then
-    # Source only FRONTEND_PORT and BACKEND_PORT if they exist
-    eval "$(grep -E '^(FRONTEND_PORT|BACKEND_PORT)=' "$PROJECT_DIR/.env" 2>/dev/null || true)"
+    # Source FRONTEND_PORT, BACKEND_PORT, and MCP_PORT if they exist
+    eval "$(grep -E '^(FRONTEND_PORT|BACKEND_PORT|MCP_PORT)=' "$PROJECT_DIR/.env" 2>/dev/null || true)"
 fi
 
 # Configuration - use .env values if loaded, otherwise defaults
