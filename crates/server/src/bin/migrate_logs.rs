@@ -42,6 +42,9 @@ fn print_usage() {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Load .env file if present (respects VK_DATABASE_PATH)
+    dotenvy::dotenv().ok();
+
     // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter(
