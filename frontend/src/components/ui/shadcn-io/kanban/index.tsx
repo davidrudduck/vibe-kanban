@@ -21,7 +21,8 @@ import {
 import { type ReactNode, type Ref, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { Plus } from 'lucide-react';
+import { Plus, ArrowUp, ArrowDown } from 'lucide-react';
+import type { SortDirection } from '@/lib/taskSorting';
 import type { ClientRect } from '@dnd-kit/core';
 import type { Transform } from '@dnd-kit/utilities';
 import { Button } from '../../button';
@@ -153,6 +154,10 @@ export type KanbanHeaderProps =
       color: Status['color'];
       className?: string;
       onAddTask?: () => void;
+      /** Current sort direction for this column */
+      sortDirection?: SortDirection;
+      /** Callback when user toggles the sort direction */
+      onSortToggle?: () => void;
     };
 
 export const KanbanHeader = (props: KanbanHeaderProps) => {
@@ -161,6 +166,19 @@ export const KanbanHeader = (props: KanbanHeaderProps) => {
   if ('children' in props) {
     return props.children;
   }
+
+  const handleSortKeyDown = (e: KeyboardEvent) => {
+    if ((e.key === 'Enter' || e.key === ' ') && props.onSortToggle) {
+      e.preventDefault();
+      props.onSortToggle();
+    }
+  };
+
+  const SortIcon = props.sortDirection === 'desc' ? ArrowDown : ArrowUp;
+  const sortLabel =
+    props.sortDirection === 'desc'
+      ? t('sorting.descending', 'Newest first')
+      : t('sorting.ascending', 'Oldest first');
 
   return (
     <Card
@@ -173,13 +191,35 @@ export const KanbanHeader = (props: KanbanHeaderProps) => {
         backgroundImage: `linear-gradient(hsl(var(${props.color}) / 0.03), hsl(var(${props.color}) / 0.03))`,
       }}
     >
-      <span className="flex-1 flex items-center gap-2">
+      <span
+        className={cn(
+          'flex-1 flex items-center gap-2',
+          props.onSortToggle &&
+            'cursor-pointer hover:text-foreground/80 rounded px-1 -mx-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+        )}
+        role={props.onSortToggle ? 'button' : undefined}
+        tabIndex={props.onSortToggle ? 0 : undefined}
+        onClick={props.onSortToggle}
+        onKeyDown={props.onSortToggle ? handleSortKeyDown : undefined}
+        aria-label={
+          props.onSortToggle
+            ? t('sorting.sortBy', 'Sort by {{column}}, currently {{direction}}', {
+                column: props.name,
+                direction: sortLabel,
+              })
+            : undefined
+        }
+      >
         <div
-          className="h-2 w-2 rounded-full"
+          className="h-2 w-2 rounded-full shrink-0"
           style={{ backgroundColor: `hsl(var(${props.color}))` }}
         />
 
         <p className="m-0 text-sm">{props.name}</p>
+
+        {props.onSortToggle && (
+          <SortIcon className="h-3 w-3 text-foreground/50 shrink-0" />
+        )}
       </span>
       <TooltipProvider>
         <Tooltip>
