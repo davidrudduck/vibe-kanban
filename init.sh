@@ -8,11 +8,19 @@
 
 set -e
 
-# Configuration
+# Get project directory first
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Load existing .env if present (respect user's configured values)
+if [ -f "$PROJECT_DIR/.env" ]; then
+    # Source only FRONTEND_PORT and BACKEND_PORT if they exist
+    eval "$(grep -E '^(FRONTEND_PORT|BACKEND_PORT)=' "$PROJECT_DIR/.env" 2>/dev/null || true)"
+fi
+
+# Configuration - use .env values if loaded, otherwise defaults
 FRONTEND_PORT=${FRONTEND_PORT:-6100}
 BACKEND_PORT=${BACKEND_PORT:-6101}
 MCP_PORT=${MCP_PORT:-6102}
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Colors for output
 RED='\033[0;31m'
@@ -82,18 +90,16 @@ setup_env() {
         fi
     fi
 
-    # Update FRONTEND_PORT in .env
-    if grep -q "^FRONTEND_PORT=" "$PROJECT_DIR/.env"; then
-        sed -i "s/^FRONTEND_PORT=.*/FRONTEND_PORT=$FRONTEND_PORT/" "$PROJECT_DIR/.env"
-    else
+    # Only add FRONTEND_PORT if not already set in .env (respect existing values)
+    if ! grep -q "^FRONTEND_PORT=" "$PROJECT_DIR/.env"; then
         echo "FRONTEND_PORT=$FRONTEND_PORT" >> "$PROJECT_DIR/.env"
+        log_info "Added FRONTEND_PORT=$FRONTEND_PORT to .env"
     fi
 
-    # Update BACKEND_PORT in .env
-    if grep -q "^BACKEND_PORT=" "$PROJECT_DIR/.env"; then
-        sed -i "s/^BACKEND_PORT=.*/BACKEND_PORT=$BACKEND_PORT/" "$PROJECT_DIR/.env"
-    else
+    # Only add BACKEND_PORT if not already set in .env (respect existing values)
+    if ! grep -q "^BACKEND_PORT=" "$PROJECT_DIR/.env"; then
         echo "BACKEND_PORT=$BACKEND_PORT" >> "$PROJECT_DIR/.env"
+        log_info "Added BACKEND_PORT=$BACKEND_PORT to .env"
     fi
 
     log_success "Environment configured (FRONTEND_PORT=$FRONTEND_PORT, BACKEND_PORT=$BACKEND_PORT)"
