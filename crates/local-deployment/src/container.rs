@@ -627,6 +627,11 @@ impl LocalContainerService {
                 }
             }
 
+            // Flush any remaining buffered logs before signaling finished
+            if let Some(log_batcher) = container.log_batcher() {
+                log_batcher.finish(exec_id).await;
+            }
+
             // Cleanup msg store
             if let Some(msg_arc) = msg_stores.write().await.remove(&exec_id) {
                 msg_arc.push_finished();
@@ -1420,6 +1425,11 @@ impl ContainerService for LocalContainerService {
         self.remove_child_from_store(&execution_process.id).await;
         self.remove_protocol_peer(&execution_process.id).await;
         self.remove_entry_index_provider(&execution_process.id).await;
+
+        // Flush any remaining buffered logs before signaling finished
+        if let Some(log_batcher) = self.log_batcher() {
+            log_batcher.finish(execution_process.id).await;
+        }
 
         // Mark the process finished in the MsgStore
         if let Some(msg) = self.msg_stores.write().await.remove(&execution_process.id) {
