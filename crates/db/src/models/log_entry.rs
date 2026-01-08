@@ -175,6 +175,33 @@ impl DbLogEntry {
         .await
     }
 
+    /// Find all log entries for an execution process after a given timestamp.
+    pub async fn find_by_execution_id_after(
+        pool: &SqlitePool,
+        execution_id: Uuid,
+        after: DateTime<Utc>,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        // Format the timestamp to match SQLite's datetime format (YYYY-MM-DD HH:MM:SS.SSS)
+        let after_str = after.format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+        sqlx::query_as!(
+            DbLogEntry,
+            r#"SELECT
+                id as "id!",
+                execution_id as "execution_id!: Uuid",
+                output_type,
+                content,
+                timestamp as "timestamp!: DateTime<Utc>",
+                hive_synced_at as "hive_synced_at: DateTime<Utc>"
+               FROM log_entries
+               WHERE execution_id = $1 AND timestamp > $2
+               ORDER BY id ASC"#,
+            execution_id,
+            after_str
+        )
+        .fetch_all(pool)
+        .await
+    }
+
     /// Find paginated log entries for an execution process.
     ///
     /// # Arguments

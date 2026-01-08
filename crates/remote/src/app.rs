@@ -13,7 +13,7 @@ use crate::{
     config::RemoteServerConfig,
     db,
     mail::LoopsMailer,
-    nodes::ConnectionManager,
+    nodes::{BackfillConfig, BackfillService, ConnectionManager},
     routes,
     services::spawn_stale_cleanup_service,
 };
@@ -106,6 +106,23 @@ impl Server {
             .build()
             .context("failed to create HTTP client")?;
 
+        // Create backfill service for reconciling task attempt data between nodes and hive
+        let backfill = Arc::new(BackfillService::new(
+            pool.clone(),
+            node_connections.clone(),
+            BackfillConfig::default(),
+        ));
+
+        // Spawn periodic reconciliation task
+        let _backfill_handle = {
+            let backfill_for_spawn = BackfillService::new(
+                pool.clone(),
+                node_connections.clone(),
+                BackfillConfig::default(),
+            );
+            backfill_for_spawn.spawn()
+        };
+
         let state = AppState::new(
             pool.clone(),
             broker.clone(),
@@ -118,6 +135,7 @@ impl Server {
             node_connections,
             connection_token,
             http_client,
+            backfill,
         );
 
         let listener =

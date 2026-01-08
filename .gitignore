@@ -97,8 +97,7 @@ remote-frontend/dist
 .vk_progress.md
 vks-progress.md
 
-# Development initialization script (branch-specific)
-init.sh
+# Development initialization script is now tracked in the repository
 
 # Playwright MCP screenshots and development artifacts
 .playwright-mcp/

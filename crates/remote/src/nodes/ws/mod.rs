@@ -3,6 +3,8 @@
 //! This module provides the WebSocket endpoint for nodes to connect to the hive,
 //! authenticate, and exchange messages for task coordination.
 
+use std::sync::Arc;
+
 use axum::{
     Router,
     extract::{State, ws::WebSocketUpgrade},
@@ -29,6 +31,7 @@ pub fn router() -> Router<AppState> {
 async fn upgrade(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
     let pool = state.pool().clone();
     let connections = state.node_connections().clone();
+    let backfill = Arc::clone(state.backfill());
 
-    ws.on_upgrade(move |socket| session::handle(socket, pool, connections))
+    ws.on_upgrade(move |socket| session::handle(socket, pool, connections, backfill))
 }
