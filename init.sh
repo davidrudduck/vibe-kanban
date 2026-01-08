@@ -10,6 +10,7 @@ set -e
 
 # Get project directory first
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEV_ASSETS_DIR="$PROJECT_DIR/dev_assets"
 
 # Load existing .env if present (respect user's configured values)
 if [ -f "$PROJECT_DIR/.env" ]; then
@@ -18,9 +19,9 @@ if [ -f "$PROJECT_DIR/.env" ]; then
 fi
 
 # Configuration - use .env values if loaded, otherwise defaults
-FRONTEND_PORT=${FRONTEND_PORT:-6100}
-BACKEND_PORT=${BACKEND_PORT:-6101}
-MCP_PORT=${MCP_PORT:-6102}
+FRONTEND_PORT=${FRONTEND_PORT:-5800}
+BACKEND_PORT=${BACKEND_PORT:-5801}
+MCP_PORT=${MCP_PORT:-5802}
 
 # Colors for output
 RED='\033[0;31m'
@@ -102,7 +103,21 @@ setup_env() {
         log_info "Added BACKEND_PORT=$BACKEND_PORT to .env"
     fi
 
-    log_success "Environment configured (FRONTEND_PORT=$FRONTEND_PORT, BACKEND_PORT=$BACKEND_PORT)"
+    # Update MCP_PORT in .env
+    if grep -q "^MCP_PORT=" "$PROJECT_DIR/.env"; then
+        sed -i "s/^MCP_PORT=.*/MCP_PORT=$MCP_PORT/" "$PROJECT_DIR/.env"
+    else
+        echo "MCP_PORT=$MCP_PORT" >> "$PROJECT_DIR/.env"
+    fi
+
+    # Set VK_DATABASE_PATH to local dev_assets
+    if grep -q "^VK_DATABASE_PATH=" "$PROJECT_DIR/.env"; then
+        sed -i "s|^VK_DATABASE_PATH=.*|VK_DATABASE_PATH=$DEV_ASSETS_DIR/db.sqlite|" "$PROJECT_DIR/.env"
+    else
+        echo "VK_DATABASE_PATH=$DEV_ASSETS_DIR/db.sqlite" >> "$PROJECT_DIR/.env"
+    fi
+
+    log_success "Environment configured (FRONTEND_PORT=$FRONTEND_PORT, BACKEND_PORT=$BACKEND_PORT, MCP_PORT=$MCP_PORT)"
 }
 
 # Install dependencies
@@ -133,6 +148,11 @@ check_ports() {
 
     if lsof -i :$BACKEND_PORT > /dev/null 2>&1; then
         log_warn "Port $BACKEND_PORT (backend) is already in use"
+        port_in_use=1
+    fi
+
+    if lsof -i :$MCP_PORT > /dev/null 2>&1; then
+        log_warn "Port $MCP_PORT (MCP) is already in use"
         port_in_use=1
     fi
 
@@ -167,6 +187,8 @@ start_servers() {
     echo ""
     echo -e "  Frontend: ${BLUE}http://localhost:$FRONTEND_PORT${NC}"
     echo -e "  Backend:  ${BLUE}http://localhost:$BACKEND_PORT${NC}"
+    echo -e "  MCP:      ${BLUE}http://localhost:$MCP_PORT/mcp${NC}"
+    echo -e "  Database: ${BLUE}$DEV_ASSETS_DIR/db.sqlite${NC}"
     echo ""
     echo -e "  To stop: ${YELLOW}./init.sh stop${NC} or ${YELLOW}pnpm run stop${NC}"
     echo ""
@@ -176,6 +198,8 @@ start_servers() {
     # Export ports for pnpm dev
     export FRONTEND_PORT
     export BACKEND_PORT
+    export MCP_PORT
+    export VK_DATABASE_PATH="$DEV_ASSETS_DIR/db.sqlite"
 
     # Start using pnpm dev
     pnpm run dev
