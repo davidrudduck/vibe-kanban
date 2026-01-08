@@ -1,0 +1,463 @@
+---
+title: File Viewer Architecture
+description: Technical documentation for the responsive file viewer system
+---
+
+This document covers the technical architecture of Vibe Kanban's file viewer system, including component hierarchy, state management via context, and responsive routing between mobile and desktop presentations.
+
+## Overview
+
+The file viewer system enables users to preview markdown files directly within the application. It uses a responsive approach that provides:
+
+- **Mobile**: Full-screen bottom sheet with swipe-to-close gesture
+- **Desktop**: Resizable side panel alongside the main content
+
+## Component Hierarchy
+
+```text
+frontend/src/
+├── contexts/
+│   └── FileViewerContext.tsx    # Global state for file viewer
+├── components/files/
+│   ├── FileViewerContainer.tsx  # Responsive routing container
+│   ├── FileViewerSheet.tsx      # Mobile full-screen sheet
+│   └── FileViewerSidePanel.tsx  # Desktop resizable side panel
+└── hooks/
+    └── useMediaQuery.ts         # CSS media query hook
+```
+
+### Data Flow
+
+```text
+User clicks view icon
+    ↓
+useFileViewer().openFile()
+    ↓ (context update)
+FileViewerContext updates state
+    ↓
+FileViewerContainer re-renders
+    ↓ (breakpoint check)
+useMediaQuery('(max-width: 639px)')
+    ↓
+Renders FileViewerSheet (mobile) OR FileViewerSidePanel (desktop)
+    ↓ (data fetch)
+React Query fetches file content via fileBrowserApi
+    ↓
+Content rendered with MarkdownRenderer or FileContentView
+```
+
+## FileViewerContext
+
+The context provides centralized state management for the file viewer across the application.
+
+### State Interface
+
+```typescript
+interface FileInfo {
+  path: string;           // Full file path
+  relativePath?: string;  // For .claude/ files
+  attemptId?: string;     // For worktree files
+}
+
+interface FileViewerState {
+  isOpen: boolean;        // Panel visibility
+  files: FileInfo[];      // Stack of viewed files
+  activeFileIndex: number;// Currently displayed file
+  viewMode: 'preview' | 'raw'; // Markdown rendering mode
+}
+```
+
+### Context API
+
+```typescript
+interface FileViewerContextValue extends FileViewerState {
+  openFile: (file: FileInfo) => void;  // Add file and show panel
+  closePanel: () => void;               // Hide panel, clear files
+  setActiveFile: (index: number) => void; // Switch to file in stack
+  setViewMode: (mode: ViewMode) => void;  // Toggle raw/preview
+}
+```
+
+### Key Features
+
+**File Deduplication**: Opening the same file twice focuses it rather than adding a duplicate:
+
+```typescript
+const openFile = useCallback((file: FileInfo) => {
+  setFiles((prev) => {
+    const existingIndex = prev.findIndex(
+      (f) =>
+        f.path === file.path &&
+        f.relativePath === file.relativePath &&
+        f.attemptId === file.attemptId
+    );
+
+    if (existingIndex >= 0) {
+      setActiveFileIndex(existingIndex);
+      return prev; // No duplication
+    }
+
+    const newFiles = [...prev, file];
+    setActiveFileIndex(newFiles.length - 1);
+    return newFiles;
+  });
+  setIsOpen(true);
+}, []);
+```
+
+**Safe Index Bounds**: The active file index is always clamped to valid range:
+
+```typescript
+activeFileIndex: Math.min(activeFileIndex, Math.max(0, files.length - 1))
+```
+
+### Provider Setup
+
+The `FileViewerProvider` wraps the application at the root level (in `App.tsx`):
+
+```tsx
+import { FileViewerProvider } from '@/contexts/FileViewerContext';
+
+function App() {
+  return (
+    <FileViewerProvider>
+      <Routes>
+        {/* ... */}
+      </Routes>
+      <FileViewerContainer />
+    </FileViewerProvider>
+  );
+}
+```
+
+## FileViewerContainer
+
+The container component handles responsive routing between mobile and desktop presentations.
+
+### Breakpoint Detection
+
+Uses `useMediaQuery` to detect viewport width:
+
+```typescript
+const isMobile = useMediaQuery('(max-width: 639px)');
+```
+
+| Viewport | Breakpoint | Component |
+|----------|------------|-----------|
+| Mobile | < 640px | FileViewerSheet |
+| Desktop | ≥ 640px | FileViewerSidePanel |
+
+### Conditional Data Fetching
+
+The container fetches file content only for the mobile sheet (the side panel manages its own fetching):
+
+```typescript
+const { data: fileData, isLoading, error } = useQuery({
+  queryKey: ['file-viewer', activeFile?.path, activeFile?.relativePath, activeFile?.attemptId],
+  queryFn: async () => {
+    if (activeFile.relativePath) {
+      return fileBrowserApi.readClaudeFile(activeFile.relativePath);
+    }
+    if (activeFile.attemptId) {
+      return fileBrowserApi.readWorktreeFile(activeFile.attemptId, activeFile.path);
+    }
+    throw new Error('No file source specified');
+  },
+  enabled: isOpen && !!activeFile && isMobile, // Only on mobile
+});
+```
+
+## FileViewerSheet (Mobile)
+
+Full-screen bottom sheet for mobile devices with touch-optimized interactions.
+
+### Features
+
+- **Swipe-to-Close**: Framer Motion drag gesture with 100px threshold
+- **Backdrop Dismiss**: Tap outside to close
+- **Escape Key**: Keyboard dismiss support
+- **Body Scroll Lock**: Prevents background scrolling
+
+### Layout Structure
+
+```text
+┌──────────────────────────────────┐
+│ ═══════════ (drag handle) ═════ │
+├──────────────────────────────────┤
+│ ← │ filename.md            │ ✕  │ Header
+├──────────────────────────────────┤
+│                                  │
+│  # Markdown Preview              │ Scrollable content
+│                                  │
+├──────────────────────────────────┤
+│  [Raw]  [Preview]  [Copy]        │ Fixed footer toolbar
+└──────────────────────────────────┘
+```
+
+### Swipe Gesture Implementation
+
+```typescript
+const DRAG_CLOSE_THRESHOLD = 100;
+
+const handleDragEnd = useCallback(
+  (_event: PointerEvent, info: PanInfo) => {
+    if (info.offset.y > DRAG_CLOSE_THRESHOLD || info.velocity.y > 500) {
+      onClose();
+    }
+  },
+  [onClose]
+);
+
+<motion.div
+  drag="y"
+  dragConstraints={{ top: 0, bottom: 0 }}
+  dragElastic={{ top: 0, bottom: 0.5 }}
+  onDragEnd={handleDragEnd}
+>
+  {/* Sheet content */}
+</motion.div>
+```
+
+## FileViewerSidePanel (Desktop)
+
+Resizable side panel that appears alongside the main content area.
+
+### Features
+
+- **Resizable Width**: Drag divider between 300-600px
+- **Width Persistence**: Saved to localStorage
+- **Multi-File Support**: Dropdown to switch between opened files
+- **Keyboard Shortcuts**: Esc to close, Cmd/Ctrl+R to refresh
+
+### Layout Structure
+
+```text
+┌────────────────────────────────────────────────────────────────┐
+│ Task Logs               ║ File Preview                    [✕] │
+│                         ║────────────────────────────────────│
+│ ⊙ plan.md [view]       ║ ▼ plan.md    [Raw] [⟳] [Copy]     │
+│                         ║────────────────────────────────────│
+│ Let me implement...     ║ # Implementation Plan              │
+│                         ║                                    │
+│ ⌂ git commit -m "..."  ║ ## Overview                        │
+│ > Commit successful     ║ This plan covers...                │
+│                         ║                                    │
+└────────────────────────────────────────────────────────────────┘
+        55%               ↔              45%
+```
+
+### Resize Implementation
+
+```typescript
+const STORAGE_KEY = 'file-viewer-panel-width';
+const MIN_WIDTH = 300;
+const MAX_WIDTH = 600;
+const DEFAULT_WIDTH = 400;
+
+const [panelWidth, setPanelWidth] = useState(() => {
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (stored) {
+    const parsed = parseInt(stored, 10);
+    if (!isNaN(parsed) && parsed >= MIN_WIDTH && parsed <= MAX_WIDTH) {
+      return parsed;
+    }
+  }
+  return DEFAULT_WIDTH;
+});
+
+// Resize divider handler
+const handleMouseDown = useCallback((e: React.MouseEvent) => {
+  e.preventDefault();
+  setIsDragging(true);
+}, []);
+
+useEffect(() => {
+  if (!isDragging) return;
+
+  const handleMouseMove = (e: MouseEvent) => {
+    const newWidth = window.innerWidth - e.clientX;
+    const clampedWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, newWidth));
+    setPanelWidth(clampedWidth);
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+    localStorage.setItem(STORAGE_KEY, panelWidth.toString());
+  };
+
+  document.addEventListener('mousemove', handleMouseMove);
+  document.addEventListener('mouseup', handleMouseUp);
+  return () => {
+    document.removeEventListener('mousemove', handleMouseMove);
+    document.removeEventListener('mouseup', handleMouseUp);
+  };
+}, [isDragging, panelWidth]);
+```
+
+### Keyboard Shortcuts
+
+```typescript
+useEffect(() => {
+  if (!isOpen) return;
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      closePanel();
+      return;
+    }
+
+    if ((e.metaKey || e.ctrlKey) && e.key === 'r') {
+      e.preventDefault();
+      refetch();
+      return;
+    }
+  };
+
+  document.addEventListener('keydown', handleKeyDown);
+  return () => document.removeEventListener('keydown', handleKeyDown);
+}, [isOpen, closePanel, refetch]);
+```
+
+| Shortcut | Action |
+|----------|--------|
+| `Esc` | Close panel |
+| `Cmd/Ctrl+R` | Refresh file content |
+
+## useMediaQuery Hook
+
+Low-level hook for responsive breakpoint detection.
+
+### Implementation
+
+```typescript
+export function useMediaQuery(query: string): boolean {
+  const getMatches = () =>
+    typeof window !== 'undefined' ? window.matchMedia(query).matches : false;
+
+  const [matches, setMatches] = useState(getMatches);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const mql = window.matchMedia(query);
+    const handler = (e: MediaQueryListEvent) => setMatches(e.matches);
+
+    mql.addEventListener('change', handler);
+    setMatches(mql.matches);
+
+    return () => mql.removeEventListener('change', handler);
+  }, [query]);
+
+  return matches;
+}
+```
+
+### Usage
+
+```typescript
+// In FileViewerContainer
+const isMobile = useMediaQuery('(max-width: 639px)');
+
+if (isMobile) {
+  return <FileViewerSheet />;
+}
+return <FileViewerSidePanel />;
+```
+
+<Note>
+The hook uses the `matchMedia` API with event listeners for efficient viewport change detection without polling.
+</Note>
+
+## Integration Points
+
+### Opening Files from Conversation Logs
+
+Components like `DisplayConversationEntry`, `FileChangeRenderer`, and `EditDiffRenderer` trigger the file viewer:
+
+```typescript
+import { useFileViewer } from '@/contexts/FileViewerContext';
+
+function ViewFileButton({ path, relativePath, attemptId }) {
+  const { openFile } = useFileViewer();
+
+  const handleClick = () => {
+    openFile({ path, relativePath, attemptId });
+  };
+
+  return (
+    <Button variant="ghost" size="icon" onClick={handleClick}>
+      <ExternalLink className="h-3 w-3" />
+    </Button>
+  );
+}
+```
+
+### Layout Integration
+
+The `FileViewerContainer` is positioned as a sibling to the main content in `App.tsx`:
+
+```tsx
+<div className="flex flex-row h-screen">
+  <div className="flex-1 min-w-0 flex flex-col">
+    <Routes>{/* Main content */}</Routes>
+  </div>
+  <FileViewerContainer /> {/* Side panel renders here */}
+</div>
+```
+
+This layout allows the side panel to share horizontal space with the conversation view on desktop.
+
+## File Type Detection
+
+Both sheet and panel detect markdown files for preview mode:
+
+```typescript
+const isMarkdown = /\.(md|markdown|mdx)$/i.test(fileName);
+
+// Only markdown files show Raw/Preview toggle
+{isMarkdown && (
+  <>
+    <Button onClick={() => setViewMode('raw')}>Raw</Button>
+    <Button onClick={() => setViewMode('preview')}>Preview</Button>
+  </>
+)}
+```
+
+## Performance Considerations
+
+### Query Caching
+
+File content is cached via React Query:
+
+```typescript
+queryKey: ['file-viewer', activeFile?.path, activeFile?.relativePath, activeFile?.attemptId]
+```
+
+Reopening the same file uses cached data without re-fetching.
+
+### Lazy Rendering
+
+Both presentation components use conditional rendering to avoid mounting when closed:
+
+```typescript
+if (!isOpen || files.length === 0) {
+  return null;
+}
+```
+
+### Animation Performance
+
+Framer Motion handles animations with hardware-accelerated transforms:
+
+```typescript
+initial={{ x: '100%', opacity: 0 }}
+animate={{ x: 0, opacity: 1 }}
+exit={{ x: '100%', opacity: 0 }}
+transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+```
+
+## Related Documentation
+
+- [File Viewer User Guide](/features/file-viewer) - User-facing documentation
+- [Responsive Design](/architecture/ui-responsive-design) - UI responsiveness patterns
+- [Markdown Renderer](/architecture/frontend/markdown-renderer) - Markdown rendering system

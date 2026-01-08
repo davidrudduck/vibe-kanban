@@ -15,13 +15,14 @@ import FileContentView from './FileContentView';
 import '@/styles/diff-style-overrides.css';
 import { useExpandable } from '@/stores/useExpandableStore';
 import { cn } from '@/lib/utils';
-import { FileViewDialog } from '@/components/dialogs';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { isMarkdownFile } from '@/utils/fileHelpers';
+import { useFileViewer } from '@/contexts/FileViewerContext';
 
 type Props = {
   path: string;
@@ -30,6 +31,7 @@ type Props = {
   defaultExpanded?: boolean;
   statusAppearance?: 'default' | 'denied' | 'timed_out';
   forceExpanded?: boolean;
+  attemptId?: string;
 };
 
 function isWrite(
@@ -69,8 +71,10 @@ const FileChangeRenderer = ({
   defaultExpanded = false,
   statusAppearance = 'default',
   forceExpanded = false,
+  attemptId,
 }: Props) => {
   const { config } = useUserSystem();
+  const { openFile } = useFileViewer();
   const [expanded, setExpanded] = useExpandable(expansionKey, defaultExpanded);
   const effectiveExpanded = forceExpanded || expanded;
 
@@ -79,11 +83,24 @@ const FileChangeRenderer = ({
 
   // Detect .claude/ paths for view file link
   const claudeRelativePath = getClaudeRelativePath(path);
+
+  // Show view button for .claude/ files or any markdown file
+  const showViewButton = claudeRelativePath || isMarkdownFile(path);
+
   const handleViewFile = () => {
+    if (!showViewButton) return;
+
     if (claudeRelativePath) {
-      void FileViewDialog.show({
-        filePath: path,
+      // Claude file - use relativePath
+      openFile({
+        path,
         relativePath: claudeRelativePath,
+      });
+    } else if (attemptId) {
+      // Worktree file - use attemptId
+      openFile({
+        path,
+        attemptId,
       });
     }
   };
@@ -117,6 +134,7 @@ const FileChangeRenderer = ({
         defaultExpanded={defaultExpanded}
         statusAppearance={statusAppearance}
         forceExpanded={forceExpanded}
+        attemptId={attemptId}
       />
     );
   }
@@ -168,33 +186,33 @@ const FileChangeRenderer = ({
     <div>
       <div className={headerClass}>
         {icon}
-        <p
+        <span
           onClick={() => expandable && setExpanded()}
-          className="text-sm font-light overflow-x-auto flex-1 cursor-pointer"
+          className="text-sm font-light overflow-x-auto cursor-pointer inline-flex items-center gap-1"
         >
           {titleNode}
-        </p>
-        {/* View file link for ~/.claude/ paths */}
-        {claudeRelativePath && (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleViewFile();
-                  }}
-                  className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors p-0.5"
-                  aria-label="View file"
-                >
-                  <ExternalLink className="h-3 w-3" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>View file</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        )}
+          {/* View file link for .claude/ paths or markdown files */}
+          {showViewButton && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleViewFile();
+                    }}
+                    className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors p-0.5"
+                    aria-label="View file"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>View file</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </span>
       </div>
 
       {/* Body */}

@@ -38,13 +38,14 @@ import PendingQuestionEntry from './PendingQuestionEntry';
 import { NextActionCard } from './NextActionCard';
 import { cn } from '@/lib/utils';
 import { useRetryUi } from '@/contexts/RetryUiContext';
-import { FileViewDialog } from '@/components/dialogs';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { isMarkdownFile } from '@/utils/fileHelpers';
+import { useFileViewer } from '@/contexts/FileViewerContext';
 
 type Props = {
   entry: NormalizedEntry | ProcessStartPayload;
@@ -443,8 +444,10 @@ const ToolCallCard: React.FC<{
   entry: NormalizedEntry | ProcessStartPayload;
   expansionKey: string;
   forceExpanded?: boolean;
-}> = ({ entry, expansionKey, forceExpanded = false }) => {
+  attemptId?: string;
+}> = ({ entry, expansionKey, forceExpanded = false, attemptId }) => {
   const { t } = useTranslation('common');
+  const { openFile } = useFileViewer();
 
   // Determine if this is a NormalizedEntry with tool_use
   const isNormalizedEntry = 'entry_type' in entry;
@@ -490,18 +493,31 @@ const ToolCallCard: React.FC<{
   const hasArgs = isTool && !!actionType.arguments;
   const hasResult = isTool && !!actionType.result;
 
-  // File read with .claude/ path detection for view file link
+  // File read with path detection for view file link
   const isFileRead = actionType?.action === 'file_read';
   const fileReadPath = isFileRead ? actionType.path : null;
   const claudeRelativePath = fileReadPath
     ? getClaudeRelativePath(fileReadPath)
     : null;
 
+  // Show view button for .claude/ files or any markdown file
+  const showViewButton =
+    fileReadPath && (claudeRelativePath || isMarkdownFile(fileReadPath));
+
   const handleViewFile = () => {
-    if (fileReadPath && claudeRelativePath) {
-      void FileViewDialog.show({
-        filePath: fileReadPath,
+    if (!fileReadPath || !showViewButton) return;
+
+    if (claudeRelativePath) {
+      // Claude file - use relativePath
+      openFile({
+        path: fileReadPath,
         relativePath: claudeRelativePath,
+      });
+    } else if (attemptId) {
+      // Worktree file - use attemptId
+      openFile({
+        path: fileReadPath,
+        attemptId,
       });
     }
   };
@@ -532,38 +548,40 @@ const ToolCallCard: React.FC<{
   return (
     <div className="inline-block w-full flex flex-col gap-4">
       <HeaderWrapper {...headerProps} className={headerClassName}>
-        <span className=" min-w-0 flex items-center gap-1.5">
+        <span className="min-w-0 flex items-center gap-1.5">
           <span>
             {entryType && getStatusIndicator(entryType)}
             {entryType && getEntryIcon(entryType)}
           </span>
           {showInlineSummary ? (
-            <span className="font-light">{inlineText}</span>
+            <span className="font-light inline-flex items-center gap-1">
+              {inlineText}
+              {/* View file link for .claude/ paths or markdown files */}
+              {showViewButton && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleViewFile();
+                        }}
+                        className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors p-0.5"
+                        aria-label="View file"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>View file</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+            </span>
           ) : (
             <span className="font-normal">{label}</span>
           )}
         </span>
-        {/* View file link for ~/.claude/ paths */}
-        {claudeRelativePath && (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleViewFile();
-                  }}
-                  className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors p-0.5"
-                  aria-label="View file"
-                >
-                  <ExternalLink className="h-3 w-3" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>View file</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        )}
       </HeaderWrapper>
 
       {effectiveExpanded && (
@@ -777,7 +795,11 @@ function DisplayConversationEntry({
   if (isProcessStart(entry)) {
     return (
       <div className={greyed ? 'opacity-50 pointer-events-none' : undefined}>
-        <ToolCallCard entry={entry} expansionKey={expansionKey} />
+        <ToolCallCard
+          entry={entry}
+          expansionKey={expansionKey}
+          attemptId={taskAttempt?.id}
+        />
       </div>
     );
   }
@@ -855,6 +877,7 @@ function DisplayConversationEntry({
                 defaultExpanded={defaultExpanded}
                 statusAppearance={statusAppearance}
                 forceExpanded={isPendingApproval || isPendingQuestion}
+                attemptId={taskAttempt?.id}
               />
             ))}
           </div>
@@ -877,6 +900,7 @@ function DisplayConversationEntry({
           entry={entry}
           expansionKey={expansionKey}
           forceExpanded={isPendingApproval || isPendingQuestion}
+          attemptId={taskAttempt?.id}
         />
       );
     })();

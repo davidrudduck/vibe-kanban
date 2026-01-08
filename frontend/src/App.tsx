@@ -29,6 +29,8 @@ import { SearchProvider } from '@/contexts/SearchContext';
 import { HotkeysProvider } from 'react-hotkeys-hook';
 
 import { ProjectProvider } from '@/contexts/ProjectContext';
+import { FileViewerProvider } from '@/contexts/FileViewerContext';
+import { FileViewerContainer } from '@/components/files';
 import { ThemeMode } from 'shared/types';
 
 import { DisclaimerDialog } from '@/components/dialogs/global/DisclaimerDialog';
@@ -93,8 +95,10 @@ function AppContent() {
       <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>
         <FontProvider initialFonts={config?.fonts}>
           <SearchProvider>
-            <div className="h-screen flex flex-col bg-background">
-              <Routes>
+            <div className="h-screen flex flex-row bg-background">
+              {/* Main content area - takes remaining space */}
+              <div className="flex-1 min-w-0 flex flex-col">
+                <Routes>
                 {/* VS Code full-page logs route (outside NormalLayout for minimal UI) */}
                 <Route
                   path="/projects/:projectId/tasks/:taskId/attempts/:attemptId/full"
@@ -140,6 +144,9 @@ function AppContent() {
                   />
                 </Route>
               </Routes>
+              </div>
+              {/* File viewer side panel - renders alongside content on desktop */}
+              <FileViewerContainer />
             </div>
           </SearchProvider>
         </FontProvider>
@@ -154,11 +161,13 @@ function App() {
       <UserSystemProvider>
         <ClickedElementsProvider>
           <ProjectProvider>
-            <HotkeysProvider initiallyActiveScopes={['*', 'global', 'kanban']}>
-              <NiceModal.Provider>
-                <AppContent />
-              </NiceModal.Provider>
-            </HotkeysProvider>
+            <FileViewerProvider>
+              <HotkeysProvider initiallyActiveScopes={['*', 'global', 'kanban']}>
+                <NiceModal.Provider>
+                  <AppContent />
+                </NiceModal.Provider>
+              </HotkeysProvider>
+            </FileViewerProvider>
           </ProjectProvider>
         </ClickedElementsProvider>
       </UserSystemProvider>

@@ -10,3 +10,7 @@ export {
   parseFilePath,
   FILE_PATH_REGEX,
 } from './FileLink';
+export { FileViewerSheet } from './FileViewerSheet';
+export type { FileViewerSheetProps } from './FileViewerSheet';
+export { FileViewerSidePanel } from './FileViewerSidePanel';
+export { FileViewerContainer } from './FileViewerContainer';
