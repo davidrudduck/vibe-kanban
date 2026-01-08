@@ -82,19 +82,28 @@ export function FileViewerSidePanel() {
 
   const content = fileData?.content || null;
 
-  // Handle escape key
+  // Handle keyboard shortcuts
   useEffect(() => {
     if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape to close panel
       if (e.key === 'Escape') {
         closePanel();
+        return;
+      }
+
+      // Cmd/Ctrl+R to refresh file content
+      if ((e.metaKey || e.ctrlKey) && e.key === 'r') {
+        e.preventDefault(); // Prevent browser refresh
+        refetch();
+        return;
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, closePanel]);
+  }, [isOpen, closePanel, refetch]);
 
   // Copy content to clipboard
   const handleCopy = useCallback(async () => {
