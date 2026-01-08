@@ -1,0 +1,65 @@
+---
+title: "Task Sorting"
+description: "How tasks are sorted in each kanban column and how to customize sort order"
+---
+
+Tasks in Vibe Kanban are automatically sorted within each column to help you prioritize your work effectively. Each column uses a sorting strategy optimized for its workflow purpose.
+
+## How Tasks Are Sorted
+
+Each kanban column sorts tasks based on the most relevant timestamp for that workflow stage:
+
+### Todo Column
+
+- **Default**: Oldest first (by creation date)
+- **Rationale**: Implements a FIFO (First In, First Out) queue—older tasks should be addressed before newer ones
+- **Timestamp used**: `created_at`
+
+### In-Progress Column
+
+- **Default**: Oldest first (by execution start time)
+- **Rationale**: Shows longest-running tasks at the top, helping identify work that may be stuck or needs attention
+- **Timestamp used**: `latest_execution_started_at` (falls back to `created_at` if no execution has started)
+
+### Done / In-Review / Cancelled Columns
+
+- **Default**: Oldest first (by execution completion time)
+- **Rationale**: Maintains historical order, with earliest completed tasks at the top
+- **Timestamp used**: `latest_execution_completed_at` (falls back to `created_at` if no completion timestamp exists)
+
+## Reversing Sort Order
+
+Click any column header to toggle the sort direction:
+
+- **First click**: Changes to newest first (descending order)
+- **Second click**: Returns to oldest first (ascending order)
+
+A visual indicator (arrow icon) appears next to the column name showing the current sort direction:
+- **↑** (Arrow up): Oldest first (ascending)
+- **↓** (Arrow down): Newest first (descending)
+
+<Note>
+Each column maintains its own sort direction independently. Changing the sort order of one column does not affect other columns.
+</Note>
+
+## Mobile Experience
+
+Sorting behavior is consistent across all device sizes:
+
+- **Desktop**: Click column headers in the kanban board view
+- **Tablet**: Same column header interaction
+- **Mobile**: Column headers remain interactive in the mobile kanban view
+
+## Execution-Based Sorting
+
+The In-Progress and completed columns use timestamps from execution processes (coding agent runs) rather than simple task timestamps. This provides more accurate sorting based on actual work activity:
+
+- Only **coding agent** executions are considered (not monitoring or other process types)
+- **Dropped** executions are excluded from timestamp calculations
+- If a task has multiple execution attempts, the most recent execution's timestamps are used
+
+## Related Documentation
+
+- [Task Cards](/core-features/task-cards) - Understanding task card information and actions
+- [Monitoring Task Execution](/core-features/monitoring-task-execution) - How execution processes work
+- [Architecture: Task Sorting Implementation](/architecture/task-sorting-implementation) - Technical implementation details
