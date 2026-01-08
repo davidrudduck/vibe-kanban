@@ -225,32 +225,29 @@ async fn run_periodic_reconciliation(&self) -> Result<u32, BackfillError> {
 
 ### Database Schema
 
+The backfill tracking uses a state machine approach with a `sync_state` column:
+
 ```sql
--- PostgreSQL: node_task_attempts table
-CREATE TABLE node_task_attempts (
-    id UUID PRIMARY KEY,
-    node_id UUID NOT NULL REFERENCES nodes(id),
-    shared_task_id UUID NOT NULL REFERENCES shared_tasks(id),
-    executor TEXT NOT NULL,
-    branch TEXT,
-    target_branch TEXT,
+-- PostgreSQL: Backfill tracking columns on node_task_attempts
+ALTER TABLE node_task_attempts
+ADD COLUMN sync_state VARCHAR(20) NOT NULL DEFAULT 'partial',
+ADD COLUMN sync_requested_at TIMESTAMPTZ,
+ADD COLUMN last_full_sync_at TIMESTAMPTZ;
 
-    -- Backfill tracking
-    pending_backfill BOOLEAN DEFAULT FALSE,
-    pending_backfill_at TIMESTAMPTZ,
+-- sync_state values:
+--   'partial'          - Initial state, data may be incomplete
+--   'pending_backfill' - Backfill requested, awaiting node response
+--   'complete'         - All data confirmed synchronized
 
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Index for finding pending backfills
-CREATE INDEX idx_node_task_attempts_pending_backfill
-ON node_task_attempts(node_id) WHERE pending_backfill = TRUE;
-
--- Index for finding incomplete attempts
+-- Index for finding incomplete attempts (for periodic reconciliation)
 CREATE INDEX idx_node_task_attempts_incomplete
-ON node_task_attempts(node_id, created_at)
-WHERE pending_backfill = FALSE;
+ON node_task_attempts (node_id, sync_state)
+WHERE sync_state != 'complete';
+
+-- Index for finding attempts pending backfill (to avoid duplicate requests)
+CREATE INDEX idx_node_task_attempts_pending
+ON node_task_attempts (node_id)
+WHERE sync_state = 'pending_backfill';
 ```
 
 ## Node-Side Implementation
