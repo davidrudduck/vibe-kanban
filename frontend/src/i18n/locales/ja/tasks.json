@@ -463,6 +463,11 @@
     "execution": "実行",
     "createAndStart": "作成して開始"
   },
+  "sorting": {
+    "ascending": "古い順",
+    "descending": "新しい順",
+    "sortBy": "{{column}}で並び替え、現在{{direction}}"
+  },
   "templatePicker": {
     "title": "テンプレートを挿入",
     "searchPlaceholder": "テンプレートを検索...",
