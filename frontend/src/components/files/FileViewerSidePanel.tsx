@@ -18,16 +18,36 @@ import { fileBrowserApi } from '@/lib/api';
 import { useFileViewer } from '@/contexts/FileViewerContext';
 import { cn } from '@/lib/utils';
 
+/** localStorage key for persisting panel width preference */
 const STORAGE_KEY = 'file-viewer-panel-width';
+/** Minimum allowed panel width in pixels */
 const MIN_WIDTH = 300;
+/** Maximum allowed panel width in pixels */
 const MAX_WIDTH = 600;
+/** Default panel width in pixels when no preference is stored */
 const DEFAULT_WIDTH = 400;
 
 /**
  * Desktop/tablet side panel for viewing files.
  * Slides in from the right with a resizable width (300-600px).
- * Width preference is persisted in localStorage.
- * Supports viewing multiple files with a dropdown selector.
+ *
+ * Features:
+ * - Resizable panel width with drag handle (persisted to localStorage)
+ * - Multiple file support with dropdown selector
+ * - Toggle between rendered markdown preview and raw source view
+ * - Copy to clipboard functionality
+ * - Refresh button to reload file content
+ * - Keyboard shortcuts: Escape to close, Cmd/Ctrl+R to refresh
+ * - Loading and error states
+ *
+ * Uses FileViewerContext for state management, so must be rendered
+ * within a FileViewerProvider.
+ *
+ * @example
+ * ```tsx
+ * // Typically used within FileViewerContainer
+ * <FileViewerSidePanel />
+ * ```
  */
 export function FileViewerSidePanel() {
   const {
@@ -310,7 +330,10 @@ export function FileViewerSidePanel() {
 }
 
 /**
- * Get language identifier from filename for syntax highlighting.
+ * Determine the language identifier from a filename for syntax highlighting.
+ *
+ * @param filename - The name of the file (e.g., "example.tsx")
+ * @returns The language identifier (e.g., "typescript") or "text" if unknown
  */
 function getLanguageFromFilename(filename: string): string {
   const ext = filename.split('.').pop()?.toLowerCase();

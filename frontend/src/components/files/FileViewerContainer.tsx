@@ -7,10 +7,30 @@ import { FileViewerSidePanel } from './FileViewerSidePanel';
 
 /**
  * Container component that routes between mobile and desktop file viewers.
+ *
+ * Responsive breakpoints:
  * - Mobile (< 640px): Renders FileViewerSheet (full-screen bottom sheet)
  * - Desktop (>= 640px): Renders FileViewerSidePanel (side panel)
  *
- * Uses useMediaQuery for responsive detection with seamless transitions on resize.
+ * Features:
+ * - Automatic responsive switching using useMediaQuery hook
+ * - Seamless transitions when resizing viewport
+ * - Handles file content fetching for mobile view
+ * - Desktop panel handles its own data fetching for better performance
+ *
+ * Uses FileViewerContext for state management, so must be rendered
+ * within a FileViewerProvider.
+ *
+ * @example
+ * ```tsx
+ * // Add to your main layout alongside the content area
+ * <div className="flex">
+ *   <main className="flex-1">
+ *     <Routes>...</Routes>
+ *   </main>
+ *   <FileViewerContainer />
+ * </div>
+ * ```
  */
 export function FileViewerContainer() {
   const isMobile = useMediaQuery('(max-width: 639px)');

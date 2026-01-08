@@ -13,23 +13,60 @@ import FileContentView from '@/components/NormalizedConversation/FileContentView
 import { writeClipboardViaBridge } from '@/vscode/bridge';
 import { cn } from '@/lib/utils';
 
+/** Minimum drag distance in pixels required to close the sheet */
 const DRAG_CLOSE_THRESHOLD = 100;
 
+/**
+ * Display mode for file content.
+ * - 'preview': Rendered markdown with formatting
+ * - 'raw': Plain text source view
+ */
 type ViewMode = 'preview' | 'raw';
 
+/**
+ * Props for the FileViewerSheet component.
+ */
 export interface FileViewerSheetProps {
+  /** Whether the sheet is open/visible */
   open: boolean;
+  /** Callback fired when the sheet should close */
   onClose: () => void;
+  /** Name of the file being displayed (used for title and language detection) */
   fileName: string;
+  /** File content to display, or null if not yet loaded */
   content: string | null;
+  /** Language identifier for syntax highlighting (defaults to detection from fileName) */
   language?: string;
+  /** Whether file content is currently loading */
   isLoading?: boolean;
+  /** Error that occurred while loading the file, if any */
   error?: Error | null;
 }
 
 /**
  * Full-screen mobile file viewer sheet component.
- * Slides up from bottom with swipe-to-close gesture support.
+ * Slides up from bottom of the screen with swipe-to-close gesture support.
+ *
+ * Features:
+ * - Full viewport height (100dvh) for maximum content visibility
+ * - Drag handle at top for intuitive swipe-to-close gesture
+ * - Toggle between rendered markdown preview and raw source view
+ * - Copy to clipboard functionality
+ * - Loading and error states
+ * - Escape key to close
+ * - Backdrop click to close
+ *
+ * @example
+ * ```tsx
+ * <FileViewerSheet
+ *   open={isOpen}
+ *   onClose={() => setIsOpen(false)}
+ *   fileName="README.md"
+ *   content={fileContent}
+ *   isLoading={isLoading}
+ *   error={error}
+ * />
+ * ```
  */
 export function FileViewerSheet({
   open,
