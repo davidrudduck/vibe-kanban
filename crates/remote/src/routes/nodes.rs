@@ -1077,7 +1077,7 @@ pub async fn list_task_attempts_by_shared_task(
 
 /// Response for getting a single node task attempt
 #[derive(Debug, Serialize)]
-pub struct GetNodeTaskAttemptResponse {
+pub struct NodeTaskAttemptResponse {
     pub attempt: NodeTaskAttempt,
     pub executions: Vec<NodeExecutionProcess>,
     /// Whether all executions are in a terminal state (complete/failed/killed)
@@ -1196,7 +1196,7 @@ pub async fn get_node_task_attempt(
         matches!(e.status.as_str(), "completed" | "failed" | "killed")
     });
 
-    let response = GetNodeTaskAttemptResponse {
+    let response = NodeTaskAttemptResponse {
         attempt,
         executions,
         is_complete,

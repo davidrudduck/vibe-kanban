@@ -1457,11 +1457,11 @@ async fn handle_backfill_response(
 
         // Reset pending_backfill state to partial so it can be retried
         let repo = NodeTaskAttemptRepository::new(pool);
-        if let Err(e) = repo.reset_stale_pending_backfill(0).await {
+        if let Err(e) = repo.reset_failed_backfill(node_id).await {
             tracing::error!(
                 node_id = %node_id,
                 error = %e,
-                "failed to reset pending backfill state"
+                "failed to reset failed backfill state"
             );
         }
     }
