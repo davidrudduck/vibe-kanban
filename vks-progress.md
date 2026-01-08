@@ -1,14 +1,23 @@
 **VK-Swarm Task ID**: `8a7151ce-f9df-4557-9c59-d81a3cb84eb3`
 
 ## 📊 Current Status
-Progress: 3/10 tasks (30%)
-Completed Tasks: 3/10
-Current Task: #004 - Add reset_attempt_to_partial Repository Method
+Progress: 4/10 tasks (40%)
+Completed Tasks: 4/10
+Current Task: #005 - Add Tracker Getter to AppState
 
 ## 🎯 Known Issues & Blockers
 - None
 
 ## 📝 Recent Sessions
+
+### Session 4 (2026-01-09) - Task 004: Add reset_attempt_to_partial Repository Method
+**Completed:** Task #004 - Repository Method
+**Key Changes:**
+- Added `reset_attempt_to_partial(&self, id: Uuid) -> Result<bool, NodeTaskAttemptError>` method
+- SQL: `UPDATE node_task_attempts SET sync_state = 'partial', sync_requested_at = NULL WHERE id = $1 AND sync_state = 'pending_backfill'`
+- Returns true if row updated, false otherwise
+- All 54 tests pass, clippy clean
+**Git Commits:** f0c80050d
 
 ### Session 3 (2026-01-09) - Task 003: Integrate Tracker into BackfillService
 **Completed:** Task #003 - BackfillService Integration
