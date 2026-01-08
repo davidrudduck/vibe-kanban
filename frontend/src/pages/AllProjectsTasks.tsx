@@ -6,7 +6,7 @@ import { AlertTriangle } from 'lucide-react';
 import { Loader } from '@/components/ui/loader';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useSearch } from '@/contexts/SearchContext';
-import { useAllTasks, useIsMobile } from '@/hooks';
+import { useAllTasks, useIsMobile, useColumnSortState } from '@/hooks';
 import { paths } from '@/lib/paths';
 import {
   KanbanBoard,
@@ -18,6 +18,7 @@ import { statusBoardColors, statusLabels } from '@/utils/statusLabels';
 import { AllProjectsTaskCard } from '@/components/tasks/AllProjectsTaskCard';
 import MobileAllProjectsKanban from '@/components/tasks/MobileAllProjectsKanban';
 import type { TaskWithProjectInfo, TaskStatus } from 'shared/types';
+import { sortTasksByStatus } from '@/lib/taskSorting';
 
 const TASK_STATUSES = [
   'todo',
@@ -37,6 +38,9 @@ export function AllProjectsTasks() {
   const isMobile = useIsMobile();
 
   const { tasks, isLoading, error } = useAllTasks();
+
+  // Sort state for kanban columns
+  const { sortDirections, toggleDirection } = useColumnSortState();
 
   const hasSearch = Boolean(searchQuery.trim());
   const normalizedSearch = searchQuery.trim().toLowerCase();
@@ -75,27 +79,13 @@ export function AllProjectsTasks() {
       columns[statusKey].push(task);
     });
 
-    // Helper: get activity time (fallback to created_at)
-    const getActivityTime = (task: TaskWithProjectInfo) =>
-      new Date(
-        ((task.activity_at ?? task.created_at) as string | Date).toString()
-      ).getTime();
-
-    // Apply status-aware sorting:
-    // - Todo: oldest first (FIFO queue - prevents older tasks from being buried)
-    // - All others: most recent activity first
+    // Apply status-aware sorting using centralized utility
     TASK_STATUSES.forEach((status) => {
-      if (status === 'todo') {
-        // Todo: oldest first (ascending by activity_at)
-        columns[status].sort((a, b) => getActivityTime(a) - getActivityTime(b));
-      } else {
-        // All others: most recent first (descending by activity_at)
-        columns[status].sort((a, b) => getActivityTime(b) - getActivityTime(a));
-      }
+      columns[status] = sortTasksByStatus(columns[status], sortDirections[status]);
     });
 
     return columns;
-  }, [tasks, hasSearch, normalizedSearch]);
+  }, [tasks, hasSearch, normalizedSearch, sortDirections]);
 
   const hasVisibleTasks = useMemo(
     () =>
@@ -174,6 +164,8 @@ export function AllProjectsTasks() {
               <KanbanHeader
                 name={statusLabels[status]}
                 color={statusBoardColors[status]}
+                sortDirection={sortDirections[status]}
+                onSortToggle={() => toggleDirection(status)}
               />
               <KanbanCards>
                 {items.map((task, index) => (
