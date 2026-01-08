@@ -11,6 +11,7 @@ set -e
 # Configuration
 FRONTEND_PORT=${FRONTEND_PORT:-4000}
 BACKEND_PORT=${BACKEND_PORT:-4001}
+MCP_PORT=${MCP_PORT:-4002}
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Colors for output
