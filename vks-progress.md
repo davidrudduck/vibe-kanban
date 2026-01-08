@@ -1,14 +1,29 @@
 **VK-Swarm Task ID**: `4a7a450e-2a38-4f67-bda1-edc7786729ad`
 
 ## 📊 Current Status
-Progress: 6/12 tasks (50%)
-Completed Tasks: 001, 002, 003, 004, 005, 006
-Current Task: #007 - Await normalization handles before finalization
+Progress: 7/12 tasks (58%)
+Completed Tasks: 001, 002, 003, 004, 005, 006, 007
+Current Task: #008 - Write tests for MCP failure status
 
 ## 🎯 Known Issues & Blockers
 - None
 
 ## 📝 Recent Sessions
+
+### Session 7 (2026-01-09) - Task 007: Await normalization handles before finalization
+**Completed:** Task #007
+**Key Changes:**
+- Added `normalization_handles` HashMap to `LocalContainerService` struct
+- Added `store_normalization_handle()` and `take_normalization_handle()` methods
+- Updated `spawn_exit_monitor` to await normalization handle (5s timeout) before `push_finished()`
+- Updated `stop_execution` to await normalization handle (5s timeout) before `push_finished()`
+- Removed the 50ms sleep that was insufficient for race condition
+- Added trait methods to `ContainerService` for normalization handle management
+- Updated `try_start_action()` to store handle when calling `executor.normalize_logs()`
+- All Task 005 tests pass (5 tests)
+- All local-deployment tests pass (10 tests)
+- Clippy passes with no warnings
+**Git Commits:** 5b1b44c24
 
 ### Session 6 (2026-01-09) - Task 006: Modify normalize_logs to return JoinHandle
 **Completed:** Task #006
@@ -34,7 +49,11 @@ Current Task: #007 - Await normalization handles before finalization
 - `test_normalization_malformed_input` - Edge case: malformed JSON skipped gracefully [PASS]
 - Tests document expected behavior for Task 006/007 synchronization fix
 - Current container.rs uses 50ms sleep which may be insufficient; tests use proper completion checking
-**Git Commits:** (pending)
+**Git Commits:** 4e72d6b13
+
+---
+
+## Archived Sessions
 
 ### Session 4 (2026-01-09) - Task 004: Add LogBatcher to Container and call finish on exit
 **Completed:** Task #004
@@ -44,7 +63,7 @@ Current Task: #007 - Await normalization handles before finalization
 - Both calls happen before `push_finished()` to ensure logs are flushed before signaling completion
 - `LocalContainerService` already had `log_batcher` field - no structural changes needed
 - All tests pass: local-deployment (10), services log_batcher_test (3), services, db, utils (69)
-**Git Commits:** 979addc9a
+**Git Commits:** 3e160932c
 
 ### Session 3 (2026-01-09) - Task 003: Write test for log batcher finish signal
 **Completed:** Task #003
@@ -55,7 +74,7 @@ Current Task: #007 - Await normalization handles before finalization
 - `test_finish_no_pending` - finish() on empty buffer is safe [PASS]
 - Tests confirm LogBatcher::finish() implementation already works correctly
 - Discovered: FK constraint requires full entity hierarchy (project -> task -> task_attempt -> execution_process) for log tests
-**Git Commits:** 2c38e9926
+**Git Commits:** fd8487611
 
 ### Session 2 (2026-01-08) - Task 002: Verify tests for .env loading
 **Completed:** Task #002
@@ -64,7 +83,7 @@ Current Task: #007 - Await normalization handles before finalization
 - No new tests required - `test_database_path_env_override`, `test_database_path_default`, and `test_database_path_tilde_expansion` cover the requirements
 - Ran `cargo test -p utils` - all 69 tests pass
 - Documented rationale in task file
-**Git Commits:** 3e3728b42
+**Git Commits:** ac826cd32
 
 ### Session 1 (2026-01-08) - Task 001: dotenvy fix for migrate_logs
 **Completed:** Task #001
@@ -72,23 +91,22 @@ Current Task: #007 - Await normalization handles before finalization
 - Added `dotenvy::dotenv().ok();` to `migrate_logs.rs` before tracing init
 - Migration tool now respects `VK_DATABASE_PATH` from `.env` files
 - Verified build passes, existing tests pass (3 tests in utils::assets)
-**Git Commits:** bcc4e2976
+**Git Commits:** 0530c3b9d
 
 ---
 
-## Session 0 - Initialization (archived)
+## Task Progress
 
-### Progress Summary
-Set up the development environment and decomposed the executor logging bug fix plan into 12 actionable tasks.
+### Completed
+- [x] 001.md - Add dotenvy call to migrate_logs binary (XS) ✅
+- [x] 002.md - Write tests for .env loading in migrate_logs (S) ✅
+- [x] 003.md - Write test for log batcher finish signal (S) ✅
+- [x] 004.md - Add LogBatcher to Container and call finish on exit (M) ✅
+- [x] 005.md - Write test for normalization completion synchronization (S) ✅
+- [x] 006.md - Modify normalize_logs to return JoinHandle (S) ✅
+- [x] 007.md - Await normalization handles before finalization (M) ✅
 
-### Tasks Created
-- [x] 001.md - Add dotenvy call to migrate_logs binary (XS) ✅ DONE
-- [x] 002.md - Write tests for .env loading in migrate_logs (S) ✅ DONE
-- [x] 003.md - Write test for log batcher finish signal (S) ✅ DONE
-- [x] 004.md - Add LogBatcher to Container and call finish on exit (M) ✅ DONE
-- [x] 005.md - Write test for normalization completion synchronization (S) ✅ DONE
-- [x] 006.md - Modify normalize_logs to return JoinHandle (S) ✅ DONE
-- [ ] 007.md - Await normalization handles before finalization (M) - depends on 004, 006
+### Remaining
 - [ ] 008.md - Write tests for MCP failure status (S)
 - [ ] 009.md - Fix Cursor MCP status assignment (XS) - depends on 008
 - [ ] 010.md - Audit and remove dead code in Copilot executor (S)
@@ -114,6 +132,6 @@ Session 5 (Cleanup):      010 (independent)
 - `FRONTEND_PORT`: 6500
 - `BACKEND_PORT`: 6501
 - `SESSION`: 1
-- `TASK`: 005 (done)
+- `TASK`: 008
 - `TASKS`: .claude/tasks/golden-singing-manatee
 - `TASKSMAX`: 012
