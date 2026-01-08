@@ -95,9 +95,10 @@ function AppContent() {
       <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>
         <FontProvider initialFonts={config?.fonts}>
           <SearchProvider>
-            <div className="h-screen flex flex-col bg-background">
-              <FileViewerContainer />
-              <Routes>
+            <div className="h-screen flex flex-row bg-background">
+              {/* Main content area - takes remaining space */}
+              <div className="flex-1 min-w-0 flex flex-col">
+                <Routes>
                 {/* VS Code full-page logs route (outside NormalLayout for minimal UI) */}
                 <Route
                   path="/projects/:projectId/tasks/:taskId/attempts/:attemptId/full"
@@ -143,6 +144,9 @@ function AppContent() {
                   />
                 </Route>
               </Routes>
+              </div>
+              {/* File viewer side panel - renders alongside content on desktop */}
+              <FileViewerContainer />
             </div>
           </SearchProvider>
         </FontProvider>
