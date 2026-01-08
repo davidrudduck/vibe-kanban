@@ -1,0 +1,158 @@
+---
+title: "File Viewer"
+description: "View and preview markdown files directly within the conversation logs"
+---
+
+When viewing task attempt logs, you can click on markdown file references to preview their contents without leaving the conversation. The file viewer adapts to your screen size, showing a full-screen sheet on mobile devices or a side panel on tablets and desktops.
+
+## Supported File Types
+
+The file viewer supports markdown files with the following extensions:
+
+- `.md` - Standard markdown
+- `.markdown` - Alternative markdown extension
+- `.mdx` - MDX (Markdown with JSX)
+
+<Info>
+The file viewer shows a clickable icon next to any markdown file reference in the conversation logs, including plan files, README files, and documentation.
+</Info>
+
+## Opening Files
+
+### From Conversation Logs
+
+When a coding agent reads or edits a markdown file, you'll see a clickable icon next to the filename:
+
+1. Look for the file reference in the conversation log (e.g., `.claude/tasks/001.md`)
+2. Click the external link icon next to the filename
+3. The file viewer opens, showing the file contents
+
+### Multiple Files
+
+When you click multiple file links, each file is added to the viewer. Use the dropdown selector to switch between open files.
+
+## Mobile Experience
+
+On mobile devices (screens narrower than 640px), the file viewer opens as a full-screen sheet:
+
+- **Slides up from bottom** - Smooth animation covers the entire screen
+- **Swipe to close** - Drag down to dismiss the sheet
+- **Bottom toolbar** - Easy access to Raw, Preview, and Copy buttons
+- **Tap outside** - Tap the dimmed backdrop to close
+
+### Mobile Controls
+
+| Control | Action |
+|---------|--------|
+| Back arrow (←) | Close the viewer |
+| X button | Close the viewer |
+| Swipe down | Close the viewer (drag 100px or swipe quickly) |
+| Tap backdrop | Close the viewer |
+
+## Desktop Experience
+
+On tablets and desktops (screens 640px or wider), the file viewer opens as a side panel:
+
+- **Slides in from right** - Appears alongside the conversation
+- **Resizable width** - Drag the left edge to adjust width (300-600px)
+- **Persistent width** - Your preferred width is saved across sessions
+- **File dropdown** - Switch between multiple open files
+
+### Desktop Controls
+
+| Control | Action |
+|---------|--------|
+| X button | Close the panel |
+| Resize handle | Drag left edge to adjust panel width |
+| File dropdown | Select from multiple open files |
+
+## Viewing Modes
+
+For markdown files, you can switch between two viewing modes:
+
+### Preview Mode (Default)
+
+Renders the markdown as formatted content:
+
+- Headings with proper hierarchy
+- Bold, italic, and code formatting
+- Links and images
+- Code blocks with syntax highlighting
+- Tables and lists
+
+### Raw Mode
+
+Shows the original markdown source code:
+
+- See the actual markdown syntax
+- Useful for understanding how content is structured
+- Syntax highlighted as markdown
+
+Toggle between modes using the **Raw/Preview** buttons (mobile) or the toggle icon (desktop).
+
+## Toolbar Actions
+
+| Action | Icon | Description |
+|--------|------|-------------|
+| Raw | `</>` | Show raw markdown source |
+| Preview | Eye | Show rendered markdown preview |
+| Copy | Copy icon | Copy file contents to clipboard |
+| Refresh | Refresh icon | Reload file from server |
+
+## Keyboard Shortcuts
+
+<Note>
+Keyboard shortcuts are available when the file viewer is open on desktop.
+</Note>
+
+| Shortcut | Action |
+|----------|--------|
+| `Esc` | Close the file viewer |
+| `Cmd/Ctrl + R` | Refresh file content |
+
+## Tips
+
+### Viewing Plan Files
+
+When reviewing a task's plan file (e.g., `.claude/tasks/plan.md`), use the file viewer to:
+
+- Read the full plan while viewing the conversation
+- Toggle to raw mode to see markdown structure
+- Copy the plan content for reference elsewhere
+
+### Side-by-Side Comparison
+
+On desktop, the side panel layout lets you:
+
+- Read file content alongside conversation logs
+- Reference documentation while understanding agent actions
+- Keep context visible while scrolling through changes
+
+### Width Persistence
+
+The desktop panel remembers your preferred width. Resize once, and it stays at that width across all file viewing sessions until you change it.
+
+## Troubleshooting
+
+### File Won't Load
+
+If a file fails to load:
+
+1. Check that the task attempt is still valid
+2. Verify the file exists in the worktree
+3. Try the Refresh button to reload
+4. The file may have been deleted by subsequent agent actions
+
+### Viewer Not Opening
+
+If clicking a file link doesn't open the viewer:
+
+1. Ensure the file has a supported extension (`.md`, `.markdown`, `.mdx`)
+2. Check that the link icon is visible next to the filename
+3. Try refreshing the page if the UI seems unresponsive
+
+## Related Documentation
+
+- [Browsing Files](/core-features/browsing-files) - Browse the full file tree
+- [Markdown Rendering](/features/markdown-rendering) - How markdown is rendered throughout the app
+- [Understanding Execution Logs](/core-features/understanding-execution-logs) - Navigate conversation logs

@@ -54,6 +54,7 @@
           "core-features/testing-your-application",
           "core-features/reviewing-code-changes",
           "core-features/browsing-files",
+          "features/file-viewer",
           "core-features/completing-a-task",
           "core-features/mobile-experience",
           "core-features/task-cards"
