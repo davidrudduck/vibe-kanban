@@ -1,14 +1,26 @@
 **VK-Swarm Task ID**: `8a7151ce-f9df-4557-9c59-d81a3cb84eb3`
 
 ## 📊 Current Status
-Progress: 2/10 tasks (20%)
-Completed Tasks: 2/10
-Current Task: #003 - Integrate Tracker into BackfillService
+Progress: 3/10 tasks (30%)
+Completed Tasks: 3/10
+Current Task: #004 - Add reset_attempt_to_partial Repository Method
 
 ## 🎯 Known Issues & Blockers
 - None
 
 ## 📝 Recent Sessions
+
+### Session 3 (2026-01-09) - Task 003: Integrate Tracker into BackfillService
+**Completed:** Task #003 - BackfillService Integration
+**Key Changes:**
+- Added `tracker: Arc<BackfillRequestTracker>` field to BackfillService
+- Initialized tracker in `BackfillService::new()`
+- Added `tracker()` getter method returning Arc clone
+- Integrated `tracker.track()` calls in `request_immediate_backfill()` and `request_batch_backfill()`
+- Added stale request cleanup in `run_periodic_reconciliation()`
+- Added `test_backfill_service_tracks_requests` integration test
+- All 4 backfill tests pass, clippy clean
+**Git Commits:** f64dee6d9, df8524914
 
 ### Session 2 (2026-01-09) - Task 002: BackfillRequestTracker Implementation
 **Completed:** Task #002 - TDD GREEN phase
@@ -48,8 +60,8 @@ Initialized the development environment and decomposed the backfill request trac
 
 ### Tasks Created
 - [x] 001.md - BackfillRequestTracker Core Tests (TDD RED phase)
-- [ ] 002.md - BackfillRequestTracker Implementation (TDD GREEN phase)
-- [ ] 003.md - Integrate Tracker into BackfillService
+- [x] 002.md - BackfillRequestTracker Implementation (TDD GREEN phase)
+- [x] 003.md - Integrate Tracker into BackfillService
 - [ ] 004.md - Add reset_attempt_to_partial Repository Method (parallel)
 - [ ] 005.md - Add Tracker Getter to AppState
 - [ ] 006.md - Update handle_backfill_response with Tracking
