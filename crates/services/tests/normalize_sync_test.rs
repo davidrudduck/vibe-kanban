@@ -328,6 +328,9 @@ async fn test_normalization_timeout() {
 /// - Task 006: normalize_logs returns JoinHandle<()>
 /// - Task 007: Await normalization handles before finalization
 /// This ensures we wait for actual completion rather than an arbitrary timeout.
+///
+/// After Task 006/007, normalize_logs returns JoinHandle<()> which we can await
+/// to ensure normalization completes before checking results.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_fast_execution_no_lost_logs() {
     let (_pool, _temp_dir) = setup_test_db().await;
@@ -336,9 +339,9 @@ async fn test_fast_execution_no_lost_logs() {
     let profile_id = ExecutorProfileId::new(BaseCodingAgent::ClaudeCode);
     let executor = ExecutorConfigs::get_cached().get_coding_agent_or_default(&profile_id);
 
-    // Start normalization
+    // Start normalization - now returns JoinHandle<()> per Task 006
     let worktree_path = PathBuf::from("/");
-    executor.normalize_logs(msg_store.clone(), &worktree_path);
+    let norm_handle = executor.normalize_logs(msg_store.clone(), &worktree_path);
 
     // Simulate a very fast execution: single message, immediate finish
     let msg = claude_assistant_message("Quick response.", "msg_001");
@@ -347,10 +350,12 @@ async fn test_fast_execution_no_lost_logs() {
     // Immediately signal finish (simulating fast execution completion)
     msg_store.push_finished();
 
-    // Wait for normalization with proper completion checking
-    // In production, container.rs uses 50ms sleep which may be insufficient.
-    // After Task 006/007, this will be replaced with awaiting JoinHandle.
-    let patch_count = wait_for_patches_stable(&msg_store, 1000).await;
+    // Await the normalization handle with timeout (per Task 007 pattern)
+    // This is the same pattern used in container.rs for production code
+    let _ = tokio::time::timeout(Duration::from_secs(5), norm_handle).await;
+
+    // Now check results - normalization is complete
+    let patch_count = count_json_patches(&msg_store);
 
     // Verify the single message was normalized
     assert!(
@@ -418,7 +423,7 @@ async fn test_normalization_malformed_input() {
     // Push mix of valid and invalid input
     msg_store.push_stdout("not valid json at all");
     msg_store.push_stdout("{broken json");
-    msg_store.push_stdout(&claude_assistant_message("Valid message", "msg_001"));
+    msg_store.push_stdout(claude_assistant_message("Valid message", "msg_001"));
     msg_store.push_stdout("more garbage");
 
     msg_store.push_finished();
