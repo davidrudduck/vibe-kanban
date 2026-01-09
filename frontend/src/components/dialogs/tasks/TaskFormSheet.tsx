@@ -143,6 +143,8 @@ const TaskFormSheetImpl = NiceModal.create<TaskFormSheetProps>((props) => {
   // Template picker state
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [customTemplates, setCustomTemplates] = useState<PickerTemplate[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [templateError, setTemplateError] = useState<string | null>(null);
 
   const { data: branches, isLoading: branchesLoading } =
     useProjectBranches(projectId);
@@ -514,22 +516,39 @@ const TaskFormSheetImpl = NiceModal.create<TaskFormSheetProps>((props) => {
 
   // Fetch templates when picker opens
   useEffect(() => {
-    if (showTemplatePicker) {
-      templatesApi
-        .list()
-        .then((templates) => {
-          setCustomTemplates(
-            templates.map((t) => ({
-              id: t.id,
-              name: t.template_name,
-              description: `@${t.template_name}`,
-              content: t.content,
-            }))
-          );
-        })
-        .catch(console.error);
-    }
-  }, [showTemplatePicker]);
+    if (!showTemplatePicker) return;
+
+    let cancelled = false;
+    setLoadingTemplates(true);
+    setTemplateError(null);
+
+    templatesApi
+      .list()
+      .then((templates) => {
+        if (cancelled) return;
+        setCustomTemplates(
+          templates.map((tmpl) => ({
+            id: tmpl.id,
+            name: tmpl.template_name,
+            description: `@${tmpl.template_name}`,
+            content: tmpl.content,
+          }))
+        );
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('Failed to load templates:', err);
+        setTemplateError(t('templatePicker.loadError', 'Failed to load templates'));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoadingTemplates(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showTemplatePicker, t]);
 
   // Template selection handler
   const handleTemplateSelect = useCallback(
@@ -1120,6 +1139,8 @@ const TaskFormSheetImpl = NiceModal.create<TaskFormSheetProps>((props) => {
         onSelect={handleTemplateSelect}
         customTemplates={customTemplates}
         showDefaults={true}
+        loading={loadingTemplates}
+        error={templateError}
       />
     </div>
   );
@@ -1217,21 +1238,27 @@ const TaskFormSheetImpl = NiceModal.create<TaskFormSheetProps>((props) => {
               onClick={handleClose}
             />
 
-            {/* Top-anchored modal */}
+            {/* Flex container for centering */}
             <motion.div
-              data-testid="task-form-sheet"
-              className={cn(
-                'fixed z-[9999] bg-background rounded-lg shadow-xl flex flex-col overflow-hidden',
-                'left-1/2 -translate-x-1/2',
-                'top-[5vh]',
-                'w-[min(95vw,600px)] max-h-[90vh]'
-              )}
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-[9999] flex items-start justify-center pt-[5vh] pointer-events-none"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
             >
-              {formContent}
+              {/* Top-anchored modal */}
+              <motion.div
+                data-testid="task-form-sheet"
+                className={cn(
+                  'bg-background rounded-lg shadow-xl flex flex-col overflow-hidden pointer-events-auto',
+                  'w-[min(95vw,600px)] max-h-[90vh]'
+                )}
+                initial={{ scale: 0.95 }}
+                animate={{ scale: 1 }}
+                exit={{ scale: 0.95 }}
+                transition={{ duration: 0.2 }}
+              >
+                {formContent}
+              </motion.div>
             </motion.div>
           </>
         )}

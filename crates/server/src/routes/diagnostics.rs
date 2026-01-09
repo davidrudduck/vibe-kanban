@@ -11,7 +11,11 @@ use db::{
 };
 use deployment::Deployment;
 use serde::Serialize;
-use services::services::worktree_manager::{DiskUsageStats, WorktreeManager};
+use services::services::{
+    container::ContainerService,
+    normalization_metrics::NormalizationMetricsSnapshot,
+    worktree_manager::{DiskUsageStats, WorktreeManager},
+};
 use ts_rs::TS;
 use utils::{assets::asset_dir, response::ApiResponse};
 
@@ -29,6 +33,8 @@ pub struct DiagnosticsResponse {
     pub wal_size_bytes: u64,
     /// WAL file size in human-readable format.
     pub wal_size_human: String,
+    /// Normalization metrics (completion times, timeouts).
+    pub normalization: NormalizationMetricsSnapshot,
 }
 
 /// Format bytes into human-readable string.
@@ -104,11 +110,15 @@ async fn get_diagnostics(
     let wal_size_bytes = get_wal_size(&db_path);
     let wal_size_human = format_bytes(wal_size_bytes);
 
+    // Get normalization metrics from container service
+    let normalization = deployment.container().normalization_metrics().snapshot();
+
     let response = DiagnosticsResponse {
         db_metrics,
         pool_stats,
         wal_size_bytes,
         wal_size_human,
+        normalization,
     };
 
     Ok(ResponseJson(ApiResponse::success(response)))
@@ -127,6 +137,7 @@ async fn get_prometheus_metrics(State(deployment): State<DeploymentImpl>) -> Str
     let pool_stats = db.metrics.get_pool_stats(&db.pool);
     let db_path = asset_dir().join("db.sqlite");
     let wal_size = get_wal_size(&db_path);
+    let norm_metrics = deployment.container().normalization_metrics().snapshot();
 
     let mut output = String::new();
 
@@ -233,6 +244,67 @@ async fn get_prometheus_metrics(State(deployment): State<DeploymentImpl>) -> Str
     output.push_str(&format!(
         "vk_db_checkpoint_duration_ms {}\n",
         metrics.last_checkpoint_duration_ms
+    ));
+
+    // Normalization metrics
+    output.push_str("# HELP vk_normalization_total Total normalization operations\n");
+    output.push_str("# TYPE vk_normalization_total counter\n");
+    output.push_str(&format!(
+        "vk_normalization_total {}\n",
+        norm_metrics.total
+    ));
+
+    output.push_str("# HELP vk_normalization_timeouts Normalization timeout count\n");
+    output.push_str("# TYPE vk_normalization_timeouts counter\n");
+    output.push_str(&format!(
+        "vk_normalization_timeouts {}\n",
+        norm_metrics.timeouts
+    ));
+
+    output.push_str("# HELP vk_normalization_timeout_rate Normalization timeout rate (0-1)\n");
+    output.push_str("# TYPE vk_normalization_timeout_rate gauge\n");
+    output.push_str(&format!(
+        "vk_normalization_timeout_rate {:.4}\n",
+        norm_metrics.timeout_rate
+    ));
+
+    output.push_str(
+        "# HELP vk_normalization_avg_duration_ms Average normalization duration in milliseconds\n",
+    );
+    output.push_str("# TYPE vk_normalization_avg_duration_ms gauge\n");
+    output.push_str(&format!(
+        "vk_normalization_avg_duration_ms {:.2}\n",
+        norm_metrics.avg_duration_ms
+    ));
+
+    // Normalization latency buckets (histogram-style)
+    output.push_str(
+        "# HELP vk_normalization_latency_bucket Normalization latency distribution buckets\n",
+    );
+    output.push_str("# TYPE vk_normalization_latency_bucket gauge\n");
+    output.push_str(&format!(
+        "vk_normalization_latency_bucket{{le=\"0.1\"}} {}\n",
+        norm_metrics.latency_buckets.under_100ms
+    ));
+    output.push_str(&format!(
+        "vk_normalization_latency_bucket{{le=\"0.5\"}} {}\n",
+        norm_metrics.latency_buckets.under_500ms
+    ));
+    output.push_str(&format!(
+        "vk_normalization_latency_bucket{{le=\"1\"}} {}\n",
+        norm_metrics.latency_buckets.under_1s
+    ));
+    output.push_str(&format!(
+        "vk_normalization_latency_bucket{{le=\"2\"}} {}\n",
+        norm_metrics.latency_buckets.under_2s
+    ));
+    output.push_str(&format!(
+        "vk_normalization_latency_bucket{{le=\"5\"}} {}\n",
+        norm_metrics.latency_buckets.under_5s
+    ));
+    output.push_str(&format!(
+        "vk_normalization_latency_bucket{{le=\"+Inf\"}} {}\n",
+        norm_metrics.latency_buckets.over_5s
     ));
 
     output

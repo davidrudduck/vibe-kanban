@@ -19,9 +19,9 @@ if [ -f "$PROJECT_DIR/.env" ]; then
 fi
 
 # Configuration - use .env values if loaded, otherwise defaults
-FRONTEND_PORT=${FRONTEND_PORT:-5800}
-BACKEND_PORT=${BACKEND_PORT:-5801}
-MCP_PORT=${MCP_PORT:-5802}
+FRONTEND_PORT=${FRONTEND_PORT:-4100}
+BACKEND_PORT=${BACKEND_PORT:-4101}
+MCP_PORT=${MCP_PORT:-4102}
 
 # Colors for output
 RED='\033[0;31m'
@@ -103,18 +103,16 @@ setup_env() {
         log_info "Added BACKEND_PORT=$BACKEND_PORT to .env"
     fi
 
-    # Update MCP_PORT in .env
-    if grep -q "^MCP_PORT=" "$PROJECT_DIR/.env"; then
-        sed -i "s/^MCP_PORT=.*/MCP_PORT=$MCP_PORT/" "$PROJECT_DIR/.env"
-    else
+    # Only add MCP_PORT if not already set in .env
+    if ! grep -q "^MCP_PORT=" "$PROJECT_DIR/.env"; then
         echo "MCP_PORT=$MCP_PORT" >> "$PROJECT_DIR/.env"
+        log_info "Added MCP_PORT=$MCP_PORT to .env"
     fi
 
-    # Set VK_DATABASE_PATH to local dev_assets
-    if grep -q "^VK_DATABASE_PATH=" "$PROJECT_DIR/.env"; then
-        sed -i "s|^VK_DATABASE_PATH=.*|VK_DATABASE_PATH=$DEV_ASSETS_DIR/db.sqlite|" "$PROJECT_DIR/.env"
-    else
-        echo "VK_DATABASE_PATH=$DEV_ASSETS_DIR/db.sqlite" >> "$PROJECT_DIR/.env"
+    # Set VK_DATABASE_PATH to local dev_assets folder
+    if ! grep -q "^VK_DATABASE_PATH=" "$PROJECT_DIR/.env"; then
+        echo "VK_DATABASE_PATH=$PROJECT_DIR/dev_assets/db.sqlite" >> "$PROJECT_DIR/.env"
+        log_info "Added VK_DATABASE_PATH=$PROJECT_DIR/dev_assets/db.sqlite to .env"
     fi
 
     log_success "Environment configured (FRONTEND_PORT=$FRONTEND_PORT, BACKEND_PORT=$BACKEND_PORT, MCP_PORT=$MCP_PORT)"
@@ -135,6 +133,33 @@ install_deps() {
     fi
 
     log_success "Dependencies installed"
+}
+
+# Setup local database by copying from production or seed
+setup_database() {
+    log_info "Setting up local database..."
+
+    # Create dev_assets directory if it doesn't exist
+    mkdir -p "$PROJECT_DIR/dev_assets"
+
+    local LOCAL_DB="$PROJECT_DIR/dev_assets/db.sqlite"
+    local PROD_DB="$HOME/.vkswarm/db/db.sqlite"
+    local SEED_DB="$PROJECT_DIR/dev_assets_seed/db.sqlite"
+
+    if [ -f "$LOCAL_DB" ]; then
+        log_info "Local database already exists, skipping copy..."
+    elif [ -f "$PROD_DB" ]; then
+        log_info "Copying production database to local dev_assets..."
+        # Note: This may take a while for large databases
+        cp "$PROD_DB" "$LOCAL_DB"
+        log_success "Production database copied to $LOCAL_DB"
+    elif [ -f "$SEED_DB" ]; then
+        log_info "Production database not found, copying from seed..."
+        cp "$SEED_DB" "$LOCAL_DB"
+        log_success "Seed database copied to $LOCAL_DB"
+    else
+        log_warn "No database found, server will create a new one on startup"
+    fi
 }
 
 # Check if ports are available
@@ -187,8 +212,7 @@ start_servers() {
     echo ""
     echo -e "  Frontend: ${BLUE}http://localhost:$FRONTEND_PORT${NC}"
     echo -e "  Backend:  ${BLUE}http://localhost:$BACKEND_PORT${NC}"
-    echo -e "  MCP:      ${BLUE}http://localhost:$MCP_PORT/mcp${NC}"
-    echo -e "  Database: ${BLUE}$DEV_ASSETS_DIR/db.sqlite${NC}"
+    echo -e "  MCP:      ${BLUE}http://localhost:$MCP_PORT${NC}"
     echo ""
     echo -e "  To stop: ${YELLOW}./init.sh stop${NC} or ${YELLOW}pnpm run stop${NC}"
     echo ""
@@ -199,7 +223,6 @@ start_servers() {
     export FRONTEND_PORT
     export BACKEND_PORT
     export MCP_PORT
-    export VK_DATABASE_PATH="$DEV_ASSETS_DIR/db.sqlite"
 
     # Start using pnpm dev
     pnpm run dev
@@ -241,6 +264,7 @@ setup() {
 
     check_prerequisites
     setup_env
+    setup_database
     install_deps
 
     echo ""

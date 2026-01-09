@@ -131,14 +131,14 @@ impl StandardCodingAgentExecutor for CursorAgent {
         Ok(child.into())
     }
 
-    fn normalize_logs(&self, msg_store: Arc<MsgStore>, worktree_path: &Path) {
+    fn normalize_logs(&self, msg_store: Arc<MsgStore>, worktree_path: &Path) -> tokio::task::JoinHandle<()> {
         let entry_index_provider = EntryIndexProvider::start_from(&msg_store);
 
         // Custom stderr processor for Cursor that detects login errors
         // Process stderr with automatic error classification
         let msg_store_stderr = msg_store.clone();
         let entry_index_provider_stderr = entry_index_provider.clone();
-        tokio::spawn(async move {
+        let stderr_handle = tokio::spawn(async move {
             let mut stderr = msg_store_stderr.stderr_chunked_stream();
             let mut processor = PlainTextLogProcessor::builder()
                 .normalized_entry_producer(Box::new(|content: String| {
@@ -164,7 +164,7 @@ impl StandardCodingAgentExecutor for CursorAgent {
 
         // Process Cursor stdout JSONL with typed serde models
         let current_dir = worktree_path.to_path_buf();
-        tokio::spawn(async move {
+        let stdout_handle = tokio::spawn(async move {
             let mut lines = msg_store.stdout_lines_stream();
 
             // Assistant streaming coalescer state
@@ -325,6 +325,7 @@ impl StandardCodingAgentExecutor for CursorAgent {
                             // Compute base content and action again
                             let (mut new_action, content_str) =
                                 tool_call.to_action_and_content(&worktree_str);
+                            let mut tool_status = ToolStatus::Success;
                             if let CursorToolCall::Shell { args, result } = &tool_call {
                                 // Merge stdout/stderr and derive exit status when available using typed deserialization
                                 let (stdout_val, stderr_val, exit_code) = if let Some(res) = result
@@ -382,10 +383,13 @@ impl StandardCodingAgentExecutor for CursorAgent {
                                     }),
                                 };
                             } else if let CursorToolCall::Mcp { args, result } = &tool_call {
-                                // Extract a human-readable text from content array using typed deserialization
+                                // Extract a human-readable text and status from content array using typed deserialization
                                 let md: Option<String> = if let Some(res) = result {
                                     match serde_json::from_value::<CursorMcpResult>(res.clone()) {
-                                        Ok(r) => r.into_markdown(),
+                                        Ok(r) => {
+                                            tool_status = r.extract_tool_status();
+                                            r.into_markdown()
+                                        }
                                         Err(_) => None,
                                     }
                                 } else {
@@ -425,7 +429,7 @@ impl StandardCodingAgentExecutor for CursorAgent {
                                         _ => tool_call.get_name().to_string(),
                                     },
                                     action_type: new_action,
-                                    status: ToolStatus::Success,
+                                    status: tool_status,
                                 },
                                 content: content_str,
                                 metadata: None,
@@ -451,6 +455,12 @@ impl StandardCodingAgentExecutor for CursorAgent {
                 }
             }
         });
+
+        // Return a handle that awaits both normalization tasks
+        tokio::spawn(async move {
+            let _ = stderr_handle.await;
+            let _ = stdout_handle.await;
+        })
     }
 
     fn default_mcp_config_path(&self) -> Option<std::path::PathBuf> {
@@ -984,6 +994,26 @@ impl CursorMcpResult {
             Some(parts.join("\n\n"))
         }
     }
+
+    /// Extracts the tool status based on the `is_error` field.
+    /// - `is_error: Some(true)` → `ToolStatus::Failed`
+    /// - `is_error: Some(false)` or `is_error: None` → `ToolStatus::Success`
+    pub fn extract_tool_status(&self) -> ToolStatus {
+        let is_error = match self {
+            CursorMcpResult::Flat(o) => o.is_error,
+            CursorMcpResult::Wrapped(w) => {
+                // Check success first, then failure outcome
+                w.success.as_ref().and_then(|o| o.is_error)
+                    .or_else(|| w.failure.as_ref().and_then(|o| o.is_error))
+            }
+            CursorMcpResult::Unknown(_) => None,
+        };
+
+        match is_error {
+            Some(true) => ToolStatus::Failed,
+            Some(false) | None => ToolStatus::Success,
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
@@ -1261,5 +1291,91 @@ mod tests {
             }
             _ => panic!("Expected Unknown variant"),
         }
+    }
+
+    #[test]
+    fn test_mcp_failure_marked_as_failed() {
+        // Test Flat variant with is_error=true
+        let result = CursorMcpResult::Flat(CursorMcpOutcome {
+            is_error: Some(true),
+            content: Some(vec![CursorMcpContentItem {
+                text: Some(CursorMcpTextInner {
+                    text: "Error occurred".to_string(),
+                }),
+            }]),
+        });
+        assert_eq!(result.extract_tool_status(), ToolStatus::Failed);
+
+        // Test Wrapped variant with is_error=true in success field
+        let result_wrapped = CursorMcpResult::Wrapped(CursorMcpWrappedResult {
+            success: Some(CursorMcpOutcome {
+                is_error: Some(true),
+                content: None,
+            }),
+            failure: None,
+        });
+        assert_eq!(result_wrapped.extract_tool_status(), ToolStatus::Failed);
+
+        // Test Wrapped variant with is_error=true in failure field
+        let result_failure = CursorMcpResult::Wrapped(CursorMcpWrappedResult {
+            success: None,
+            failure: Some(CursorMcpOutcome {
+                is_error: Some(true),
+                content: None,
+            }),
+        });
+        assert_eq!(result_failure.extract_tool_status(), ToolStatus::Failed);
+    }
+
+    #[test]
+    fn test_mcp_success_marked_as_success() {
+        // Test Flat variant with is_error=false
+        let result = CursorMcpResult::Flat(CursorMcpOutcome {
+            is_error: Some(false),
+            content: Some(vec![CursorMcpContentItem {
+                text: Some(CursorMcpTextInner {
+                    text: "Success".to_string(),
+                }),
+            }]),
+        });
+        assert_eq!(result.extract_tool_status(), ToolStatus::Success);
+
+        // Test Wrapped variant with is_error=false
+        let result_wrapped = CursorMcpResult::Wrapped(CursorMcpWrappedResult {
+            success: Some(CursorMcpOutcome {
+                is_error: Some(false),
+                content: None,
+            }),
+            failure: None,
+        });
+        assert_eq!(result_wrapped.extract_tool_status(), ToolStatus::Success);
+    }
+
+    #[test]
+    fn test_mcp_missing_is_error_defaults_success() {
+        // Test Flat variant with is_error=None (missing)
+        let result = CursorMcpResult::Flat(CursorMcpOutcome {
+            is_error: None,
+            content: Some(vec![CursorMcpContentItem {
+                text: Some(CursorMcpTextInner {
+                    text: "OK".to_string(),
+                }),
+            }]),
+        });
+        assert_eq!(result.extract_tool_status(), ToolStatus::Success);
+
+        // Test Wrapped variant with is_error=None
+        let result_wrapped = CursorMcpResult::Wrapped(CursorMcpWrappedResult {
+            success: Some(CursorMcpOutcome {
+                is_error: None,
+                content: None,
+            }),
+            failure: None,
+        });
+        assert_eq!(result_wrapped.extract_tool_status(), ToolStatus::Success);
+
+        // Test Unknown variant (always defaults to Success)
+        let result_unknown = CursorMcpResult::Unknown(serde_json::json!({"some": "data"}));
+        assert_eq!(result_unknown.extract_tool_status(), ToolStatus::Success);
     }
 }

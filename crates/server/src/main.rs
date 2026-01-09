@@ -74,6 +74,12 @@ async fn main() -> Result<(), VibeKanbanError> {
     deployment.spawn_pr_monitor_service().await;
     deployment.spawn_github_sync_service().await;
 
+    // Spawn periodic normalization metrics logger (logs every 5 minutes if there's activity)
+    deployment
+        .container()
+        .normalization_metrics()
+        .spawn_periodic_logger();
+
     // Clean up orphaned shared task IDs (tasks shared to Hive but project no longer linked)
     match Task::clear_orphaned_shared_task_ids(&deployment.db().pool).await {
         Ok(count) if count > 0 => {

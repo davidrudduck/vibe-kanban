@@ -31,3 +31,6 @@ tokio = { workspace = true }
 serde = { workspace = true }
 ts-rs = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+serial_test = "3.0"

@@ -1,5 +1,7 @@
 use std::{path::Path, sync::Arc};
 
+use tokio::task::JoinHandle;
+
 use async_trait::async_trait;
 use command_group::AsyncGroupChild;
 use enum_dispatch::enum_dispatch;
@@ -217,7 +219,7 @@ pub trait StandardCodingAgentExecutor {
         prompt: &str,
         session_id: &str,
     ) -> Result<SpawnedChild, ExecutorError>;
-    fn normalize_logs(&self, _raw_logs_event_store: Arc<MsgStore>, _worktree_path: &Path);
+    fn normalize_logs(&self, _raw_logs_event_store: Arc<MsgStore>, _worktree_path: &Path) -> JoinHandle<()>;
 
     // MCP configuration methods
     fn default_mcp_config_path(&self) -> Option<std::path::PathBuf>;

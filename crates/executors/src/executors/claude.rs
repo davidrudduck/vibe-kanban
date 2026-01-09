@@ -192,11 +192,11 @@ impl StandardCodingAgentExecutor for ClaudeCode {
             .await
     }
 
-    fn normalize_logs(&self, msg_store: Arc<MsgStore>, current_dir: &Path) {
+    fn normalize_logs(&self, msg_store: Arc<MsgStore>, current_dir: &Path) -> tokio::task::JoinHandle<()> {
         let entry_index_provider = EntryIndexProvider::start_from(&msg_store);
 
         // Process stdout logs (Claude's JSON output)
-        ClaudeLogProcessor::process_logs(
+        let stdout_handle = ClaudeLogProcessor::process_logs(
             msg_store.clone(),
             current_dir,
             entry_index_provider.clone(),
@@ -204,7 +204,13 @@ impl StandardCodingAgentExecutor for ClaudeCode {
         );
 
         // Process stderr logs using the standard stderr processor
-        normalize_stderr_logs(msg_store, entry_index_provider);
+        let stderr_handle = normalize_stderr_logs(msg_store, entry_index_provider);
+
+        // Return a handle that awaits both normalization tasks
+        tokio::spawn(async move {
+            let _ = stdout_handle.await;
+            let _ = stderr_handle.await;
+        })
     }
 
     // MCP configuration methods
@@ -373,7 +379,7 @@ impl ClaudeLogProcessor {
         current_dir: &Path,
         entry_index_provider: EntryIndexProvider,
         strategy: HistoryStrategy,
-    ) {
+    ) -> tokio::task::JoinHandle<()> {
         let current_dir_clone = current_dir.to_owned();
         tokio::spawn(async move {
             let mut stream = msg_store.history_plus_stream();
@@ -469,7 +475,7 @@ impl ClaudeLogProcessor {
                 let patch = ConversationPatch::add_normalized_entry(patch_id, entry);
                 msg_store.push_patch(patch);
             }
-        });
+        })
     }
 
     /// Extract session ID from Claude JSON
