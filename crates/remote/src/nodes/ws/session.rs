@@ -255,6 +255,28 @@ pub async fn handle(
     // Clean up
     connections.unregister(auth_result.node_id).await;
 
+    // Clear any pending backfill requests for this node and reset attempts to partial
+    let cleared_attempt_ids = tracker.clear_node(auth_result.node_id).await;
+    if !cleared_attempt_ids.is_empty() {
+        tracing::info!(
+            node_id = %auth_result.node_id,
+            count = cleared_attempt_ids.len(),
+            "clearing pending backfill requests on disconnect"
+        );
+
+        let repo = NodeTaskAttemptRepository::new(&pool);
+        for attempt_id in cleared_attempt_ids {
+            if let Err(e) = repo.reset_attempt_to_partial(attempt_id).await {
+                tracing::warn!(
+                    node_id = %auth_result.node_id,
+                    attempt_id = %attempt_id,
+                    error = %e,
+                    "failed to reset attempt to partial on disconnect"
+                );
+            }
+        }
+    }
+
     // Update node status to offline
     let service = NodeServiceImpl::new(pool.clone());
     if let Err(error) = service
