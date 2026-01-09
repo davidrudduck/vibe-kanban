@@ -140,6 +140,7 @@ pub struct BackfillService {
     pool: PgPool,
     connections: ConnectionManager,
     config: BackfillConfig,
+    tracker: Arc<BackfillRequestTracker>,  // Correlates responses with requests
 }
 
 pub struct BackfillConfig {
@@ -345,20 +346,90 @@ The response includes the error message, and the hive logs the failure.
 
 ### Response Processing
 
-When the hive receives a `BackfillResponse`:
+When the hive receives a `BackfillResponse`, it correlates the response with the original request using the `BackfillRequestTracker`:
 
 ```rust
 NodeMessage::BackfillResponse(response) => {
+    // Look up tracked attempt IDs for this request
+    let attempt_ids = tracker.complete(response.request_id).await;
+
     if response.success {
-        // Clear pending_backfill for affected attempts
-        repo.clear_pending_backfill(attempt_ids).await?;
+        // Mark each tracked attempt as complete
+        if let Some(ids) = attempt_ids {
+            for attempt_id in ids {
+                repo.mark_complete(attempt_id).await?;
+            }
+        }
     } else {
-        // Reset to allow retry, log the error
-        repo.reset_failed_backfill(node_id).await?;
+        // Reset tracked attempts to partial state for retry
+        if let Some(ids) = attempt_ids {
+            for attempt_id in ids {
+                repo.reset_attempt_to_partial(attempt_id).await?;
+            }
+        } else {
+            // Fallback: reset all pending for node
+            repo.reset_failed_backfill(node_id).await?;
+        }
         tracing::warn!(error = ?response.error, "backfill failed");
     }
 }
 ```
+
+### Request Tracking
+
+The `BackfillRequestTracker` maintains an in-memory map of pending requests to correlate responses with the original attempt IDs:
+
+```rust
+pub struct BackfillRequestTracker {
+    pending: RwLock<HashMap<Uuid, PendingRequest>>,
+}
+
+struct PendingRequest {
+    node_id: Uuid,
+    attempt_ids: Vec<Uuid>,
+    requested_at: DateTime<Utc>,
+}
+```
+
+Key operations:
+
+| Method | Description |
+|--------|-------------|
+| `track(request_id, node_id, attempt_ids)` | Record a new backfill request |
+| `complete(request_id)` | Get and remove attempt IDs for a completed request |
+| `clear_node(node_id)` | Remove all requests for a disconnected node |
+| `cleanup_stale(timeout_minutes)` | Remove requests older than timeout |
+
+### Disconnect Cleanup
+
+When a node disconnects, any pending backfill requests for that node are cleared and their attempts reset to `partial` state:
+
+```rust
+// On WebSocket disconnect
+let cleared_ids = tracker.clear_node(node_id).await;
+for attempt_id in cleared_ids {
+    repo.reset_attempt_to_partial(attempt_id).await?;
+}
+```
+
+This ensures attempts don't get stuck in `pending_backfill` state if a node disconnects before responding.
+
+### Stale Request Cleanup
+
+During periodic reconciliation, stale tracked requests (older than `backfill_timeout_minutes`) are automatically cleaned up:
+
+```rust
+async fn run_periodic_reconciliation(&self) -> Result<u32, BackfillError> {
+    // Reset stale pending_backfill states in database
+    repo.reset_stale_pending_backfill(self.config.backfill_timeout_minutes).await?;
+
+    // Cleanup stale tracked requests in memory
+    let stale_ids = self.tracker.cleanup_stale(timeout_minutes).await;
+    // ... stale attempts become eligible for retry
+}
+```
+
+This handles cases where a response was lost or never received.
 
 ## Sequence Diagrams
 
