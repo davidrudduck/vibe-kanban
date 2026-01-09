@@ -325,6 +325,7 @@ impl StandardCodingAgentExecutor for CursorAgent {
                             // Compute base content and action again
                             let (mut new_action, content_str) =
                                 tool_call.to_action_and_content(&worktree_str);
+                            let mut tool_status = ToolStatus::Success;
                             if let CursorToolCall::Shell { args, result } = &tool_call {
                                 // Merge stdout/stderr and derive exit status when available using typed deserialization
                                 let (stdout_val, stderr_val, exit_code) = if let Some(res) = result
@@ -382,10 +383,13 @@ impl StandardCodingAgentExecutor for CursorAgent {
                                     }),
                                 };
                             } else if let CursorToolCall::Mcp { args, result } = &tool_call {
-                                // Extract a human-readable text from content array using typed deserialization
+                                // Extract a human-readable text and status from content array using typed deserialization
                                 let md: Option<String> = if let Some(res) = result {
                                     match serde_json::from_value::<CursorMcpResult>(res.clone()) {
-                                        Ok(r) => r.into_markdown(),
+                                        Ok(r) => {
+                                            tool_status = r.extract_tool_status();
+                                            r.into_markdown()
+                                        }
                                         Err(_) => None,
                                     }
                                 } else {
@@ -425,7 +429,7 @@ impl StandardCodingAgentExecutor for CursorAgent {
                                         _ => tool_call.get_name().to_string(),
                                     },
                                     action_type: new_action,
-                                    status: ToolStatus::Success,
+                                    status: tool_status,
                                 },
                                 content: content_str,
                                 metadata: None,
