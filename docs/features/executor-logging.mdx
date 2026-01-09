@@ -1,0 +1,327 @@
+---
+title: "Executor Logging"
+description: "How Vibe Kanban captures and displays logs from AI coding agents"
+sidebarTitle: "Executor Logging"
+---
+
+Vibe Kanban captures comprehensive logs from all AI coding agents during task execution. These logs provide visibility into agent reasoning, tool usage, errors, and overall progress.
+
+## Overview
+
+When a coding agent executes a task, Vibe Kanban:
+
+1. **Captures all output** - Stdout, stderr, and agent-specific event streams
+2. **Normalizes the format** - Converts diverse agent outputs into a unified structure
+3. **Classifies entries** - Identifies messages, tool calls, errors, and system events
+4. **Streams to UI** - Displays logs in real-time via WebSocket
+
+This allows you to monitor agent activity regardless of which coding agent you're using.
+
+## What Gets Logged
+
+### Message Types
+
+| Type | Description | Example |
+|------|-------------|---------|
+| **User Message** | Your input to the agent | Task description, follow-up instructions |
+| **Assistant Message** | Agent's text responses | Explanations, questions, status updates |
+| **System Message** | Configuration and model info | Model name, session ID, token usage |
+| **Thinking** | Agent's reasoning process | Chain-of-thought, planning steps |
+
+### Tool Actions
+
+All tool invocations are captured with their status:
+
+| Action | Description | Details Captured |
+|--------|-------------|------------------|
+| **File Read** | Reading file contents | File path |
+| **File Edit** | Modifying files | Path, unified diff, before/after |
+| **Command Run** | Shell command execution | Command, output, exit code |
+| **Search** | Code or file searches | Query, results count |
+| **Web Fetch** | External URL requests | URL, response summary |
+| **Task Create** | Sub-task creation | Task description |
+| **Plan** | Implementation plans | Full plan content |
+| **Todo** | Todo list management | Items and their status |
+
+### Tool Status
+
+Each tool action shows its current state:
+
+| Status | Meaning |
+|--------|---------|
+| **Running** | Tool is currently executing |
+| **Success** | Tool completed successfully |
+| **Failed** | Tool execution failed |
+| **Pending Approval** | Waiting for your approval |
+| **Denied** | Action was rejected (by you, a hook, or policy) |
+| **Timed Out** | Approval timed out before response |
+| **Answered** | You answered a question from the agent |
+
+### Errors
+
+Errors are automatically classified to help you quickly identify issues:
+
+| Error Type | Patterns Detected |
+|------------|-------------------|
+| **Setup Required** | Authentication required, login needed, not authenticated |
+| **Rate Limited** | Rate limit, 429, quota exceeded, throttling |
+| **Network Error** | Connection refused, timeout, DNS errors |
+| **Permission Denied** | 403, 401, unauthorized, forbidden |
+| **Tool Execution Error** | Command failed, tool error, subprocess failed |
+| **API Error** | 500, 503, invalid request, model unavailable |
+
+## Per-Executor Logging
+
+Different coding agents provide varying levels of detail in their logs.
+
+### Claude Code
+
+<Info>
+Claude Code provides comprehensive structured logging with full tool call details.
+</Info>
+
+**Log Format**: JSON-RPC over stdin/stdout
+
+**Features Captured**:
+- Tool calls with arguments and results
+- Approval requests and responses
+- MCP (Model Context Protocol) interactions
+- Streaming text responses
+- Session management
+
+**Detail Level**: Full - All tool calls, file diffs, command output, and reasoning.
+
+### OpenAI Codex
+
+**Log Format**: JSON-RPC with custom events
+
+**Features Captured**:
+- Tool calls with approval integration
+- Session and conversation tracking
+- Token usage statistics
+- Approval workflow
+
+**Detail Level**: Full - Complete tool tracking with token usage metrics.
+
+### Gemini / Qwen (ACP)
+
+**Log Format**: Agent Communication Protocol (ACP)
+
+**Features Captured**:
+- Session start/end events
+- Agent messages and thoughts
+- Plans and reasoning steps
+- Tool call events
+
+**Detail Level**: Comprehensive - Includes thought processes and planning.
+
+### Cursor
+
+**Log Format**: JSONL (JSON Lines) stdout
+
+**Features Captured**:
+- Tool call events
+- MCP tool results with success/failure status
+- Model information
+
+**Detail Level**: Good - Tool calls with MCP integration.
+
+### GitHub Copilot
+
+**Log Format**: Plain text stdout + log file parsing
+
+**Features Captured**:
+- Model information extracted from log files
+- Agent responses as streaming text
+- Basic tool activity
+
+**Detail Level**: Basic - Text output with model info from logs.
+
+### Opencode
+
+**Log Format**: Plain text + share bridge for tools
+
+**Features Captured**:
+- Share bridge tool events
+- Standard error output
+- Basic agent messages
+
+**Detail Level**: Moderate - Tool events via share bridge integration.
+
+### Amp
+
+**Log Format**: Reuses Claude Code parser
+
+**Features Captured**:
+- Same as Claude Code
+
+**Detail Level**: Full - Inherits Claude Code's comprehensive logging.
+
+### Droid
+
+**Log Format**: Custom structured output
+
+**Features Captured**:
+- Tool calls and todos
+- Web searches and results
+- Patch diffs for file changes
+
+**Detail Level**: Full - Complete tool tracking with diff support.
+
+## Viewing Logs in the UI
+
+### Real-Time Streaming
+
+Logs stream to the UI in real-time during execution:
+
+1. Navigate to your task attempt
+2. The log panel shows entries as they occur
+3. Auto-scroll keeps you at the latest entry
+4. Scroll up to pause auto-scrolling
+
+### Expandable Actions
+
+Click on tool actions to see details:
+
+- **File edits** - Expand to view the unified diff
+- **Commands** - Expand to see full output
+- **Searches** - Expand to see results
+
+<Tip>
+File edit diffs show additions in green and removals in red, making it easy to review changes.
+</Tip>
+
+### Filtering by Process
+
+When multiple processes run (agent, dev server, build scripts):
+
+1. Click the triple dot menu in the top right
+2. Select **View Processes**
+3. Click a process to view its specific logs
+
+### Performance with Large Logs
+
+Vibe Kanban uses virtual scrolling for log display:
+
+- Only visible entries are rendered
+- Smooth scrolling with thousands of entries
+- Low memory usage regardless of log volume
+
+## Log Storage
+
+### Database Storage
+
+Logs are stored in the SQLite database alongside task data:
+
+- **Development**: `<project_root>/dev_assets/db.sqlite`
+- **Production**: Platform-specific (e.g., `~/.local/share/vibe-kanban/db.sqlite`)
+
+Logs are associated with task attempts and persist until the attempt is deleted.
+
+### Retention
+
+Logs are retained as long as the task attempt exists:
+
+- Active attempts retain full logs
+- Completed attempts keep logs for review
+- Deleting an attempt removes its logs
+
+<Note>
+There is no automatic log rotation or cleanup. Logs remain available for the lifetime of the task attempt.
+</Note>
+
+## Troubleshooting
+
+### Missing Logs
+
+If logs aren't appearing:
+
+<AccordionGroup>
+<Accordion title="WebSocket disconnected">
+**Symptoms**: Logs stop updating, connection indicator shows disconnected.
+
+**Solutions**:
+1. Check the connection indicator in the UI header
+2. Refresh the page to reconnect
+3. Verify the backend server is running (`pnpm run stop --list` to see instances)
+</Accordion>
+
+<Accordion title="Agent not running">
+**Symptoms**: No new log entries, process shows as stopped.
+
+**Solutions**:
+1. Check the process status in the View Processes panel
+2. Verify the agent started successfully
+3. Check for setup errors in early log entries
+</Accordion>
+
+<Accordion title="Executor not capturing">
+**Symptoms**: Logs appear empty or show only partial information.
+
+**Solutions**:
+1. Some agents provide less detail than others (see Per-Executor Logging above)
+2. Check agent configuration for verbose/debug modes
+3. Verify the agent is compatible with Vibe Kanban
+</Accordion>
+</AccordionGroup>
+
+### Duplicate Logs
+
+If you see duplicate entries:
+
+<AccordionGroup>
+<Accordion title="Multiple processes">
+**Cause**: Running the same command in multiple processes.
+
+**Solution**: Use the View Processes panel to identify and stop duplicate processes.
+</Accordion>
+
+<Accordion title="Agent restart">
+**Cause**: Agent restarted mid-session, replaying earlier context.
+
+**Solution**: This is normal behavior. The agent maintains context by replaying history.
+</Accordion>
+</AccordionGroup>
+
+### Out of Order Logs
+
+If logs appear out of sequence:
+
+<AccordionGroup>
+<Accordion title="Parallel tool execution">
+**Cause**: Agent running multiple tools simultaneously.
+
+**Solution**: This is expected. Logs are timestamped; the UI shows them in arrival order.
+</Accordion>
+
+<Accordion title="Network latency">
+**Cause**: WebSocket messages arriving out of order.
+
+**Solution**: Refresh the page to see logs in correct order. Database stores correct sequence.
+</Accordion>
+</AccordionGroup>
+
+### Log Parsing Errors
+
+If you see unparsed or malformed entries:
+
+<AccordionGroup>
+<Accordion title="Agent format changed">
+**Cause**: Agent updated its output format.
+
+**Solution**: Check for Vibe Kanban updates that support the new format.
+</Accordion>
+
+<Accordion title="Binary or non-text output">
+**Cause**: Command output contains binary data.
+
+**Solution**: Binary output is truncated. Use the terminal directly for binary-heavy commands.
+</Accordion>
+</AccordionGroup>
+
+## Related Documentation
+
+- [Understanding Execution Logs](/core-features/understanding-execution-logs) - Log entry types and interpretation
+- [Monitoring Task Execution](/core-features/monitoring-task-execution) - Real-time monitoring overview
+- [Executor Log Normalization](/architecture/executor-normalization) - Technical architecture for developers
+- [Agent Configurations](/configuration-customisation/agent-configurations) - Configuring agent behavior

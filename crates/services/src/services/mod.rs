@@ -38,6 +38,7 @@ pub mod hive_sync;
 pub mod image;
 pub mod log_batcher;
 pub mod node_proxy_client;
+pub mod normalization_metrics;
 pub mod node_runner;
 pub mod notification;
 pub mod oauth_credentials;

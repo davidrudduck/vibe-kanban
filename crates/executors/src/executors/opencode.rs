@@ -269,7 +269,7 @@ impl StandardCodingAgentExecutor for Opencode {
     /// 2. Error log recognition thread: read by line, identify error log lines, store them as error messages.
     /// 3. Main normalizer thread: read stderr by line, filter out log lines, send lines (with '\n' appended) to plain text normalizer,
     ///    then define predicate for split and create appropriate normalized entry (either assistant or tool call).
-    fn normalize_logs(&self, msg_store: Arc<MsgStore>, worktree_path: &Path) {
+    fn normalize_logs(&self, msg_store: Arc<MsgStore>, worktree_path: &Path) -> tokio::task::JoinHandle<()> {
         let entry_index_counter = EntryIndexProvider::start_from(&msg_store);
 
         let stderr_lines = msg_store
@@ -289,7 +289,7 @@ impl StandardCodingAgentExecutor for Opencode {
 
         // Process log lines, which contain error messages. We now source session ID
         // from the oc-share stream instead of stderr.
-        tokio::spawn(Self::process_opencode_log_lines(
+        let log_lines_handle = tokio::spawn(Self::process_opencode_log_lines(
             log_lines,
             msg_store.clone(),
             entry_index_counter.clone(),
@@ -303,12 +303,18 @@ impl StandardCodingAgentExecutor for Opencode {
             .filter(|line| ready(line.starts_with(Opencode::SHARE_PREFIX)))
             .map(|line| line[Opencode::SHARE_PREFIX.len()..].to_string())
             .boxed();
-        tokio::spawn(Self::process_share_events(
+        let share_events_handle = tokio::spawn(Self::process_share_events(
             share_events,
             worktree_path.to_path_buf(),
             entry_index_counter.clone(),
             msg_store.clone(),
         ));
+
+        // Return a handle that awaits both normalization tasks
+        tokio::spawn(async move {
+            let _ = log_lines_handle.await;
+            let _ = share_events_handle.await;
+        })
     }
 
     // MCP configuration methods
