@@ -1217,21 +1217,27 @@ const TaskFormSheetImpl = NiceModal.create<TaskFormSheetProps>((props) => {
               onClick={handleClose}
             />
 
-            {/* Top-anchored modal */}
+            {/* Flex container for centering */}
             <motion.div
-              data-testid="task-form-sheet"
-              className={cn(
-                'fixed z-[9999] bg-background rounded-lg shadow-xl flex flex-col overflow-hidden',
-                'left-1/2 -translate-x-1/2',
-                'top-[5vh]',
-                'w-[min(95vw,600px)] max-h-[90vh]'
-              )}
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-[9999] flex items-start justify-center pt-[5vh] pointer-events-none"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
             >
-              {formContent}
+              {/* Top-anchored modal */}
+              <motion.div
+                data-testid="task-form-sheet"
+                className={cn(
+                  'bg-background rounded-lg shadow-xl flex flex-col overflow-hidden pointer-events-auto',
+                  'w-[min(95vw,600px)] max-h-[90vh]'
+                )}
+                initial={{ scale: 0.95 }}
+                animate={{ scale: 1 }}
+                exit={{ scale: 0.95 }}
+                transition={{ duration: 0.2 }}
+              >
+                {formContent}
+              </motion.div>
             </motion.div>
           </>
         )}
