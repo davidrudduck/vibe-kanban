@@ -153,6 +153,16 @@ export interface TemplatePickerProps {
    * Whether to show default templates
    */
   showDefaults?: boolean;
+
+  /**
+   * Whether templates are currently loading
+   */
+  loading?: boolean;
+
+  /**
+   * Error message to display if template loading failed
+   */
+  error?: string | null;
 }
 
 /**
@@ -168,6 +178,8 @@ export function TemplatePicker({
   onSelect,
   customTemplates = [],
   showDefaults = true,
+  loading = false,
+  error = null,
 }: TemplatePickerProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const isMobile = useIsMobile();
@@ -271,11 +283,29 @@ export function TemplatePicker({
 
       {/* Templates list */}
       <div className="overflow-y-auto flex-1 px-2 py-2">
-        {filteredTemplates.length === 0 ? (
+        {/* Loading state */}
+        {loading && (
+          <div className="flex justify-center py-8">
+            <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
+          </div>
+        )}
+
+        {/* Error state */}
+        {error && !loading && (
+          <div className="text-center py-8 text-destructive">
+            {error}
+          </div>
+        )}
+
+        {/* Empty state - no results */}
+        {!loading && !error && filteredTemplates.length === 0 && (
           <div className="text-center py-8 text-muted-foreground">
             {t('templatePicker.noResults', 'No templates found')}
           </div>
-        ) : (
+        )}
+
+        {/* Templates list */}
+        {!loading && !error && filteredTemplates.length > 0 && (
           <div className="space-y-1">
             {filteredTemplates.map((template) => (
               <button
