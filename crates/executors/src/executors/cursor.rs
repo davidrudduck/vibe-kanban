@@ -131,7 +131,11 @@ impl StandardCodingAgentExecutor for CursorAgent {
         Ok(child.into())
     }
 
-    fn normalize_logs(&self, msg_store: Arc<MsgStore>, worktree_path: &Path) -> tokio::task::JoinHandle<()> {
+    fn normalize_logs(
+        &self,
+        msg_store: Arc<MsgStore>,
+        worktree_path: &Path,
+    ) -> tokio::task::JoinHandle<()> {
         let entry_index_provider = EntryIndexProvider::start_from(&msg_store);
 
         // Custom stderr processor for Cursor that detects login errors
@@ -1003,7 +1007,9 @@ impl CursorMcpResult {
             CursorMcpResult::Flat(o) => o.is_error,
             CursorMcpResult::Wrapped(w) => {
                 // Check success first, then failure outcome
-                w.success.as_ref().and_then(|o| o.is_error)
+                w.success
+                    .as_ref()
+                    .and_then(|o| o.is_error)
                     .or_else(|| w.failure.as_ref().and_then(|o| o.is_error))
             }
             CursorMcpResult::Unknown(_) => None,
