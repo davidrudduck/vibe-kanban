@@ -219,7 +219,11 @@ pub trait StandardCodingAgentExecutor {
         prompt: &str,
         session_id: &str,
     ) -> Result<SpawnedChild, ExecutorError>;
-    fn normalize_logs(&self, _raw_logs_event_store: Arc<MsgStore>, _worktree_path: &Path) -> JoinHandle<()>;
+    fn normalize_logs(
+        &self,
+        _raw_logs_event_store: Arc<MsgStore>,
+        _worktree_path: &Path,
+    ) -> JoinHandle<()>;
 
     // MCP configuration methods
     fn default_mcp_config_path(&self) -> Option<std::path::PathBuf>;

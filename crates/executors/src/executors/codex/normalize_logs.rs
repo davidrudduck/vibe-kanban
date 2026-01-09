@@ -361,7 +361,10 @@ fn format_todo_status(status: &StepStatus) -> String {
     .to_string()
 }
 
-pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) -> tokio::task::JoinHandle<()> {
+pub fn normalize_logs(
+    msg_store: Arc<MsgStore>,
+    worktree_path: &Path,
+) -> tokio::task::JoinHandle<()> {
     let entry_index = EntryIndexProvider::start_from(&msg_store);
     let stderr_handle = normalize_stderr_logs(msg_store.clone(), entry_index.clone());
 

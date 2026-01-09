@@ -21,7 +21,10 @@ use crate::logs::{
     utils::{ConversationPatch, EntryIndexProvider},
 };
 
-pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) -> tokio::task::JoinHandle<()> {
+pub fn normalize_logs(
+    msg_store: Arc<MsgStore>,
+    worktree_path: &Path,
+) -> tokio::task::JoinHandle<()> {
     // stderr normalization
     let entry_index = EntryIndexProvider::start_from(&msg_store);
     let stderr_handle = normalize_stderr_logs(msg_store.clone(), entry_index.clone());
