@@ -143,6 +143,8 @@ const TaskFormSheetImpl = NiceModal.create<TaskFormSheetProps>((props) => {
   // Template picker state
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [customTemplates, setCustomTemplates] = useState<PickerTemplate[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [templateError, setTemplateError] = useState<string | null>(null);
 
   const { data: branches, isLoading: branchesLoading } =
     useProjectBranches(projectId);
@@ -514,22 +516,39 @@ const TaskFormSheetImpl = NiceModal.create<TaskFormSheetProps>((props) => {
 
   // Fetch templates when picker opens
   useEffect(() => {
-    if (showTemplatePicker) {
-      templatesApi
-        .list()
-        .then((templates) => {
-          setCustomTemplates(
-            templates.map((t) => ({
-              id: t.id,
-              name: t.template_name,
-              description: `@${t.template_name}`,
-              content: t.content,
-            }))
-          );
-        })
-        .catch(console.error);
-    }
-  }, [showTemplatePicker]);
+    if (!showTemplatePicker) return;
+
+    let cancelled = false;
+    setLoadingTemplates(true);
+    setTemplateError(null);
+
+    templatesApi
+      .list()
+      .then((templates) => {
+        if (cancelled) return;
+        setCustomTemplates(
+          templates.map((tmpl) => ({
+            id: tmpl.id,
+            name: tmpl.template_name,
+            description: `@${tmpl.template_name}`,
+            content: tmpl.content,
+          }))
+        );
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('Failed to load templates:', err);
+        setTemplateError(t('templatePicker.loadError', 'Failed to load templates'));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoadingTemplates(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showTemplatePicker, t]);
 
   // Template selection handler
   const handleTemplateSelect = useCallback(
@@ -1120,6 +1139,8 @@ const TaskFormSheetImpl = NiceModal.create<TaskFormSheetProps>((props) => {
         onSelect={handleTemplateSelect}
         customTemplates={customTemplates}
         showDefaults={true}
+        loading={loadingTemplates}
+        error={templateError}
       />
     </div>
   );
