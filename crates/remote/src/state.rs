@@ -10,7 +10,7 @@ use crate::{
     },
     config::RemoteServerConfig,
     mail::Mailer,
-    nodes::{BackfillService, ConnectionManager},
+    nodes::{backfill::BackfillRequestTracker, BackfillService, ConnectionManager},
     services::LogCache,
 };
 
@@ -108,5 +108,10 @@ impl AppState {
     /// Get a reference to the backfill service.
     pub fn backfill(&self) -> &Arc<BackfillService> {
         &self.backfill
+    }
+
+    /// Get the backfill request tracker for response correlation.
+    pub fn backfill_tracker(&self) -> Arc<BackfillRequestTracker> {
+        self.backfill.tracker()
     }
 }

@@ -314,4 +314,23 @@ impl<'a> NodeTaskAttemptRepository<'a> {
 
         Ok(result.rows_affected())
     }
+
+    /// Reset a specific attempt to partial state.
+    ///
+    /// Used when a backfill request fails or times out for individual attempts.
+    /// Only updates if the current state is 'pending_backfill'.
+    pub async fn reset_attempt_to_partial(&self, id: Uuid) -> Result<bool, NodeTaskAttemptError> {
+        let result = sqlx::query(
+            r#"
+            UPDATE node_task_attempts
+            SET sync_state = 'partial', sync_requested_at = NULL
+            WHERE id = $1 AND sync_state = 'pending_backfill'
+            "#,
+        )
+        .bind(id)
+        .execute(self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
 }

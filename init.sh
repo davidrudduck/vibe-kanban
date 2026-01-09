@@ -10,6 +10,7 @@ set -e
 
 # Get project directory first
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEV_ASSETS_DIR="$PROJECT_DIR/dev_assets"
 
 # Load existing .env if present (respect user's configured values)
 if [ -f "$PROJECT_DIR/.env" ]; then
