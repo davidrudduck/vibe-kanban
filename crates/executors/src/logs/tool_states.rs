@@ -418,11 +418,13 @@ mod tests {
         let entry = state.to_normalized_entry();
 
         // Formatted output should take precedence
-        if let NormalizedEntryType::ToolUse { action_type, .. } = &entry.entry_type {
-            if let ActionType::CommandRun { result, .. } = action_type {
-                let result = result.as_ref().unwrap();
-                assert_eq!(result.output, Some("formatted output".to_string()));
-            }
+        if let NormalizedEntryType::ToolUse {
+            action_type: ActionType::CommandRun { result, .. },
+            ..
+        } = &entry.entry_type
+        {
+            let result = result.as_ref().unwrap();
+            assert_eq!(result.output, Some("formatted output".to_string()));
         }
     }
 
@@ -619,13 +621,15 @@ mod tests {
 
         let entry = state.to_normalized_entry();
 
-        if let NormalizedEntryType::ToolUse { action_type, .. } = &entry.entry_type {
-            if let ActionType::Tool { result, .. } = action_type {
-                assert!(result.is_some());
-                let result = result.as_ref().unwrap();
-                // String result should be of type Markdown
-                assert!(matches!(result.r#type, ToolResultValueType::Markdown));
-            }
+        if let NormalizedEntryType::ToolUse {
+            action_type: ActionType::Tool { result, .. },
+            ..
+        } = &entry.entry_type
+        {
+            assert!(result.is_some());
+            let result = result.as_ref().unwrap();
+            // String result should be of type Markdown
+            assert!(matches!(result.r#type, ToolResultValueType::Markdown));
         }
     }
 
@@ -709,14 +713,16 @@ mod tests {
 
         let entry = state.to_normalized_entry();
 
-        if let NormalizedEntryType::ToolUse { action_type, .. } = &entry.entry_type {
-            if let ActionType::CommandRun { result, .. } = action_type {
-                let result = result.as_ref().unwrap();
-                assert!(matches!(
-                    result.exit_status,
-                    Some(CommandExitStatus::ExitCode { code: 1 })
-                ));
-            }
+        if let NormalizedEntryType::ToolUse {
+            action_type: ActionType::CommandRun { result, .. },
+            ..
+        } = &entry.entry_type
+        {
+            let result = result.as_ref().unwrap();
+            assert!(matches!(
+                result.exit_status,
+                Some(CommandExitStatus::ExitCode { code: 1 })
+            ));
         }
     }
 
