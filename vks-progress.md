@@ -1,25 +1,27 @@
 **VK-Swarm Task ID**: `8a7151ce-f9df-4557-9c59-d81a3cb84eb3`
 
 ## Current Status
-Progress: 7/10 tasks (70%)
-Completed Tasks: 7/10
-Current Task: #008 - Add Disconnect Cleanup Logic
+Progress: 8/10 tasks (80%)
+Completed Tasks: 8/10
+Current Task: #009 - Final Verification and Testing
 
 ## Known Issues & Blockers
 - None
 
 ## Recent Sessions
 
-### Session 7 (2026-01-09) - Task 007: Wire Tracker Through WebSocket Handler
-**Completed:** Task #007 - WebSocket Handler Wiring
-**Key Changes:**
-- Verified tracker is already wired through WebSocket handler chain (implemented in Task 006)
-- Tracker extracted in `handle()` at line 178: `let tracker = backfill.tracker();`
-- Tracker passed to `handle_node_message()` at line 204
-- Tracker flows to `handle_backfill_response()` at line 537
-- Implementation differs from plan: passes BackfillService and extracts tracker internally
+### Session 7 (2026-01-09) - Tasks 007 & 008
+**Completed:**
+- Task #007 - WebSocket Handler Wiring (verification only)
+- Task #008 - Disconnect Cleanup Logic
+
+**Key Changes for Task 008:**
+- Added disconnect cleanup code in session.rs lines 258-278
+- On disconnect, calls `tracker.clear_node(auth_result.node_id)`
+- For each cleared attempt ID, calls `repo.reset_attempt_to_partial(attempt_id)`
+- Errors logged with warning level but don't prevent cleanup
 - All 8 backfill tests pass, clippy clean
-**Git Commits:** (verification only, no new code changes needed)
+**Git Commits:** 5e2679f5f
 
 ### Session 6 (2026-01-09) - Task 006: Update handle_backfill_response with Tracking
 **Completed:** Task #006 - Response Handler Integration
@@ -48,9 +50,6 @@ Current Task: #008 - Add Disconnect Cleanup Logic
 
 ## Session 0 Complete - Initialization
 
-### Progress Summary
-Initialized the development environment and decomposed the backfill request tracking implementation plan into 10 actionable tasks.
-
 ### Tasks Created
 - [x] 001.md - BackfillRequestTracker Core Tests (TDD RED phase)
 - [x] 002.md - BackfillRequestTracker Implementation (TDD GREEN phase)
@@ -59,27 +58,12 @@ Initialized the development environment and decomposed the backfill request trac
 - [x] 005.md - Add Tracker Getter to AppState
 - [x] 006.md - Update handle_backfill_response with Tracking
 - [x] 007.md - Wire Tracker Through WebSocket Handler
-- [ ] 008.md - Add Disconnect Cleanup Logic
+- [x] 008.md - Add Disconnect Cleanup Logic
 - [ ] 009.md - Final Verification and Testing
 - [ ] 010.md - Update Documentation
-
-### Task Dependencies
-```text
-001 -> 002 -> 003 -> 005 -> 006 -> 007 -> 008 -> 009 -> 010
-                   /
-      004 --------
-```
-
-Tasks 001-003 are sequential (TDD flow). Task 004 can run in parallel with 001-003.
 
 ### Environment Configuration
 - FRONTEND_PORT: 5800
 - BACKEND_PORT: 5801
 - MCP_PORT: 5802
 - VK_DATABASE_PATH: ./dev_assets/db.sqlite
-
-### Notes
-- Implementation is in `crates/remote/src/nodes/backfill.rs`
-- The plan follows TDD - write tests first, then implementation
-- In-memory HashMap tracking is sufficient (no database table needed)
-- Task 004 has no dependencies and can be done in parallel with early tasks
