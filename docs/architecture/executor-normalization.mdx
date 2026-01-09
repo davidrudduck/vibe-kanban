@@ -274,6 +274,150 @@ ToolStatus::denied_with_source(reason, DenialSource::User)
 ToolStatus::timed_out_with_duration(requested_at)
 ```
 
+## Normalization Flow
+
+The complete data flow from raw agent output to UI display involves several stages:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          DURING EXECUTION                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  ┌─────────────┐    ┌────────────────┐    ┌─────────────────────────┐  │
+│  │ Agent       │───▶│ MsgStore       │───▶│ LogBatcher              │  │
+│  │ stdout/err  │    │ (in-memory)    │    │ (batches writes)        │  │
+│  └─────────────┘    └───────┬────────┘    └────────────┬────────────┘  │
+│                             │                          │               │
+│                             │ push_msg()               │ flush()       │
+│                             ▼                          ▼               │
+│                    ┌────────────────┐    ┌─────────────────────────┐   │
+│                    │ normalize_logs │    │ execution_process_logs  │   │
+│                    │ (spawned task) │    │ (JSONL raw backup)      │   │
+│                    └───────┬────────┘    └─────────────────────────┘   │
+│                            │                                           │
+│                            │ JsonPatch                                 │
+│                            ▼                                           │
+│                    ┌────────────────┐    ┌─────────────────────────┐   │
+│                    │ log_entries    │───▶│ WebSocket               │   │
+│                    │ (normalized)   │    │ (real-time UI)          │   │
+│                    └────────────────┘    └─────────────────────────┘   │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          AFTER EXECUTION                                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  1. LogBatcher.finish() - Flush remaining buffered logs                 │
+│  2. Await normalize_logs JoinHandle - Wait for normalization complete   │
+│  3. MsgStore.push_finished() - Signal end of stream                     │
+│  4. log_migration - Populate REST pagination from normalized entries    │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Flow Stages
+
+1. **Raw Capture**: Agent stdout/stderr streams into `MsgStore`
+2. **Batched Write**: `LogBatcher` buffers messages, writes to `execution_process_logs` in JSONL format
+3. **Real-time Normalization**: `normalize_logs()` task parses raw logs, emits `JsonPatch` entries
+4. **Database Storage**: Normalized entries stored in `log_entries` table via JsonPatch operations
+5. **WebSocket Streaming**: JsonPatch operations sent to frontend for real-time display
+
+## Synchronization
+
+Proper synchronization ensures all logs are captured before marking an execution as complete. This is critical for data integrity - without synchronization, logs may be lost or truncated.
+
+### The Problem
+
+```text
+❌ Without synchronization:
+
+┌─────────────┐     ┌──────────────┐     ┌────────────────┐
+│ Agent exits │────▶│ push_finished│────▶│ Logs truncated │
+│             │     │ immediately  │     │ (data loss!)   │
+└─────────────┘     └──────────────┘     └────────────────┘
+                           ▲
+                           │ normalize_logs() still running!
+                           │ LogBatcher still has buffered logs!
+```
+
+### The Solution
+
+Two synchronization mechanisms ensure complete log capture:
+
+#### 1. LogBatcher Finish Signal
+
+The `LogBatcher` batches database writes for efficiency (100 messages or 250ms). Before completion:
+
+```rust
+// In spawn_exit_monitor/stop_execution:
+log_batcher.finish(execution_id).await;  // Flush remaining logs
+```
+
+This flushes any buffered logs to `execution_process_logs` before the process is marked complete.
+
+#### 2. JoinHandle Await Pattern
+
+The `normalize_logs()` function returns a `JoinHandle<()>` that must be awaited:
+
+```rust
+// Trait definition
+fn normalize_logs(
+    &self,
+    msg_store: Arc<MsgStore>,
+    worktree_path: &Path
+) -> JoinHandle<()>;
+
+// Container stores the handle
+container.store_normalization_handle(exec_id, norm_handle).await;
+
+// Before completion, await with timeout
+if let Some(norm_handle) = container.take_normalization_handle(&exec_id).await
+    && tokio::time::timeout(Duration::from_secs(5), norm_handle)
+        .await
+        .is_err()
+{
+    tracing::warn!("Normalization timed out after 5 seconds");
+}
+```
+
+### Complete Synchronization Flow
+
+```text
+✅ With synchronization:
+
+┌─────────────┐     ┌──────────────┐     ┌─────────────────┐
+│ Agent exits │────▶│ LogBatcher   │────▶│ Await normalize │
+│             │     │ .finish()    │     │ JoinHandle (5s) │
+└─────────────┘     └──────────────┘     └────────┬────────┘
+                                                  │
+                                                  ▼
+                                         ┌─────────────────┐
+                                         │ push_finished() │
+                                         │ All logs safe!  │
+                                         └─────────────────┘
+```
+
+### Key Implementation Points
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| `LogBatcherHandle::finish()` | `crates/services/src/services/log_batcher.rs` | Flush buffered logs for an execution |
+| `store_normalization_handle()` | `crates/local-deployment/src/container.rs` | Store JoinHandle for later await |
+| `take_normalization_handle()` | `crates/local-deployment/src/container.rs` | Retrieve and await the handle |
+| 5-second timeout | Container exit handlers | Prevent hanging on slow normalization |
+
+### Why 5 Seconds?
+
+The timeout balances completeness with responsiveness:
+
+- **Too short**: Risk losing final log entries still being processed
+- **Too long**: UI appears frozen waiting for completion
+- **5 seconds**: Sufficient for most normalization, logs warning if exceeded
+
+If normalization times out, a warning is logged but execution continues. The raw logs in `execution_process_logs` remain available for manual recovery.
+
 ## Frontend Integration
 
 Normalized entries are sent to the frontend via WebSocket and displayed in `ProcessLogsViewer`:
@@ -286,10 +430,43 @@ Normalized entries are sent to the frontend via WebSocket and displayed in `Proc
 
 ## Key Files
 
+### Core Types
+
 | File | Purpose |
 |------|---------|
-| `crates/executors/src/logs/mod.rs` | Core types and error classification |
-| `crates/executors/src/logs/stderr_processor.rs` | Shared stderr processing |
-| `crates/executors/src/logs/plain_text_processor.rs` | Plain text processing |
-| `frontend/src/components/process/ProcessLogsViewer.tsx` | Log rendering UI |
-| `frontend/src/components/process/NormalizedEntryView.tsx` | Entry rendering |
+| `crates/executors/src/logs/mod.rs` | Core types: `NormalizedEntry`, `ToolStatus`, `NormalizedEntryError` |
+| `crates/executors/src/logs/stderr_processor.rs` | Shared stderr processing logic |
+| `crates/executors/src/logs/plain_text_processor.rs` | Plain text stream processing |
+| `crates/executors/src/logs/utils/` | JsonPatch utilities, entry index tracking |
+
+### Synchronization
+
+| File | Purpose |
+|------|---------|
+| `crates/services/src/services/log_batcher.rs` | Batched database writes, `finish()` signal |
+| `crates/local-deployment/src/container.rs` | JoinHandle storage, await on exit |
+| `crates/services/src/services/log_migration.rs` | Post-execution log migration |
+
+### Per-Executor Normalizers
+
+| File | Purpose |
+|------|---------|
+| `crates/executors/src/executors/claude/` | Claude Code JSON-RPC parsing |
+| `crates/executors/src/executors/codex/normalize_logs.rs` | Codex event parsing |
+| `crates/executors/src/executors/acp/normalize_logs.rs` | ACP (Gemini, Qwen) parsing |
+| `crates/executors/src/executors/cursor.rs` | Cursor JSONL parsing |
+| `crates/executors/src/executors/copilot.rs` | Copilot text + log file parsing |
+| `crates/executors/src/executors/droid/normalize_logs.rs` | Droid structured parsing |
+
+### Frontend
+
+| File | Purpose |
+|------|---------|
+| `frontend/src/components/process/ProcessLogsViewer.tsx` | Virtual scrolling log viewer |
+| `frontend/src/components/process/NormalizedEntryView.tsx` | Entry type rendering |
+
+## Related Documentation
+
+- [Executor Logging](/features/executor-logging) - User guide for log viewing
+- [Log Migration](/architecture/log-migration) - Post-execution log processing
+- [Execution Sync](/architecture/execution-sync) - Real-time synchronization
