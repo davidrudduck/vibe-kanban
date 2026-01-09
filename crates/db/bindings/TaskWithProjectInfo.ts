@@ -8,4 +8,12 @@ export type TaskWithProjectInfo = { id: string, project_id: string, title: strin
 /**
  * Timestamp of last significant activity (status change, execution start).
  */
-activity_at: Date | null, assignee_first_name: string | null, assignee_last_name: string | null, assignee_username: string | null, has_in_progress_attempt: boolean, has_merged_attempt: boolean, last_attempt_failed: boolean, executor: string, project_name: string, source_node_name: string | null, };
+activity_at: Date | null, assignee_first_name: string | null, assignee_last_name: string | null, assignee_username: string | null, has_in_progress_attempt: boolean, has_merged_attempt: boolean, last_attempt_failed: boolean, executor: string, 
+/**
+ * Latest execution start timestamp for sorting (codingagent only, non-dropped)
+ */
+latest_execution_started_at: Date | null, 
+/**
+ * Latest execution completion timestamp for sorting (codingagent only, non-dropped)
+ */
+latest_execution_completed_at: Date | null, project_name: string, source_node_name: string | null, };

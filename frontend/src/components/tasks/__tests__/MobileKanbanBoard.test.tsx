@@ -90,6 +90,8 @@ function createMockTask(
     remote_stream_node_id: null,
     remote_stream_url: null,
     activity_at: null,
+    latest_execution_started_at: null,
+    latest_execution_completed_at: null,
   };
 }
 

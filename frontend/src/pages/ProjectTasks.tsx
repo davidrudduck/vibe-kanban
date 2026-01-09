@@ -48,6 +48,8 @@ import {
   useProjectTasks,
   type UseProjectTasksOptions,
 } from '@/hooks/useProjectTasks';
+import { useColumnSortState } from '@/hooks/useColumnSortState';
+import { sortTasksByStatus } from '@/lib/taskSorting';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useHotkeysContext } from 'react-hotkeys-hook';
 import { TasksLayout, type LayoutMode } from '@/components/layout/TasksLayout';
@@ -176,11 +178,14 @@ export function ProjectTasks() {
   }, [projectId]);
   const { query: searchQuery, focusInput } = useSearch();
 
+  // Sort state for kanban columns
+  const { sortDirections, toggleDirection } = useColumnSortState();
+
   // Filter state from URL params
   const showArchived = searchParams.get('archived') === 'on';
   const projectTasksOptions: UseProjectTasksOptions = useMemo(
-    () => ({ includeArchived: showArchived }),
-    [showArchived]
+    () => ({ includeArchived: showArchived, sortDirections }),
+    [showArchived, sortDirections]
   );
 
   const {
@@ -384,31 +389,16 @@ export function ProjectTasks() {
       });
     });
 
-    // Get activity time for sorting (fallback to created_at)
-    const getActivityTime = (item: KanbanColumnItem) => {
-      const task = item.task;
-      const activityAt = task.activity_at ?? task.created_at;
-      if (activityAt instanceof Date) {
-        return activityAt.getTime();
-      }
-      return new Date(activityAt as string).getTime();
-    };
-
-    // Apply status-aware sorting:
-    // - Todo: oldest first (FIFO queue - prevents older tasks from being buried)
-    // - All others: most recent activity first
+    // Apply status-aware sorting using centralized utility
+    // Extract tasks from columns, sort them, then re-wrap
     TASK_STATUSES.forEach((status) => {
-      if (status === 'todo') {
-        // Todo: oldest first (ascending by activity_at)
-        columns[status].sort((a, b) => getActivityTime(a) - getActivityTime(b));
-      } else {
-        // All others: most recent first (descending by activity_at)
-        columns[status].sort((a, b) => getActivityTime(b) - getActivityTime(a));
-      }
+      const tasksInColumn = columns[status].map((item) => item.task);
+      const sortedTasks = sortTasksByStatus(tasksInColumn, sortDirections[status]);
+      columns[status] = sortedTasks.map((task) => ({ type: 'task', task }));
     });
 
     return columns;
-  }, [hasSearch, normalizedSearch, tasks, showArchived]);
+  }, [hasSearch, normalizedSearch, tasks, showArchived, sortDirections]);
 
   const visibleTasksByStatus = useMemo(() => {
     const map: Record<TaskStatus, Task[]> = {
@@ -743,6 +733,8 @@ export function ProjectTasks() {
           selectedTaskId={selectedTask?.id}
           onCreateTask={handleCreateTask}
           projectId={projectId!}
+          sortDirections={sortDirections}
+          onSortToggle={toggleDirection}
         />
       </div>
     );

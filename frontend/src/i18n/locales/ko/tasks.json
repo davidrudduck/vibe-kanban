@@ -463,6 +463,11 @@
     "execution": "실행",
     "createAndStart": "생성 및 시작"
   },
+  "sorting": {
+    "ascending": "오래된 순",
+    "descending": "최신 순",
+    "sortBy": "{{column}} 정렬, 현재 {{direction}}"
+  },
   "templatePicker": {
     "title": "템플릿 삽입",
     "searchPlaceholder": "템플릿 검색...",

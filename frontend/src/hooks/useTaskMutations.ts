@@ -61,6 +61,8 @@ export function useTaskMutations(
           has_merged_attempt: false,
           last_attempt_failed: false,
           executor: '',
+          latest_execution_started_at: null,
+          latest_execution_completed_at: null,
         });
       }
       // Invalidate parent's relationships cache if this is a subtask

@@ -59,6 +59,12 @@ pub struct TaskWithAttemptStatus {
     pub has_merged_attempt: bool,
     pub last_attempt_failed: bool,
     pub executor: String,
+    /// Latest execution start timestamp for sorting (codingagent only, non-dropped)
+    #[ts(type = "Date | null")]
+    pub latest_execution_started_at: Option<DateTime<Utc>>,
+    /// Latest execution completion timestamp for sorting (codingagent only, non-dropped)
+    #[ts(type = "Date | null")]
+    pub latest_execution_completed_at: Option<DateTime<Utc>>,
 }
 
 impl std::ops::Deref for TaskWithAttemptStatus {
@@ -214,7 +220,24 @@ impl Task {
       WHERE ta.task_id = t.id
      ORDER BY ta.created_at DESC
       LIMIT 1
-    )                               AS "executor!: String"
+    )                               AS "executor!: String",
+
+  (SELECT MAX(ep.started_at)
+     FROM task_attempts ta
+     JOIN execution_processes ep ON ep.task_attempt_id = ta.id
+    WHERE ta.task_id = t.id
+      AND ep.run_reason = 'codingagent'
+      AND ep.dropped = FALSE
+  )                                 AS "latest_execution_started_at: DateTime<Utc>",
+
+  (SELECT MAX(ep.completed_at)
+     FROM task_attempts ta
+     JOIN execution_processes ep ON ep.task_attempt_id = ta.id
+    WHERE ta.task_id = t.id
+      AND ep.run_reason = 'codingagent'
+      AND ep.dropped = FALSE
+      AND ep.completed_at IS NOT NULL
+  )                                 AS "latest_execution_completed_at: DateTime<Utc>"
 
 FROM tasks t
 WHERE t.project_id = $1
@@ -253,6 +276,8 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                 has_merged_attempt: false, // TODO use merges table
                 last_attempt_failed: rec.last_attempt_failed != 0,
                 executor: rec.executor,
+                latest_execution_started_at: rec.latest_execution_started_at,
+                latest_execution_completed_at: rec.latest_execution_completed_at,
             })
             .collect();
 

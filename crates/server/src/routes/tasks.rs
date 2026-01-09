@@ -445,6 +445,8 @@ pub async fn create_task_and_start(
         has_merged_attempt: false,
         last_attempt_failed: false,
         executor: task_attempt.executor,
+        latest_execution_started_at: None, // Will be populated after first execution
+        latest_execution_completed_at: None,
     })))
 }
 
