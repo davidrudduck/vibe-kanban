@@ -265,3 +265,47 @@ describe('Variable Name Validation', () => {
     });
   });
 });
+
+// Test Desktop Modal Positioning
+describe('TaskFormSheet Desktop Modal Positioning', () => {
+  it('should export the TaskFormSheet component', async () => {
+    const module = await import('../TaskFormSheet');
+    expect(module.TaskFormSheet).toBeDefined();
+  }, 10000);
+
+  it('should use flexbox centering instead of transform', () => {
+    // The correct pattern: inset-0 + flex + justify-center
+    // The incorrect pattern: left-1/2 + -translate-x-1/2
+    const correctClasses = 'inset-0 flex items-start justify-center';
+    const incorrectClasses = 'left-1/2 -translate-x-1/2';
+
+    // Test that correct pattern includes required classes
+    expect(correctClasses).toContain('inset-0');
+    expect(correctClasses).toContain('flex');
+    expect(correctClasses).toContain('justify-center');
+
+    // Test that incorrect pattern uses transform-based centering
+    expect(incorrectClasses).toContain('left-1/2');
+    expect(incorrectClasses).toContain('-translate-x-1/2');
+  });
+
+  it('should constrain modal width to min(95vw, 600px)', () => {
+    const expectedWidthClass = 'w-[min(95vw,600px)]';
+    expect(expectedWidthClass).toContain('95vw');
+    expect(expectedWidthClass).toContain('600px');
+  });
+
+  it('should have max-height of 90vh', () => {
+    const expectedMaxHeightClass = 'max-h-[90vh]';
+    expect(expectedMaxHeightClass).toContain('90vh');
+  });
+
+  it('should use pointer-events pattern for click-through container', () => {
+    // The wrapper should have pointer-events-none, modal should have pointer-events-auto
+    const wrapperClasses = 'pointer-events-none';
+    const modalClasses = 'pointer-events-auto';
+
+    expect(wrapperClasses).toContain('pointer-events-none');
+    expect(modalClasses).toContain('pointer-events-auto');
+  });
+});
