@@ -408,15 +408,90 @@ if let Some(norm_handle) = container.take_normalization_handle(&exec_id).await
 | `take_normalization_handle()` | `crates/local-deployment/src/container.rs` | Retrieve and await the handle |
 | 5-second timeout | Container exit handlers | Prevent hanging on slow normalization |
 
-### Why 5 Seconds?
+### Configuring the Timeout
+
+The default 5-second timeout can be configured via environment variable:
+
+```bash
+# In .env or shell environment
+VK_NORMALIZATION_TIMEOUT_SECS=10  # Increase for large log volumes
+```
 
 The timeout balances completeness with responsiveness:
 
 - **Too short**: Risk losing final log entries still being processed
 - **Too long**: UI appears frozen waiting for completion
-- **5 seconds**: Sufficient for most normalization, logs warning if exceeded
+- **Default (5 seconds)**: Sufficient for most normalization, logs warning if exceeded
 
-If normalization times out, a warning is logged but execution continues. The raw logs in `execution_process_logs` remain available for manual recovery.
+If normalization times out, a warning is logged but execution continues. The raw logs in `execution_process_logs` remain available for manual recovery via the `migrate_logs` CLI.
+
+## Monitoring
+
+Normalization performance is tracked via metrics exposed through the diagnostics endpoints and periodic logging.
+
+### Available Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `vk_normalization_total` | Counter | Total normalization operations |
+| `vk_normalization_timeouts` | Counter | Number of timeouts (exceeded configured threshold) |
+| `vk_normalization_timeout_rate` | Gauge | Timeout rate (0-1) |
+| `vk_normalization_avg_duration_ms` | Gauge | Average normalization duration |
+| `vk_normalization_latency_bucket{le="X"}` | Gauge | Latency distribution buckets |
+
+### Accessing Metrics
+
+**JSON API:**
+```bash
+curl http://localhost:3001/api/diagnostics
+```
+
+**Prometheus Format:**
+```bash
+curl http://localhost:3001/api/diagnostics/prometheus
+```
+
+### Periodic Logging
+
+Normalization metrics are automatically logged every 5 minutes (if there's activity):
+
+```text
+INFO Normalization metrics total=42 timeouts=1 timeout_rate_pct="2.38" avg_duration_ms="127.45"
+```
+
+This helps identify:
+- **High timeout rates**: May need to increase `VK_NORMALIZATION_TIMEOUT_SECS`
+- **Slow average duration**: Potential performance issues with normalizers
+- **Latency distribution**: Understanding typical completion times
+
+## Recovery
+
+When normalization times out or the server crashes during execution, raw logs are preserved and can be recovered.
+
+### Automatic Recovery
+
+On server startup, `recover_incomplete_executions()` automatically:
+1. Scans for executions with `log_migration_state = 'pending'`
+2. Loads raw logs from `execution_process_logs` (JSONL backup)
+3. Normalizes and populates `log_entries` table
+4. Updates migration state to `'completed'`
+
+### Manual Recovery
+
+For specific executions or troubleshooting:
+
+```bash
+# Run the migrate_logs CLI
+cargo run --bin migrate_logs
+
+# With verbose logging
+RUST_LOG=debug cargo run --bin migrate_logs
+```
+
+The CLI:
+- Loads `.env` for database configuration
+- Processes all incomplete executions
+- Reports count of recovered logs
 
 ## Frontend Integration
 
@@ -446,6 +521,14 @@ Normalized entries are sent to the frontend via WebSocket and displayed in `Proc
 | `crates/services/src/services/log_batcher.rs` | Batched database writes, `finish()` signal |
 | `crates/local-deployment/src/container.rs` | JoinHandle storage, await on exit |
 | `crates/services/src/services/log_migration.rs` | Post-execution log migration |
+
+### Monitoring
+
+| File | Purpose |
+|------|---------|
+| `crates/services/src/services/normalization_metrics.rs` | Metrics collection with latency buckets |
+| `crates/server/src/routes/diagnostics.rs` | JSON and Prometheus endpoints |
+| `crates/server/src/bin/migrate_logs.rs` | CLI for manual log recovery |
 
 ### Per-Executor Normalizers
 

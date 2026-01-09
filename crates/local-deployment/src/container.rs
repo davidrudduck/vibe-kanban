@@ -51,6 +51,7 @@ use services::services::{
     image::ImageService,
     log_batcher::{LogBatcher, LogBatcherHandle},
     log_migration,
+    normalization_metrics::NormalizationMetrics,
     share::SharePublisher,
     worktree_manager::{WorktreeCleanup, WorktreeManager},
 };
@@ -64,6 +65,20 @@ use utils::{
 use uuid::Uuid;
 
 use crate::command;
+
+/// Default timeout in seconds for awaiting log normalization completion.
+const DEFAULT_NORMALIZATION_TIMEOUT_SECS: u64 = 5;
+
+/// Get the normalization timeout from environment or use default.
+///
+/// Returns the value of `VK_NORMALIZATION_TIMEOUT_SECS` if set and valid,
+/// otherwise returns `DEFAULT_NORMALIZATION_TIMEOUT_SECS` (5 seconds).
+fn normalization_timeout_secs() -> u64 {
+    std::env::var("VK_NORMALIZATION_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(DEFAULT_NORMALIZATION_TIMEOUT_SECS)
+}
 
 #[derive(Clone)]
 pub struct LocalContainerService {
@@ -86,6 +101,8 @@ pub struct LocalContainerService {
     /// Normalization task handles keyed by execution_process_id.
     /// Used to await normalization completion before signaling finished.
     normalization_handles: Arc<RwLock<HashMap<Uuid, JoinHandle<()>>>>,
+    /// Metrics for tracking normalization completion times and timeouts.
+    normalization_metrics: NormalizationMetrics,
 }
 
 impl LocalContainerService {
@@ -111,6 +128,9 @@ impl LocalContainerService {
         // Initialize normalization handles store
         let normalization_handles = Arc::new(RwLock::new(HashMap::new()));
 
+        // Initialize normalization metrics collector
+        let normalization_metrics = NormalizationMetrics::new();
+
         let container = LocalContainerService {
             db,
             child_store,
@@ -125,11 +145,17 @@ impl LocalContainerService {
             log_batcher,
             message_queue,
             normalization_handles,
+            normalization_metrics,
         };
 
         container.spawn_worktree_cleanup();
 
         container
+    }
+
+    /// Get the normalization metrics collector.
+    pub fn normalization_metrics(&self) -> &NormalizationMetrics {
+        &self.normalization_metrics
     }
 
     pub async fn get_child_from_store(&self, id: &Uuid) -> Option<Arc<RwLock<AsyncGroupChild>>> {
@@ -654,15 +680,41 @@ impl LocalContainerService {
 
             // Await normalization completion before signaling finished
             // This ensures all log entries are processed before push_finished()
-            if let Some(norm_handle) = container.take_normalization_handle(&exec_id).await
-                && tokio::time::timeout(Duration::from_secs(5), norm_handle)
-                    .await
-                    .is_err()
-            {
-                tracing::warn!(
+            let timeout_secs = normalization_timeout_secs();
+            if let Some(norm_handle) = container.take_normalization_handle(&exec_id).await {
+                let span = tracing::info_span!(
+                    "normalization_await",
                     exec_id = %exec_id,
-                    "Normalization timed out after 5 seconds"
+                    timeout_secs = timeout_secs
                 );
+                let _guard = span.enter();
+
+                let start = std::time::Instant::now();
+                let result = tokio::time::timeout(
+                    Duration::from_secs(timeout_secs),
+                    norm_handle,
+                )
+                .await;
+
+                match result {
+                    Ok(_) => {
+                        let duration = start.elapsed();
+                        container.normalization_metrics().record_completion(duration);
+                        tracing::debug!(
+                            exec_id = %exec_id,
+                            duration_ms = duration.as_millis() as u64,
+                            "Normalization completed"
+                        );
+                    }
+                    Err(_) => {
+                        container.normalization_metrics().record_timeout();
+                        tracing::warn!(
+                            exec_id = %exec_id,
+                            timeout_secs = timeout_secs,
+                            "Normalization timed out. Raw logs preserved in execution_process_logs."
+                        );
+                    }
+                }
             }
 
             // Cleanup msg store
@@ -1193,6 +1245,10 @@ impl ContainerService for LocalContainerService {
         Some(&self.log_batcher)
     }
 
+    fn normalization_metrics(&self) -> &NormalizationMetrics {
+        &self.normalization_metrics
+    }
+
     async fn store_normalization_handle(&self, exec_id: Uuid, handle: JoinHandle<()>) {
         self.store_normalization_handle(exec_id, handle).await;
     }
@@ -1473,15 +1529,41 @@ impl ContainerService for LocalContainerService {
 
         // Await normalization completion before signaling finished
         // This ensures all log entries are processed before push_finished()
-        if let Some(norm_handle) = self.take_normalization_handle(&execution_process.id).await
-            && tokio::time::timeout(Duration::from_secs(5), norm_handle)
-                .await
-                .is_err()
-        {
-            tracing::warn!(
-                execution_process_id = %execution_process.id,
-                "Normalization timed out after 5 seconds"
+        let timeout_secs = normalization_timeout_secs();
+        if let Some(norm_handle) = self.take_normalization_handle(&execution_process.id).await {
+            let span = tracing::info_span!(
+                "normalization_await",
+                exec_id = %execution_process.id,
+                timeout_secs = timeout_secs
             );
+            let _guard = span.enter();
+
+            let start = std::time::Instant::now();
+            let result = tokio::time::timeout(
+                Duration::from_secs(timeout_secs),
+                norm_handle,
+            )
+            .await;
+
+            match result {
+                Ok(_) => {
+                    let duration = start.elapsed();
+                    self.normalization_metrics.record_completion(duration);
+                    tracing::debug!(
+                        exec_id = %execution_process.id,
+                        duration_ms = duration.as_millis() as u64,
+                        "Normalization completed"
+                    );
+                }
+                Err(_) => {
+                    self.normalization_metrics.record_timeout();
+                    tracing::warn!(
+                        execution_process_id = %execution_process.id,
+                        timeout_secs = timeout_secs,
+                        "Normalization timed out. Raw logs preserved in execution_process_logs."
+                    );
+                }
+            }
         }
 
         // Mark the process finished in the MsgStore
@@ -1791,5 +1873,106 @@ fn success_exit_status() -> std::process::ExitStatus {
     {
         use std::os::windows::process::ExitStatusExt;
         ExitStatusExt::from_raw(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+
+    /// Helper to safely set an environment variable in tests.
+    ///
+    /// # Safety
+    /// This is safe when tests are run with `--test-threads=1`.
+    unsafe fn set_env(key: &str, value: &str) {
+        // SAFETY: The caller guarantees single-threaded execution.
+        unsafe { std::env::set_var(key, value) };
+    }
+
+    /// Helper to safely remove an environment variable in tests.
+    ///
+    /// # Safety
+    /// This is safe when tests are run with `--test-threads=1`.
+    unsafe fn remove_env(key: &str) {
+        // SAFETY: The caller guarantees single-threaded execution.
+        unsafe { std::env::remove_var(key) };
+    }
+
+    #[test]
+    #[serial]
+    fn test_normalization_timeout_default() {
+        // Save original value if any
+        let original = std::env::var("VK_NORMALIZATION_TIMEOUT_SECS").ok();
+
+        // SAFETY: We're modifying env vars in a controlled test environment.
+        unsafe {
+            remove_env("VK_NORMALIZATION_TIMEOUT_SECS");
+        }
+
+        let timeout = normalization_timeout_secs();
+        assert_eq!(
+            timeout, 5,
+            "Should use default of 5 seconds when env var not set"
+        );
+
+        // Restore original value
+        // SAFETY: Same as above
+        unsafe {
+            if let Some(val) = original {
+                set_env("VK_NORMALIZATION_TIMEOUT_SECS", &val);
+            }
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_normalization_timeout_custom() {
+        // Save original value if any
+        let original = std::env::var("VK_NORMALIZATION_TIMEOUT_SECS").ok();
+
+        // SAFETY: We're modifying env vars in a controlled test environment.
+        unsafe {
+            set_env("VK_NORMALIZATION_TIMEOUT_SECS", "10");
+        }
+
+        let timeout = normalization_timeout_secs();
+        assert_eq!(timeout, 10, "Should use value from VK_NORMALIZATION_TIMEOUT_SECS");
+
+        // Restore original value
+        // SAFETY: Same as above
+        unsafe {
+            match original {
+                Some(val) => set_env("VK_NORMALIZATION_TIMEOUT_SECS", &val),
+                None => remove_env("VK_NORMALIZATION_TIMEOUT_SECS"),
+            }
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_normalization_timeout_invalid_falls_back_to_default() {
+        // Save original value if any
+        let original = std::env::var("VK_NORMALIZATION_TIMEOUT_SECS").ok();
+
+        // SAFETY: We're modifying env vars in a controlled test environment.
+        unsafe {
+            set_env("VK_NORMALIZATION_TIMEOUT_SECS", "not_a_number");
+        }
+
+        let timeout = normalization_timeout_secs();
+        assert_eq!(
+            timeout, 5,
+            "Should use default when env var is not a valid number"
+        );
+
+        // Restore original value
+        // SAFETY: Same as above
+        unsafe {
+            match original {
+                Some(val) => set_env("VK_NORMALIZATION_TIMEOUT_SECS", &val),
+                None => remove_env("VK_NORMALIZATION_TIMEOUT_SECS"),
+            }
+        }
     }
 }

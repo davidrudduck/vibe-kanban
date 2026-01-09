@@ -46,6 +46,7 @@ use crate::services::{
     git::{GitService, GitServiceError},
     image::ImageService,
     log_batcher::LogBatcherHandle,
+    normalization_metrics::NormalizationMetrics,
     notification::NotificationService,
     share::SharePublisher,
     variable_expander,
@@ -86,6 +87,9 @@ pub trait ContainerService {
     /// Get the log batcher handle for batched database writes.
     /// Returns None if batching is disabled (falls back to direct writes).
     fn log_batcher(&self) -> Option<&LogBatcherHandle>;
+
+    /// Get normalization metrics for tracking completion times and timeouts.
+    fn normalization_metrics(&self) -> &NormalizationMetrics;
 
     /// Store a normalization task handle for an execution process.
     /// Called after starting log normalization to track the async task.
