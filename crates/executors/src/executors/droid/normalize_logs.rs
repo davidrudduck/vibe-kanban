@@ -1,10 +1,16 @@
+//! Droid executor log normalization using the shared LogNormalizer trait.
+//!
+//! This module implements log normalization for the Droid executor,
+//! converting DroidJson events into normalized conversation entries.
+
 use std::{
     collections::{HashMap, VecDeque},
-    path::Path,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
-use futures::{StreamExt, future::ready};
+use futures::StreamExt;
+use json_patch::Patch;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use workspace_utils::{
@@ -16,13 +22,676 @@ use workspace_utils::{
 use crate::logs::{
     ActionType, CommandExitStatus, CommandRunResult, FileChange, NormalizedEntry,
     NormalizedEntryError, NormalizedEntryType, TodoItem, ToolResult, ToolStatus,
+    normalizer::{LogNormalizer, normalize_logs_with},
     plain_text_processor::PlainTextLogProcessor,
-    utils::{
-        EntryIndexProvider,
-        patch::{add_normalized_entry, replace_normalized_entry},
-    },
+    utils::{ConversationPatch, EntryIndexProvider},
 };
 
+/// Event types that can be parsed from Droid log lines.
+#[derive(Debug, Clone)]
+pub enum DroidEvent {
+    /// A valid DroidJson event
+    Json(DroidJson),
+    /// An error log (level, message)
+    ErrorLog(String),
+    /// Non-JSON system output
+    SystemOutput(String),
+}
+
+/// Normalizer for Droid executor logs.
+///
+/// Implements the `LogNormalizer` trait to process Droid protocol events
+/// and convert them into normalized conversation entries.
+pub struct DroidNormalizer {
+    /// Path to the worktree for relative path resolution.
+    worktree_path: PathBuf,
+    /// Tool call state tracker.
+    state: ToolCallStates,
+    /// Whether we've already sent a completion message.
+    sent_completion: bool,
+}
+
+impl DroidNormalizer {
+    /// Create a new DroidNormalizer for the given worktree path.
+    pub fn new(worktree_path: PathBuf) -> Self {
+        Self {
+            worktree_path,
+            state: ToolCallStates::new(),
+            sent_completion: false,
+        }
+    }
+}
+
+impl LogNormalizer for DroidNormalizer {
+    type Event = DroidEvent;
+
+    fn parse_line(&self, line: &str) -> Option<Self::Event> {
+        let trimmed = line.trim();
+
+        // Try to parse as DroidJson first
+        if let Ok(droid_json) = serde_json::from_str::<DroidJson>(trimmed) {
+            return Some(DroidEvent::Json(droid_json));
+        }
+
+        // Try to parse as error log
+        if let Ok(DroidErrorLog { error, .. }) = serde_json::from_str::<DroidErrorLog>(trimmed) {
+            return Some(DroidEvent::ErrorLog(error.message));
+        }
+
+        // Handle non-JSON output as raw system message
+        if !trimmed.is_empty() {
+            return Some(DroidEvent::SystemOutput(
+                strip_ansi_escapes::strip_str(trimmed).to_string(),
+            ));
+        }
+
+        None
+    }
+
+    fn extract_session_id(&self, event: &Self::Event) -> Option<String> {
+        if let DroidEvent::Json(droid_json) = event {
+            droid_json.session_id().map(|s| s.to_string())
+        } else {
+            None
+        }
+    }
+
+    fn process_event(
+        &mut self,
+        event: Self::Event,
+        msg_store: &Arc<MsgStore>,
+        entry_index: &EntryIndexProvider,
+    ) -> Vec<Patch> {
+        match event {
+            DroidEvent::ErrorLog(message) => {
+                let idx = entry_index.next();
+                let entry = NormalizedEntry {
+                    timestamp: None,
+                    entry_type: NormalizedEntryType::ErrorMessage {
+                        error_type: NormalizedEntryError::Other,
+                    },
+                    content: message,
+                    metadata: None,
+                };
+                vec![ConversationPatch::add_normalized_entry(idx, entry)]
+            }
+            DroidEvent::SystemOutput(content) => {
+                let idx = entry_index.next();
+                let entry = NormalizedEntry {
+                    timestamp: None,
+                    entry_type: NormalizedEntryType::SystemMessage,
+                    content,
+                    metadata: None,
+                };
+                vec![ConversationPatch::add_normalized_entry(idx, entry)]
+            }
+            DroidEvent::Json(droid_json) => {
+                self.process_droid_json(droid_json, msg_store, entry_index)
+            }
+        }
+    }
+}
+
+impl DroidNormalizer {
+    /// Process a DroidJson event and return patches.
+    fn process_droid_json(
+        &mut self,
+        droid_json: DroidJson,
+        _msg_store: &Arc<MsgStore>,
+        entry_index: &EntryIndexProvider,
+    ) -> Vec<Patch> {
+        // Convert to owned String to avoid borrow issues
+        let worktree_path_str = self.worktree_path.to_string_lossy().into_owned();
+
+        match droid_json {
+            DroidJson::System { model, .. } => {
+                if !self.state.model_reported
+                    && let Some(model) = model
+                {
+                    self.state.model_reported = true;
+                    let idx = entry_index.next();
+                    let entry = NormalizedEntry {
+                        timestamp: None,
+                        entry_type: NormalizedEntryType::SystemMessage,
+                        content: format!("model: {model}"),
+                        metadata: None,
+                    };
+                    return vec![ConversationPatch::add_normalized_entry(idx, entry)];
+                }
+                vec![]
+            }
+
+            DroidJson::Message { role, text, .. } => {
+                if role == "assistant" && self.sent_completion {
+                    return vec![];
+                }
+
+                let entry_type = match role.as_str() {
+                    "user" => NormalizedEntryType::UserMessage,
+                    "assistant" => NormalizedEntryType::AssistantMessage,
+                    _ => NormalizedEntryType::SystemMessage,
+                };
+
+                let idx = entry_index.next();
+                let entry = NormalizedEntry {
+                    timestamp: None,
+                    entry_type,
+                    content: text.clone(),
+                    metadata: None,
+                };
+                vec![ConversationPatch::add_normalized_entry(idx, entry)]
+            }
+
+            DroidJson::ToolCall {
+                id,
+                tool_name,
+                parameters: arguments,
+                ..
+            } => {
+                self.process_tool_call(id, tool_name, arguments, entry_index, &worktree_path_str)
+            }
+
+            DroidJson::ToolResult {
+                id: _,
+                is_error,
+                payload,
+                ..
+            } => self.process_tool_result(is_error, payload, &worktree_path_str),
+
+            DroidJson::Completion { final_text, .. } => {
+                let idx = entry_index.next();
+                let entry = NormalizedEntry {
+                    timestamp: None,
+                    entry_type: NormalizedEntryType::AssistantMessage,
+                    content: final_text.clone(),
+                    metadata: None,
+                };
+                self.sent_completion = true;
+                vec![ConversationPatch::add_normalized_entry(idx, entry)]
+            }
+
+            DroidJson::Error { message, .. } => {
+                let idx = entry_index.next();
+                let entry = NormalizedEntry {
+                    timestamp: None,
+                    entry_type: NormalizedEntryType::ErrorMessage {
+                        error_type: NormalizedEntryError::Other,
+                    },
+                    content: message.clone(),
+                    metadata: None,
+                };
+                vec![ConversationPatch::add_normalized_entry(idx, entry)]
+            }
+        }
+    }
+
+    /// Process a tool call and return patches.
+    fn process_tool_call(
+        &mut self,
+        id: String,
+        tool_name: String,
+        arguments: Value,
+        entry_index: &EntryIndexProvider,
+        worktree_path_str: &str,
+    ) -> Vec<Patch> {
+        let tool_json = serde_json::json!({
+            "toolName": tool_name,
+            "parameters": arguments
+        });
+
+        let Ok(tool_data) = serde_json::from_value::<DroidToolData>(tool_json) else {
+            tracing::warn!("Failed to parse tool parameters for {}", tool_name);
+            return vec![];
+        };
+
+        match tool_data {
+            DroidToolData::Read { file_path }
+            | DroidToolData::LS {
+                directory_path: file_path,
+                ..
+            } => {
+                let path = make_path_relative(&file_path, worktree_path_str);
+                let tool_state = FileReadState {
+                    index: None,
+                    path: path.clone(),
+                    status: ToolStatus::Created,
+                };
+                self.state.file_reads.insert(id.to_string(), tool_state);
+                self.state.pending_fifo.push_back(PendingToolCall::Read {
+                    tool_call_id: id.to_string(),
+                });
+                let tool_state = self.state.file_reads.get_mut(&id).unwrap();
+                let idx = entry_index.next();
+                let entry = tool_state.to_normalized_entry();
+                tool_state.index = Some(idx);
+                vec![ConversationPatch::add_normalized_entry(idx, entry)]
+            }
+
+            DroidToolData::Grep {
+                path: file_path, ..
+            } => {
+                let path = file_path
+                    .as_ref()
+                    .map(|p| make_path_relative(p, worktree_path_str))
+                    .unwrap_or_default();
+                let tool_state = FileReadState {
+                    index: None,
+                    path: path.clone(),
+                    status: ToolStatus::Created,
+                };
+                self.state.file_reads.insert(id.clone(), tool_state);
+                self.state.pending_fifo.push_back(PendingToolCall::Read {
+                    tool_call_id: id.clone(),
+                });
+                let tool_state = self.state.file_reads.get_mut(&id).unwrap();
+                let idx = entry_index.next();
+                let entry = tool_state.to_normalized_entry();
+                tool_state.index = Some(idx);
+                vec![ConversationPatch::add_normalized_entry(idx, entry)]
+            }
+
+            DroidToolData::Glob { patterns, .. } => {
+                let query = patterns.join(", ");
+                let tool_state = SearchState {
+                    index: None,
+                    query: query.clone(),
+                    status: ToolStatus::Created,
+                };
+                self.state.searches.insert(id.clone(), tool_state);
+                self.state.pending_fifo.push_back(PendingToolCall::Search {
+                    tool_call_id: id.clone(),
+                });
+                let tool_state = self.state.searches.get_mut(&id).unwrap();
+                let idx = entry_index.next();
+                let entry = tool_state.to_normalized_entry();
+                tool_state.index = Some(idx);
+                vec![ConversationPatch::add_normalized_entry(idx, entry)]
+            }
+
+            DroidToolData::Execute { command, .. } => {
+                let tool_state = CommandRunState {
+                    index: None,
+                    command: command.clone(),
+                    output: String::new(),
+                    status: ToolStatus::Created,
+                    exit_code: None,
+                };
+                self.state.command_runs.insert(id.clone(), tool_state);
+                self.state
+                    .pending_fifo
+                    .push_back(PendingToolCall::CommandRun {
+                        tool_call_id: id.clone(),
+                    });
+                let tool_state = self.state.command_runs.get_mut(&id).unwrap();
+                let idx = entry_index.next();
+                let entry = tool_state.to_normalized_entry();
+                tool_state.index = Some(idx);
+                vec![ConversationPatch::add_normalized_entry(idx, entry)]
+            }
+
+            DroidToolData::Edit {
+                file_path,
+                old_string,
+                new_string,
+            } => {
+                let path = make_path_relative(&file_path, worktree_path_str);
+                let diff =
+                    workspace_utils::diff::create_unified_diff(&file_path, &old_string, &new_string);
+                let changes = vec![FileChange::Edit {
+                    unified_diff: diff,
+                    has_line_numbers: false,
+                }];
+
+                let tool_state = FileEditState {
+                    index: None,
+                    path: path.clone(),
+                    changes: changes.clone(),
+                    status: ToolStatus::Created,
+                };
+                self.state.file_edits.insert(id.clone(), tool_state);
+                self.state.pending_fifo.push_back(PendingToolCall::FileEdit {
+                    tool_call_id: id.clone(),
+                });
+                let tool_state = self.state.file_edits.get_mut(&id).unwrap();
+                let idx = entry_index.next();
+                let entry = tool_state.to_normalized_entry();
+                tool_state.index = Some(idx);
+                vec![ConversationPatch::add_normalized_entry(idx, entry)]
+            }
+
+            DroidToolData::MultiEdit { file_path, edits } => {
+                let path = make_path_relative(&file_path, worktree_path_str);
+                let changes: Vec<FileChange> = edits
+                    .iter()
+                    .filter_map(|edit| {
+                        if edit.old_string.is_some() || edit.new_string.is_some() {
+                            Some(FileChange::Edit {
+                                unified_diff: workspace_utils::diff::create_unified_diff(
+                                    &file_path,
+                                    &edit.old_string.clone().unwrap_or_default(),
+                                    &edit.new_string.clone().unwrap_or_default(),
+                                ),
+                                has_line_numbers: false,
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                let tool_state = FileEditState {
+                    index: None,
+                    path: path.clone(),
+                    changes: changes.clone(),
+                    status: ToolStatus::Created,
+                };
+                self.state.file_edits.insert(id.clone(), tool_state);
+                self.state.pending_fifo.push_back(PendingToolCall::FileEdit {
+                    tool_call_id: id.clone(),
+                });
+                let tool_state = self.state.file_edits.get_mut(&id).unwrap();
+                let idx = entry_index.next();
+                let entry = tool_state.to_normalized_entry();
+                tool_state.index = Some(idx);
+                vec![ConversationPatch::add_normalized_entry(idx, entry)]
+            }
+
+            DroidToolData::Create { file_path, content } => {
+                let path = make_path_relative(&file_path, worktree_path_str);
+                let changes = vec![FileChange::Write { content }];
+
+                let tool_state = FileEditState {
+                    index: None,
+                    path: path.clone(),
+                    changes: changes.clone(),
+                    status: ToolStatus::Created,
+                };
+                self.state.file_edits.insert(id.clone(), tool_state);
+                self.state.pending_fifo.push_back(PendingToolCall::FileEdit {
+                    tool_call_id: id.clone(),
+                });
+
+                let tool_state = self.state.file_edits.get_mut(&id).unwrap();
+                let idx = entry_index.next();
+                let entry = tool_state.to_normalized_entry();
+                tool_state.index = Some(idx);
+                vec![ConversationPatch::add_normalized_entry(idx, entry)]
+            }
+
+            DroidToolData::ApplyPatch { input } => {
+                let path = extract_path_from_patch(&input);
+                let path = make_path_relative(&path, worktree_path_str);
+
+                // We get changes from tool result
+                let tool_state = FileEditState {
+                    index: None,
+                    path: path.clone(),
+                    changes: vec![],
+                    status: ToolStatus::Created,
+                };
+                self.state.file_edits.insert(id.clone(), tool_state);
+                self.state.pending_fifo.push_back(PendingToolCall::FileEdit {
+                    tool_call_id: id.clone(),
+                });
+
+                let tool_state = self.state.file_edits.get_mut(&id).unwrap();
+                let idx = entry_index.next();
+                let entry = tool_state.to_normalized_entry();
+                tool_state.index = Some(idx);
+                vec![ConversationPatch::add_normalized_entry(idx, entry)]
+            }
+
+            DroidToolData::TodoWrite { todos } => {
+                let todo_items: Vec<TodoItem> = todos
+                    .into_iter()
+                    .map(|item| TodoItem {
+                        content: item.content,
+                        status: item.status,
+                        priority: item.priority,
+                    })
+                    .collect();
+
+                let tool_state = TodoManagementState {
+                    index: None,
+                    todos: todo_items.clone(),
+                    status: ToolStatus::Created,
+                };
+                self.state.todo_updates.insert(id.clone(), tool_state);
+                self.state.pending_fifo.push_back(PendingToolCall::Todo {
+                    tool_call_id: id.clone(),
+                });
+
+                let tool_state = self.state.todo_updates.get_mut(&id).unwrap();
+                let idx = entry_index.next();
+                let entry = tool_state.to_normalized_entry();
+                tool_state.index = Some(idx);
+                vec![ConversationPatch::add_normalized_entry(idx, entry)]
+            }
+
+            DroidToolData::WebSearch { query, .. } => {
+                let tool_state = WebFetchState {
+                    index: None,
+                    url: query.clone(),
+                    status: ToolStatus::Created,
+                };
+                self.state.web_fetches.insert(id.clone(), tool_state);
+                self.state.pending_fifo.push_back(PendingToolCall::Fetch {
+                    tool_call_id: id.clone(),
+                });
+
+                let tool_state = self.state.web_fetches.get_mut(&id).unwrap();
+                let idx = entry_index.next();
+                let entry = tool_state.to_normalized_entry();
+                tool_state.index = Some(idx);
+                vec![ConversationPatch::add_normalized_entry(idx, entry)]
+            }
+
+            DroidToolData::FetchUrl { url, .. } => {
+                let tool_state = WebFetchState {
+                    index: None,
+                    url: url.clone(),
+                    status: ToolStatus::Created,
+                };
+                self.state.web_fetches.insert(id.clone(), tool_state);
+                self.state.pending_fifo.push_back(PendingToolCall::Fetch {
+                    tool_call_id: id.clone(),
+                });
+
+                let tool_state = self.state.web_fetches.get_mut(&id).unwrap();
+                let idx = entry_index.next();
+                let entry = tool_state.to_normalized_entry();
+                tool_state.index = Some(idx);
+                vec![ConversationPatch::add_normalized_entry(idx, entry)]
+            }
+
+            DroidToolData::ExitSpecMode { .. } => {
+                let tool_state = TodoManagementState {
+                    index: None,
+                    todos: vec![],
+                    status: ToolStatus::Created,
+                };
+                self.state.todo_updates.insert(id.clone(), tool_state);
+                self.state.pending_fifo.push_back(PendingToolCall::Todo {
+                    tool_call_id: id.clone(),
+                });
+                let tool_state = self.state.todo_updates.get_mut(&id).unwrap();
+                let idx = entry_index.next();
+                let entry = tool_state.to_normalized_entry();
+                tool_state.index = Some(idx);
+                vec![ConversationPatch::add_normalized_entry(idx, entry)]
+            }
+
+            DroidToolData::SlackPostMessage { .. } | DroidToolData::Unknown { .. } => {
+                let tool_state = GenericToolState {
+                    index: None,
+                    name: tool_name.to_string(),
+                    arguments: Some(arguments.clone()),
+                    result: None,
+                    status: ToolStatus::Created,
+                };
+                self.state.generic_tools.insert(id.clone(), tool_state);
+                self.state.pending_fifo.push_back(PendingToolCall::Generic {
+                    tool_call_id: id.clone(),
+                });
+
+                let tool_state = self.state.generic_tools.get_mut(&id).unwrap();
+                let idx = entry_index.next();
+                let entry = tool_state.to_normalized_entry();
+                tool_state.index = Some(idx);
+                vec![ConversationPatch::add_normalized_entry(idx, entry)]
+            }
+        }
+    }
+
+    /// Process a tool result and return patches.
+    fn process_tool_result(
+        &mut self,
+        is_error: bool,
+        payload: ToolResultPayload,
+        worktree_path_str: &str,
+    ) -> Vec<Patch> {
+        let Some(pending_tool_call) = self.state.pending_fifo.pop_front() else {
+            return vec![];
+        };
+
+        match pending_tool_call {
+            PendingToolCall::Read { tool_call_id } => {
+                if let Some(mut state) = self.state.file_reads.remove(&tool_call_id) {
+                    state.status = if is_error {
+                        ToolStatus::Failed
+                    } else {
+                        ToolStatus::Success
+                    };
+                    let entry = state.to_normalized_entry();
+                    return vec![ConversationPatch::replace(state.index.unwrap(), entry)];
+                }
+            }
+            PendingToolCall::FileEdit { tool_call_id } => {
+                if let Some(mut state) = self.state.file_edits.remove(&tool_call_id) {
+                    state.status = if is_error {
+                        ToolStatus::Failed
+                    } else {
+                        ToolStatus::Success
+                    };
+
+                    // Parse patch results if ApplyPatch tool
+                    if let ToolResultPayload::Value { value } = &payload
+                        && tool_call_id.contains("ApplyPatch")
+                        && let Some(parsed) = parse_apply_patch_result(value, worktree_path_str)
+                        && let ActionType::FileEdit { changes, .. } = parsed
+                    {
+                        state.changes = changes;
+                    }
+
+                    let entry = state.to_normalized_entry();
+                    return vec![ConversationPatch::replace(state.index.unwrap(), entry)];
+                }
+            }
+            PendingToolCall::CommandRun { tool_call_id } => {
+                if let Some(mut state) = self.state.command_runs.remove(&tool_call_id) {
+                    state.status = if is_error {
+                        ToolStatus::Failed
+                    } else {
+                        ToolStatus::Success
+                    };
+
+                    match payload {
+                        ToolResultPayload::Value { value } => {
+                            let output = if let Some(s) = value.as_str() {
+                                s.to_string()
+                            } else {
+                                serde_json::to_string_pretty(&value).unwrap_or_default()
+                            };
+
+                            let exit_code = output
+                                .lines()
+                                .find(|line| line.contains("[Process exited with code"))
+                                .and_then(|line| {
+                                    line.strip_prefix("[Process exited with code ")?
+                                        .strip_suffix("]")?
+                                        .parse::<i32>()
+                                        .ok()
+                                });
+
+                            state.output = output;
+                            state.exit_code = exit_code;
+                            if exit_code.is_some_and(|rc| rc != 0) {
+                                state.status = ToolStatus::Failed;
+                            }
+                        }
+                        ToolResultPayload::Error { error } => {
+                            state.output = error.message;
+                        }
+                    }
+
+                    let entry = state.to_normalized_entry();
+                    return vec![ConversationPatch::replace(state.index.unwrap(), entry)];
+                }
+            }
+            PendingToolCall::Todo { tool_call_id } => {
+                if let Some(mut state) = self.state.todo_updates.remove(&tool_call_id) {
+                    state.status = if is_error {
+                        ToolStatus::Failed
+                    } else {
+                        ToolStatus::Success
+                    };
+                    let entry = state.to_normalized_entry();
+                    return vec![ConversationPatch::replace(state.index.unwrap(), entry)];
+                }
+            }
+            PendingToolCall::Search { tool_call_id } => {
+                if let Some(mut state) = self.state.searches.remove(&tool_call_id) {
+                    state.status = if is_error {
+                        ToolStatus::Failed
+                    } else {
+                        ToolStatus::Success
+                    };
+                    let entry = state.to_normalized_entry();
+                    return vec![ConversationPatch::replace(state.index.unwrap(), entry)];
+                }
+            }
+            PendingToolCall::Fetch { tool_call_id } => {
+                if let Some(mut state) = self.state.web_fetches.remove(&tool_call_id) {
+                    state.status = if is_error {
+                        ToolStatus::Failed
+                    } else {
+                        ToolStatus::Success
+                    };
+                    let entry = state.to_normalized_entry();
+                    return vec![ConversationPatch::replace(state.index.unwrap(), entry)];
+                }
+            }
+            PendingToolCall::Generic { tool_call_id } => {
+                if let Some(mut state) = self.state.generic_tools.remove(&tool_call_id) {
+                    state.status = if is_error {
+                        ToolStatus::Failed
+                    } else {
+                        ToolStatus::Success
+                    };
+
+                    match payload {
+                        ToolResultPayload::Value { value } => {
+                            state.result = Some(value);
+                        }
+                        ToolResultPayload::Error { error } => {
+                            state.result = Some(error.message.into());
+                        }
+                    }
+
+                    let entry = state.to_normalized_entry();
+                    return vec![ConversationPatch::replace(state.index.unwrap(), entry)];
+                }
+            }
+        }
+
+        vec![]
+    }
+}
+
+/// Main entry point for Droid log normalization.
+///
+/// Spawns background tasks to normalize both stdout (Droid events) and stderr logs.
+/// The stdout normalization uses the shared `normalize_logs_with` driver function.
 pub fn normalize_logs(
     msg_store: Arc<MsgStore>,
     worktree_path: &Path,
@@ -30,644 +699,9 @@ pub fn normalize_logs(
 ) -> tokio::task::JoinHandle<()> {
     let stderr_handle = normalize_stderr_logs(msg_store.clone(), entry_index_provider.clone());
 
-    let worktree_path = worktree_path.to_path_buf();
-    let stdout_handle = tokio::spawn(async move {
-        let mut state = ToolCallStates::new(entry_index_provider.clone());
-        let mut session_id_extracted = false;
-        let mut sent_completion = false;
-
-        let worktree_path_str = worktree_path.to_string_lossy();
-
-        let mut lines_stream = msg_store
-            .stdout_lines_stream()
-            .filter_map(|res| ready(res.ok()));
-
-        while let Some(line) = lines_stream.next().await {
-            let trimmed = line.trim();
-            let droid_json = match serde_json::from_str::<DroidJson>(trimmed) {
-                Ok(droid_json) => droid_json,
-                Err(_) => {
-                    if let Ok(DroidErrorLog { error, .. }) =
-                        serde_json::from_str::<DroidErrorLog>(trimmed)
-                    {
-                        let entry = NormalizedEntry {
-                            timestamp: None,
-                            entry_type: NormalizedEntryType::ErrorMessage {
-                                error_type: NormalizedEntryError::Other,
-                            },
-                            content: error.message,
-                            metadata: None,
-                        };
-                        add_normalized_entry(&msg_store, &entry_index_provider, entry);
-                        continue;
-                    }
-                    // Handle non-JSON output as raw system message
-                    if !trimmed.is_empty() {
-                        let entry = NormalizedEntry {
-                            timestamp: None,
-                            entry_type: NormalizedEntryType::SystemMessage,
-                            content: strip_ansi_escapes::strip_str(trimmed).to_string(),
-                            metadata: None,
-                        };
-
-                        add_normalized_entry(&msg_store, &entry_index_provider, entry);
-                    }
-                    continue;
-                }
-            };
-
-            // Extract session ID if not already done
-            if !session_id_extracted && let Some(session_id) = droid_json.session_id() {
-                msg_store.push_session_id(session_id.to_string());
-                session_id_extracted = true;
-            }
-
-            // Normalize JSON logs
-            match droid_json {
-                DroidJson::System { model, .. } => {
-                    if !state.model_reported
-                        && let Some(model) = model
-                    {
-                        state.model_reported = true;
-                        let entry = NormalizedEntry {
-                            timestamp: None,
-                            entry_type: NormalizedEntryType::SystemMessage,
-                            content: format!("model: {model}"),
-                            metadata: None,
-                        };
-                        add_normalized_entry(&msg_store, &entry_index_provider, entry);
-                    }
-                }
-
-                DroidJson::Message { role, text, .. } => {
-                    if role == "assistant" && sent_completion {
-                        continue;
-                    }
-
-                    let entry_type = match role.as_str() {
-                        "user" => NormalizedEntryType::UserMessage,
-                        "assistant" => NormalizedEntryType::AssistantMessage,
-                        _ => NormalizedEntryType::SystemMessage,
-                    };
-
-                    let entry = NormalizedEntry {
-                        timestamp: None,
-                        entry_type,
-                        content: text.clone(),
-                        metadata: None,
-                    };
-
-                    add_normalized_entry(&msg_store, &entry_index_provider, entry);
-                }
-
-                DroidJson::ToolCall {
-                    id,
-                    tool_name,
-                    parameters: arguments,
-                    ..
-                } => {
-                    let tool_json = serde_json::json!({
-                        "toolName": tool_name,
-                        "parameters": arguments
-                    });
-
-                    if let Ok(tool_data) = serde_json::from_value::<DroidToolData>(tool_json) {
-                        match tool_data {
-                            DroidToolData::Read { file_path }
-                            | DroidToolData::LS {
-                                directory_path: file_path,
-                                ..
-                            } => {
-                                let path = make_path_relative(&file_path, &worktree_path_str);
-                                let tool_state = FileReadState {
-                                    index: None,
-                                    path: path.clone(),
-                                    status: ToolStatus::Created,
-                                };
-                                state.file_reads.insert(id.to_string(), tool_state);
-                                state.pending_fifo.push_back(PendingToolCall::Read {
-                                    tool_call_id: id.to_string(),
-                                });
-                                let tool_state = state.file_reads.get_mut(&id).unwrap();
-                                let index = add_normalized_entry(
-                                    &msg_store,
-                                    &entry_index_provider,
-                                    tool_state.to_normalized_entry(),
-                                );
-                                tool_state.index = Some(index);
-                            }
-
-                            DroidToolData::Grep {
-                                path: file_path, ..
-                            } => {
-                                let path = file_path
-                                    .as_ref()
-                                    .map(|p| make_path_relative(p, &worktree_path_str))
-                                    .unwrap_or_default();
-                                let tool_state = FileReadState {
-                                    index: None,
-                                    path: path.clone(),
-                                    status: ToolStatus::Created,
-                                };
-                                state.file_reads.insert(id.clone(), tool_state);
-                                state.pending_fifo.push_back(PendingToolCall::Read {
-                                    tool_call_id: id.clone(),
-                                });
-                                let tool_state = state.file_reads.get_mut(&id).unwrap();
-                                let index = add_normalized_entry(
-                                    &msg_store,
-                                    &entry_index_provider,
-                                    tool_state.to_normalized_entry(),
-                                );
-                                tool_state.index = Some(index);
-                            }
-
-                            DroidToolData::Glob { patterns, .. } => {
-                                let query = patterns.join(", ");
-                                let tool_state = SearchState {
-                                    index: None,
-                                    query: query.clone(),
-                                    status: ToolStatus::Created,
-                                };
-                                state.searches.insert(id.clone(), tool_state);
-                                state.pending_fifo.push_back(PendingToolCall::Search {
-                                    tool_call_id: id.clone(),
-                                });
-                                let tool_state = state.searches.get_mut(&id).unwrap();
-                                let index = add_normalized_entry(
-                                    &msg_store,
-                                    &entry_index_provider,
-                                    tool_state.to_normalized_entry(),
-                                );
-                                tool_state.index = Some(index);
-                            }
-
-                            DroidToolData::Execute { command, .. } => {
-                                let tool_state = CommandRunState {
-                                    index: None,
-                                    command: command.clone(),
-                                    output: String::new(),
-                                    status: ToolStatus::Created,
-                                    exit_code: None,
-                                };
-                                state.command_runs.insert(id.clone(), tool_state);
-                                state.pending_fifo.push_back(PendingToolCall::CommandRun {
-                                    tool_call_id: id.clone(),
-                                });
-                                let tool_state = state.command_runs.get_mut(&id).unwrap();
-                                let index = add_normalized_entry(
-                                    &msg_store,
-                                    &entry_index_provider,
-                                    tool_state.to_normalized_entry(),
-                                );
-                                tool_state.index = Some(index);
-                            }
-
-                            DroidToolData::Edit {
-                                file_path,
-                                old_string,
-                                new_string,
-                            } => {
-                                let path = make_path_relative(&file_path, &worktree_path_str);
-                                let diff = workspace_utils::diff::create_unified_diff(
-                                    &file_path,
-                                    &old_string,
-                                    &new_string,
-                                );
-                                let changes = vec![FileChange::Edit {
-                                    unified_diff: diff,
-                                    has_line_numbers: false,
-                                }];
-
-                                let tool_state = FileEditState {
-                                    index: None,
-                                    path: path.clone(),
-                                    changes: changes.clone(),
-                                    status: ToolStatus::Created,
-                                };
-                                state.file_edits.insert(id.clone(), tool_state);
-                                state.pending_fifo.push_back(PendingToolCall::FileEdit {
-                                    tool_call_id: id.clone(),
-                                });
-                                let tool_state = state.file_edits.get_mut(&id).unwrap();
-                                let index = add_normalized_entry(
-                                    &msg_store,
-                                    &entry_index_provider,
-                                    tool_state.to_normalized_entry(),
-                                );
-                                tool_state.index = Some(index);
-                            }
-
-                            DroidToolData::MultiEdit { file_path, edits } => {
-                                let path = make_path_relative(&file_path, &worktree_path_str);
-                                let changes: Vec<FileChange> = edits
-                                    .iter()
-                                    .filter_map(|edit| {
-                                        if edit.old_string.is_some() || edit.new_string.is_some() {
-                                            Some(FileChange::Edit {
-                                                unified_diff:
-                                                    workspace_utils::diff::create_unified_diff(
-                                                        &file_path,
-                                                        &edit
-                                                            .old_string
-                                                            .clone()
-                                                            .unwrap_or_default(),
-                                                        &edit
-                                                            .new_string
-                                                            .clone()
-                                                            .unwrap_or_default(),
-                                                    ),
-                                                has_line_numbers: false,
-                                            })
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .collect();
-
-                                let tool_state = FileEditState {
-                                    index: None,
-                                    path: path.clone(),
-                                    changes: changes.clone(),
-                                    status: ToolStatus::Created,
-                                };
-                                state.file_edits.insert(id.clone(), tool_state);
-                                state.pending_fifo.push_back(PendingToolCall::FileEdit {
-                                    tool_call_id: id.clone(),
-                                });
-                                let tool_state = state.file_edits.get_mut(&id).unwrap();
-                                let index = add_normalized_entry(
-                                    &msg_store,
-                                    &entry_index_provider,
-                                    tool_state.to_normalized_entry(),
-                                );
-                                tool_state.index = Some(index);
-                            }
-
-                            DroidToolData::Create { file_path, content } => {
-                                let path = make_path_relative(&file_path, &worktree_path_str);
-                                let changes = vec![FileChange::Write { content }];
-
-                                let tool_state = FileEditState {
-                                    index: None,
-                                    path: path.clone(),
-                                    changes: changes.clone(),
-                                    status: ToolStatus::Created,
-                                };
-                                state.file_edits.insert(id.clone(), tool_state);
-                                state.pending_fifo.push_back(PendingToolCall::FileEdit {
-                                    tool_call_id: id.clone(),
-                                });
-
-                                let tool_state = state.file_edits.get_mut(&id).unwrap();
-                                let index = add_normalized_entry(
-                                    &msg_store,
-                                    &entry_index_provider,
-                                    tool_state.to_normalized_entry(),
-                                );
-                                tool_state.index = Some(index);
-                            }
-
-                            DroidToolData::ApplyPatch { input } => {
-                                let path = extract_path_from_patch(&input);
-                                let path = make_path_relative(&path, &worktree_path_str);
-
-                                // We get changes from tool result
-                                let tool_state = FileEditState {
-                                    index: None,
-                                    path: path.clone(),
-                                    changes: vec![],
-                                    status: ToolStatus::Created,
-                                };
-                                state.file_edits.insert(id.clone(), tool_state);
-                                state.pending_fifo.push_back(PendingToolCall::FileEdit {
-                                    tool_call_id: id.clone(),
-                                });
-
-                                let tool_state = state.file_edits.get_mut(&id).unwrap();
-                                let index = add_normalized_entry(
-                                    &msg_store,
-                                    &entry_index_provider,
-                                    tool_state.to_normalized_entry(),
-                                );
-                                tool_state.index = Some(index);
-                            }
-
-                            DroidToolData::TodoWrite { todos } => {
-                                let todo_items: Vec<TodoItem> = todos
-                                    .into_iter()
-                                    .map(|item| TodoItem {
-                                        content: item.content,
-                                        status: item.status,
-                                        priority: item.priority,
-                                    })
-                                    .collect();
-
-                                let tool_state = TodoManagementState {
-                                    index: None,
-                                    todos: todo_items.clone(),
-                                    status: ToolStatus::Created,
-                                };
-                                state.todo_updates.insert(id.clone(), tool_state);
-                                state.pending_fifo.push_back(PendingToolCall::Todo {
-                                    tool_call_id: id.clone(),
-                                });
-
-                                let tool_state = state.todo_updates.get_mut(&id).unwrap();
-                                let index = add_normalized_entry(
-                                    &msg_store,
-                                    &entry_index_provider,
-                                    tool_state.to_normalized_entry(),
-                                );
-                                tool_state.index = Some(index);
-                            }
-
-                            DroidToolData::WebSearch { query, .. } => {
-                                let tool_state = WebFetchState {
-                                    index: None,
-                                    url: query.clone(),
-                                    status: ToolStatus::Created,
-                                };
-                                state.web_fetches.insert(id.clone(), tool_state);
-                                state.pending_fifo.push_back(PendingToolCall::Fetch {
-                                    tool_call_id: id.clone(),
-                                });
-
-                                let tool_state = state.web_fetches.get_mut(&id).unwrap();
-                                let index = add_normalized_entry(
-                                    &msg_store,
-                                    &entry_index_provider,
-                                    tool_state.to_normalized_entry(),
-                                );
-                                tool_state.index = Some(index);
-                            }
-
-                            DroidToolData::FetchUrl { url, .. } => {
-                                let tool_state = WebFetchState {
-                                    index: None,
-                                    url: url.clone(),
-                                    status: ToolStatus::Created,
-                                };
-                                state.web_fetches.insert(id.clone(), tool_state);
-                                state.pending_fifo.push_back(PendingToolCall::Fetch {
-                                    tool_call_id: id.clone(),
-                                });
-
-                                let tool_state = state.web_fetches.get_mut(&id).unwrap();
-                                let index = add_normalized_entry(
-                                    &msg_store,
-                                    &entry_index_provider,
-                                    tool_state.to_normalized_entry(),
-                                );
-                                tool_state.index = Some(index);
-                            }
-
-                            DroidToolData::ExitSpecMode { .. } => {
-                                let tool_state = TodoManagementState {
-                                    index: None,
-                                    todos: vec![],
-                                    status: ToolStatus::Created,
-                                };
-                                state.todo_updates.insert(id.clone(), tool_state);
-                                state.pending_fifo.push_back(PendingToolCall::Todo {
-                                    tool_call_id: id.clone(),
-                                });
-                                let tool_state = state.todo_updates.get_mut(&id).unwrap();
-                                let index = add_normalized_entry(
-                                    &msg_store,
-                                    &entry_index_provider,
-                                    tool_state.to_normalized_entry(),
-                                );
-                                tool_state.index = Some(index);
-                            }
-
-                            DroidToolData::SlackPostMessage { .. }
-                            | DroidToolData::Unknown { .. } => {
-                                let tool_state = GenericToolState {
-                                    index: None,
-                                    name: tool_name.to_string(),
-                                    arguments: Some(arguments.clone()),
-                                    result: None,
-                                    status: ToolStatus::Created,
-                                };
-                                state.generic_tools.insert(id.clone(), tool_state);
-                                state.pending_fifo.push_back(PendingToolCall::Generic {
-                                    tool_call_id: id.clone(),
-                                });
-
-                                let tool_state = state.generic_tools.get_mut(&id).unwrap();
-                                let index = add_normalized_entry(
-                                    &msg_store,
-                                    &entry_index_provider,
-                                    tool_state.to_normalized_entry(),
-                                );
-                                tool_state.index = Some(index);
-                            }
-                        }
-                    } else {
-                        tracing::warn!("Failed to parse tool parameters for {}", tool_name);
-                    }
-                }
-
-                DroidJson::ToolResult {
-                    id: _,
-                    is_error,
-                    payload,
-                    ..
-                } => {
-                    if let Some(pending_tool_call) = state.pending_fifo.pop_front() {
-                        match pending_tool_call {
-                            PendingToolCall::Read { tool_call_id } => {
-                                if let Some(mut state) = state.file_reads.remove(&tool_call_id) {
-                                    state.status = if is_error {
-                                        ToolStatus::Failed
-                                    } else {
-                                        ToolStatus::Success
-                                    };
-                                    let entry = state.to_normalized_entry();
-                                    replace_normalized_entry(
-                                        &msg_store,
-                                        state.index.unwrap(),
-                                        entry,
-                                    );
-                                }
-                            }
-                            PendingToolCall::FileEdit { tool_call_id } => {
-                                if let Some(mut state) = state.file_edits.remove(&tool_call_id) {
-                                    state.status = if is_error {
-                                        ToolStatus::Failed
-                                    } else {
-                                        ToolStatus::Success
-                                    };
-
-                                    // Parse patch results if ApplyPatch tool
-                                    if let ToolResultPayload::Value { value } = payload
-                                        && tool_call_id.contains("ApplyPatch")
-                                    {
-                                        let worktree_path_str = worktree_path.to_string_lossy();
-                                        if let Some(parsed) =
-                                            parse_apply_patch_result(&value, &worktree_path_str)
-                                            && let ActionType::FileEdit { changes, .. } = parsed
-                                        {
-                                            state.changes = changes;
-                                        }
-                                    }
-
-                                    let entry = state.to_normalized_entry();
-                                    replace_normalized_entry(
-                                        &msg_store,
-                                        state.index.unwrap(),
-                                        entry,
-                                    );
-                                }
-                            }
-                            PendingToolCall::CommandRun { tool_call_id } => {
-                                if let Some(mut state) = state.command_runs.remove(&tool_call_id) {
-                                    state.status = if is_error {
-                                        ToolStatus::Failed
-                                    } else {
-                                        ToolStatus::Success
-                                    };
-
-                                    match payload {
-                                        ToolResultPayload::Value { value } => {
-                                            let output = if let Some(s) = value.as_str() {
-                                                s.to_string()
-                                            } else {
-                                                serde_json::to_string_pretty(&value)
-                                                    .unwrap_or_default()
-                                            };
-
-                                            let exit_code = output
-                                                .lines()
-                                                .find(|line| {
-                                                    line.contains("[Process exited with code")
-                                                })
-                                                .and_then(|line| {
-                                                    line.strip_prefix("[Process exited with code ")?
-                                                        .strip_suffix("]")?
-                                                        .parse::<i32>()
-                                                        .ok()
-                                                });
-
-                                            state.output = output;
-                                            state.exit_code = exit_code;
-                                            if exit_code.is_some_and(|rc| rc != 0) {
-                                                state.status = ToolStatus::Failed;
-                                            }
-                                        }
-                                        ToolResultPayload::Error { error } => {
-                                            state.output = error.message;
-                                        }
-                                    }
-
-                                    let entry = state.to_normalized_entry();
-                                    replace_normalized_entry(
-                                        &msg_store,
-                                        state.index.unwrap(),
-                                        entry,
-                                    );
-                                }
-                            }
-                            PendingToolCall::Todo { tool_call_id } => {
-                                if let Some(mut state) = state.todo_updates.remove(&tool_call_id) {
-                                    state.status = if is_error {
-                                        ToolStatus::Failed
-                                    } else {
-                                        ToolStatus::Success
-                                    };
-                                    let entry = state.to_normalized_entry();
-                                    replace_normalized_entry(
-                                        &msg_store,
-                                        state.index.unwrap(),
-                                        entry,
-                                    );
-                                }
-                            }
-                            PendingToolCall::Search { tool_call_id } => {
-                                if let Some(mut state) = state.searches.remove(&tool_call_id) {
-                                    state.status = if is_error {
-                                        ToolStatus::Failed
-                                    } else {
-                                        ToolStatus::Success
-                                    };
-                                    let entry = state.to_normalized_entry();
-                                    replace_normalized_entry(
-                                        &msg_store,
-                                        state.index.unwrap(),
-                                        entry,
-                                    );
-                                }
-                            }
-                            PendingToolCall::Fetch { tool_call_id } => {
-                                if let Some(mut state) = state.web_fetches.remove(&tool_call_id) {
-                                    state.status = if is_error {
-                                        ToolStatus::Failed
-                                    } else {
-                                        ToolStatus::Success
-                                    };
-                                    let entry = state.to_normalized_entry();
-                                    replace_normalized_entry(
-                                        &msg_store,
-                                        state.index.unwrap(),
-                                        entry,
-                                    );
-                                }
-                            }
-                            PendingToolCall::Generic { tool_call_id } => {
-                                if let Some(mut state) = state.generic_tools.remove(&tool_call_id) {
-                                    state.status = if is_error {
-                                        ToolStatus::Failed
-                                    } else {
-                                        ToolStatus::Success
-                                    };
-
-                                    match payload {
-                                        ToolResultPayload::Value { value } => {
-                                            state.result = Some(value);
-                                        }
-                                        ToolResultPayload::Error { error } => {
-                                            state.result = Some(error.message.into());
-                                        }
-                                    }
-
-                                    let entry = state.to_normalized_entry();
-                                    replace_normalized_entry(
-                                        &msg_store,
-                                        state.index.unwrap(),
-                                        entry,
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-
-                DroidJson::Completion { final_text, .. } => {
-                    let entry = NormalizedEntry {
-                        timestamp: None,
-                        entry_type: NormalizedEntryType::AssistantMessage,
-                        content: final_text.clone(),
-                        metadata: None,
-                    };
-                    add_normalized_entry(&msg_store, &entry_index_provider, entry);
-                    sent_completion = true;
-                }
-
-                DroidJson::Error { message, .. } => {
-                    let entry = NormalizedEntry {
-                        timestamp: None,
-                        entry_type: NormalizedEntryType::ErrorMessage {
-                            error_type: NormalizedEntryError::Other,
-                        },
-                        content: message.clone(),
-                        metadata: None,
-                    };
-                    add_normalized_entry(&msg_store, &state.entry_index, entry);
-                }
-            }
-        }
-    });
+    // Create the normalizer and use the shared driver function
+    let normalizer = DroidNormalizer::new(worktree_path.to_path_buf());
+    let stdout_handle = normalize_logs_with(normalizer, msg_store, worktree_path);
 
     // Return a handle that awaits both normalization tasks
     tokio::spawn(async move {
@@ -1238,7 +1272,6 @@ enum PendingToolCall {
 // Tracks tool-calls from creation to completion updating tool arguments and results as they come in
 #[derive(Debug, Clone)]
 struct ToolCallStates {
-    entry_index: EntryIndexProvider,
     file_reads: HashMap<String, FileReadState>,
     file_edits: HashMap<String, FileEditState>,
     command_runs: HashMap<String, CommandRunState>,
@@ -1251,9 +1284,8 @@ struct ToolCallStates {
 }
 
 impl ToolCallStates {
-    fn new(entry_index: EntryIndexProvider) -> Self {
+    fn new() -> Self {
         Self {
-            entry_index,
             file_reads: HashMap::new(),
             file_edits: HashMap::new(),
             command_runs: HashMap::new(),
