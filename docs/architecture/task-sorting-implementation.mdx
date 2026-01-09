@@ -1,0 +1,337 @@
+---
+title: "Task Sorting Implementation"
+description: "Technical architecture documentation for the task sorting system"
+---
+
+This document describes the technical implementation of task sorting in Vibe Kanban, including backend query modifications, frontend sorting utilities, and UI components.
+
+## Overview
+
+Task sorting is implemented as a layered system:
+
+```text
+KanbanHeader (UI)
+      │ onClick
+      ▼
+useColumnSortState (State Management)
+      │ sortDirections
+      ▼
+sortTaskGroups / sortTasksByStatus (Sorting Logic)
+      │ getSortTimestamp
+      ▼
+TaskWithAttemptStatus (Backend Data)
+      │ SQL Subqueries
+      ▼
+execution_processes table
+```
+
+## Backend: Execution Timestamp Fields
+
+### TaskWithAttemptStatus Struct
+
+The `TaskWithAttemptStatus` struct includes two timestamp fields specifically for sorting:
+
+```rust
+// crates/db/src/models/task.rs
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct TaskWithAttemptStatus {
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub task: Task,
+    pub has_in_progress_attempt: bool,
+    pub has_merged_attempt: bool,
+    pub last_attempt_failed: bool,
+    pub executor: String,
+    /// Latest execution start timestamp for sorting (codingagent only, non-dropped)
+    #[ts(type = "Date | null")]
+    pub latest_execution_started_at: Option<DateTime<Utc>>,
+    /// Latest execution completion timestamp for sorting (codingagent only, non-dropped)
+    #[ts(type = "Date | null")]
+    pub latest_execution_completed_at: Option<DateTime<Utc>>,
+}
+```
+
+### SQL Query Implementation
+
+The timestamp fields are populated via subqueries that filter execution processes:
+
+```sql
+-- Latest execution start time
+(SELECT MAX(ep.started_at)
+   FROM task_attempts ta
+   JOIN execution_processes ep ON ep.task_attempt_id = ta.id
+  WHERE ta.task_id = t.id
+    AND ep.run_reason = 'codingagent'
+    AND ep.dropped = FALSE
+) AS latest_execution_started_at
+
+-- Latest execution completion time
+(SELECT MAX(ep.completed_at)
+   FROM task_attempts ta
+   JOIN execution_processes ep ON ep.task_attempt_id = ta.id
+  WHERE ta.task_id = t.id
+    AND ep.run_reason = 'codingagent'
+    AND ep.dropped = FALSE
+    AND ep.completed_at IS NOT NULL
+) AS latest_execution_completed_at
+```
+
+**Key filtering criteria:**
+- `run_reason = 'codingagent'` — Only consider actual coding work, not monitoring processes
+- `dropped = FALSE` — Exclude dropped/abandoned executions
+- `completed_at IS NOT NULL` — For completion timestamp, only count finished executions
+
+### TaskWithProjectInfo Struct
+
+The same fields are also included in `TaskWithProjectInfo` (used in the all-projects view) with identical query logic.
+
+## Frontend: Sorting Utility
+
+### File Location
+
+`frontend/src/lib/taskSorting.ts`
+
+### Types
+
+```typescript
+export type SortDirection = 'asc' | 'desc';
+
+export interface SortableTask {
+  status: TaskStatus;
+  created_at: string | Date;
+  activity_at?: string | Date | null;
+  latest_execution_started_at?: string | Date | null;
+  latest_execution_completed_at?: string | Date | null;
+}
+```
+
+### Core Functions
+
+#### getSortTimestamp
+
+Determines the appropriate timestamp for sorting based on task status:
+
+```typescript
+export function getSortTimestamp(task: SortableTask): number {
+  const createdAt = toTimestamp(task.created_at);
+
+  switch (task.status) {
+    case 'todo':
+      // Always use created_at for FIFO behavior
+      return createdAt;
+
+    case 'inprogress':
+      // Use execution start time, fall back to created_at
+      return toTimestamp(task.latest_execution_started_at) || createdAt;
+
+    case 'inreview':
+    case 'done':
+    case 'cancelled':
+      // Use execution completion time, fall back to created_at
+      return toTimestamp(task.latest_execution_completed_at) || createdAt;
+
+    default:
+      return createdAt;
+  }
+}
+```
+
+**Design decision:** The `todo` status intentionally uses only `created_at`, not `activity_at`. This fixes a bug where tasks with recent activity would sort to the top of the Todo column, breaking FIFO queue behavior.
+
+#### sortTasksByStatus
+
+Sorts an array of tasks with the same status:
+
+```typescript
+export function sortTasksByStatus<T extends SortableTask>(
+  tasks: T[],
+  direction: SortDirection = 'asc'
+): T[] {
+  const multiplier = direction === 'asc' ? 1 : -1;
+
+  return [...tasks].sort((a, b) => {
+    const aTime = getSortTimestamp(a);
+    const bTime = getSortTimestamp(b);
+    return (aTime - bTime) * multiplier;
+  });
+}
+```
+
+#### sortTaskGroups
+
+Sorts all status groups at once with per-status direction configuration:
+
+```typescript
+export function sortTaskGroups<T extends SortableTask>(
+  tasksByStatus: Record<TaskStatus, T[]>,
+  directions?: Partial<Record<TaskStatus, SortDirection>>
+): Record<TaskStatus, T[]>
+```
+
+## Frontend: Sort State Management
+
+### useColumnSortState Hook
+
+`frontend/src/hooks/useColumnSortState.ts`
+
+Manages sort direction state for all kanban columns:
+
+```typescript
+export function useColumnSortState() {
+  const [sortDirections, setSortDirections] =
+    useState<Record<TaskStatus, SortDirection>>(DEFAULT_SORT_DIRECTIONS);
+
+  const toggleDirection = useCallback((status: TaskStatus) => {
+    setSortDirections((prev) => ({
+      ...prev,
+      [status]: prev[status] === 'asc' ? 'desc' : 'asc',
+    }));
+  }, []);
+
+  const resetDirections = useCallback(() => {
+    setSortDirections(DEFAULT_SORT_DIRECTIONS);
+  }, []);
+
+  return { sortDirections, toggleDirection, resetDirections };
+}
+```
+
+**Default directions:** All columns default to `'asc'` (oldest first).
+
+### Persistence
+
+Sort directions are persisted to `localStorage` under the key `kanban-sort-directions-v1`. This allows users to maintain their preferred sort order across page reloads.
+
+**Storage Format:**
+```json
+{
+  "todo": "asc",
+  "inprogress": "desc",
+  "inreview": "asc",
+  "done": "asc",
+  "cancelled": "asc"
+}
+```
+
+**Validation:**
+- Invalid JSON falls back to defaults
+- Missing or invalid direction values fall back to defaults
+- Storage errors are silently caught (localStorage may be disabled or quota exceeded)
+
+**Implementation:**
+- `loadSortDirections()` — Reads and validates persisted directions on hook initialization
+- `saveSortDirections()` — Writes to localStorage via `useEffect` whenever directions change
+- Storage key is versioned (`v1`) to allow future migrations
+
+### Internationalization
+
+Sort labels are localized via i18next. Translation keys are in the `tasks` namespace under the `sorting` key:
+
+| Key | English | Purpose |
+|-----|---------|---------|
+| `sorting.ascending` | "Oldest first" | Label for ascending sort |
+| `sorting.descending` | "Newest first" | Label for descending sort |
+| `sorting.sortBy` | "Sort by {{column}}, currently {{direction}}" | Aria-label template for screen readers |
+
+**Translations are available in:**
+- English (`frontend/src/i18n/locales/en/tasks.json`)
+- Japanese (`frontend/src/i18n/locales/ja/tasks.json`)
+- Korean (`frontend/src/i18n/locales/ko/tasks.json`)
+- Spanish (`frontend/src/i18n/locales/es/tasks.json`)
+
+## Frontend: UI Components
+
+### KanbanHeader Component
+
+`frontend/src/components/ui/shadcn-io/kanban/index.tsx`
+
+The column header component includes sortable functionality:
+
+```typescript
+interface KanbanHeaderProps {
+  // ... existing props
+  sortDirection?: SortDirection;
+  onSortToggle?: () => void;
+}
+```
+
+**Features:**
+- Click handler on column name area to toggle sort
+- ArrowUp/ArrowDown icons from lucide-react
+- Keyboard accessibility (Enter/Space triggers toggle)
+- ARIA label with column name and direction for screen readers
+- `role="button"` and `tabIndex={0}` for accessibility
+
+## Data Flow
+
+```text
+1. Backend Query (task.rs)
+   └── Fetches tasks with latest_execution_started_at / latest_execution_completed_at
+
+2. API Response
+   └── TaskWithAttemptStatus[] sent to frontend
+
+3. useProjectTasks Hook
+   └── Receives tasks, groups by status
+
+4. ProjectTasks Component
+   ├── Initializes useColumnSortState()
+   └── Passes sortDirections to useProjectTasks options
+
+5. useProjectTasks
+   └── Calls sortTaskGroups(tasksByStatus, sortDirections)
+
+6. sortTaskGroups
+   └── For each status, calls sortTasksByStatus(tasks, direction)
+
+7. sortTasksByStatus
+   └── Uses getSortTimestamp() to get comparable values
+
+8. Sorted tasks rendered in kanban columns
+```
+
+## Integration Points
+
+### Components Using Sorting
+
+| Component | Hook/Function Used |
+|-----------|-------------------|
+| `ProjectTasks.tsx` | `useColumnSortState`, `sortTaskGroups` via `useProjectTasks` |
+| `AllProjectsTasks.tsx` | `useColumnSortState`, `sortTasksByStatus` |
+| `TaskKanbanBoard.tsx` | Passes sort props to `KanbanHeader` |
+
+### Test Coverage
+
+| Test File | Coverage |
+|-----------|----------|
+| `frontend/src/lib/taskSorting.test.ts` | 19 unit tests covering all sorting scenarios |
+| `frontend/src/hooks/useColumnSortState.test.ts` | 9 unit tests for sort state hook and localStorage persistence |
+| `crates/db/tests/task_execution_timestamps.rs` | 8 integration tests for timestamp queries |
+
+## File Locations
+
+```text
+Backend:
+├── crates/db/src/models/task.rs      # TaskWithAttemptStatus struct, SQL queries
+├── crates/db/src/models/all_tasks.rs # TaskWithProjectInfo struct, SQL queries
+└── crates/db/tests/task_execution_timestamps.rs  # Integration tests
+
+Frontend:
+├── frontend/src/lib/taskSorting.ts                # Sorting utility functions
+├── frontend/src/lib/taskSorting.test.ts           # Unit tests for sorting
+├── frontend/src/hooks/useColumnSortState.ts       # Sort state hook with persistence
+├── frontend/src/hooks/useColumnSortState.test.ts  # Unit tests for hook
+├── frontend/src/hooks/useProjectTasks.ts          # Task fetching with sorting
+├── frontend/src/pages/projects/ProjectTasks.tsx   # Main project view
+├── frontend/src/pages/AllProjectsTasks.tsx        # All projects view
+└── frontend/src/components/ui/shadcn-io/kanban/index.tsx  # KanbanHeader
+
+Shared Types:
+└── shared/types.ts  # Generated TypeScript types including execution timestamps
+```
+
+## Related Documentation
+
+- [Task Sorting Feature](/features/task-sorting) - User-facing documentation
+- [TaskCard Component Architecture](/architecture/taskcard-components) - Related component docs

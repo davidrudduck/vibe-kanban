@@ -9,6 +9,7 @@ import {
 import { TaskCard } from './TaskCard';
 import type { TaskStatus, TaskWithAttemptStatus } from 'shared/types';
 import { statusBoardColors, statusLabels } from '@/utils/statusLabels';
+import type { SortDirection } from '@/lib/taskSorting';
 
 export type KanbanColumnItem = {
   type: 'task';
@@ -24,6 +25,10 @@ interface TaskKanbanBoardProps {
   selectedTaskId?: string;
   onCreateTask?: () => void;
   projectId: string;
+  /** Current sort direction for each status column */
+  sortDirections?: Record<TaskStatus, SortDirection>;
+  /** Callback when user clicks to toggle sort direction for a status */
+  onSortToggle?: (status: TaskStatus) => void;
 }
 
 function TaskKanbanBoard({
@@ -33,6 +38,8 @@ function TaskKanbanBoard({
   selectedTaskId,
   onCreateTask,
   projectId,
+  sortDirections,
+  onSortToggle,
 }: TaskKanbanBoardProps) {
   return (
     <KanbanProvider onDragEnd={onDragEnd}>
@@ -44,6 +51,8 @@ function TaskKanbanBoard({
               name={statusLabels[statusKey]}
               color={statusBoardColors[statusKey]}
               onAddTask={onCreateTask}
+              sortDirection={sortDirections?.[statusKey]}
+              onSortToggle={onSortToggle ? () => onSortToggle(statusKey) : undefined}
             />
             <KanbanCards>
               {items.map((item, index) => (

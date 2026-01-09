@@ -463,6 +463,11 @@
     "execution": "Ejecución",
     "createAndStart": "Crear e Iniciar"
   },
+  "sorting": {
+    "ascending": "Más antiguo primero",
+    "descending": "Más reciente primero",
+    "sortBy": "Ordenar por {{column}}, actualmente {{direction}}"
+  },
   "templatePicker": {
     "title": "Insertar Plantilla",
     "searchPlaceholder": "Buscar plantillas...",

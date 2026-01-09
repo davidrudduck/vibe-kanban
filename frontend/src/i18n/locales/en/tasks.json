@@ -495,5 +495,10 @@
       "nameExists": "A variable with this name already exists",
       "saveFailed": "Failed to save variable"
     }
+  },
+  "sorting": {
+    "ascending": "Oldest first",
+    "descending": "Newest first",
+    "sortBy": "Sort by {{column}}, currently {{direction}}"
   }
 }

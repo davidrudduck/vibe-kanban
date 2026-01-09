@@ -55,6 +55,7 @@
           "core-features/reviewing-code-changes",
           "core-features/browsing-files",
           "features/file-viewer",
+          "features/task-sorting",
           "core-features/completing-a-task",
           "core-features/mobile-experience",
           "core-features/task-cards"
@@ -95,7 +96,8 @@
           "architecture/ui-responsive-design",
           "architecture/frontend/file-viewer-components",
           "architecture/storage-paths",
-          "architecture/executor-normalization"
+          "architecture/executor-normalization",
+          "architecture/task-sorting-implementation"
         ]
       },
       {
