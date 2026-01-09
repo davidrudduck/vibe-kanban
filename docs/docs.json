@@ -55,6 +55,7 @@
           "core-features/reviewing-code-changes",
           "core-features/browsing-files",
           "features/file-viewer",
+          "features/executor-logging",
           "features/task-sorting",
           "core-features/completing-a-task",
           "core-features/mobile-experience",
