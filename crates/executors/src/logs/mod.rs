@@ -258,7 +258,7 @@ pub enum DenialSource {
     System,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Default, PartialEq)]
 #[ts(export)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum ToolStatus {

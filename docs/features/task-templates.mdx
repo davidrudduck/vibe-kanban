@@ -1,0 +1,180 @@
+---
+title: "Task Templates"
+description: "Use templates to quickly populate task descriptions with structured content"
+---
+
+Task templates provide pre-formatted content structures that help you create consistent, well-organized task descriptions.
+
+## Overview
+
+Task templates allow you to:
+
+- **Quick start** - Insert structured content with one click
+- **Consistency** - Use the same format across similar tasks
+- **Custom templates** - Create your own templates for repeated patterns
+- **Cursor-aware** - Templates insert at your cursor position
+
+## Built-in Templates
+
+Vibe Kanban includes four built-in templates:
+
+### Bug Report
+
+A structured format for reporting bugs with sections for describing and reproducing issues:
+
+- **Bug Description** - Clear, concise description of the bug
+- **Steps to Reproduce** - Numbered steps to recreate the issue
+- **Expected Behavior** - What should happen
+- **Actual Behavior** - What actually happened
+- **Environment** - Browser, OS, and version information
+
+<Tip>
+Use the Bug Report template when filing issues to ensure all relevant information is captured upfront, reducing back-and-forth clarification.
+</Tip>
+
+### Feature Request
+
+Template for proposing new features with structured sections:
+
+- **Feature Description** - What you'd like to see
+- **Problem Statement** - What problem this feature solves
+- **Proposed Solution** - How you think it should work
+- **Alternatives Considered** - Other approaches evaluated
+- **Additional Context** - Screenshots, mockups, or examples
+
+### Code Review Checklist
+
+Checklist format for thorough code reviews covering:
+
+**Functionality**
+- Code works as expected
+- Edge cases are handled
+- Error handling is appropriate
+
+**Code Quality**
+- Code is readable and well-organized
+- No unnecessary complexity
+- DRY principle followed
+
+**Testing**
+- Tests are included
+- Tests cover key scenarios
+- All tests pass
+
+**Security**
+- No sensitive data exposed
+- Input validation present
+- Authentication/authorization checked
+
+**Documentation**
+- Comments explain complex logic
+- README updated if needed
+
+### Quick Task
+
+A minimal template for simple tasks:
+
+- **Goal** - What needs to be accomplished
+- **Acceptance Criteria** - Checklist of completion requirements
+- **Notes** - Additional context or references
+
+## Using Templates
+
+### Insert Template Button
+
+1. Open the task creation or edit modal
+2. Click the **Insert Template** button (document icon with plus) in the footer toolbar
+3. Browse or search for a template in the picker
+4. Click on a template to insert it
+
+<Info>
+The template picker supports keyboard navigation. Use arrow keys to navigate and Enter to select.
+</Info>
+
+### Template Insertion Behavior
+
+Templates are inserted at your current cursor position in the description field:
+
+| Cursor Position | Behavior |
+|-----------------|----------|
+| Empty description | Template becomes the entire content |
+| Cursor in middle | Template splits existing content |
+| No cursor focus | Template appends to end |
+
+### Searching Templates
+
+The template picker includes a search bar to quickly find templates:
+
+- Search by template name (e.g., "bug", "feature")
+- Search by description (e.g., "checklist", "reproduce")
+- Results filter as you type
+
+## Custom Templates
+
+### Creating Custom Templates
+
+1. Open **Settings** from the navigation menu
+2. Navigate to the **Templates** section
+3. Click **Add Template**
+4. Enter a template name and content
+5. Save your template
+
+Custom templates appear alongside built-in templates in the picker. They are identified by their custom name and description.
+
+<Note>
+Custom templates are stored per-project. Each project can have its own set of custom templates tailored to its workflow.
+</Note>
+
+### Template Content Tips
+
+When creating custom templates:
+
+- Use markdown formatting for structure (headings, lists, checkboxes)
+- Include placeholder text to guide users (e.g., "Describe the feature...")
+- Keep templates focused on a single purpose
+- Use checkbox syntax `- [ ]` for actionable items
+
+**Example custom template:**
+
+```markdown
+## Sprint Goal
+What is the main objective for this sprint?
+
+## Tasks
+- [ ] Task 1
+- [ ] Task 2
+- [ ] Task 3
+
+## Definition of Done
+- [ ] All tasks completed
+- [ ] Code reviewed
+- [ ] Tests passing
+```
+
+### @template Syntax
+
+You can reference templates directly in your task description using the `@template_name` syntax. When processing the task, the system can expand these references to their full content.
+
+```markdown
+Please implement the new login feature.
+
+@code-review-checklist
+```
+
+<Warning>
+The @template syntax is an advanced feature. For most use cases, the Insert Template button provides a more visual and immediate way to add templates.
+</Warning>
+
+## Loading States
+
+When opening the template picker:
+
+- A **loading spinner** appears while custom templates are being fetched
+- If loading fails, an **error message** displays in place of the template list
+- Built-in templates are always available, even if custom template loading fails
+
+## Related Documentation
+
+- [Creating Tasks](/core-features/creating-tasks) - Full guide to creating and editing tasks
+- [Task Cards](/core-features/task-cards) - Understanding task card features
+- [Global Settings](/configuration-customisation/global-settings) - Configure application-wide settings

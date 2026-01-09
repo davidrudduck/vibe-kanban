@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     path::{Path, PathBuf},
     process::Stdio,
     sync::Arc,
@@ -9,7 +8,6 @@ use std::{
 use async_trait::async_trait;
 use command_group::AsyncCommandGroup;
 use futures::StreamExt;
-use lazy_static::lazy_static;
 use regex::Regex;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -29,7 +27,7 @@ use crate::{
         AppendPrompt, AvailabilityInfo, ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
     },
     logs::{
-        ActionType, NormalizedEntry, NormalizedEntryType, ToolStatus,
+        NormalizedEntry, NormalizedEntryType,
         plain_text_processor::PlainTextLogProcessor,
         stderr_processor::normalize_stderr_logs,
         utils::{ConversationPatch, EntryIndexProvider},
@@ -190,16 +188,16 @@ impl StandardCodingAgentExecutor for Copilot {
     /// Each entry is converted into an `AssistantMessage` or `ErrorMessage` and emitted as patches.
     /// Additionally, starts a log file watcher to extract structured information like model info
     /// from Copilot's debug log files.
-    fn normalize_logs(&self, msg_store: Arc<MsgStore>, worktree_path: &Path) {
+    fn normalize_logs(&self, msg_store: Arc<MsgStore>, worktree_path: &Path) -> tokio::task::JoinHandle<()> {
         let entry_index_counter = EntryIndexProvider::start_from(&msg_store);
-        normalize_stderr_logs(msg_store.clone(), entry_index_counter.clone());
+        let stderr_handle = normalize_stderr_logs(msg_store.clone(), entry_index_counter.clone());
 
         let worktree_path = worktree_path.to_path_buf();
         let entry_index_for_log_watcher = entry_index_counter.clone();
         let msg_store_for_log_watcher = msg_store.clone();
 
         // Normalize Agent logs
-        tokio::spawn(async move {
+        let stdout_handle = tokio::spawn(async move {
             let mut stdout_lines = msg_store.stdout_lines_stream();
 
             let mut processor = Self::create_simple_stdout_normalizer(entry_index_counter);
@@ -227,6 +225,12 @@ impl StandardCodingAgentExecutor for Copilot {
                 }
             }
         });
+
+        // Return a handle that awaits both normalization tasks
+        tokio::spawn(async move {
+            let _ = stderr_handle.await;
+            let _ = stdout_handle.await;
+        })
     }
 
     // MCP configuration methods
@@ -393,12 +397,8 @@ impl Copilot {
         log_file_path: PathBuf,
         msg_store: Arc<MsgStore>,
         entry_index: EntryIndexProvider,
-        worktree_path: PathBuf,
+        _worktree_path: PathBuf,
     ) -> Result<(), std::io::Error> {
-        let worktree_str = worktree_path.to_string_lossy().to_string();
-
-        // Track tool call states for begin/end matching
-        let mut tool_states: HashMap<String, ToolCallState> = HashMap::new();
         let mut model_reported = false;
 
         // Open file for reading, following as it grows
@@ -430,15 +430,8 @@ impl Copilot {
                 continue;
             }
 
-            // Parse log line: "TIMESTAMP [LEVEL] MESSAGE" or JSON inside "[DEBUG] {...}"
-            if let Some(entry) = Self::parse_log_line(
-                line,
-                &mut tool_states,
-                &mut model_reported,
-                &worktree_str,
-                &msg_store,
-                &entry_index,
-            ) {
+            // Parse log line: "TIMESTAMP [LEVEL] MESSAGE"
+            if let Some(entry) = Self::parse_log_line(line, &mut model_reported) {
                 let id = entry_index.next();
                 msg_store.push_patch(ConversationPatch::add_normalized_entry(id, entry));
             }
@@ -448,18 +441,11 @@ impl Copilot {
     }
 
     /// Parse a single log line and optionally return a NormalizedEntry
-    fn parse_log_line(
-        line: &str,
-        tool_states: &mut HashMap<String, ToolCallState>,
-        model_reported: &mut bool,
-        worktree_str: &str,
-        msg_store: &Arc<MsgStore>,
-        entry_index: &EntryIndexProvider,
-    ) -> Option<NormalizedEntry> {
+    fn parse_log_line(line: &str, model_reported: &mut bool) -> Option<NormalizedEntry> {
         // Extract log level and message content
         let (level, content) = Self::parse_log_level_and_content(line)?;
 
-        // Try to parse JSON content from DEBUG lines
+        // Try to parse DEBUG/LOG lines for model info
         if level == "DEBUG" || level == "LOG" {
             // Check for model info: "Using model: <model>"
             if !*model_reported && let Some(model) = content.strip_prefix("Using model: ") {
@@ -470,20 +456,6 @@ impl Copilot {
                     content: format!("Model: {}", model.trim()),
                     metadata: None,
                 });
-            }
-
-            // Try to parse tool call JSON
-            if let Some(json_start) = content.find('{') {
-                let json_str = &content[json_start..];
-                if let Ok(tool_event) = serde_json::from_str::<CopilotToolEvent>(json_str) {
-                    return Self::handle_tool_event(
-                        tool_event,
-                        tool_states,
-                        worktree_str,
-                        msg_store,
-                        entry_index,
-                    );
-                }
             }
         }
 
@@ -505,65 +477,6 @@ impl Copilot {
 
         Some((level, content))
     }
-
-    /// Handle a parsed tool event and optionally return a NormalizedEntry
-    fn handle_tool_event(
-        _event: CopilotToolEvent,
-        _tool_states: &mut HashMap<String, ToolCallState>,
-        _worktree_str: &str,
-        _msg_store: &Arc<MsgStore>,
-        _entry_index: &EntryIndexProvider,
-    ) -> Option<NormalizedEntry> {
-        // Tool events from Copilot logs are not in a structured format we can easily parse
-        // The actual tool calls happen internally and results are streamed to stdout
-        // For now, we rely on stdout parsing for tool output
-        None
-    }
-}
-
-/// State for tracking tool calls across begin/end events
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-struct ToolCallState {
-    index: Option<usize>,
-    tool_name: String,
-    action_type: ActionType,
-    status: ToolStatus,
-}
-
-/// Copilot tool event structure for parsing log JSON
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum CopilotToolEvent {
-    /// Tool call with name and arguments
-    ToolCall {
-        name: Option<String>,
-        function: Option<CopilotFunction>,
-        #[serde(rename = "type")]
-        event_type: Option<String>,
-    },
-    /// Unknown event
-    Unknown(serde_json::Value),
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-struct CopilotFunction {
-    name: Option<String>,
-    parameters: Option<serde_json::Value>,
-}
-
-lazy_static! {
-    /// Regex for parsing tool call patterns in stdout
-    static ref TOOL_CALL_REGEX: Regex = Regex::new(
-        r"(?i)^\s*(?:running|executing|calling)\s+(?:tool\s+)?[`']?(\w+)[`']?"
-    ).expect("valid regex");
-
-    /// Regex for detecting file operations
-    static ref FILE_OP_REGEX: Regex = Regex::new(
-        r"(?i)(?:(?:viewing|reading|editing|creating|writing)\s+(?:file\s+)?[`']?([^\s`']+)[`']?|[`']([^\s`']+)[`']?\s+(?:created|updated|modified|read))"
-    ).expect("valid regex");
 }
 
 #[cfg(test)]
@@ -592,20 +505,10 @@ mod tests {
 
     #[test]
     fn test_parse_model_info() {
-        let mut tool_states = HashMap::new();
         let mut model_reported = false;
-        let msg_store = Arc::new(MsgStore::new());
-        let entry_index = EntryIndexProvider::test_new();
 
         let line = "2025-12-31T01:41:08.664Z [DEBUG] Using model: claude-haiku-4.5";
-        let result = Copilot::parse_log_line(
-            line,
-            &mut tool_states,
-            &mut model_reported,
-            "/tmp/test",
-            &msg_store,
-            &entry_index,
-        );
+        let result = Copilot::parse_log_line(line, &mut model_reported);
 
         assert!(result.is_some());
         let entry = result.unwrap();
