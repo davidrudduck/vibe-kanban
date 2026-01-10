@@ -3,8 +3,10 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use workspace_utils::approvals::ApprovalStatus;
 
+pub mod normalizer;
 pub mod plain_text_processor;
 pub mod stderr_processor;
+pub mod tool_states;
 pub mod utils;
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

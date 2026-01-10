@@ -534,9 +534,7 @@ async fn handle_node_message(
         NodeMessage::TaskSync(task) => {
             handle_task_sync(node_id, organization_id, task, pool, ws_sender).await
         }
-        NodeMessage::ProjectsSync(projects) => {
-            handle_projects_sync(node_id, projects, pool).await
-        }
+        NodeMessage::ProjectsSync(projects) => handle_projects_sync(node_id, projects, pool).await,
         NodeMessage::Ack { message_id } => {
             tracing::trace!(node_id = %node_id, message_id = %message_id, "received ack");
             Ok(())

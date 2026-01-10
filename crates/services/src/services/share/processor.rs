@@ -289,18 +289,18 @@ impl ActivityProcessor {
             return Ok(());
         };
 
-        let task_payload = match serde_json::from_value::<SharedTaskActivityPayload>(payload.clone())
-        {
-            Ok(p) => p,
-            Err(error) => {
-                warn!(
-                    ?error,
-                    event_id = %event.event_id,
-                    "failed to parse task activity payload; skipping"
-                );
-                return Ok(());
-            }
-        };
+        let task_payload =
+            match serde_json::from_value::<SharedTaskActivityPayload>(payload.clone()) {
+                Ok(p) => p,
+                Err(error) => {
+                    warn!(
+                        ?error,
+                        event_id = %event.event_id,
+                        "failed to parse task activity payload; skipping"
+                    );
+                    return Ok(());
+                }
+            };
 
         let hive_task = task_payload.task;
         let hive_user = task_payload.user;
@@ -385,18 +385,18 @@ impl ActivityProcessor {
             return Ok(());
         };
 
-        let task_payload = match serde_json::from_value::<SharedTaskActivityPayload>(payload.clone())
-        {
-            Ok(p) => p,
-            Err(error) => {
-                warn!(
-                    ?error,
-                    event_id = %event.event_id,
-                    "failed to parse task delete payload; skipping"
-                );
-                return Ok(());
-            }
-        };
+        let task_payload =
+            match serde_json::from_value::<SharedTaskActivityPayload>(payload.clone()) {
+                Ok(p) => p,
+                Err(error) => {
+                    warn!(
+                        ?error,
+                        event_id = %event.event_id,
+                        "failed to parse task delete payload; skipping"
+                    );
+                    return Ok(());
+                }
+            };
 
         let hive_task = task_payload.task;
 

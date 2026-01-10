@@ -113,9 +113,7 @@ pub async fn link_swarm_project_node(
     Json(request): Json<LinkSwarmProjectNodeRequest>,
 ) -> Result<ResponseJson<ApiResponse<SwarmProjectNodeResponse>>, ApiError> {
     let client = deployment.remote_client()?;
-    let response = client
-        .link_swarm_project_node(project_id, &request)
-        .await?;
+    let response = client.link_swarm_project_node(project_id, &request).await?;
     Ok(ResponseJson(ApiResponse::success(response)))
 }
 
@@ -147,7 +145,10 @@ pub fn router() -> Router<DeploymentImpl> {
                 .patch(update_swarm_project)
                 .delete(delete_swarm_project),
         )
-        .route("/swarm/projects/{project_id}/merge", post(merge_swarm_projects))
+        .route(
+            "/swarm/projects/{project_id}/merge",
+            post(merge_swarm_projects),
+        )
         .route(
             "/swarm/projects/{project_id}/nodes",
             get(list_swarm_project_nodes).post(link_swarm_project_node),

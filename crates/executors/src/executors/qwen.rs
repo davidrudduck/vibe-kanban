@@ -63,7 +63,11 @@ impl StandardCodingAgentExecutor for QwenCode {
             .await
     }
 
-    fn normalize_logs(&self, msg_store: Arc<MsgStore>, worktree_path: &Path) -> tokio::task::JoinHandle<()> {
+    fn normalize_logs(
+        &self,
+        msg_store: Arc<MsgStore>,
+        worktree_path: &Path,
+    ) -> tokio::task::JoinHandle<()> {
         crate::executors::acp::normalize_logs(msg_store, worktree_path)
     }
 

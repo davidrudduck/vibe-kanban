@@ -2,6 +2,7 @@ pub mod error;
 pub mod file_logging;
 pub mod mcp;
 pub mod middleware;
+pub mod proxy;
 pub mod routes;
 pub mod ws_util;
 

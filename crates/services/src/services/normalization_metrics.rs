@@ -3,8 +3,8 @@
 //! This module tracks normalization completion times and timeout frequency,
 //! enabling visibility into executor log processing health.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use serde::Serialize;

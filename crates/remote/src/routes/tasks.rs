@@ -128,8 +128,16 @@ pub async fn find_by_source_task_id(
         .find_by_source_task_id(query.project_id, query.source_node_id, query.source_task_id)
         .await
     {
-        Ok(Some(task)) => (StatusCode::OK, Json(SharedTaskResponse { task, user: None })).into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, Json(json!({ "error": "task not found" }))).into_response(),
+        Ok(Some(task)) => (
+            StatusCode::OK,
+            Json(SharedTaskResponse { task, user: None }),
+        )
+            .into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "task not found" })),
+        )
+            .into_response(),
         Err(error) => task_error_response(error, "failed to find task by source"),
     }
 }
@@ -172,7 +180,10 @@ pub async fn create_shared_task(
 
     // If source_task_id is provided, check for an existing task first (duplicate detection)
     if let (Some(src_task_id), Some(src_node_id)) = (source_task_id, source_node_id) {
-        match repo.find_by_source_task_id(project_id, src_node_id, src_task_id).await {
+        match repo
+            .find_by_source_task_id(project_id, src_node_id, src_task_id)
+            .await
+        {
             Ok(Some(existing)) => {
                 tracing::info!(
                     task_id = %existing.id,
@@ -180,7 +191,14 @@ pub async fn create_shared_task(
                     source_node_id = %src_node_id,
                     "Found existing task during re-sync, returning existing"
                 );
-                return (StatusCode::OK, Json(SharedTaskResponse { task: existing, user: None })).into_response();
+                return (
+                    StatusCode::OK,
+                    Json(SharedTaskResponse {
+                        task: existing,
+                        user: None,
+                    }),
+                )
+                    .into_response();
             }
             Ok(None) => {
                 // No existing task, will create a new one below
@@ -218,7 +236,9 @@ pub async fn create_shared_task(
 
     // If source tracking was provided, set it on the created task
     if let (Some(src_task_id), Some(src_node_id)) = (source_task_id, source_node_id)
-        && let Err(error) = repo.set_source_task_id(task.task.id, src_node_id, src_task_id).await
+        && let Err(error) = repo
+            .set_source_task_id(task.task.id, src_node_id, src_task_id)
+            .await
     {
         tracing::warn!(
             task_id = %task.task.id,

@@ -1083,8 +1083,7 @@ async fn sync_swarm_labels(
         } else {
             // Check if there's a local org-global label with the same name but no shared_label_id
             // This handles default labels created during migration
-            let existing_by_name =
-                Label::find_global_by_name(pool, &label_info.name).await?;
+            let existing_by_name = Label::find_global_by_name(pool, &label_info.name).await?;
 
             if let Some(existing) = existing_by_name {
                 // Link existing local label to hive by setting shared_label_id
@@ -1232,13 +1231,11 @@ pub async fn handle_backfill_attempt(
     backfill_type: &super::hive_client::BackfillType,
     logs_after: Option<chrono::DateTime<chrono::Utc>>,
 ) -> Result<u32, NodeRunnerError> {
+    use super::hive_client::{AttemptSyncMessage, BackfillType};
     use db::models::{
-        execution_process::ExecutionProcess,
-        log_entry::DbLogEntry,
-        task::Task,
+        execution_process::ExecutionProcess, log_entry::DbLogEntry, task::Task,
         task_attempt::TaskAttempt,
     };
-    use super::hive_client::{AttemptSyncMessage, BackfillType};
 
     // Fetch the attempt
     let attempt = TaskAttempt::find_by_id(pool, attempt_id)
@@ -1368,9 +1365,7 @@ mod backfill_tests {
 
     /// Helper to create test data for backfill tests.
     /// Creates a project -> task -> attempt -> execution -> logs chain.
-    async fn create_test_attempt_data(
-        pool: &SqlitePool,
-    ) -> (Uuid, Uuid, Uuid, Uuid) {
+    async fn create_test_attempt_data(pool: &SqlitePool) -> (Uuid, Uuid, Uuid, Uuid) {
         // Create project
         let project_id = Uuid::new_v4();
         let project_data = CreateProject {
@@ -1458,14 +1453,8 @@ mod backfill_tests {
             create_test_attempt_data(&pool).await;
 
         // Act: Call handle_backfill_attempt
-        let result = handle_backfill_attempt(
-            &pool,
-            &tx,
-            attempt_id,
-            &BackfillType::FullAttempt,
-            None,
-        )
-        .await;
+        let result =
+            handle_backfill_attempt(&pool, &tx, attempt_id, &BackfillType::FullAttempt, None).await;
 
         // Assert: Should succeed and return 1 attempt processed
         assert!(result.is_ok(), "Expected Ok, got {:?}", result);
@@ -1546,11 +1535,8 @@ mod backfill_tests {
             .expect("Failed to create project");
 
         let task_id = Uuid::new_v4();
-        let task_data = CreateTask::from_title_description(
-            project_id,
-            "Test Task".to_string(),
-            None,
-        );
+        let task_data =
+            CreateTask::from_title_description(project_id, "Test Task".to_string(), None);
         let _task = Task::create(&pool, &task_data, task_id)
             .await
             .expect("Failed to create task");
@@ -1568,14 +1554,8 @@ mod backfill_tests {
         .expect("Failed to create task attempt");
 
         // Try to backfill - should fail because no shared_task_id
-        let result = handle_backfill_attempt(
-            &pool,
-            &tx,
-            attempt_id,
-            &BackfillType::FullAttempt,
-            None,
-        )
-        .await;
+        let result =
+            handle_backfill_attempt(&pool, &tx, attempt_id, &BackfillType::FullAttempt, None).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -1610,28 +1590,28 @@ mod backfill_tests {
         .expect("Failed to create second execution process");
 
         // Act: Call handle_backfill_attempt with BackfillType::Executions
-        let result = handle_backfill_attempt(
-            &pool,
-            &tx,
-            attempt_id,
-            &BackfillType::Executions,
-            None,
-        )
-        .await;
+        let result =
+            handle_backfill_attempt(&pool, &tx, attempt_id, &BackfillType::Executions, None).await;
 
         // Assert: Should succeed and return 2 executions processed
         assert!(result.is_ok(), "Expected Ok, got {:?}", result);
         assert_eq!(result.unwrap(), 2, "Should have processed 2 executions");
 
         // Verify only ExecutionSync messages sent (no AttemptSync, no LogsBatch)
-        let msg1 = rx.recv().await.expect("Expected first ExecutionSync message");
+        let msg1 = rx
+            .recv()
+            .await
+            .expect("Expected first ExecutionSync message");
         assert!(
             matches!(msg1, NodeMessage::ExecutionSync(_)),
             "Expected ExecutionSync, got {:?}",
             msg1
         );
 
-        let msg2 = rx.recv().await.expect("Expected second ExecutionSync message");
+        let msg2 = rx
+            .recv()
+            .await
+            .expect("Expected second ExecutionSync message");
         assert!(
             matches!(msg2, NodeMessage::ExecutionSync(_)),
             "Expected ExecutionSync, got {:?}",
@@ -1657,18 +1637,16 @@ mod backfill_tests {
         let (_, _, attempt_id, _) = create_test_attempt_data(&pool).await;
 
         // Act: Call handle_backfill_attempt with BackfillType::Logs
-        let result = handle_backfill_attempt(
-            &pool,
-            &tx,
-            attempt_id,
-            &BackfillType::Logs,
-            None,
-        )
-        .await;
+        let result =
+            handle_backfill_attempt(&pool, &tx, attempt_id, &BackfillType::Logs, None).await;
 
         // Assert: Should succeed and return 1 (one execution with logs)
         assert!(result.is_ok(), "Expected Ok, got {:?}", result);
-        assert_eq!(result.unwrap(), 1, "Should have processed 1 execution's logs");
+        assert_eq!(
+            result.unwrap(),
+            1,
+            "Should have processed 1 execution's logs"
+        );
 
         // Verify only LogsBatch message sent
         let msg = rx.recv().await.expect("Expected LogsBatch message");
@@ -1735,7 +1713,11 @@ mod backfill_tests {
 
         // Assert: Should succeed
         assert!(result.is_ok(), "Expected Ok, got {:?}", result);
-        assert_eq!(result.unwrap(), 1, "Should have processed 1 execution's logs");
+        assert_eq!(
+            result.unwrap(),
+            1,
+            "Should have processed 1 execution's logs"
+        );
 
         // Verify LogsBatch only contains the new log
         let msg = rx.recv().await.expect("Expected LogsBatch message");

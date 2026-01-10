@@ -312,7 +312,10 @@ impl SwarmProjectRepository {
         .fetch_all(pool)
         .await?;
 
-        Ok(records.into_iter().map(SwarmProjectWithNodes::from).collect())
+        Ok(records
+            .into_iter()
+            .map(SwarmProjectWithNodes::from)
+            .collect())
     }
 
     /// Create a new swarm project.

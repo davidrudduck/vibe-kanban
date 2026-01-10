@@ -7,8 +7,8 @@ use std::{
 };
 
 use anyhow::anyhow;
-use chrono::Utc;
 use async_trait::async_trait;
+use chrono::Utc;
 use command_group::AsyncGroupChild;
 use db::{
     DBService,
@@ -304,8 +304,7 @@ impl LocalContainerService {
             }
 
             let worktree_path_str = path.to_string_lossy().to_string();
-            if let Ok(false) =
-                TaskAttempt::container_ref_exists(&db.pool, &worktree_path_str).await
+            if let Ok(false) = TaskAttempt::container_ref_exists(&db.pool, &worktree_path_str).await
             {
                 // This is an orphaned worktree - delete it
                 tracing::info!("Found orphaned worktree: {}", worktree_path_str);
@@ -690,16 +689,15 @@ impl LocalContainerService {
                 let _guard = span.enter();
 
                 let start = std::time::Instant::now();
-                let result = tokio::time::timeout(
-                    Duration::from_secs(timeout_secs),
-                    norm_handle,
-                )
-                .await;
+                let result =
+                    tokio::time::timeout(Duration::from_secs(timeout_secs), norm_handle).await;
 
                 match result {
                     Ok(_) => {
                         let duration = start.elapsed();
-                        container.normalization_metrics().record_completion(duration);
+                        container
+                            .normalization_metrics()
+                            .record_completion(duration);
                         tracing::debug!(
                             exec_id = %exec_id,
                             duration_ms = duration.as_millis() as u64,
@@ -1520,7 +1518,8 @@ impl ContainerService for LocalContainerService {
         }
         self.remove_child_from_store(&execution_process.id).await;
         self.remove_protocol_peer(&execution_process.id).await;
-        self.remove_entry_index_provider(&execution_process.id).await;
+        self.remove_entry_index_provider(&execution_process.id)
+            .await;
 
         // Flush any remaining buffered logs before signaling finished
         if let Some(log_batcher) = self.log_batcher() {
@@ -1539,11 +1538,7 @@ impl ContainerService for LocalContainerService {
             let _guard = span.enter();
 
             let start = std::time::Instant::now();
-            let result = tokio::time::timeout(
-                Duration::from_secs(timeout_secs),
-                norm_handle,
-            )
-            .await;
+            let result = tokio::time::timeout(Duration::from_secs(timeout_secs), norm_handle).await;
 
             match result {
                 Ok(_) => {
@@ -1937,7 +1932,10 @@ mod tests {
         }
 
         let timeout = normalization_timeout_secs();
-        assert_eq!(timeout, 10, "Should use value from VK_NORMALIZATION_TIMEOUT_SECS");
+        assert_eq!(
+            timeout, 10,
+            "Should use value from VK_NORMALIZATION_TIMEOUT_SECS"
+        );
 
         // Restore original value
         // SAFETY: Same as above

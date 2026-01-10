@@ -585,9 +585,11 @@ impl<'a> SharedTaskRepository<'a> {
         )
         .fetch_optional(&mut *tx)
         .await?
-        .ok_or_else(|| SharedTaskError::Conflict(
-            "Task update failed: version mismatch or task was deleted".to_string()
-        ))?;
+        .ok_or_else(|| {
+            SharedTaskError::Conflict(
+                "Task update failed: version mismatch or task was deleted".to_string(),
+            )
+        })?;
 
         ensure_text_size(&task.title, task.description.as_deref())?;
 
@@ -774,9 +776,11 @@ impl<'a> SharedTaskRepository<'a> {
         )
         .fetch_optional(&mut *tx)
         .await?
-        .ok_or_else(|| SharedTaskError::Conflict(
-            "Task delete failed: version mismatch or task was already deleted".to_string()
-        ))?;
+        .ok_or_else(|| {
+            SharedTaskError::Conflict(
+                "Task delete failed: version mismatch or task was already deleted".to_string(),
+            )
+        })?;
 
         insert_activity(&mut tx, &task, None, "task.deleted").await?;
         tx.commit().await.map_err(SharedTaskError::from)?;

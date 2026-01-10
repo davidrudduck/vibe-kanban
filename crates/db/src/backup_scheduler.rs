@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use tokio::sync::mpsc;
 
-use crate::{scheduled_retention, BackupService};
+use crate::{BackupService, scheduled_retention};
 
 /// Default backup interval in hours.
 const DEFAULT_BACKUP_INTERVAL_HOURS: u64 = 4;

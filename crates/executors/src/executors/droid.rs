@@ -161,7 +161,11 @@ impl StandardCodingAgentExecutor for Droid {
         spawn(continue_cmd, &combined_prompt, current_dir).await
     }
 
-    fn normalize_logs(&self, msg_store: Arc<MsgStore>, current_dir: &Path) -> tokio::task::JoinHandle<()> {
+    fn normalize_logs(
+        &self,
+        msg_store: Arc<MsgStore>,
+        current_dir: &Path,
+    ) -> tokio::task::JoinHandle<()> {
         normalize_logs(
             msg_store.clone(),
             current_dir,

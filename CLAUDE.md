@@ -39,13 +39,21 @@
 ### Backend Structure (`crates/`)
 ```text
 server/           # Axum HTTP server, routes, MCP server
-├── routes/       # HTTP handlers (one file per domain)
+├── routes/       # HTTP handlers (directory modules for complex domains)
+│   ├── task_attempts/  # Directory module with handlers/, types.rs
+│   ├── projects/       # Directory module with handlers/, types.rs
+│   └── *.rs            # Simple routes (single file per domain)
 ├── mcp/          # Model Context Protocol server
 ├── middleware/   # Auth, request handling
 └── error.rs      # Global API error types
 
 db/               # Database layer
-├── models/       # SQLx models with queries
+├── models/       # SQLx models (directory modules for complex models)
+│   ├── task/           # Directory module: queries.rs, archive.rs, sync.rs, hierarchy.rs
+│   ├── project/        # Directory module: queries.rs, github.rs, stats.rs, sync.rs
+│   ├── execution_process/  # Directory module: queries.rs, lifecycle.rs, sync.rs
+│   ├── log_entry/      # Directory module: queries.rs, pagination.rs, sync.rs
+│   └── *.rs            # Simple models (single file)
 └── migrations/   # SQL migration files
 
 services/         # Business logic (stateless)
@@ -54,6 +62,12 @@ services/         # Business logic (stateless)
 └── worktree.rs   # Worktree management
 
 executors/        # AI agent integrations
+├── logs/         # Log processing
+│   ├── normalizer.rs  # LogNormalizer trait and driver function
+│   ├── tool_states.rs # Shared tool state structures
+│   └── *.rs           # Executor-specific implementations
+└── *.rs          # Executor implementations (ACP, Droid, Codex)
+
 utils/            # Shared utilities, ApiResponse
 ```
 
@@ -399,6 +413,107 @@ function ProjectCard({ project, onEdit }: Props) {
 }
 
 export default ProjectCard;
+```
+
+### Backend: Route Handler Directory Module
+For complex route domains with many handlers, use a directory module structure:
+
+```text
+routes/task_attempts/
+├── mod.rs           # Router and submodule declarations
+├── types.rs         # Request/response types for handlers
+└── handlers/
+    ├── mod.rs       # Re-exports all handlers
+    ├── core.rs      # CRUD and basic operations
+    ├── git_ops.rs   # Git-related operations
+    ├── github.rs    # GitHub integration
+    └── worktree.rs  # Worktree file operations
+```
+
+```rust
+// handlers/mod.rs - Organize by concern and re-export
+pub mod core;
+pub mod git_ops;
+pub mod github;
+pub mod worktree;
+
+// Re-export all handlers for convenient access from the router
+pub use core::{create_task_attempt, get_task_attempt, stop_task_attempt};
+pub use git_ops::{merge_task_attempt, rebase_task_attempt, push_task_attempt_branch};
+pub use github::{create_github_pr, attach_existing_pr};
+pub use worktree::{list_worktree_files, read_worktree_file};
+```
+
+### Backend: Model Directory Module
+For complex models with many queries, use a directory module structure:
+
+```text
+models/task/
+├── mod.rs           # Struct definition, types, tests, submodule declarations
+├── queries.rs       # CRUD operations (find_by_id, create, update, delete)
+├── archive.rs       # Archiving operations
+├── hierarchy.rs     # Parent/child relationships
+└── sync.rs          # Hive synchronization queries
+```
+
+```rust
+// mod.rs - Struct definition with submodule declarations
+mod archive;
+mod hierarchy;
+mod queries;
+mod sync;
+
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct Task {
+    pub id: Uuid,
+    pub project_id: Uuid,
+    pub title: String,
+    // ...
+}
+
+// Re-export commonly used items
+pub use archive::{archive, unarchive};
+pub use queries::{find_by_id, create, update, delete};
+```
+
+### Backend: LogNormalizer Trait
+For processing executor logs, implement the `LogNormalizer` trait:
+
+```rust
+use crate::logs::{LogNormalizer, normalize_logs_with};
+
+pub struct MyExecutorNormalizer {
+    // Executor-specific state
+}
+
+impl LogNormalizer for MyExecutorNormalizer {
+    type Event = MyEventType;
+
+    fn parse_line(&self, line: &str) -> Option<Self::Event> {
+        // Parse executor-specific log format
+    }
+
+    fn extract_session_id(&self, event: &Self::Event) -> Option<String> {
+        // Extract session ID from event
+    }
+
+    fn process_event(
+        &mut self,
+        event: Self::Event,
+        msg_store: &Arc<MsgStore>,
+        entry_index: &EntryIndexProvider,
+    ) -> Vec<Patch> {
+        // Process event and return conversation patches
+    }
+}
+
+// Usage in executor
+let normalizer = MyExecutorNormalizer::new();
+let handle = normalize_logs_with(normalizer, msg_store.clone(), &worktree_path);
 ```
 
 ## 9. Development Commands

@@ -9,10 +9,13 @@ use axum::{
     response::Json as ResponseJson,
     routing::{get, post},
 };
-use remote::routes::swarm_labels::{ListSwarmLabelsResponse, MergeLabelsResult, SwarmLabelResponse};
+use remote::routes::swarm_labels::{
+    ListSwarmLabelsResponse, MergeLabelsResult, SwarmLabelResponse,
+};
 use serde::Deserialize;
 use services::services::remote_client::{
-    CreateSwarmLabelRequest, MergeSwarmLabelsRequest, PromoteToSwarmRequest, UpdateSwarmLabelRequest,
+    CreateSwarmLabelRequest, MergeSwarmLabelsRequest, PromoteToSwarmRequest,
+    UpdateSwarmLabelRequest,
 };
 use utils::response::ApiResponse;
 use uuid::Uuid;
