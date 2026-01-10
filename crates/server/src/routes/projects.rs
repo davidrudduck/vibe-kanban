@@ -45,35 +45,8 @@ use crate::{
     },
 };
 
-/// Helper to check if a remote project context is available and online.
-/// Returns Some((node_url, node_id, remote_project_id)) if we should proxy,
-/// or an Err if the remote node is offline.
-fn check_remote_proxy(
-    remote_ctx: Option<&RemoteProjectContext>,
-) -> Result<Option<(String, Uuid, Uuid)>, ApiError> {
-    match remote_ctx {
-        Some(ctx) => {
-            // Check if the node is online
-            if ctx.node_status.as_deref() != Some("online") {
-                return Err(ApiError::BadGateway(format!(
-                    "Remote node '{}' is offline",
-                    ctx.node_id
-                )));
-            }
-
-            // Check if we have a URL to proxy to
-            let node_url = ctx.node_url.as_ref().ok_or_else(|| {
-                ApiError::BadGateway(format!(
-                    "Remote node '{}' has no public URL configured",
-                    ctx.node_id
-                ))
-            })?;
-
-            Ok(Some((node_url.clone(), ctx.node_id, ctx.remote_project_id)))
-        }
-        None => Ok(None),
-    }
-}
+// Re-export for use in this module
+use crate::proxy::check_remote_proxy;
 
 /// Request to link a local folder to a remote project
 /// This creates a new local project at the specified path and links it to the remote project
@@ -511,19 +484,19 @@ pub async fn get_project_branches(
     }
 
     // Fall back to proxy only if no local git repository exists
-    if let Some((node_url, node_id, remote_project_id)) =
+    if let Some(proxy_info) =
         check_remote_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
-            node_id = %node_id,
-            remote_project_id = %remote_project_id,
+            node_id = %proxy_info.node_id,
+            remote_project_id = %proxy_info.target_id,
             "Proxying get_project_branches to remote node"
         );
 
-        let path = format!("/projects/by-remote-id/{}/branches", remote_project_id);
+        let path = format!("/projects/by-remote-id/{}/branches", proxy_info.target_id);
         let response: ApiResponse<Vec<GitBranch>> = deployment
             .node_proxy_client()
-            .proxy_get(&node_url, &path, node_id)
+            .proxy_get(&proxy_info.node_url, &path, proxy_info.node_id)
             .await?;
 
         return Ok(ResponseJson(response));
@@ -1205,12 +1178,12 @@ pub async fn search_project_files(
     }
 
     // Check if this is a remote project that should be proxied
-    if let Some((node_url, node_id, remote_project_id)) =
+    if let Some(proxy_info) =
         check_remote_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
-            node_id = %node_id,
-            remote_project_id = %remote_project_id,
+            node_id = %proxy_info.node_id,
+            remote_project_id = %proxy_info.target_id,
             query = %query,
             "Proxying search_project_files to remote node"
         );
@@ -1222,13 +1195,13 @@ pub async fn search_project_files(
         };
         let path = format!(
             "/projects/by-remote-id/{}/search?q={}&mode={}",
-            remote_project_id,
+            proxy_info.target_id,
             urlencoding::encode(query),
             mode_str
         );
         let response: ApiResponse<Vec<SearchResult>> = deployment
             .node_proxy_client()
-            .proxy_get(&node_url, &path, node_id)
+            .proxy_get(&proxy_info.node_url, &path, proxy_info.node_id)
             .await?;
 
         return Ok(ResponseJson(response));
@@ -1461,12 +1434,12 @@ pub async fn list_project_files(
     Query(query): Query<ListProjectFilesQuery>,
 ) -> Result<ResponseJson<ApiResponse<DirectoryListResponse>>, ApiError> {
     // Check if this is a remote project that should be proxied
-    if let Some((node_url, node_id, remote_project_id)) =
+    if let Some(proxy_info) =
         check_remote_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
-            node_id = %node_id,
-            remote_project_id = %remote_project_id,
+            node_id = %proxy_info.node_id,
+            remote_project_id = %proxy_info.target_id,
             path = ?query.path,
             "Proxying list_project_files to remote node"
         );
@@ -1474,14 +1447,14 @@ pub async fn list_project_files(
         let path = match &query.path {
             Some(p) => format!(
                 "/projects/by-remote-id/{}/files?path={}",
-                remote_project_id,
+                proxy_info.target_id,
                 urlencoding::encode(p)
             ),
-            None => format!("/projects/by-remote-id/{}/files", remote_project_id),
+            None => format!("/projects/by-remote-id/{}/files", proxy_info.target_id),
         };
         let response: ApiResponse<DirectoryListResponse> = deployment
             .node_proxy_client()
-            .proxy_get(&node_url, &path, node_id)
+            .proxy_get(&proxy_info.node_url, &path, proxy_info.node_id)
             .await?;
 
         return Ok(ResponseJson(response));
@@ -1525,23 +1498,23 @@ pub async fn read_project_file(
     Path((_project_id, file_path)): Path<(Uuid, String)>,
 ) -> Result<ResponseJson<ApiResponse<FileContentResponse>>, ApiError> {
     // Check if this is a remote project that should be proxied
-    if let Some((node_url, node_id, remote_project_id)) =
+    if let Some(proxy_info) =
         check_remote_proxy(remote_ctx.as_ref().map(|e| &e.0))?
     {
         tracing::debug!(
-            node_id = %node_id,
-            remote_project_id = %remote_project_id,
+            node_id = %proxy_info.node_id,
+            remote_project_id = %proxy_info.target_id,
             file_path = %file_path,
             "Proxying read_project_file to remote node"
         );
 
         let path = format!(
             "/projects/by-remote-id/{}/files/{}",
-            remote_project_id, file_path
+            proxy_info.target_id, file_path
         );
         let response: ApiResponse<FileContentResponse> = deployment
             .node_proxy_client()
-            .proxy_get(&node_url, &path, node_id)
+            .proxy_get(&proxy_info.node_url, &path, proxy_info.node_id)
             .await?;
 
         return Ok(ResponseJson(response));
