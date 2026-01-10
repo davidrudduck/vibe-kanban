@@ -2,7 +2,20 @@ pub mod codex_setup;
 pub mod cursor_setup;
 pub mod drafts;
 pub mod gh_cli_setup;
+pub mod handlers;
+pub mod types;
 pub mod util;
+
+// Re-export types for public API
+pub use types::{
+    AttachPrResponse, BranchStatus, ChangeTargetBranchRequest, ChangeTargetBranchResponse,
+    CommitCompareResult, CommitInfo, CreateFollowUpAttempt, CreateGitHubPrRequest, CreatePrError,
+    CreateTaskAttemptBody, CreateTaskAttemptByTaskIdBody, DiffStreamQuery, DirtyFilesResponse,
+    FixSessionsResponse, GitOperationError, ListFilesQuery, OpenEditorRequest, OpenEditorResponse,
+    PushError, RebaseTaskAttemptRequest, RenameBranchRequest, RenameBranchResponse,
+    RunAgentSetupRequest, RunAgentSetupResponse, StashChangesRequest, StashChangesResponse,
+    TaskAttemptQuery, WorktreePathResponse,
+};
 
 use std::{path::PathBuf, time::Duration};
 
@@ -40,7 +53,6 @@ use executors::{
     profile::{ExecutorConfigs, ExecutorProfileId},
 };
 use git2::BranchType;
-use serde::{Deserialize, Serialize};
 use services::services::{
     container::ContainerService,
     filesystem::{DirectoryListResponse, FileContentResponse, FilesystemError},
@@ -50,7 +62,6 @@ use services::services::{
     worktree_manager::{PurgeResult, WorktreeCleanup, WorktreeManager},
 };
 use sqlx::Error as SqlxError;
-use ts_rs::TS;
 use utils::response::ApiResponse;
 use utils::unified_log::OutputType;
 use uuid::Uuid;
@@ -63,54 +74,12 @@ use crate::{
         load_task_attempt_by_task_id_middleware_with_wildcard, load_task_attempt_middleware,
         load_task_attempt_middleware_with_wildcard, load_task_by_task_id_middleware,
     },
-    routes::task_attempts::{
-        gh_cli_setup::GhCliSetupError,
-        util::{ensure_worktree_path, handle_images_for_prompt},
-    },
 };
+use gh_cli_setup::GhCliSetupError;
+use util::{ensure_worktree_path, handle_images_for_prompt};
 
 // Re-export for use in this module
 use crate::proxy::check_remote_task_attempt_proxy;
-
-#[derive(Debug, Deserialize, Serialize, TS)]
-pub struct RebaseTaskAttemptRequest {
-    pub old_base_branch: Option<String>,
-    pub new_base_branch: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, TS)]
-#[serde(tag = "type", rename_all = "snake_case")]
-#[ts(tag = "type", rename_all = "snake_case")]
-pub enum GitOperationError {
-    MergeConflicts { message: String, op: ConflictOp },
-    RebaseInProgress,
-}
-
-#[derive(Debug, Deserialize, Serialize, TS)]
-pub struct CreateGitHubPrRequest {
-    pub title: String,
-    pub body: Option<String>,
-    pub target_branch: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct TaskAttemptQuery {
-    pub task_id: Option<Uuid>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct DiffStreamQuery {
-    #[serde(default)]
-    pub stats_only: bool,
-}
-
-/// Response for fix-sessions endpoint
-#[derive(Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct FixSessionsResponse {
-    pub invalidated_count: usize,
-    pub invalidated_session_ids: Vec<String>,
-}
 
 pub async fn get_task_attempts(
     State(deployment): State<DeploymentImpl>,
@@ -228,50 +197,6 @@ pub async fn get_task_attempt(
 
     Err(ApiError::NotFound("Task attempt not found".to_string()))
 }
-
-#[derive(Debug, Serialize, Deserialize, ts_rs::TS)]
-pub struct CreateTaskAttemptBody {
-    pub task_id: Uuid,
-    /// Executor profile specification
-    pub executor_profile_id: ExecutorProfileId,
-    pub base_branch: String,
-    /// Target node ID for remote execution (if project exists on multiple nodes).
-    /// When set, the request will be proxied to the specified node.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub target_node_id: Option<Uuid>,
-    /// When true, reuse the parent task's latest attempt worktree.
-    /// Only valid when the task has a parent_task_id.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub use_parent_worktree: Option<bool>,
-}
-
-impl CreateTaskAttemptBody {
-    /// Get the executor profile ID
-    pub fn get_executor_profile_id(&self) -> ExecutorProfileId {
-        self.executor_profile_id.clone()
-    }
-}
-
-/// Request body for creating a task attempt via by-task-id route (cross-node proxying).
-/// Unlike CreateTaskAttemptBody, this doesn't need task_id since it's in the URL path.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CreateTaskAttemptByTaskIdBody {
-    /// Executor profile specification
-    pub executor_profile_id: ExecutorProfileId,
-    pub base_branch: String,
-    /// When true, reuse the parent task's latest attempt worktree.
-    /// Only valid when the task has a parent_task_id.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub use_parent_worktree: Option<bool>,
-}
-
-#[derive(Debug, Deserialize, Serialize, TS)]
-pub struct RunAgentSetupRequest {
-    pub executor_profile_id: ExecutorProfileId,
-}
-
-#[derive(Debug, Serialize, TS)]
-pub struct RunAgentSetupResponse {}
 
 #[axum::debug_handler]
 pub async fn create_task_attempt(
@@ -615,16 +540,6 @@ pub async fn run_agent_setup(
     Ok(ResponseJson(ApiResponse::success(RunAgentSetupResponse {})))
 }
 
-#[derive(Debug, Deserialize, Serialize, TS)]
-pub struct CreateFollowUpAttempt {
-    pub prompt: String,
-    pub variant: Option<String>,
-    pub image_ids: Option<Vec<Uuid>>,
-    pub retry_process_id: Option<Uuid>,
-    pub force_when_dirty: Option<bool>,
-    pub perform_git_reset: Option<bool>,
-}
-
 pub async fn follow_up(
     Extension(task_attempt): Extension<TaskAttempt>,
     remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
@@ -930,12 +845,6 @@ async fn handle_task_attempt_diff_ws(
     run_ws_stream(socket, stream, WsKeepAlive::for_execution_streams()).await
 }
 
-#[derive(Debug, Serialize, TS)]
-pub struct CommitInfo {
-    pub sha: String,
-    pub subject: String,
-}
-
 pub async fn get_commit_info(
     Extension(task_attempt): Extension<TaskAttempt>,
     State(deployment): State<DeploymentImpl>,
@@ -953,15 +862,6 @@ pub async fn get_commit_info(
         sha,
         subject,
     })))
-}
-
-#[derive(Debug, Serialize, TS)]
-pub struct CommitCompareResult {
-    pub head_oid: String,
-    pub target_oid: String,
-    pub ahead_from_head: usize,
-    pub behind_from_head: usize,
-    pub is_linear: bool,
 }
 
 pub async fn compare_commit_to_head(
@@ -1178,24 +1078,6 @@ pub async fn force_push_task_attempt_branch(
     Ok(ResponseJson(ApiResponse::success(())))
 }
 
-#[derive(Debug, Serialize, Deserialize, TS)]
-#[serde(tag = "type", rename_all = "snake_case")]
-#[ts(tag = "type", rename_all = "snake_case")]
-pub enum PushError {
-    ForcePushRequired,
-}
-
-#[derive(Debug, Serialize, Deserialize, TS)]
-#[serde(tag = "type", rename_all = "snake_case")]
-#[ts(tag = "type", rename_all = "snake_case")]
-pub enum CreatePrError {
-    GithubCliNotInstalled,
-    GithubCliNotLoggedIn,
-    GitCliNotLoggedIn,
-    GitCliNotInstalled,
-    TargetBranchNotFound { branch: String },
-}
-
 pub async fn create_github_pr(
     Extension(task_attempt): Extension<TaskAttempt>,
     remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
@@ -1367,17 +1249,6 @@ pub async fn create_github_pr(
     }
 }
 
-#[derive(serde::Deserialize, TS)]
-pub struct OpenEditorRequest {
-    editor_type: Option<String>,
-    file_path: Option<String>,
-}
-
-#[derive(Debug, Serialize, TS)]
-pub struct OpenEditorResponse {
-    pub url: Option<String>,
-}
-
 pub async fn open_task_attempt_in_editor(
     Extension(task_attempt): Extension<TaskAttempt>,
     State(deployment): State<DeploymentImpl>,
@@ -1422,26 +1293,6 @@ pub async fn open_task_attempt_in_editor(
             Err(ApiError::EditorOpen(e))
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-pub struct BranchStatus {
-    pub commits_behind: Option<usize>,
-    pub commits_ahead: Option<usize>,
-    pub has_uncommitted_changes: Option<bool>,
-    pub head_oid: Option<String>,
-    pub uncommitted_count: Option<usize>,
-    pub untracked_count: Option<usize>,
-    pub target_branch_name: String,
-    pub remote_commits_behind: Option<usize>,
-    pub remote_commits_ahead: Option<usize>,
-    pub merges: Vec<Merge>,
-    /// True if a `git rebase` is currently in progress in this worktree
-    pub is_rebase_in_progress: bool,
-    /// Current conflict operation if any
-    pub conflict_op: Option<ConflictOp>,
-    /// List of files currently in conflicted (unmerged) state
-    pub conflicted_files: Vec<String>,
 }
 
 pub async fn get_task_attempt_branch_status(
@@ -1569,27 +1420,6 @@ pub async fn get_task_attempt_branch_status(
         conflicted_files,
     };
     Ok(ResponseJson(ApiResponse::success(branch_status)))
-}
-
-#[derive(serde::Deserialize, serde::Serialize, Debug, TS)]
-pub struct ChangeTargetBranchRequest {
-    pub new_target_branch: String,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, TS)]
-pub struct ChangeTargetBranchResponse {
-    pub new_target_branch: String,
-    pub status: (usize, usize),
-}
-
-#[derive(serde::Deserialize, serde::Serialize, Debug, TS)]
-pub struct RenameBranchRequest {
-    pub new_branch_name: String,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, TS)]
-pub struct RenameBranchResponse {
-    pub branch: String,
 }
 
 #[axum::debug_handler]
@@ -1913,24 +1743,6 @@ pub async fn abort_conflicts_task_attempt(
     Ok(ResponseJson(ApiResponse::success(())))
 }
 
-/// Response for get_dirty_files endpoint
-#[derive(Debug, Serialize, Deserialize, TS)]
-pub struct DirtyFilesResponse {
-    pub files: Vec<String>,
-}
-
-/// Request for stash_changes endpoint
-#[derive(Debug, Deserialize, Serialize, TS)]
-pub struct StashChangesRequest {
-    pub message: Option<String>,
-}
-
-/// Response for stash_changes endpoint
-#[derive(Debug, Serialize, Deserialize, TS)]
-pub struct StashChangesResponse {
-    pub stash_ref: String,
-}
-
 /// Get list of dirty (uncommitted) files in the task attempt worktree.
 /// This is used by the frontend to display which files would be affected by a stash.
 #[axum::debug_handler]
@@ -2173,14 +1985,6 @@ pub async fn stop_task_attempt_execution(
     Ok(ResponseJson(ApiResponse::success(())))
 }
 
-#[derive(Debug, Serialize, Deserialize, TS)]
-pub struct AttachPrResponse {
-    pub pr_attached: bool,
-    pub pr_url: Option<String>,
-    pub pr_number: Option<i64>,
-    pub pr_status: Option<MergeStatus>,
-}
-
 pub async fn attach_existing_pr(
     Extension(task_attempt): Extension<TaskAttempt>,
     remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
@@ -2327,12 +2131,6 @@ pub async fn gh_cli_setup_handler(
 // File Browser Endpoints
 // ============================================================================
 
-#[derive(Debug, Deserialize)]
-pub struct ListFilesQuery {
-    /// Relative path within the worktree (optional, defaults to root)
-    path: Option<String>,
-}
-
 /// List files and directories within a task attempt's worktree
 pub async fn list_worktree_files(
     Extension(task_attempt): Extension<TaskAttempt>,
@@ -2466,14 +2264,6 @@ pub async fn read_worktree_file(
             Ok(ResponseJson(ApiResponse::error(&e.to_string())))
         }
     }
-}
-
-/// Response for getting the worktree path
-#[derive(Debug, Serialize, TS)]
-#[ts(export)]
-pub struct WorktreePathResponse {
-    /// Absolute path to the worktree directory
-    pub path: String,
 }
 
 /// Get the worktree path for a task attempt
@@ -2831,77 +2621,5 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     Router::new().nest("/task-attempts", task_attempts_router)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Note: Tests for check_remote_task_attempt_proxy are in crates/server/src/proxy.rs
-
-    #[test]
-    fn test_create_task_attempt_body_with_use_parent_worktree() {
-        let body: CreateTaskAttemptBody = serde_json::from_str(
-            r#"{
-            "task_id": "550e8400-e29b-41d4-a716-446655440000",
-            "executor_profile_id": { "executor": "CLAUDE_CODE", "variant": null },
-            "base_branch": "main",
-            "use_parent_worktree": true
-        }"#,
-        )
-        .unwrap();
-        assert!(body.use_parent_worktree.unwrap_or(false));
-    }
-
-    #[test]
-    fn test_create_task_attempt_body_backwards_compatible() {
-        // Old requests without use_parent_worktree should still work
-        let body: CreateTaskAttemptBody = serde_json::from_str(
-            r#"{
-            "task_id": "550e8400-e29b-41d4-a716-446655440000",
-            "executor_profile_id": { "executor": "CLAUDE_CODE", "variant": null },
-            "base_branch": "main"
-        }"#,
-        )
-        .unwrap();
-        assert!(body.use_parent_worktree.is_none());
-    }
-
-    #[test]
-    fn test_create_task_attempt_body_with_use_parent_worktree_false() {
-        let body: CreateTaskAttemptBody = serde_json::from_str(
-            r#"{
-            "task_id": "550e8400-e29b-41d4-a716-446655440000",
-            "executor_profile_id": { "executor": "CLAUDE_CODE", "variant": null },
-            "base_branch": "main",
-            "use_parent_worktree": false
-        }"#,
-        )
-        .unwrap();
-        assert_eq!(body.use_parent_worktree, Some(false));
-    }
-
-    #[test]
-    fn test_create_task_attempt_by_task_id_body_with_use_parent_worktree() {
-        let body: CreateTaskAttemptByTaskIdBody = serde_json::from_str(
-            r#"{
-            "executor_profile_id": { "executor": "CLAUDE_CODE", "variant": null },
-            "base_branch": "main",
-            "use_parent_worktree": true
-        }"#,
-        )
-        .unwrap();
-        assert!(body.use_parent_worktree.unwrap_or(false));
-    }
-
-    #[test]
-    fn test_create_task_attempt_by_task_id_body_backwards_compatible() {
-        // Old requests without use_parent_worktree should still work
-        let body: CreateTaskAttemptByTaskIdBody = serde_json::from_str(
-            r#"{
-            "executor_profile_id": { "executor": "CLAUDE_CODE", "variant": null },
-            "base_branch": "main"
-        }"#,
-        )
-        .unwrap();
-        assert!(body.use_parent_worktree.is_none());
-    }
-}
+// Note: Type tests are in types.rs
+// Note: Tests for check_remote_task_attempt_proxy are in crates/server/src/proxy.rs
