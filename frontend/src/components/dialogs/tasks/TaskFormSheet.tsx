@@ -538,7 +538,9 @@ const TaskFormSheetImpl = NiceModal.create<TaskFormSheetProps>((props) => {
       .catch((err) => {
         if (cancelled) return;
         console.error('Failed to load templates:', err);
-        setTemplateError(t('templatePicker.loadError', 'Failed to load templates'));
+        setTemplateError(
+          t('templatePicker.loadError', 'Failed to load templates')
+        );
       })
       .finally(() => {
         if (cancelled) return;

@@ -99,51 +99,54 @@ function AppContent() {
               {/* Main content area - takes remaining space */}
               <div className="flex-1 min-w-0 flex flex-col">
                 <Routes>
-                {/* VS Code full-page logs route (outside NormalLayout for minimal UI) */}
-                <Route
-                  path="/projects/:projectId/tasks/:taskId/attempts/:attemptId/full"
-                  element={<FullAttemptLogsPage />}
-                />
+                  {/* VS Code full-page logs route (outside NormalLayout for minimal UI) */}
+                  <Route
+                    path="/projects/:projectId/tasks/:taskId/attempts/:attemptId/full"
+                    element={<FullAttemptLogsPage />}
+                  />
 
-                <Route element={<NormalLayout />}>
-                  <Route path="/" element={<Projects />} />
-                  <Route path="/projects" element={<Projects />} />
-                  <Route path="/projects/:projectId" element={<Projects />} />
-                  <Route path="/nodes" element={<Nodes />} />
-                  <Route path="/nodes/:nodeId" element={<Nodes />} />
-                  <Route path="/processes" element={<Processes />} />
-                  <Route path="/tasks/all" element={<AllProjectsTasks />} />
-                  <Route
-                    path="/projects/:projectId/tasks"
-                    element={<ProjectTasks />}
-                  />
-                  <Route path="/settings/*" element={<SettingsLayout />}>
-                    <Route index element={<Navigate to="general" replace />} />
-                    <Route path="general" element={<GeneralSettings />} />
-                    <Route path="projects" element={<ProjectSettings />} />
+                  <Route element={<NormalLayout />}>
+                    <Route path="/" element={<Projects />} />
+                    <Route path="/projects" element={<Projects />} />
+                    <Route path="/projects/:projectId" element={<Projects />} />
+                    <Route path="/nodes" element={<Nodes />} />
+                    <Route path="/nodes/:nodeId" element={<Nodes />} />
+                    <Route path="/processes" element={<Processes />} />
+                    <Route path="/tasks/all" element={<AllProjectsTasks />} />
                     <Route
-                      path="organizations"
-                      element={<OrganizationSettings />}
+                      path="/projects/:projectId/tasks"
+                      element={<ProjectTasks />}
                     />
-                    <Route path="swarm" element={<SwarmSettings />} />
-                    <Route path="agents" element={<AgentSettings />} />
-                    <Route path="mcp" element={<McpSettings />} />
-                    <Route path="backups" element={<BackupSettings />} />
+                    <Route path="/settings/*" element={<SettingsLayout />}>
+                      <Route
+                        index
+                        element={<Navigate to="general" replace />}
+                      />
+                      <Route path="general" element={<GeneralSettings />} />
+                      <Route path="projects" element={<ProjectSettings />} />
+                      <Route
+                        path="organizations"
+                        element={<OrganizationSettings />}
+                      />
+                      <Route path="swarm" element={<SwarmSettings />} />
+                      <Route path="agents" element={<AgentSettings />} />
+                      <Route path="mcp" element={<McpSettings />} />
+                      <Route path="backups" element={<BackupSettings />} />
+                    </Route>
+                    <Route
+                      path="/mcp-servers"
+                      element={<Navigate to="/settings/mcp" replace />}
+                    />
+                    <Route
+                      path="/projects/:projectId/tasks/:taskId"
+                      element={<ProjectTasks />}
+                    />
+                    <Route
+                      path="/projects/:projectId/tasks/:taskId/attempts/:attemptId"
+                      element={<ProjectTasks />}
+                    />
                   </Route>
-                  <Route
-                    path="/mcp-servers"
-                    element={<Navigate to="/settings/mcp" replace />}
-                  />
-                  <Route
-                    path="/projects/:projectId/tasks/:taskId"
-                    element={<ProjectTasks />}
-                  />
-                  <Route
-                    path="/projects/:projectId/tasks/:taskId/attempts/:attemptId"
-                    element={<ProjectTasks />}
-                  />
-                </Route>
-              </Routes>
+                </Routes>
               </div>
               {/* File viewer side panel - renders alongside content on desktop */}
               <FileViewerContainer />
@@ -162,7 +165,9 @@ function App() {
         <ClickedElementsProvider>
           <ProjectProvider>
             <FileViewerProvider>
-              <HotkeysProvider initiallyActiveScopes={['*', 'global', 'kanban']}>
+              <HotkeysProvider
+                initiallyActiveScopes={['*', 'global', 'kanban']}
+              >
                 <NiceModal.Provider>
                   <AppContent />
                 </NiceModal.Provider>

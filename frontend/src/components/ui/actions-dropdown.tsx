@@ -332,7 +332,8 @@ export function ActionsDropdown({
   // - Assignee of the remote task
   // - Org admin
   // - For local tasks, anyone can edit
-  const canModifyTask = isRemoteAssignee || isOrgAdmin || !task?.remote_assignee_user_id;
+  const canModifyTask =
+    isRemoteAssignee || isOrgAdmin || !task?.remote_assignee_user_id;
 
   // Can claim a task if it's a Hive-synced task and is currently unassigned
   const canClaim =

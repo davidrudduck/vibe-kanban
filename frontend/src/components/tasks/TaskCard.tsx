@@ -87,7 +87,8 @@ export function TaskCard({
   const { data: labels } = useTaskLabels(task.id, true);
 
   // Get owner name from remote task
-  const ownerName = task.remote_assignee_name ?? task.remote_assignee_username ?? null;
+  const ownerName =
+    task.remote_assignee_name ?? task.remote_assignee_username ?? null;
 
   // Get short node name from project
   const shortNodeName = getShortNodeName(project?.source_node_name);
@@ -244,10 +245,7 @@ export function TaskCard({
                   <Link className="h-4 w-4" />
                 </Button>
               )}
-              <ActionsDropdown
-                task={task}
-                isOrgAdmin={isOrgAdmin}
-              />
+              <ActionsDropdown task={task} isOrgAdmin={isOrgAdmin} />
             </>
           }
         />

@@ -381,9 +381,12 @@ export function NodeProjectsSection({
                             {[...projects]
                               .sort((a, b) => a.name.localeCompare(b.name))
                               .map((project) => {
-                                const shortId = project.local_project_id.slice(-4);
+                                const shortId =
+                                  project.local_project_id.slice(-4);
                                 const isLinked = !!project.swarm_project_id;
-                                const stale = isProjectStale(project.last_seen_at);
+                                const stale = isProjectStale(
+                                  project.last_seen_at
+                                );
                                 const lastSeenText = formatDistanceToNow(
                                   new Date(project.last_seen_at),
                                   { addSuffix: true }
@@ -419,8 +422,8 @@ export function NodeProjectsSection({
                                               </TooltipTrigger>
                                               <TooltipContent>
                                                 <p>
-                                                  Last seen {lastSeenText}. Node may have
-                                                  removed this project.
+                                                  Last seen {lastSeenText}. Node
+                                                  may have removed this project.
                                                 </p>
                                               </TooltipContent>
                                             </Tooltip>
@@ -433,7 +436,10 @@ export function NodeProjectsSection({
                                     </div>
                                     {isLinked ? (
                                       <div className="flex items-center gap-2 shrink-0">
-                                        <Badge variant="secondary" className="hidden sm:inline-flex">
+                                        <Badge
+                                          variant="secondary"
+                                          className="hidden sm:inline-flex"
+                                        >
                                           {project.swarm_project_name}
                                         </Badge>
                                         <Button
@@ -444,7 +450,8 @@ export function NodeProjectsSection({
                                             e.stopPropagation();
                                             if (project.swarm_project_id) {
                                               mutations.unlinkNode.mutate({
-                                                projectId: project.swarm_project_id,
+                                                projectId:
+                                                  project.swarm_project_id,
                                                 nodeId: node.id,
                                               });
                                             }

@@ -45,7 +45,12 @@ export function FileViewerContainer() {
     isLoading,
     error,
   } = useQuery({
-    queryKey: ['file-viewer', activeFile?.path, activeFile?.relativePath, activeFile?.attemptId],
+    queryKey: [
+      'file-viewer',
+      activeFile?.path,
+      activeFile?.relativePath,
+      activeFile?.attemptId,
+    ],
     queryFn: async () => {
       if (!activeFile) throw new Error('No file selected');
 
@@ -53,7 +58,10 @@ export function FileViewerContainer() {
         return fileBrowserApi.readClaudeFile(activeFile.relativePath);
       }
       if (activeFile.attemptId) {
-        return fileBrowserApi.readWorktreeFile(activeFile.attemptId, activeFile.path);
+        return fileBrowserApi.readWorktreeFile(
+          activeFile.attemptId,
+          activeFile.path
+        );
       }
       throw new Error('No file source specified');
     },

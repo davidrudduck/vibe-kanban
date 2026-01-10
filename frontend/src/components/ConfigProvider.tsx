@@ -123,7 +123,10 @@ export function UserSystemProvider({ children }: UserSystemProviderProps) {
               : undefined;
           // Vite returns 500 when proxy target is down, other proxies may return 502/503/504
           const isProxyError =
-            errorStatus === 500 || errorStatus === 502 || errorStatus === 503 || errorStatus === 504;
+            errorStatus === 500 ||
+            errorStatus === 502 ||
+            errorStatus === 503 ||
+            errorStatus === 504;
           const isNetworkError =
             err instanceof TypeError ||
             errorMessage.includes('Failed to fetch') ||

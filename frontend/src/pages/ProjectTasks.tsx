@@ -393,7 +393,10 @@ export function ProjectTasks() {
     // Extract tasks from columns, sort them, then re-wrap
     TASK_STATUSES.forEach((status) => {
       const tasksInColumn = columns[status].map((item) => item.task);
-      const sortedTasks = sortTasksByStatus(tasksInColumn, sortDirections[status]);
+      const sortedTasks = sortTasksByStatus(
+        tasksInColumn,
+        sortDirections[status]
+      );
       columns[status] = sortedTasks.map((task) => ({ type: 'task', task }));
     });
 
