@@ -11,6 +11,7 @@ pub mod core;
 pub mod labels;
 pub mod remote;
 pub mod status;
+pub mod streams;
 
 // Re-export all handlers for convenient access from the router
 pub use core::{
@@ -18,5 +19,6 @@ pub use core::{
 };
 pub use labels::{get_task_labels, set_task_labels};
 pub use status::{archive_task, assign_task, get_task_children, unarchive_task};
+pub use streams::{get_available_nodes, get_stream_connection_info, stream_tasks_ws};
 
 // Note: remote helpers are pub(crate) and available via crate::routes::tasks_new::handlers::remote
