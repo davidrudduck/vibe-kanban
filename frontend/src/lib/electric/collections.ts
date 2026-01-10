@@ -9,7 +9,6 @@ import { createCollection } from '@tanstack/react-db';
 import { electricCollectionOptions } from '@tanstack/electric-db-collection';
 import { createShapeUrl } from './config';
 
-
 /**
  * Base row type that satisfies Row<unknown> constraint.
  * All Electric types must extend this to work with TanStack DB.

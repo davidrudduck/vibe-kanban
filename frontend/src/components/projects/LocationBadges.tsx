@@ -28,7 +28,13 @@ function getStatusColor(status: CachedNodeStatus): string {
 }
 
 /** Get OS icon component based on os string */
-function OsIcon({ os, className }: { os: string | null | undefined; className?: string }) {
+function OsIcon({
+  os,
+  className,
+}: {
+  os: string | null | undefined;
+  className?: string;
+}) {
   // Apple logo for darwin/macOS
   if (os === 'darwin') {
     return (

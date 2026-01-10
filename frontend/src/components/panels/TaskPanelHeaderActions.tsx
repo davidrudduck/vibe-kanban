@@ -19,10 +19,7 @@ export const TaskPanelHeaderActions = ({
 
   return (
     <>
-      <ActionsDropdown
-        task={task}
-        isOrgAdmin={isOrgAdmin}
-      />
+      <ActionsDropdown task={task} isOrgAdmin={isOrgAdmin} />
       <Button variant="icon" aria-label="Close" onClick={onClose}>
         <X size={16} />
       </Button>

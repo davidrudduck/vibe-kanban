@@ -342,8 +342,17 @@ describe('TemplatePicker Loading/Error Props', () => {
     type ExtendedTemplatePickerProps = {
       open: boolean;
       onOpenChange: (open: boolean) => void;
-      onSelect: (template: { id: string; name: string; content: string }) => void;
-      customTemplates?: { id: string; name: string; description: string; content: string }[];
+      onSelect: (template: {
+        id: string;
+        name: string;
+        content: string;
+      }) => void;
+      customTemplates?: {
+        id: string;
+        name: string;
+        description: string;
+        content: string;
+      }[];
       showDefaults?: boolean;
       loading?: boolean;
       error?: string | null;
@@ -363,7 +372,11 @@ describe('TemplatePicker Loading/Error Props', () => {
     type ExtendedTemplatePickerProps = {
       open: boolean;
       onOpenChange: (open: boolean) => void;
-      onSelect: (template: { id: string; name: string; content: string }) => void;
+      onSelect: (template: {
+        id: string;
+        name: string;
+        content: string;
+      }) => void;
       loading?: boolean;
       error?: string | null;
     };
@@ -382,7 +395,11 @@ describe('TemplatePicker Loading/Error Props', () => {
     type ExtendedTemplatePickerProps = {
       open: boolean;
       onOpenChange: (open: boolean) => void;
-      onSelect: (template: { id: string; name: string; content: string }) => void;
+      onSelect: (template: {
+        id: string;
+        name: string;
+        content: string;
+      }) => void;
       loading?: boolean;
       error?: string | null;
     };

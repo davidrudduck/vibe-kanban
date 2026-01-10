@@ -81,7 +81,10 @@ export function AllProjectsTasks() {
 
     // Apply status-aware sorting using centralized utility
     TASK_STATUSES.forEach((status) => {
-      columns[status] = sortTasksByStatus(columns[status], sortDirections[status]);
+      columns[status] = sortTasksByStatus(
+        columns[status],
+        sortDirections[status]
+      );
     });
 
     return columns;

@@ -203,10 +203,14 @@ export const KanbanHeader = (props: KanbanHeaderProps) => {
         onKeyDown={props.onSortToggle ? handleSortKeyDown : undefined}
         aria-label={
           props.onSortToggle
-            ? t('sorting.sortBy', 'Sort by {{column}}, currently {{direction}}', {
-                column: props.name,
-                direction: sortLabel,
-              })
+            ? t(
+                'sorting.sortBy',
+                'Sort by {{column}}, currently {{direction}}',
+                {
+                  column: props.name,
+                  direction: sortLabel,
+                }
+              )
             : undefined
         }
       >

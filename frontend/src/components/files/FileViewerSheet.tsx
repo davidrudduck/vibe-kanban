@@ -5,7 +5,16 @@ import {
   PanInfo,
   useDragControls,
 } from 'framer-motion';
-import { ArrowLeft, X, Code, Eye, Copy, Check, Loader2, AlertCircle } from 'lucide-react';
+import {
+  ArrowLeft,
+  X,
+  Code,
+  Eye,
+  Copy,
+  Check,
+  Loader2,
+  AlertCircle,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import MarkdownRenderer from '@/components/ui/markdown-renderer';
@@ -128,7 +137,6 @@ export function FileViewerSheet({
       document.body.style.overflow = originalOverflow;
     };
   }, [open]);
-
 
   // Copy content to clipboard
   const handleCopy = useCallback(async () => {

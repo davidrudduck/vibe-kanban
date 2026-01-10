@@ -59,18 +59,14 @@ export function VariablesBadge({
           className={cn(
             'h-8 px-2 text-xs font-medium tabular-nums min-h-[44px] min-w-[44px]',
             hasWarnings && 'text-warning',
-            totalCount === 0 &&
-              !hasWarnings &&
-              'text-muted-foreground',
+            totalCount === 0 && !hasWarnings && 'text-muted-foreground',
             className
           )}
           aria-label={`${totalCount} variables${hasWarnings ? `, ${undefinedVariables.length} undefined` : ''}`}
         >
           <span className="flex items-center gap-1">
             <Variable className="h-3.5 w-3.5" aria-hidden />
-            {hasWarnings && (
-              <AlertTriangle className="h-3 w-3" aria-hidden />
-            )}
+            {hasWarnings && <AlertTriangle className="h-3 w-3" aria-hidden />}
             <span className="hidden sm:inline ml-1">Vars</span>
             <span className="font-mono text-xs">({totalCount})</span>
           </span>
@@ -125,9 +121,7 @@ export function VariablesBadge({
                   ${variable.name}
                 </code>
                 <span className="text-xs text-muted-foreground flex-1 min-w-0 truncate">
-                  {variable.value || (
-                    <span className="italic">(empty)</span>
-                  )}
+                  {variable.value || <span className="italic">(empty)</span>}
                 </span>
                 {variable.inherited && (
                   <Badge

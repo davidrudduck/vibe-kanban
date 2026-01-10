@@ -1,6 +1,16 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { X, Code, Eye, Copy, Check, Loader2, AlertCircle, RefreshCw, GripVertical } from 'lucide-react';
+import {
+  X,
+  Code,
+  Eye,
+  Copy,
+  Check,
+  Loader2,
+  AlertCircle,
+  RefreshCw,
+  GripVertical,
+} from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import {
@@ -85,7 +95,12 @@ export function FileViewerSidePanel() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ['file-viewer', activeFile?.path, activeFile?.relativePath, activeFile?.attemptId],
+    queryKey: [
+      'file-viewer',
+      activeFile?.path,
+      activeFile?.relativePath,
+      activeFile?.attemptId,
+    ],
     queryFn: async () => {
       if (!activeFile) throw new Error('No file selected');
 
@@ -93,7 +108,10 @@ export function FileViewerSidePanel() {
         return fileBrowserApi.readClaudeFile(activeFile.relativePath);
       }
       if (activeFile.attemptId) {
-        return fileBrowserApi.readWorktreeFile(activeFile.attemptId, activeFile.path);
+        return fileBrowserApi.readWorktreeFile(
+          activeFile.attemptId,
+          activeFile.path
+        );
       }
       throw new Error('No file source specified');
     },
@@ -239,7 +257,10 @@ export function FileViewerSidePanel() {
               </SelectTrigger>
               <SelectContent>
                 {files.map((file, index) => (
-                  <SelectItem key={`${file.path}-${index}`} value={index.toString()}>
+                  <SelectItem
+                    key={`${file.path}-${index}`}
+                    value={index.toString()}
+                  >
                     {file.path.split('/').pop()}
                   </SelectItem>
                 ))}
@@ -252,9 +273,15 @@ export function FileViewerSidePanel() {
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 shrink-0"
-                onClick={() => setViewMode(viewMode === 'preview' ? 'raw' : 'preview')}
-                aria-label={viewMode === 'preview' ? 'Show raw' : 'Show preview'}
-                title={viewMode === 'preview' ? 'Show raw source' : 'Show preview'}
+                onClick={() =>
+                  setViewMode(viewMode === 'preview' ? 'raw' : 'preview')
+                }
+                aria-label={
+                  viewMode === 'preview' ? 'Show raw' : 'Show preview'
+                }
+                title={
+                  viewMode === 'preview' ? 'Show raw source' : 'Show preview'
+                }
               >
                 {viewMode === 'preview' ? (
                   <Code className="h-4 w-4" />
@@ -273,7 +300,9 @@ export function FileViewerSidePanel() {
               disabled={isLoading}
               aria-label="Refresh"
             >
-              <RefreshCw className={cn('h-4 w-4', isLoading && 'animate-spin')} />
+              <RefreshCw
+                className={cn('h-4 w-4', isLoading && 'animate-spin')}
+              />
             </Button>
 
             {/* Copy button */}
@@ -305,7 +334,9 @@ export function FileViewerSidePanel() {
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
-                  {error instanceof Error ? error.message : 'Failed to load file'}
+                  {error instanceof Error
+                    ? error.message
+                    : 'Failed to load file'}
                 </AlertDescription>
               </Alert>
             )}
