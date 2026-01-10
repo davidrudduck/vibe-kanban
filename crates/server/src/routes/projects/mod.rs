@@ -1,3 +1,14 @@
+pub mod handlers;
+pub mod types;
+
+// Re-export types for public API
+pub use types::{
+    GitHubCountsResponse, LinkToLocalFolderRequest, ListProjectFilesQuery, MergedProject,
+    MergedProjectsResponse, NodeLocation, OpenEditorRequest, OpenEditorResponse, OrphanedProject,
+    OrphanedProjectsResponse, RemoteNodeGroup, RemoteNodeProject, SetGitHubEnabledRequest,
+    TaskCounts, UnifiedProject,
+};
+
 use std::path::Path as StdPath;
 
 use axum::{
@@ -8,9 +19,8 @@ use axum::{
     response::Json as ResponseJson,
     routing::{get, post},
 };
-use chrono::{DateTime, Utc};
 use db::models::{
-    cached_node::{CachedNode, CachedNodeStatus},
+    cached_node::CachedNode,
     project::{
         CreateProject, Project, ProjectError, ScanConfigRequest, ScanConfigResponse,
         SearchMatchType, SearchResult, UpdateProject,
@@ -19,7 +29,6 @@ use db::models::{
 use deployment::Deployment;
 use ignore::WalkBuilder;
 use remote::db::swarm_projects::SwarmTaskCounts;
-use serde::{Deserialize, Serialize};
 use services::services::{
     file_ranker::FileRanker,
     file_search_cache::{CacheError, SearchMode, SearchQuery},
@@ -28,7 +37,6 @@ use services::services::{
     project_detector::ProjectDetector,
     share::share_existing_tasks_to_hive,
 };
-use ts_rs::TS;
 use utils::{
     api::projects::{RemoteProject, RemoteProjectMembersResponse},
     path::expand_tilde,
@@ -47,155 +55,6 @@ use crate::{
 
 // Re-export for use in this module
 use crate::proxy::check_remote_proxy;
-
-/// Request to link a local folder to a remote project
-/// This creates a new local project at the specified path and links it to the remote project
-#[derive(Deserialize, TS)]
-pub struct LinkToLocalFolderRequest {
-    /// The remote project ID to link to (from the Hive)
-    pub remote_project_id: Uuid,
-    /// The local folder path where the project will be created
-    pub local_folder_path: String,
-    /// Optional project name (defaults to folder name if not provided)
-    pub project_name: Option<String>,
-}
-
-/// A project in the unified view - can be local or from another node
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(tag = "type")]
-#[allow(clippy::large_enum_variant)]
-pub enum UnifiedProject {
-    /// A local project on this node
-    #[serde(rename = "local")]
-    Local(Project),
-    /// A project from another node (cached from hive sync)
-    #[serde(rename = "remote")]
-    Remote(RemoteNodeProject),
-}
-
-/// A project from another node in the organization (from unified projects table)
-#[derive(Debug, Clone, Serialize, TS)]
-pub struct RemoteNodeProject {
-    /// Local ID in the unified projects table
-    pub id: Uuid,
-    /// ID of the node this project belongs to
-    pub node_id: Uuid,
-    /// Remote project ID from the Hive
-    pub project_id: Uuid,
-    pub project_name: String,
-    pub git_repo_path: String,
-    #[ts(type = "Date | null")]
-    pub last_synced_at: Option<DateTime<Utc>>,
-    #[ts(type = "Date")]
-    pub created_at: DateTime<Utc>,
-    // Node info
-    pub node_name: String,
-    pub node_status: CachedNodeStatus,
-    pub node_public_url: Option<String>,
-}
-
-impl From<Project> for RemoteNodeProject {
-    fn from(p: Project) -> Self {
-        // Parse node status from the stored string
-        let node_status = p
-            .source_node_status
-            .as_deref()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(CachedNodeStatus::Pending);
-
-        Self {
-            id: p.id,
-            node_id: p.source_node_id.unwrap_or_default(),
-            project_id: p.remote_project_id.unwrap_or_default(),
-            project_name: p.name,
-            git_repo_path: p.git_repo_path.to_string_lossy().to_string(),
-            last_synced_at: p.remote_last_synced_at,
-            created_at: p.created_at,
-            node_name: p.source_node_name.unwrap_or_default(),
-            node_status,
-            node_public_url: p.source_node_public_url,
-        }
-    }
-}
-
-/// A project in the merged view - merges local and remote projects by remote_project_id
-#[derive(Debug, Clone, Serialize, TS)]
-pub struct MergedProject {
-    /// Use local project ID if exists, otherwise first remote's ID
-    pub id: Uuid,
-    pub name: String,
-    pub git_repo_path: String,
-    #[ts(type = "Date")]
-    pub created_at: DateTime<Utc>,
-
-    /// Linking status - Hive project ID (if linked)
-    pub remote_project_id: Option<Uuid>,
-
-    /// Location info - where the project runs
-    pub has_local: bool,
-    /// Local project ID if has_local is true
-    pub local_project_id: Option<Uuid>,
-    /// List of remote nodes that have this project
-    pub nodes: Vec<NodeLocation>,
-
-    /// For sorting - timestamp of last task attempt
-    #[ts(type = "Date | null")]
-    pub last_attempt_at: Option<DateTime<Utc>>,
-
-    /// GitHub integration fields
-    pub github_enabled: bool,
-    pub github_owner: Option<String>,
-    pub github_repo: Option<String>,
-    pub github_open_issues: i32,
-    pub github_open_prs: i32,
-    #[ts(type = "Date | null")]
-    pub github_last_synced_at: Option<DateTime<Utc>>,
-
-    /// Task status counts for quick display
-    pub task_counts: TaskCounts,
-}
-
-/// A node location where a project exists
-#[derive(Debug, Clone, Serialize, TS)]
-pub struct NodeLocation {
-    pub node_id: Uuid,
-    /// Full name like "tardis.raverx.net"
-    pub node_name: String,
-    /// Truncated at first period: "tardis"
-    pub node_short_name: String,
-    pub node_status: CachedNodeStatus,
-    pub node_public_url: Option<String>,
-    /// The project ID on that node
-    pub remote_project_id: Uuid,
-    /// Operating system: "darwin", "linux", "windows"
-    pub node_os: Option<String>,
-}
-
-/// Task status counts for a project
-#[derive(Debug, Clone, Default, Serialize, TS)]
-#[ts(export)]
-pub struct TaskCounts {
-    pub todo: i32,
-    pub in_progress: i32,
-    pub in_review: i32,
-    pub done: i32,
-}
-
-/// Response for the merged projects endpoint
-#[derive(Debug, Clone, Serialize, TS)]
-pub struct MergedProjectsResponse {
-    pub projects: Vec<MergedProject>,
-}
-
-/// A group of projects from a single remote node
-#[derive(Debug, Clone, Serialize, TS)]
-pub struct RemoteNodeGroup {
-    pub node_id: Uuid,
-    pub node_name: String,
-    pub node_status: CachedNodeStatus,
-    pub node_public_url: Option<String>,
-    pub projects: Vec<RemoteNodeProject>,
-}
 
 pub async fn get_projects(
     State(deployment): State<DeploymentImpl>,
@@ -386,7 +245,7 @@ pub async fn get_merged_projects(
                 .source_node_status
                 .as_deref()
                 .and_then(|s| s.parse().ok())
-                .unwrap_or(CachedNodeStatus::Pending),
+                .unwrap_or(db::models::cached_node::CachedNodeStatus::Pending),
             node_public_url: remote_project.source_node_public_url.clone(),
             // Use the actual remote_project_id for node location, falling back to local ID
             remote_project_id: remote_project
@@ -484,9 +343,7 @@ pub async fn get_project_branches(
     }
 
     // Fall back to proxy only if no local git repository exists
-    if let Some(proxy_info) =
-        check_remote_proxy(remote_ctx.as_ref().map(|e| &e.0))?
-    {
+    if let Some(proxy_info) = check_remote_proxy(remote_ctx.as_ref().map(|e| &e.0))? {
         tracing::debug!(
             node_id = %proxy_info.node_id,
             remote_project_id = %proxy_info.target_id,
@@ -1038,22 +895,6 @@ pub async fn delete_project(
     }
 }
 
-/// Response for orphaned projects (projects with non-existent paths)
-#[derive(Debug, Serialize, TS)]
-pub struct OrphanedProject {
-    pub id: Uuid,
-    pub name: String,
-    pub git_repo_path: String,
-    pub is_remote: bool,
-}
-
-/// Response for orphaned projects list
-#[derive(Debug, Serialize, TS)]
-pub struct OrphanedProjectsResponse {
-    pub projects: Vec<OrphanedProject>,
-    pub count: usize,
-}
-
 /// GET /api/projects/orphaned - List projects with non-existent git_repo_path
 pub async fn list_orphaned_projects(
     State(deployment): State<DeploymentImpl>,
@@ -1119,16 +960,6 @@ pub async fn delete_orphaned_projects(
     })))
 }
 
-#[derive(serde::Deserialize)]
-pub struct OpenEditorRequest {
-    editor_type: Option<String>,
-}
-
-#[derive(Debug, serde::Serialize, ts_rs::TS)]
-pub struct OpenEditorResponse {
-    pub url: Option<String>,
-}
-
 pub async fn open_project_in_editor(
     Extension(project): Extension<Project>,
     State(deployment): State<DeploymentImpl>,
@@ -1178,9 +1009,7 @@ pub async fn search_project_files(
     }
 
     // Check if this is a remote project that should be proxied
-    if let Some(proxy_info) =
-        check_remote_proxy(remote_ctx.as_ref().map(|e| &e.0))?
-    {
+    if let Some(proxy_info) = check_remote_proxy(remote_ctx.as_ref().map(|e| &e.0))? {
         tracing::debug!(
             node_id = %proxy_info.node_id,
             remote_project_id = %proxy_info.target_id,
@@ -1420,12 +1249,6 @@ pub async fn scan_project_config(
 // File Browser Endpoints for Main Project
 // ============================================================================
 
-#[derive(Debug, Deserialize)]
-pub struct ListProjectFilesQuery {
-    /// Relative path within the project (optional, defaults to root)
-    path: Option<String>,
-}
-
 /// List files and directories within a project's git repository
 pub async fn list_project_files(
     Extension(project): Extension<Project>,
@@ -1434,9 +1257,7 @@ pub async fn list_project_files(
     Query(query): Query<ListProjectFilesQuery>,
 ) -> Result<ResponseJson<ApiResponse<DirectoryListResponse>>, ApiError> {
     // Check if this is a remote project that should be proxied
-    if let Some(proxy_info) =
-        check_remote_proxy(remote_ctx.as_ref().map(|e| &e.0))?
-    {
+    if let Some(proxy_info) = check_remote_proxy(remote_ctx.as_ref().map(|e| &e.0))? {
         tracing::debug!(
             node_id = %proxy_info.node_id,
             remote_project_id = %proxy_info.target_id,
@@ -1498,9 +1319,7 @@ pub async fn read_project_file(
     Path((_project_id, file_path)): Path<(Uuid, String)>,
 ) -> Result<ResponseJson<ApiResponse<FileContentResponse>>, ApiError> {
     // Check if this is a remote project that should be proxied
-    if let Some(proxy_info) =
-        check_remote_proxy(remote_ctx.as_ref().map(|e| &e.0))?
-    {
+    if let Some(proxy_info) = check_remote_proxy(remote_ctx.as_ref().map(|e| &e.0))? {
         tracing::debug!(
             node_id = %proxy_info.node_id,
             remote_project_id = %proxy_info.target_id,
@@ -1609,25 +1428,6 @@ pub async fn read_project_file_by_remote_id(
 // ============================================================================
 // GitHub Integration Endpoints
 // ============================================================================
-
-/// Request to enable/disable GitHub integration for a project
-#[derive(Debug, Deserialize, TS)]
-pub struct SetGitHubEnabledRequest {
-    pub enabled: bool,
-    /// GitHub repository owner (e.g., "anthropics")
-    pub owner: Option<String>,
-    /// GitHub repository name (e.g., "claude-code")
-    pub repo: Option<String>,
-}
-
-/// Response for GitHub counts
-#[derive(Debug, Serialize, TS)]
-pub struct GitHubCountsResponse {
-    pub open_issues: i32,
-    pub open_prs: i32,
-    #[ts(type = "Date | null")]
-    pub last_synced_at: Option<DateTime<Utc>>,
-}
 
 /// Enable or disable GitHub integration for a project
 pub async fn set_github_enabled(
@@ -1793,3 +1593,6 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .nest("/projects", projects_router)
         .route("/merged-projects", get(get_merged_projects))
 }
+
+// Note: Type tests are in types.rs
+// Note: Tests for check_remote_proxy are in crates/server/src/proxy.rs
