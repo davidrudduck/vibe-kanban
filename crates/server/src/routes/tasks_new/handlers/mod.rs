@@ -7,4 +7,11 @@
 //! - `remote`: Remote/Hive task helpers (create, update, delete, resync)
 //! - `streams`: WebSocket and streaming (task streams, available nodes, connection info)
 
-// Handler modules will be added in subsequent sessions
+pub mod core;
+
+// Re-export all handlers for convenient access from the router
+pub use core::{
+    create_task, create_task_and_start, delete_task, get_task, get_tasks, update_task,
+};
+
+// Note: resync_task_to_hive is pub(crate) and available via crate::routes::tasks_new::handlers::core
