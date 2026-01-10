@@ -34,6 +34,7 @@ pub mod swarm_templates;
 pub mod task_attempts;
 pub mod task_variables;
 pub mod tasks;
+pub mod tasks_new; // Temporary: new directory module structure (will replace tasks.rs)
 pub mod templates;
 pub mod terminal;
 
