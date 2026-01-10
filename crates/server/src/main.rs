@@ -271,8 +271,13 @@ pub async fn perform_cleanup_actions(deployment: &DeploymentImpl) {
         .execute(&deployment.db().pool)
         .await
     {
-        Ok(_) => tracing::info!("Final WAL checkpoint completed - all data flushed to main database"),
-        Err(e) => tracing::warn!("Final WAL checkpoint failed (data may still be in WAL): {}", e),
+        Ok(_) => {
+            tracing::info!("Final WAL checkpoint completed - all data flushed to main database")
+        }
+        Err(e) => tracing::warn!(
+            "Final WAL checkpoint failed (data may still be in WAL): {}",
+            e
+        ),
     }
 
     // Close the pool gracefully to ensure all connections are properly closed

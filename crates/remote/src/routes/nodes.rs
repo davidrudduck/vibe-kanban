@@ -1066,7 +1066,10 @@ pub async fn list_task_attempts_by_shared_task(
 
     // Get the task attempts
     let service = NodeServiceImpl::new(pool.clone());
-    match service.list_task_attempts_by_shared_task(shared_task_id).await {
+    match service
+        .list_task_attempts_by_shared_task(shared_task_id)
+        .await
+    {
         Ok(attempts) => {
             let response = ListTaskAttemptsBySharedTaskResponse { attempts };
             (StatusCode::OK, Json(response)).into_response()
@@ -1192,9 +1195,9 @@ pub async fn get_node_task_attempt(
     };
 
     // Determine if the attempt is complete (all executions in terminal state)
-    let is_complete = executions.iter().all(|e| {
-        matches!(e.status.as_str(), "completed" | "failed" | "killed")
-    });
+    let is_complete = executions
+        .iter()
+        .all(|e| matches!(e.status.as_str(), "completed" | "failed" | "killed"));
 
     let response = NodeTaskAttemptResponse {
         attempt,

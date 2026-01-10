@@ -188,7 +188,11 @@ impl StandardCodingAgentExecutor for Copilot {
     /// Each entry is converted into an `AssistantMessage` or `ErrorMessage` and emitted as patches.
     /// Additionally, starts a log file watcher to extract structured information like model info
     /// from Copilot's debug log files.
-    fn normalize_logs(&self, msg_store: Arc<MsgStore>, worktree_path: &Path) -> tokio::task::JoinHandle<()> {
+    fn normalize_logs(
+        &self,
+        msg_store: Arc<MsgStore>,
+        worktree_path: &Path,
+    ) -> tokio::task::JoinHandle<()> {
         let entry_index_counter = EntryIndexProvider::start_from(&msg_store);
         let stderr_handle = normalize_stderr_logs(msg_store.clone(), entry_index_counter.clone());
 

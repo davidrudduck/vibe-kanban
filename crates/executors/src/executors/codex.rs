@@ -165,7 +165,11 @@ impl StandardCodingAgentExecutor for Codex {
             .await
     }
 
-    fn normalize_logs(&self, msg_store: Arc<MsgStore>, worktree_path: &Path) -> tokio::task::JoinHandle<()> {
+    fn normalize_logs(
+        &self,
+        msg_store: Arc<MsgStore>,
+        worktree_path: &Path,
+    ) -> tokio::task::JoinHandle<()> {
         normalize_logs(msg_store, worktree_path)
     }
 

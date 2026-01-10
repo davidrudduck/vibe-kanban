@@ -1104,8 +1104,8 @@ pub trait ContainerService {
             if let Some(executor) =
                 ExecutorConfigs::get_cached().get_coding_agent(executor_profile_id)
             {
-                let handle =
-                    executor.normalize_logs(msg_store, &self.task_attempt_to_current_dir(task_attempt));
+                let handle = executor
+                    .normalize_logs(msg_store, &self.task_attempt_to_current_dir(task_attempt));
                 self.store_normalization_handle(execution_process.id, handle)
                     .await;
             } else {

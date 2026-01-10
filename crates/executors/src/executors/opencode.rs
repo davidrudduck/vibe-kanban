@@ -269,7 +269,11 @@ impl StandardCodingAgentExecutor for Opencode {
     /// 2. Error log recognition thread: read by line, identify error log lines, store them as error messages.
     /// 3. Main normalizer thread: read stderr by line, filter out log lines, send lines (with '\n' appended) to plain text normalizer,
     ///    then define predicate for split and create appropriate normalized entry (either assistant or tool call).
-    fn normalize_logs(&self, msg_store: Arc<MsgStore>, worktree_path: &Path) -> tokio::task::JoinHandle<()> {
+    fn normalize_logs(
+        &self,
+        msg_store: Arc<MsgStore>,
+        worktree_path: &Path,
+    ) -> tokio::task::JoinHandle<()> {
         let entry_index_counter = EntryIndexProvider::start_from(&msg_store);
 
         let stderr_lines = msg_store

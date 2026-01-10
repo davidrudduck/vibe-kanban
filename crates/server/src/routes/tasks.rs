@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use anyhow;
-use chrono::Utc;
 use axum::{
     Extension, Json, Router,
     extract::{
@@ -13,6 +12,7 @@ use axum::{
     response::{IntoResponse, Json as ResponseJson},
     routing::{delete, get, post, put},
 };
+use chrono::Utc;
 use db::models::{
     image::TaskImage,
     label::{Label, SetTaskLabels},
@@ -564,10 +564,9 @@ async fn update_remote_task(
     {
         Ok(response) => {
             // Build display name from user data
-            let assignee_name = response
-                .user
-                .as_ref()
-                .and_then(|u| format_user_display_name(u.first_name.as_ref(), u.last_name.as_ref()));
+            let assignee_name = response.user.as_ref().and_then(|u| {
+                format_user_display_name(u.first_name.as_ref(), u.last_name.as_ref())
+            });
 
             // Upsert updated remote task locally
             let task = Task::upsert_remote_task(
@@ -1270,14 +1269,15 @@ pub async fn assign_task(
     let response = client.assign_shared_task(shared_task_id, &payload).await?;
 
     // Build assignee name from response
-    let assignee_name = response.user.as_ref().and_then(|u| {
-        match (&u.first_name, &u.last_name) {
+    let assignee_name = response
+        .user
+        .as_ref()
+        .and_then(|u| match (&u.first_name, &u.last_name) {
             (Some(f), Some(l)) => Some(format!("{} {}", f, l)),
             (Some(f), None) => Some(f.clone()),
             (None, Some(l)) => Some(l.clone()),
             (None, None) => None,
-        }
-    });
+        });
 
     // Upsert updated remote task locally
     let pool = &deployment.db().pool;
@@ -1347,7 +1347,8 @@ pub async fn set_task_labels(
                     "Shared task not found on Hive during label update, re-syncing"
                 );
 
-                let resynced_task = resync_task_to_hive(&deployment, &task, None, None, None).await?;
+                let resynced_task =
+                    resync_task_to_hive(&deployment, &task, None, None, None).await?;
 
                 // Retry setting labels with the new shared_task_id
                 if let Some(new_shared_task_id) = resynced_task.shared_task_id {

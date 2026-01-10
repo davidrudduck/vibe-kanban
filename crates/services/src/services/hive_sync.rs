@@ -518,7 +518,11 @@ impl HiveSyncService {
             projects: project_infos,
         };
 
-        if let Err(e) = self.command_tx.send(NodeMessage::ProjectsSync(message)).await {
+        if let Err(e) = self
+            .command_tx
+            .send(NodeMessage::ProjectsSync(message))
+            .await
+        {
             error!(error = ?e, "Failed to send projects sync");
             return Err(HiveSyncError::Send(e.to_string()));
         }

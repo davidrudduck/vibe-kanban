@@ -249,10 +249,7 @@ async fn get_prometheus_metrics(State(deployment): State<DeploymentImpl>) -> Str
     // Normalization metrics
     output.push_str("# HELP vk_normalization_total Total normalization operations\n");
     output.push_str("# TYPE vk_normalization_total counter\n");
-    output.push_str(&format!(
-        "vk_normalization_total {}\n",
-        norm_metrics.total
-    ));
+    output.push_str(&format!("vk_normalization_total {}\n", norm_metrics.total));
 
     output.push_str("# HELP vk_normalization_timeouts Normalization timeout count\n");
     output.push_str("# TYPE vk_normalization_timeouts counter\n");

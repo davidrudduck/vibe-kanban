@@ -311,10 +311,7 @@ impl BackfillService {
             .reset_stale_pending_backfill(self.config.backfill_timeout_minutes)
             .await?;
         if reset > 0 {
-            tracing::info!(
-                count = reset,
-                "reset stale pending_backfill states"
-            );
+            tracing::info!(count = reset, "reset stale pending_backfill states");
         }
 
         // Cleanup stale tracked requests
@@ -353,10 +350,7 @@ impl BackfillService {
             let mut by_node: std::collections::HashMap<Uuid, Vec<Uuid>> =
                 std::collections::HashMap::new();
             for attempt in &incomplete {
-                by_node
-                    .entry(attempt.node_id)
-                    .or_default()
-                    .push(attempt.id);
+                by_node.entry(attempt.node_id).or_default().push(attempt.id);
             }
 
             for (node_id, attempt_ids) in by_node {
@@ -401,8 +395,7 @@ impl BackfillService {
     /// Returns a join handle that can be used to wait for the task to complete.
     pub fn spawn(mut self) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
-            let mut interval =
-                tokio::time::interval(self.config.reconciliation_interval);
+            let mut interval = tokio::time::interval(self.config.reconciliation_interval);
             interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
             let mut shutdown_rx = self.shutdown_rx.take();

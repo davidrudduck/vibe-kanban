@@ -202,6 +202,9 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     );
 
     Router::new()
-        .nest("/task-attempts/{task_attempt_id}/message-queue", base_routes)
+        .nest(
+            "/task-attempts/{task_attempt_id}/message-queue",
+            base_routes,
+        )
         .merge(message_routes)
 }

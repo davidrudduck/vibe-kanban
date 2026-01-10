@@ -77,16 +77,14 @@ impl Deployment for LocalDeployment {
         // Load config and OAuth credentials in parallel for faster startup
         let config_path = config_path();
         let creds_path = credentials_path();
-        let (mut raw_config, oauth_credentials) = tokio::join!(
-            load_config_from_file(&config_path),
-            async {
+        let (mut raw_config, oauth_credentials) =
+            tokio::join!(load_config_from_file(&config_path), async {
                 let creds = Arc::new(OAuthCredentials::new(creds_path));
                 if let Err(e) = creds.load().await {
                     tracing::warn!(?e, "failed to load OAuth credentials");
                 }
                 creds
-            }
-        );
+            });
 
         let profiles = ExecutorConfigs::get_cached();
         if !raw_config.onboarding_acknowledged

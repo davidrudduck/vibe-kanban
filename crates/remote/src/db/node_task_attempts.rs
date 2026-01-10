@@ -232,10 +232,7 @@ impl<'a> NodeTaskAttemptRepository<'a> {
     }
 
     /// Mark attempts as pending backfill
-    pub async fn mark_pending_backfill(
-        &self,
-        ids: &[Uuid],
-    ) -> Result<u64, NodeTaskAttemptError> {
+    pub async fn mark_pending_backfill(&self, ids: &[Uuid]) -> Result<u64, NodeTaskAttemptError> {
         if ids.is_empty() {
             return Ok(0);
         }
@@ -297,10 +294,7 @@ impl<'a> NodeTaskAttemptRepository<'a> {
     ///
     /// Called when a BackfillResponse indicates failure, allowing the attempts
     /// to be retried on the next periodic check or reconnect.
-    pub async fn reset_failed_backfill(
-        &self,
-        node_id: Uuid,
-    ) -> Result<u64, NodeTaskAttemptError> {
+    pub async fn reset_failed_backfill(&self, node_id: Uuid) -> Result<u64, NodeTaskAttemptError> {
         let result = sqlx::query(
             r#"
             UPDATE node_task_attempts

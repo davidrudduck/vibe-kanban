@@ -34,7 +34,9 @@ pub struct CreateTaskRequest {
     #[schemars(description = "Optional description of the task")]
     #[serde(default)]
     pub description: Option<String>,
-    #[schemars(description = "Link as subtask of a parent task. If true and in context of an attempt, auto-links to current task.")]
+    #[schemars(
+        description = "Link as subtask of a parent task. If true and in context of an attempt, auto-links to current task."
+    )]
     #[serde(default)]
     pub link_to_parent: Option<bool>,
     #[schemars(description = "Explicit parent task ID. Overrides link_to_parent.")]
@@ -84,7 +86,9 @@ pub struct ListProjectsResponse {
 pub struct ListTasksRequest {
     #[schemars(description = "Project ID")]
     pub project_id: Uuid,
-    #[schemars(description = "Status filter: 'todo', 'inprogress', 'inreview', 'done', 'cancelled'")]
+    #[schemars(
+        description = "Status filter: 'todo', 'inprogress', 'inreview', 'done', 'cancelled'"
+    )]
     pub status: Option<String>,
     #[schemars(description = "Max results (default: 50)")]
     pub limit: Option<i32>,
@@ -187,7 +191,9 @@ pub struct DeleteTaskRequest {
 pub struct StartTaskAttemptRequest {
     #[schemars(description = "Task ID")]
     pub task_id: Uuid,
-    #[schemars(description = "Executor: 'CLAUDE_CODE', 'CODEX', 'GEMINI', 'CURSOR_AGENT', 'OPENCODE'")]
+    #[schemars(
+        description = "Executor: 'CLAUDE_CODE', 'CODEX', 'GEMINI', 'CURSOR_AGENT', 'OPENCODE'"
+    )]
     pub executor: String,
     #[schemars(description = "Executor variant (optional)")]
     pub variant: Option<String>,
@@ -217,7 +223,6 @@ pub struct GetContextRequest {
     #[schemars(description = "Absolute working directory path")]
     pub cwd: String,
 }
-
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct GetTaskResponse {

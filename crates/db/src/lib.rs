@@ -21,8 +21,8 @@ pub mod validation;
 pub mod wal_monitor;
 
 pub use backup::{
-    premigration_retention, scheduled_retention, BackupError, BackupInfo, BackupRetention,
-    BackupService,
+    BackupError, BackupInfo, BackupRetention, BackupService, premigration_retention,
+    scheduled_retention,
 };
 pub use backup_scheduler::{BackupScheduler, BackupSchedulerConfig, BackupSchedulerHandle};
 pub use metrics::DbMetrics;
@@ -598,18 +598,17 @@ impl DBService {
 /// to determine if any migrations need to be applied.
 async fn has_pending_migrations(pool: &Pool<Sqlite>) -> bool {
     let migrator = sqlx::migrate!("./migrations");
-    let applied: Vec<i64> = match sqlx::query_scalar::<_, i64>(
-        "SELECT version FROM _sqlx_migrations ORDER BY version",
-    )
-    .fetch_all(pool)
-    .await
-    {
-        Ok(versions) => versions,
-        Err(_) => {
-            // Table doesn't exist or query failed - assume we need migrations
-            return true;
-        }
-    };
+    let applied: Vec<i64> =
+        match sqlx::query_scalar::<_, i64>("SELECT version FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(pool)
+            .await
+        {
+            Ok(versions) => versions,
+            Err(_) => {
+                // Table doesn't exist or query failed - assume we need migrations
+                return true;
+            }
+        };
 
     // Check if any migration in the migrator is not in the applied list
     for migration in migrator.iter() {

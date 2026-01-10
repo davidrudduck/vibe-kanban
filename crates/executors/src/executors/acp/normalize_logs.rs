@@ -1,3 +1,8 @@
+//! ACP executor log normalization using the shared LogNormalizer trait.
+//!
+//! This module implements log normalization for the Agent Client Protocol (ACP)
+//! executor, converting ACP events into normalized conversation entries.
+
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -5,7 +10,7 @@ use std::{
 };
 
 use agent_client_protocol::{self as acp, SessionNotification};
-use futures::StreamExt;
+use json_patch::Patch;
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::Deserialize;
@@ -17,507 +22,249 @@ use super::AcpEvent;
 use crate::logs::{
     ActionType, FileChange, NormalizedEntry, NormalizedEntryError, NormalizedEntryType, ToolResult,
     ToolResultValueType, ToolStatus as LogToolStatus,
+    normalizer::{LogNormalizer, normalize_logs_with},
     stderr_processor::normalize_stderr_logs,
+    tool_states::{StreamingText, StreamingTextKind},
     utils::{ConversationPatch, EntryIndexProvider},
 };
 
-pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) -> tokio::task::JoinHandle<()> {
-    // stderr normalization
-    let entry_index = EntryIndexProvider::start_from(&msg_store);
-    let stderr_handle = normalize_stderr_logs(msg_store.clone(), entry_index.clone());
+/// Normalizer for ACP executor logs.
+///
+/// Implements the `LogNormalizer` trait to process ACP protocol events
+/// and convert them into normalized conversation entries.
+pub struct AcpNormalizer {
+    /// Path to the worktree for relative path resolution.
+    worktree_path: PathBuf,
+    /// Streaming state for assistant and thinking text.
+    streaming: StreamingState,
+    /// Tool call states indexed by tool call ID.
+    tool_states: HashMap<String, PartialToolCallData>,
+}
 
-    // stdout normalization (main loop)
-    let worktree_path = worktree_path.to_path_buf();
-    // Type aliases to simplify complex state types and appease clippy
-    let stdout_handle = tokio::spawn(async move {
-        type ToolStates = std::collections::HashMap<String, PartialToolCallData>;
-
-        let mut stored_session_id = false;
-        let mut streaming: StreamingState = StreamingState::default();
-        let mut tool_states: ToolStates = HashMap::new();
-
-        let mut stdout_lines = msg_store.stdout_lines_stream();
-        while let Some(Ok(line)) = stdout_lines.next().await {
-            if let Some(parsed) = AcpEventParser::parse_line(&line) {
-                debug!("Parsed ACP line: {:?}", parsed);
-                match parsed {
-                    AcpEvent::SessionStart(id) => {
-                        if !stored_session_id {
-                            msg_store.push_session_id(id);
-                            stored_session_id = true;
-                        }
-                    }
-                    AcpEvent::Error(msg) => {
-                        let idx = entry_index.next();
-                        let entry = NormalizedEntry {
-                            timestamp: None,
-                            entry_type: NormalizedEntryType::ErrorMessage {
-                                error_type: NormalizedEntryError::Other,
-                            },
-                            content: msg,
-                            metadata: None,
-                        };
-                        msg_store.push_patch(ConversationPatch::add_normalized_entry(idx, entry));
-                    }
-                    AcpEvent::Done(_) => {
-                        streaming.assistant_text = None;
-                        streaming.thinking_text = None;
-                    }
-                    AcpEvent::Message(content) => {
-                        streaming.thinking_text = None;
-                        if let agent_client_protocol::ContentBlock::Text(text) = content {
-                            let is_new = streaming.assistant_text.is_none();
-                            if is_new {
-                                let idx = entry_index.next();
-                                streaming.assistant_text = Some(StreamingText {
-                                    index: idx,
-                                    content: String::new(),
-                                });
-                            }
-                            if let Some(ref mut s) = streaming.assistant_text {
-                                s.content.push_str(&text.text);
-                                let entry = NormalizedEntry {
-                                    timestamp: None,
-                                    entry_type: NormalizedEntryType::AssistantMessage,
-                                    content: s.content.clone(),
-                                    metadata: None,
-                                };
-                                let patch = if is_new {
-                                    ConversationPatch::add_normalized_entry(s.index, entry)
-                                } else {
-                                    ConversationPatch::replace(s.index, entry)
-                                };
-                                msg_store.push_patch(patch);
-                            }
-                        }
-                    }
-                    AcpEvent::Thought(content) => {
-                        streaming.assistant_text = None;
-                        if let agent_client_protocol::ContentBlock::Text(text) = content {
-                            let is_new = streaming.thinking_text.is_none();
-                            if is_new {
-                                let idx = entry_index.next();
-                                streaming.thinking_text = Some(StreamingText {
-                                    index: idx,
-                                    content: String::new(),
-                                });
-                            }
-                            if let Some(ref mut s) = streaming.thinking_text {
-                                s.content.push_str(&text.text);
-                                let entry = NormalizedEntry {
-                                    timestamp: None,
-                                    entry_type: NormalizedEntryType::Thinking,
-                                    content: s.content.clone(),
-                                    metadata: None,
-                                };
-                                let patch = if is_new {
-                                    ConversationPatch::add_normalized_entry(s.index, entry)
-                                } else {
-                                    ConversationPatch::replace(s.index, entry)
-                                };
-                                msg_store.push_patch(patch);
-                            }
-                        }
-                    }
-                    AcpEvent::Plan(plan) => {
-                        streaming.assistant_text = None;
-                        streaming.thinking_text = None;
-                        let mut body = String::from("Plan:\n");
-                        for (i, e) in plan.entries.iter().enumerate() {
-                            body.push_str(&format!("{}. {}\n", i + 1, e.content));
-                        }
-                        let idx = entry_index.next();
-                        let entry = NormalizedEntry {
-                            timestamp: None,
-                            entry_type: NormalizedEntryType::SystemMessage,
-                            content: body,
-                            metadata: None,
-                        };
-                        msg_store.push_patch(ConversationPatch::add_normalized_entry(idx, entry));
-                    }
-                    AcpEvent::AvailableCommands(cmds) => {
-                        let mut body = String::from("Available commands:\n");
-                        for c in &cmds {
-                            body.push_str(&format!("- {}\n", c.name));
-                        }
-                        let idx = entry_index.next();
-                        let entry = NormalizedEntry {
-                            timestamp: None,
-                            entry_type: NormalizedEntryType::SystemMessage,
-                            content: body,
-                            metadata: None,
-                        };
-                        msg_store.push_patch(ConversationPatch::add_normalized_entry(idx, entry));
-                    }
-                    AcpEvent::CurrentMode(mode_id) => {
-                        let idx = entry_index.next();
-                        let entry = NormalizedEntry {
-                            timestamp: None,
-                            entry_type: NormalizedEntryType::SystemMessage,
-                            content: format!("Current mode: {}", mode_id.0),
-                            metadata: None,
-                        };
-                        msg_store.push_patch(ConversationPatch::add_normalized_entry(idx, entry));
-                    }
-                    AcpEvent::RequestPermission(perm) => {
-                        if let Ok(tc) = agent_client_protocol::ToolCall::try_from(perm.tool_call) {
-                            handle_tool_call(
-                                &tc,
-                                &worktree_path,
-                                &mut streaming,
-                                &mut tool_states,
-                                &entry_index,
-                                &msg_store,
-                            );
-                        }
-                    }
-                    AcpEvent::ToolCall(tc) => handle_tool_call(
-                        &tc,
-                        &worktree_path,
-                        &mut streaming,
-                        &mut tool_states,
-                        &entry_index,
-                        &msg_store,
-                    ),
-                    AcpEvent::ToolUpdate(update) => {
-                        let mut update = update;
-                        if update.fields.title.is_none() {
-                            update.fields.title = tool_states
-                                .get(&update.id.0.to_string())
-                                .map(|s| s.title.clone())
-                                .or_else(|| Some("".to_string()));
-                        }
-                        debug!("Got tool call update: {:?}", update);
-                        if let Ok(tc) = agent_client_protocol::ToolCall::try_from(update.clone()) {
-                            handle_tool_call(
-                                &tc,
-                                &worktree_path,
-                                &mut streaming,
-                                &mut tool_states,
-                                &entry_index,
-                                &msg_store,
-                            );
-                        } else {
-                            debug!("Failed to convert tool call update to ToolCall");
-                        }
-                    }
-                    AcpEvent::User(_) | AcpEvent::Other(_) => (),
-                }
-            }
+impl AcpNormalizer {
+    /// Create a new AcpNormalizer for the given worktree path.
+    pub fn new(worktree_path: PathBuf) -> Self {
+        Self {
+            worktree_path,
+            streaming: StreamingState::default(),
+            tool_states: HashMap::new(),
         }
+    }
+}
 
-        fn handle_tool_call(
-            tc: &agent_client_protocol::ToolCall,
-            worktree_path: &Path,
-            streaming: &mut StreamingState,
-            tool_states: &mut ToolStates,
-            entry_index: &EntryIndexProvider,
-            msg_store: &Arc<MsgStore>,
-        ) {
-            streaming.assistant_text = None;
-            streaming.thinking_text = None;
-            let id = tc.id.0.to_string();
-            let is_new = !tool_states.contains_key(&id);
-            let tool_data = tool_states.entry(id).or_default();
-            tool_data.extend(tc, worktree_path);
-            if is_new {
-                tool_data.index = entry_index.next();
-            }
-            let action = map_to_action_type(tool_data);
-            let entry = NormalizedEntry {
-                timestamp: None,
-                entry_type: NormalizedEntryType::ToolUse {
-                    tool_name: tool_data.title.clone(),
-                    action_type: action,
-                    status: convert_tool_status(&tool_data.status),
-                },
-                content: get_tool_content(tool_data),
-                metadata: None,
-            };
-            let patch = if is_new {
-                ConversationPatch::add_normalized_entry(tool_data.index, entry)
-            } else {
-                ConversationPatch::replace(tool_data.index, entry)
-            };
-            msg_store.push_patch(patch);
-        }
+impl LogNormalizer for AcpNormalizer {
+    type Event = AcpEvent;
 
-        fn map_to_action_type(tc: &PartialToolCallData) -> ActionType {
-            match tc.kind {
-                agent_client_protocol::ToolKind::Read => {
-                    // Special-case: read_many_files style titles parsed via helper
-                    if tc.id.0.starts_with("read_many_files") {
-                        let result = collect_text_content(&tc.content).map(|text| ToolResult {
-                            r#type: ToolResultValueType::Markdown,
-                            value: serde_json::Value::String(text),
-                        });
-                        return ActionType::Tool {
-                            tool_name: "read_many_files".to_string(),
-                            arguments: Some(serde_json::Value::String(tc.title.clone())),
-                            result,
-                        };
-                    }
-                    ActionType::FileRead {
-                        path: tc
-                            .path
-                            .clone()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .to_string(),
-                    }
-                }
-                agent_client_protocol::ToolKind::Edit => {
-                    let changes = extract_file_changes(tc);
-                    ActionType::FileEdit {
-                        path: tc
-                            .path
-                            .clone()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .to_string(),
-                        changes,
-                    }
-                }
-                agent_client_protocol::ToolKind::Execute => {
-                    let command = AcpEventParser::parse_execute_command(&tc.title);
-                    // Prefer structured raw_output, else fallback to aggregated text content
-                    let completed =
-                        matches!(tc.status, agent_client_protocol::ToolCallStatus::Completed);
-                    tracing::debug!(
-                        "Mapping execute tool call, completed: {}, command: {}",
-                        completed,
-                        command
-                    );
-                    let tc_exit_status = match tc.status {
-                        agent_client_protocol::ToolCallStatus::Completed => {
-                            Some(crate::logs::CommandExitStatus::Success { success: true })
-                        }
-                        agent_client_protocol::ToolCallStatus::Failed => {
-                            Some(crate::logs::CommandExitStatus::Success { success: false })
-                        }
-                        _ => None,
-                    };
+    fn parse_line(&self, line: &str) -> Option<Self::Event> {
+        AcpEventParser::parse_line(line)
+    }
 
-                    let result = if let Some(text) = collect_text_content(&tc.content) {
-                        Some(crate::logs::CommandRunResult {
-                            exit_status: tc_exit_status,
-                            output: Some(text),
-                        })
-                    } else {
-                        Some(crate::logs::CommandRunResult {
-                            exit_status: tc_exit_status,
-                            output: None,
-                        })
-                    };
-                    ActionType::CommandRun { command, result }
-                }
-                agent_client_protocol::ToolKind::Delete => ActionType::FileEdit {
-                    path: tc
-                        .path
-                        .clone()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .to_string(),
-                    changes: vec![FileChange::Delete],
-                },
-                agent_client_protocol::ToolKind::Search => {
-                    let query = tc
-                        .raw_input
-                        .as_ref()
-                        .and_then(|v| serde_json::from_value::<SearchArgs>(v.clone()).ok())
-                        .map(|a| a.query)
-                        .unwrap_or_else(|| tc.title.clone());
-                    ActionType::Search { query }
-                }
-                agent_client_protocol::ToolKind::Fetch => {
-                    let mut url = tc
-                        .raw_input
-                        .as_ref()
-                        .and_then(|v| serde_json::from_value::<FetchArgs>(v.clone()).ok())
-                        .map(|a| a.url)
-                        .unwrap_or_default();
-                    if url.is_empty() {
-                        // Fallback: try to extract first URL from the title
-                        if let Some(extracted) = extract_url_from_text(&tc.title) {
-                            url = extracted;
-                        }
-                    }
-                    ActionType::WebFetch { url }
-                }
-                agent_client_protocol::ToolKind::Think => {
-                    let tool_name = extract_tool_name_from_id(tc.id.0.as_ref())
-                        .unwrap_or_else(|| tc.title.clone());
-                    // For think/save_memory, surface both title and aggregated text content as arguments
-                    let text = collect_text_content(&tc.content);
-                    let arguments = Some(match &text {
-                        Some(t) => serde_json::json!({ "title": tc.title, "content": t }),
-                        None => serde_json::json!({ "title": tc.title }),
-                    });
-                    let result = if let Some(output) = &tc.raw_output {
-                        Some(ToolResult {
-                            r#type: ToolResultValueType::Json,
-                            value: output.clone(),
-                        })
-                    } else {
-                        collect_text_content(&tc.content).map(|text| ToolResult {
-                            r#type: ToolResultValueType::Markdown,
-                            value: serde_json::Value::String(text),
-                        })
-                    };
-                    ActionType::Tool {
-                        tool_name,
-                        arguments,
-                        result,
-                    }
-                }
-                agent_client_protocol::ToolKind::SwitchMode => ActionType::Other {
-                    description: "switch_mode".to_string(),
-                },
-                agent_client_protocol::ToolKind::Other | agent_client_protocol::ToolKind::Move => {
-                    // Derive a friendlier tool name from the id if it looks like name-<digits>
-                    let tool_name = extract_tool_name_from_id(tc.id.0.as_ref())
-                        .unwrap_or_else(|| tc.title.clone());
-
-                    // Some tools embed JSON args into the title instead of raw_input
-                    let arguments = if let Some(raw) = &tc.raw_input {
-                        Some(raw.clone())
-                    } else if tc.title.trim_start().starts_with('{') {
-                        // Title contains JSON arguments for the tool
-                        serde_json::from_str::<serde_json::Value>(&tc.title).ok()
-                    } else {
-                        None
-                    };
-                    // Extract result: prefer raw_output (structured), else text content as Markdown
-                    let result = if let Some(output) = &tc.raw_output {
-                        Some(ToolResult {
-                            r#type: ToolResultValueType::Json,
-                            value: output.clone(),
-                        })
-                    } else {
-                        collect_text_content(&tc.content).map(|text| ToolResult {
-                            r#type: ToolResultValueType::Markdown,
-                            value: serde_json::Value::String(text),
-                        })
-                    };
-                    ActionType::Tool {
-                        tool_name,
-                        arguments,
-                        result,
-                    }
-                }
-            }
-        }
-
-        fn extract_file_changes(tc: &PartialToolCallData) -> Vec<FileChange> {
-            let mut changes = Vec::new();
-            for c in &tc.content {
-                if let agent_client_protocol::ToolCallContent::Diff { diff } = c {
-                    let path = diff.path.to_string_lossy().to_string();
-                    let rel = if !path.is_empty() {
-                        path
-                    } else {
-                        tc.path
-                            .clone()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .to_string()
-                    };
-                    let old_text = diff.old_text.as_deref().unwrap_or("");
-                    if old_text.is_empty() {
-                        changes.push(FileChange::Write {
-                            content: diff.new_text.clone(),
-                        });
-                    } else {
-                        let unified = workspace_utils::diff::create_unified_diff(
-                            &rel,
-                            old_text,
-                            &diff.new_text,
-                        );
-                        changes.push(FileChange::Edit {
-                            unified_diff: unified,
-                            has_line_numbers: false,
-                        });
-                    }
-                }
-            }
-            changes
-        }
-
-        fn get_tool_content(tc: &PartialToolCallData) -> String {
-            match tc.kind {
-                agent_client_protocol::ToolKind::Execute => {
-                    AcpEventParser::parse_execute_command(&tc.title)
-                }
-                agent_client_protocol::ToolKind::Think => "Saving memory".to_string(),
-                agent_client_protocol::ToolKind::Other => {
-                    let tool_name = extract_tool_name_from_id(tc.id.0.as_ref())
-                        .unwrap_or_else(|| "tool".to_string());
-                    if tc.title.is_empty() {
-                        tool_name
-                    } else {
-                        format!("{}: {}", tool_name, tc.title)
-                    }
-                }
-                agent_client_protocol::ToolKind::Read => {
-                    if tc.id.0.starts_with("read_many_files") {
-                        "Read files".to_string()
-                    } else {
-                        tc.title.clone()
-                    }
-                }
-                _ => tc.title.clone(),
-            }
-        }
-
-        fn extract_tool_name_from_id(id: &str) -> Option<String> {
-            if let Some(idx) = id.rfind('-') {
-                let (head, tail) = id.split_at(idx);
-                if tail
-                    .trim_start_matches('-')
-                    .chars()
-                    .all(|c| c.is_ascii_digit())
-                {
-                    return Some(head.to_string());
-                }
-            }
+    fn extract_session_id(&self, event: &Self::Event) -> Option<String> {
+        if let AcpEvent::SessionStart(id) = event {
+            Some(id.clone())
+        } else {
             None
         }
+    }
 
-        fn extract_url_from_text(text: &str) -> Option<String> {
-            // Simple URL extractor
-            lazy_static! {
-                static ref URL_RE: Regex =
-                    Regex::new(r#"https?://[^\s"')]+"#).expect("valid regex");
+    fn process_event(
+        &mut self,
+        event: Self::Event,
+        msg_store: &Arc<MsgStore>,
+        entry_index: &EntryIndexProvider,
+    ) -> Vec<Patch> {
+        debug!("Processing ACP event: {:?}", event);
+
+        match event {
+            AcpEvent::SessionStart(_) => {
+                // Session ID is handled by the driver
+                vec![]
             }
-            URL_RE.find(text).map(|m| m.as_str().to_string())
-        }
-
-        fn collect_text_content(
-            content: &[agent_client_protocol::ToolCallContent],
-        ) -> Option<String> {
-            let mut out = String::new();
-            for c in content {
-                if let agent_client_protocol::ToolCallContent::Content { content } = c
-                    && let agent_client_protocol::ContentBlock::Text(t) = content
-                {
-                    out.push_str(&t.text);
-                    if !out.ends_with('\n') {
-                        out.push('\n');
-                    }
+            AcpEvent::Error(msg) => {
+                let idx = entry_index.next();
+                let entry = NormalizedEntry {
+                    timestamp: None,
+                    entry_type: NormalizedEntryType::ErrorMessage {
+                        error_type: NormalizedEntryError::Other,
+                    },
+                    content: msg,
+                    metadata: None,
+                };
+                vec![ConversationPatch::add_normalized_entry(idx, entry)]
+            }
+            AcpEvent::Done(_) => {
+                self.streaming.assistant_text = None;
+                self.streaming.thinking_text = None;
+                vec![]
+            }
+            AcpEvent::Message(content) => {
+                self.streaming.thinking_text = None;
+                self.process_streaming_text(content, StreamingTextKind::Assistant, entry_index)
+            }
+            AcpEvent::Thought(content) => {
+                self.streaming.assistant_text = None;
+                self.process_streaming_text(content, StreamingTextKind::Thinking, entry_index)
+            }
+            AcpEvent::Plan(plan) => {
+                self.streaming.assistant_text = None;
+                self.streaming.thinking_text = None;
+                let mut body = String::from("Plan:\n");
+                for (i, e) in plan.entries.iter().enumerate() {
+                    body.push_str(&format!("{}. {}\n", i + 1, e.content));
+                }
+                let idx = entry_index.next();
+                let entry = NormalizedEntry {
+                    timestamp: None,
+                    entry_type: NormalizedEntryType::SystemMessage,
+                    content: body,
+                    metadata: None,
+                };
+                vec![ConversationPatch::add_normalized_entry(idx, entry)]
+            }
+            AcpEvent::AvailableCommands(cmds) => {
+                let mut body = String::from("Available commands:\n");
+                for c in &cmds {
+                    body.push_str(&format!("- {}\n", c.name));
+                }
+                let idx = entry_index.next();
+                let entry = NormalizedEntry {
+                    timestamp: None,
+                    entry_type: NormalizedEntryType::SystemMessage,
+                    content: body,
+                    metadata: None,
+                };
+                vec![ConversationPatch::add_normalized_entry(idx, entry)]
+            }
+            AcpEvent::CurrentMode(mode_id) => {
+                let idx = entry_index.next();
+                let entry = NormalizedEntry {
+                    timestamp: None,
+                    entry_type: NormalizedEntryType::SystemMessage,
+                    content: format!("Current mode: {}", mode_id.0),
+                    metadata: None,
+                };
+                vec![ConversationPatch::add_normalized_entry(idx, entry)]
+            }
+            AcpEvent::RequestPermission(perm) => {
+                if let Ok(tc) = agent_client_protocol::ToolCall::try_from(perm.tool_call) {
+                    self.handle_tool_call(&tc, entry_index, msg_store)
+                } else {
+                    vec![]
                 }
             }
-            if out.is_empty() { None } else { Some(out) }
+            AcpEvent::ToolCall(tc) => self.handle_tool_call(&tc, entry_index, msg_store),
+            AcpEvent::ToolUpdate(update) => {
+                let mut update = update;
+                if update.fields.title.is_none() {
+                    update.fields.title = self
+                        .tool_states
+                        .get(&update.id.0.to_string())
+                        .map(|s| s.title.clone())
+                        .or_else(|| Some(String::new()));
+                }
+                debug!("Got tool call update: {:?}", update);
+                if let Ok(tc) = agent_client_protocol::ToolCall::try_from(update.clone()) {
+                    self.handle_tool_call(&tc, entry_index, msg_store)
+                } else {
+                    debug!("Failed to convert tool call update to ToolCall");
+                    vec![]
+                }
+            }
+            AcpEvent::User(_) | AcpEvent::Other(_) => vec![],
         }
+    }
+}
 
-        fn convert_tool_status(status: &agent_client_protocol::ToolCallStatus) -> LogToolStatus {
-            match status {
-                agent_client_protocol::ToolCallStatus::Pending
-                | agent_client_protocol::ToolCallStatus::InProgress => LogToolStatus::Created,
-                agent_client_protocol::ToolCallStatus::Completed => LogToolStatus::Success,
-                agent_client_protocol::ToolCallStatus::Failed => LogToolStatus::Failed,
+impl AcpNormalizer {
+    /// Process streaming text content (assistant messages or thinking).
+    fn process_streaming_text(
+        &mut self,
+        content: agent_client_protocol::ContentBlock,
+        kind: StreamingTextKind,
+        entry_index: &EntryIndexProvider,
+    ) -> Vec<Patch> {
+        if let agent_client_protocol::ContentBlock::Text(text) = content {
+            let streaming = match kind {
+                StreamingTextKind::Assistant => &mut self.streaming.assistant_text,
+                StreamingTextKind::Thinking => &mut self.streaming.thinking_text,
+            };
+
+            let is_new = streaming.is_none();
+            if is_new {
+                let idx = entry_index.next();
+                *streaming = Some(StreamingText::new(idx));
+            }
+
+            if let Some(s) = streaming {
+                s.append(&text.text);
+                let entry = s.to_normalized_entry(kind);
+                let patch = if is_new {
+                    ConversationPatch::add_normalized_entry(s.index, entry)
+                } else {
+                    ConversationPatch::replace(s.index, entry)
+                };
+                return vec![patch];
             }
         }
-    });
+        vec![]
+    }
+
+    /// Handle a tool call event, updating state and returning patches.
+    fn handle_tool_call(
+        &mut self,
+        tc: &agent_client_protocol::ToolCall,
+        entry_index: &EntryIndexProvider,
+        _msg_store: &Arc<MsgStore>,
+    ) -> Vec<Patch> {
+        self.streaming.assistant_text = None;
+        self.streaming.thinking_text = None;
+
+        let id = tc.id.0.to_string();
+        let is_new = !self.tool_states.contains_key(&id);
+        let tool_data = self.tool_states.entry(id).or_default();
+        tool_data.extend(tc, &self.worktree_path);
+
+        if is_new {
+            tool_data.index = entry_index.next();
+        }
+
+        let action = map_to_action_type(tool_data);
+        let entry = NormalizedEntry {
+            timestamp: None,
+            entry_type: NormalizedEntryType::ToolUse {
+                tool_name: tool_data.title.clone(),
+                action_type: action,
+                status: convert_tool_status(&tool_data.status),
+            },
+            content: get_tool_content(tool_data),
+            metadata: None,
+        };
+
+        let patch = if is_new {
+            ConversationPatch::add_normalized_entry(tool_data.index, entry)
+        } else {
+            ConversationPatch::replace(tool_data.index, entry)
+        };
+
+        vec![patch]
+    }
+}
+
+/// Main entry point for ACP log normalization.
+///
+/// Spawns background tasks to normalize both stdout (ACP events) and stderr logs.
+/// The stdout normalization uses the shared `normalize_logs_with` driver function.
+pub fn normalize_logs(
+    msg_store: Arc<MsgStore>,
+    worktree_path: &Path,
+) -> tokio::task::JoinHandle<()> {
+    // stderr normalization
+    let entry_index = EntryIndexProvider::start_from(&msg_store);
+    let stderr_handle = normalize_stderr_logs(msg_store.clone(), entry_index);
+
+    // stdout normalization using the shared driver
+    let normalizer = AcpNormalizer::new(worktree_path.to_path_buf());
+    let stdout_handle = normalize_logs_with(normalizer, msg_store, worktree_path);
 
     // Return a handle that awaits both normalization tasks
     tokio::spawn(async move {
@@ -525,6 +272,279 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) -> tokio::
         let _ = stdout_handle.await;
     })
 }
+
+// Helper functions for tool call processing
+
+fn map_to_action_type(tc: &PartialToolCallData) -> ActionType {
+    match tc.kind {
+        agent_client_protocol::ToolKind::Read => {
+            // Special-case: read_many_files style titles parsed via helper
+            if tc.id.0.starts_with("read_many_files") {
+                let result = collect_text_content(&tc.content).map(|text| ToolResult {
+                    r#type: ToolResultValueType::Markdown,
+                    value: serde_json::Value::String(text),
+                });
+                return ActionType::Tool {
+                    tool_name: "read_many_files".to_string(),
+                    arguments: Some(serde_json::Value::String(tc.title.clone())),
+                    result,
+                };
+            }
+            ActionType::FileRead {
+                path: tc
+                    .path
+                    .clone()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
+            }
+        }
+        agent_client_protocol::ToolKind::Edit => {
+            let changes = extract_file_changes(tc);
+            ActionType::FileEdit {
+                path: tc
+                    .path
+                    .clone()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
+                changes,
+            }
+        }
+        agent_client_protocol::ToolKind::Execute => {
+            let command = AcpEventParser::parse_execute_command(&tc.title);
+            // Prefer structured raw_output, else fallback to aggregated text content
+            let completed = matches!(tc.status, agent_client_protocol::ToolCallStatus::Completed);
+            tracing::debug!(
+                "Mapping execute tool call, completed: {}, command: {}",
+                completed,
+                command
+            );
+            let tc_exit_status = match tc.status {
+                agent_client_protocol::ToolCallStatus::Completed => {
+                    Some(crate::logs::CommandExitStatus::Success { success: true })
+                }
+                agent_client_protocol::ToolCallStatus::Failed => {
+                    Some(crate::logs::CommandExitStatus::Success { success: false })
+                }
+                _ => None,
+            };
+
+            let result = if let Some(text) = collect_text_content(&tc.content) {
+                Some(crate::logs::CommandRunResult {
+                    exit_status: tc_exit_status,
+                    output: Some(text),
+                })
+            } else {
+                Some(crate::logs::CommandRunResult {
+                    exit_status: tc_exit_status,
+                    output: None,
+                })
+            };
+            ActionType::CommandRun { command, result }
+        }
+        agent_client_protocol::ToolKind::Delete => ActionType::FileEdit {
+            path: tc
+                .path
+                .clone()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string(),
+            changes: vec![FileChange::Delete],
+        },
+        agent_client_protocol::ToolKind::Search => {
+            let query = tc
+                .raw_input
+                .as_ref()
+                .and_then(|v| serde_json::from_value::<SearchArgs>(v.clone()).ok())
+                .map(|a| a.query)
+                .unwrap_or_else(|| tc.title.clone());
+            ActionType::Search { query }
+        }
+        agent_client_protocol::ToolKind::Fetch => {
+            let mut url = tc
+                .raw_input
+                .as_ref()
+                .and_then(|v| serde_json::from_value::<FetchArgs>(v.clone()).ok())
+                .map(|a| a.url)
+                .unwrap_or_default();
+            if url.is_empty() {
+                // Fallback: try to extract first URL from the title
+                if let Some(extracted) = extract_url_from_text(&tc.title) {
+                    url = extracted;
+                }
+            }
+            ActionType::WebFetch { url }
+        }
+        agent_client_protocol::ToolKind::Think => {
+            let tool_name =
+                extract_tool_name_from_id(tc.id.0.as_ref()).unwrap_or_else(|| tc.title.clone());
+            // For think/save_memory, surface both title and aggregated text content as arguments
+            let text = collect_text_content(&tc.content);
+            let arguments = Some(match &text {
+                Some(t) => serde_json::json!({ "title": tc.title, "content": t }),
+                None => serde_json::json!({ "title": tc.title }),
+            });
+            let result = if let Some(output) = &tc.raw_output {
+                Some(ToolResult {
+                    r#type: ToolResultValueType::Json,
+                    value: output.clone(),
+                })
+            } else {
+                collect_text_content(&tc.content).map(|text| ToolResult {
+                    r#type: ToolResultValueType::Markdown,
+                    value: serde_json::Value::String(text),
+                })
+            };
+            ActionType::Tool {
+                tool_name,
+                arguments,
+                result,
+            }
+        }
+        agent_client_protocol::ToolKind::SwitchMode => ActionType::Other {
+            description: "switch_mode".to_string(),
+        },
+        agent_client_protocol::ToolKind::Other | agent_client_protocol::ToolKind::Move => {
+            // Derive a friendlier tool name from the id if it looks like name-<digits>
+            let tool_name =
+                extract_tool_name_from_id(tc.id.0.as_ref()).unwrap_or_else(|| tc.title.clone());
+
+            // Some tools embed JSON args into the title instead of raw_input
+            let arguments = if let Some(raw) = &tc.raw_input {
+                Some(raw.clone())
+            } else if tc.title.trim_start().starts_with('{') {
+                // Title contains JSON arguments for the tool
+                serde_json::from_str::<serde_json::Value>(&tc.title).ok()
+            } else {
+                None
+            };
+            // Extract result: prefer raw_output (structured), else text content as Markdown
+            let result = if let Some(output) = &tc.raw_output {
+                Some(ToolResult {
+                    r#type: ToolResultValueType::Json,
+                    value: output.clone(),
+                })
+            } else {
+                collect_text_content(&tc.content).map(|text| ToolResult {
+                    r#type: ToolResultValueType::Markdown,
+                    value: serde_json::Value::String(text),
+                })
+            };
+            ActionType::Tool {
+                tool_name,
+                arguments,
+                result,
+            }
+        }
+    }
+}
+
+fn extract_file_changes(tc: &PartialToolCallData) -> Vec<FileChange> {
+    let mut changes = Vec::new();
+    for c in &tc.content {
+        if let agent_client_protocol::ToolCallContent::Diff { diff } = c {
+            let path = diff.path.to_string_lossy().to_string();
+            let rel = if !path.is_empty() {
+                path
+            } else {
+                tc.path
+                    .clone()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string()
+            };
+            let old_text = diff.old_text.as_deref().unwrap_or("");
+            if old_text.is_empty() {
+                changes.push(FileChange::Write {
+                    content: diff.new_text.clone(),
+                });
+            } else {
+                let unified =
+                    workspace_utils::diff::create_unified_diff(&rel, old_text, &diff.new_text);
+                changes.push(FileChange::Edit {
+                    unified_diff: unified,
+                    has_line_numbers: false,
+                });
+            }
+        }
+    }
+    changes
+}
+
+fn get_tool_content(tc: &PartialToolCallData) -> String {
+    match tc.kind {
+        agent_client_protocol::ToolKind::Execute => {
+            AcpEventParser::parse_execute_command(&tc.title)
+        }
+        agent_client_protocol::ToolKind::Think => "Saving memory".to_string(),
+        agent_client_protocol::ToolKind::Other => {
+            let tool_name =
+                extract_tool_name_from_id(tc.id.0.as_ref()).unwrap_or_else(|| "tool".to_string());
+            if tc.title.is_empty() {
+                tool_name
+            } else {
+                format!("{}: {}", tool_name, tc.title)
+            }
+        }
+        agent_client_protocol::ToolKind::Read => {
+            if tc.id.0.starts_with("read_many_files") {
+                "Read files".to_string()
+            } else {
+                tc.title.clone()
+            }
+        }
+        _ => tc.title.clone(),
+    }
+}
+
+fn extract_tool_name_from_id(id: &str) -> Option<String> {
+    if let Some(idx) = id.rfind('-') {
+        let (head, tail) = id.split_at(idx);
+        if tail
+            .trim_start_matches('-')
+            .chars()
+            .all(|c| c.is_ascii_digit())
+        {
+            return Some(head.to_string());
+        }
+    }
+    None
+}
+
+fn extract_url_from_text(text: &str) -> Option<String> {
+    // Simple URL extractor
+    lazy_static! {
+        static ref URL_RE: Regex = Regex::new(r#"https?://[^\s"')]+"#).expect("valid regex");
+    }
+    URL_RE.find(text).map(|m| m.as_str().to_string())
+}
+
+fn collect_text_content(content: &[agent_client_protocol::ToolCallContent]) -> Option<String> {
+    let mut out = String::new();
+    for c in content {
+        if let agent_client_protocol::ToolCallContent::Content { content } = c
+            && let agent_client_protocol::ContentBlock::Text(t) = content
+        {
+            out.push_str(&t.text);
+            if !out.ends_with('\n') {
+                out.push('\n');
+            }
+        }
+    }
+    if out.is_empty() { None } else { Some(out) }
+}
+
+fn convert_tool_status(status: &agent_client_protocol::ToolCallStatus) -> LogToolStatus {
+    match status {
+        agent_client_protocol::ToolCallStatus::Pending
+        | agent_client_protocol::ToolCallStatus::InProgress => LogToolStatus::Created,
+        agent_client_protocol::ToolCallStatus::Completed => LogToolStatus::Success,
+        agent_client_protocol::ToolCallStatus::Failed => LogToolStatus::Failed,
+    }
+}
+
+// State structures
 
 struct PartialToolCallData {
     index: usize,
@@ -660,10 +680,4 @@ struct FetchArgs {
 struct StreamingState {
     assistant_text: Option<StreamingText>,
     thinking_text: Option<StreamingText>,
-}
-
-#[derive(Debug, Clone)]
-struct StreamingText {
-    index: usize,
-    content: String,
 }

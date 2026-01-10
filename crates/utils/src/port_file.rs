@@ -92,7 +92,9 @@ impl InstanceInfo {
 
     /// Get the MCP URL for this instance.
     pub fn mcp_url(&self) -> Option<String> {
-        self.ports.mcp.map(|p| format!("http://127.0.0.1:{}/mcp", p))
+        self.ports
+            .mcp
+            .map(|p| format!("http://127.0.0.1:{}/mcp", p))
     }
 }
 
@@ -110,7 +112,10 @@ impl InstanceRegistry {
         let mut hasher = Sha256::new();
         hasher.update(project_root.to_string_lossy().as_bytes());
         let hash = hasher.finalize();
-        format!("{:x}.json", &hash[..8].iter().fold(0u64, |acc, &b| acc << 8 | b as u64))
+        format!(
+            "{:x}.json",
+            &hash[..8].iter().fold(0u64, |acc, &b| acc << 8 | b as u64)
+        )
     }
 
     /// Path to the instance file for a project.
@@ -248,7 +253,9 @@ impl InstanceRegistry {
     /// It walks up the directory tree looking for a registered project root.
     pub async fn find_by_working_dir(working_dir: &Path) -> std::io::Result<Option<InstanceInfo>> {
         let instances = Self::list_running().await?;
-        let canonical = working_dir.canonicalize().unwrap_or_else(|_| working_dir.to_path_buf());
+        let canonical = working_dir
+            .canonicalize()
+            .unwrap_or_else(|_| working_dir.to_path_buf());
 
         // First, check if any instance's project root is a prefix of the working dir
         for info in &instances {
@@ -259,10 +266,7 @@ impl InstanceRegistry {
 
         // Check worktree patterns: /var/tmp/vibe-kanban/worktrees/<project-id>/...
         // The project-id in the path should match a registered project
-        if let Some(worktree_base) = canonical
-            .to_string_lossy()
-            .find("/vibe-kanban/worktrees/")
-        {
+        if let Some(worktree_base) = canonical.to_string_lossy().find("/vibe-kanban/worktrees/") {
             let after_base = &canonical.to_string_lossy()[worktree_base + 23..]; // Skip "/vibe-kanban/worktrees/"
             if let Some(slash_pos) = after_base.find('/') {
                 let _project_id = &after_base[..slash_pos];
@@ -280,7 +284,7 @@ impl InstanceRegistry {
     /// Stop an instance by its project root.
     #[cfg(unix)]
     pub async fn stop(project_root: &Path) -> std::io::Result<bool> {
-        use nix::sys::signal::{kill, Signal};
+        use nix::sys::signal::{Signal, kill};
         use nix::unistd::Pid;
 
         let info = Self::get(project_root).await?;
@@ -296,7 +300,10 @@ impl InstanceRegistry {
                 Ok(true)
             }
             Err(nix::errno::Errno::ESRCH) => {
-                tracing::warn!(pid = info.pid, "Instance process not found (already stopped?)");
+                tracing::warn!(
+                    pid = info.pid,
+                    "Instance process not found (already stopped?)"
+                );
                 // Clean up the stale entry
                 let _ = Self::unregister(project_root).await;
                 Ok(false)
@@ -379,7 +386,7 @@ pub async fn stop_server() -> std::io::Result<bool> {
 
     #[cfg(unix)]
     {
-        use nix::sys::signal::{kill, Signal};
+        use nix::sys::signal::{Signal, kill};
         use nix::unistd::Pid;
 
         let pid = Pid::from_raw(info.pid as i32);
