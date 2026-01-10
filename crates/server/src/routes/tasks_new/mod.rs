@@ -5,7 +5,8 @@ pub mod types;
 
 // Re-export types for public API
 pub use types::{
-    ArchiveTaskRequest, ArchiveTaskResponse, CreateAndStartTaskRequest, TaskQuery,
+    format_user_display_name, ArchiveTaskRequest, ArchiveTaskResponse, CreateAndStartTaskRequest,
+    TaskQuery,
 };
 
 // Router will be implemented after all handlers are migrated
