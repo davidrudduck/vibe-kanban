@@ -90,8 +90,9 @@ dev_assets/logs/
 vibe-kanban-cloud/
 remote-frontend/dist
 
-# Claude Code
-.claude/
+# Claude Code (exclude settings, keep task plans and reports)
+.claude/*
+!.claude/tasks/
 
 # Worktree progress tracking (branch-specific, not carried forward)
 .vk_progress.md
