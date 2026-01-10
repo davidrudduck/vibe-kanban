@@ -13,7 +13,7 @@ use deployment::Deployment;
 use utils::response::ApiResponse;
 
 use crate::{DeploymentImpl, error::ApiError};
-use super::core::resync_task_to_hive;
+use super::remote::resync_task_to_hive;
 
 // ============================================================================
 // Get Labels
