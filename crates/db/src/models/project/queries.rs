@@ -362,7 +362,9 @@ mod tests {
             copy_files: None,
         };
 
-        let created = Project::create(&pool, &create_data, project_id).await.unwrap();
+        let created = Project::create(&pool, &create_data, project_id)
+            .await
+            .unwrap();
         assert_eq!(created.id, project_id);
         assert_eq!(created.name, "Test Project");
         assert_eq!(created.git_repo_path.to_string_lossy(), "/tmp/test-repo");
@@ -390,7 +392,9 @@ mod tests {
             copy_files: None,
         };
 
-        Project::create(&pool, &create_data, project_id).await.unwrap();
+        Project::create(&pool, &create_data, project_id)
+            .await
+            .unwrap();
 
         let found = Project::find_by_git_repo_path(&pool, "/unique/path/test")
             .await
@@ -420,7 +424,9 @@ mod tests {
             copy_files: None,
         };
 
-        Project::create(&pool, &create_data, project_id).await.unwrap();
+        Project::create(&pool, &create_data, project_id)
+            .await
+            .unwrap();
 
         // Should not find when excluding the same ID
         let not_found =
@@ -456,7 +462,9 @@ mod tests {
             copy_files: None,
         };
 
-        Project::create(&pool, &create_data, project_id).await.unwrap();
+        Project::create(&pool, &create_data, project_id)
+            .await
+            .unwrap();
 
         let updated = Project::update(
             &pool,
@@ -494,7 +502,9 @@ mod tests {
             copy_files: None,
         };
 
-        Project::create(&pool, &create_data, project_id).await.unwrap();
+        Project::create(&pool, &create_data, project_id)
+            .await
+            .unwrap();
 
         let deleted = Project::delete(&pool, project_id).await.unwrap();
         assert_eq!(deleted, 1);
@@ -521,7 +531,9 @@ mod tests {
 
         assert!(!Project::exists(&pool, project_id).await.unwrap());
 
-        Project::create(&pool, &create_data, project_id).await.unwrap();
+        Project::create(&pool, &create_data, project_id)
+            .await
+            .unwrap();
 
         assert!(Project::exists(&pool, project_id).await.unwrap());
     }

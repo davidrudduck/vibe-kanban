@@ -4,7 +4,10 @@ use std::path::PathBuf;
 
 use axum::{
     Extension,
-    extract::{Path, Query, State, ws::{WebSocket, WebSocketUpgrade}},
+    extract::{
+        Path, Query, State,
+        ws::{WebSocket, WebSocketUpgrade},
+    },
     response::{IntoResponse, Json as ResponseJson},
 };
 use db::models::{
@@ -24,9 +27,12 @@ use sqlx::Error as SqlxError;
 use utils::response::ApiResponse;
 use utils::unified_log::OutputType;
 
-use crate::{DeploymentImpl, error::ApiError, middleware::RemoteTaskAttemptContext, proxy::check_remote_task_attempt_proxy};
 use crate::routes::task_attempts::types::{DiffStreamQuery, ListFilesQuery, WorktreePathResponse};
 use crate::routes::task_attempts::util::ensure_worktree_path;
+use crate::{
+    DeploymentImpl, error::ApiError, middleware::RemoteTaskAttemptContext,
+    proxy::check_remote_task_attempt_proxy,
+};
 
 // ============================================================================
 // Diff Streaming
@@ -82,9 +88,7 @@ pub async fn list_worktree_files(
     Query(query): Query<ListFilesQuery>,
 ) -> Result<ResponseJson<ApiResponse<DirectoryListResponse>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some(proxy_info) =
-        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
-    {
+    if let Some(proxy_info) = check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))? {
         tracing::debug!(
             node_id = %proxy_info.node_id,
             shared_task_id = %proxy_info.target_id,
@@ -146,9 +150,7 @@ pub async fn read_worktree_file(
     Path((_, file_path)): Path<(String, String)>,
 ) -> Result<ResponseJson<ApiResponse<FileContentResponse>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some(proxy_info) =
-        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
-    {
+    if let Some(proxy_info) = check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))? {
         tracing::debug!(
             node_id = %proxy_info.node_id,
             shared_task_id = %proxy_info.target_id,

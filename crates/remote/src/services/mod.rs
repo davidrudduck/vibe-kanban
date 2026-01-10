@@ -4,4 +4,4 @@ pub mod log_cache;
 pub mod stale_cleanup;
 
 pub use log_cache::LogCache;
-pub use stale_cleanup::{spawn_stale_cleanup_service, StaleCleanupConfig};
+pub use stale_cleanup::{StaleCleanupConfig, spawn_stale_cleanup_service};

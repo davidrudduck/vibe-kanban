@@ -72,7 +72,9 @@ async fn restore_backup(
             BackupService::stage_restore(&db_path, &data)?;
 
             return Ok(ResponseJson(ApiResponse::success(RestoreResponse {
-                message: "Backup staged for restore. Please restart the server to complete the restore.".to_string(),
+                message:
+                    "Backup staged for restore. Please restart the server to complete the restore."
+                        .to_string(),
                 restart_required: true,
             })));
         }

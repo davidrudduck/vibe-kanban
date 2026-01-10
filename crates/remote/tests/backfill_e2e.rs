@@ -212,9 +212,12 @@ async fn test_find_incomplete_with_online_nodes_basic() {
     let shared_task = create_test_shared_task(&pool, org_id).await;
 
     // Create attempts with different states
-    let partial_online = create_attempt_with_state(&pool, online_node, shared_task, "partial").await;
-    let complete_online = create_attempt_with_state(&pool, online_node, shared_task, "complete").await;
-    let partial_offline = create_attempt_with_state(&pool, offline_node, shared_task, "partial").await;
+    let partial_online =
+        create_attempt_with_state(&pool, online_node, shared_task, "partial").await;
+    let complete_online =
+        create_attempt_with_state(&pool, online_node, shared_task, "complete").await;
+    let partial_offline =
+        create_attempt_with_state(&pool, offline_node, shared_task, "partial").await;
 
     let repo = NodeTaskAttemptRepository::new(&pool);
     let incomplete = repo
@@ -227,7 +230,11 @@ async fn test_find_incomplete_with_online_nodes_basic() {
         .iter()
         .filter(|a| a.shared_task_id == shared_task)
         .collect();
-    assert_eq!(our_attempts.len(), 1, "Should find exactly 1 incomplete attempt from online node");
+    assert_eq!(
+        our_attempts.len(),
+        1,
+        "Should find exactly 1 incomplete attempt from online node"
+    );
     assert_eq!(our_attempts[0].node_id, online_node);
     assert_eq!(our_attempts[0].sync_state, "partial");
 
@@ -269,7 +276,11 @@ async fn test_find_incomplete_pagination() {
         .iter()
         .filter(|a| a.shared_task_id == shared_task)
         .collect();
-    assert_eq!(our_attempts.len(), 5, "Should find all 5 incomplete attempts");
+    assert_eq!(
+        our_attempts.len(),
+        5,
+        "Should find all 5 incomplete attempts"
+    );
 
     // Cleanup
     for attempt in &attempts {
@@ -428,11 +439,11 @@ async fn test_complete_backfill_flow() {
 
     // 4. Verify it no longer appears in incomplete queries
     let incomplete = repo.find_incomplete_for_node(node_id).await.unwrap();
-    let our_incomplete: Vec<_> = incomplete
-        .iter()
-        .filter(|a| a.id == attempt.id)
-        .collect();
-    assert!(our_incomplete.is_empty(), "Complete attempt should not appear in incomplete list");
+    let our_incomplete: Vec<_> = incomplete.iter().filter(|a| a.id == attempt.id).collect();
+    assert!(
+        our_incomplete.is_empty(),
+        "Complete attempt should not appear in incomplete list"
+    );
 
     // Cleanup
     cleanup_attempt(&pool, attempt.id).await;
@@ -468,10 +479,7 @@ async fn test_failed_backfill_flow() {
 
     // 4. Verify it still appears in incomplete queries (can be retried)
     let incomplete = repo.find_incomplete_for_node(node_id).await.unwrap();
-    let our_incomplete: Vec<_> = incomplete
-        .iter()
-        .filter(|a| a.id == attempt.id)
-        .collect();
+    let our_incomplete: Vec<_> = incomplete.iter().filter(|a| a.id == attempt.id).collect();
     assert_eq!(our_incomplete.len(), 1);
 
     // Cleanup

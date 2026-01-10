@@ -2,11 +2,7 @@
 
 use std::time::Duration;
 
-use axum::{
-    Extension, Json,
-    extract::State,
-    response::Json as ResponseJson,
-};
+use axum::{Extension, Json, extract::State, response::Json as ResponseJson};
 use db::models::{
     draft::{Draft, DraftType},
     execution_process::{ExecutionProcess, ExecutionProcessRunReason},
@@ -14,25 +10,25 @@ use db::models::{
     task_attempt::{TaskAttempt, TaskAttemptError},
     task_variable::TaskVariable,
 };
+use deployment::Deployment;
 use executors::{
     actions::{
-        ExecutorAction, ExecutorActionType,
-        coding_agent_follow_up::CodingAgentFollowUpRequest,
+        ExecutorAction, ExecutorActionType, coding_agent_follow_up::CodingAgentFollowUpRequest,
     },
     profile::{ExecutorConfigs, ExecutorProfileId},
 };
-use deployment::Deployment;
 use services::services::{
-    container::ContainerService,
-    git::WorktreeResetOptions,
-    variable_expander,
+    container::ContainerService, git::WorktreeResetOptions, variable_expander,
 };
 use sqlx::Error as SqlxError;
 use utils::response::ApiResponse;
 
-use crate::{DeploymentImpl, error::ApiError, middleware::RemoteTaskAttemptContext, proxy::check_remote_task_attempt_proxy};
 use crate::routes::task_attempts::types::CreateFollowUpAttempt;
 use crate::routes::task_attempts::util::{ensure_worktree_path, handle_images_for_prompt};
+use crate::{
+    DeploymentImpl, error::ApiError, middleware::RemoteTaskAttemptContext,
+    proxy::check_remote_task_attempt_proxy,
+};
 
 pub async fn follow_up(
     Extension(task_attempt): Extension<TaskAttempt>,
@@ -41,16 +37,17 @@ pub async fn follow_up(
     Json(payload): Json<CreateFollowUpAttempt>,
 ) -> Result<ResponseJson<ApiResponse<ExecutionProcess>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some(proxy_info) =
-        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
-    {
+    if let Some(proxy_info) = check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))? {
         tracing::debug!(
             node_id = %proxy_info.node_id,
             shared_task_id = %proxy_info.target_id,
             "Proxying follow_up to remote node"
         );
 
-        let path = format!("/task-attempts/by-task-id/{}/follow-up", proxy_info.target_id);
+        let path = format!(
+            "/task-attempts/by-task-id/{}/follow-up",
+            proxy_info.target_id
+        );
         let response: ApiResponse<ExecutionProcess> = deployment
             .node_proxy_client()
             .proxy_post(&proxy_info.node_url, &path, &payload, proxy_info.node_id)
@@ -232,10 +229,11 @@ pub async fn follow_up(
         if variables.is_empty() {
             prompt
         } else {
-            let variables: std::collections::HashMap<String, (String, Option<uuid::Uuid>)> = variables
-                .into_iter()
-                .map(|(k, (v, id))| (k, (v, Some(id))))
-                .collect();
+            let variables: std::collections::HashMap<String, (String, Option<uuid::Uuid>)> =
+                variables
+                    .into_iter()
+                    .map(|(k, (v, id))| (k, (v, Some(id))))
+                    .collect();
 
             let result = variable_expander::expand_variables(&prompt, &variables);
 

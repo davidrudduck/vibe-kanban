@@ -400,7 +400,7 @@ mod tests {
     use super::*;
     use crate::models::{
         project::{CreateProject, Project},
-        task::{tests::setup_test_pool, CreateTask},
+        task::{CreateTask, tests::setup_test_pool},
     };
 
     #[tokio::test]

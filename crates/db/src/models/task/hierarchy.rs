@@ -107,7 +107,7 @@ mod tests {
     use super::*;
     use crate::models::{
         project::{CreateProject, Project},
-        task::{tests::setup_test_pool, CreateTask},
+        task::{CreateTask, tests::setup_test_pool},
     };
 
     #[tokio::test]
@@ -182,11 +182,8 @@ mod tests {
         // Create child tasks
         for i in 0..3 {
             let child_id = Uuid::new_v4();
-            let mut child_data = CreateTask::from_title_description(
-                project_id,
-                format!("Child Task {}", i),
-                None,
-            );
+            let mut child_data =
+                CreateTask::from_title_description(project_id, format!("Child Task {}", i), None);
             child_data.parent_task_id = Some(parent_id);
             Task::create(&pool, &child_data, child_id)
                 .await

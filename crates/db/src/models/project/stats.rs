@@ -216,7 +216,9 @@ mod tests {
             copy_files: None,
         };
 
-        Project::create(&pool, &create_data, project_id).await.unwrap();
+        Project::create(&pool, &create_data, project_id)
+            .await
+            .unwrap();
 
         let projects = Project::find_local_projects_with_last_attempt(&pool)
             .await
@@ -230,7 +232,9 @@ mod tests {
     async fn test_find_local_projects_with_stats_empty() {
         let (pool, _temp_dir) = create_test_pool().await;
 
-        let projects = Project::find_local_projects_with_stats(&pool).await.unwrap();
+        let projects = Project::find_local_projects_with_stats(&pool)
+            .await
+            .unwrap();
         assert!(projects.is_empty());
     }
 
@@ -250,9 +254,13 @@ mod tests {
             copy_files: None,
         };
 
-        Project::create(&pool, &create_data, project_id).await.unwrap();
+        Project::create(&pool, &create_data, project_id)
+            .await
+            .unwrap();
 
-        let projects = Project::find_local_projects_with_stats(&pool).await.unwrap();
+        let projects = Project::find_local_projects_with_stats(&pool)
+            .await
+            .unwrap();
         assert_eq!(projects.len(), 1);
         assert_eq!(projects[0].project.id, project_id);
         assert!(projects[0].last_attempt_at.is_none());

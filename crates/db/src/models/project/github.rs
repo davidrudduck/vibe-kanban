@@ -124,7 +124,9 @@ mod tests {
             copy_files: None,
         };
 
-        Project::create(&pool, &create_data, project_id).await.unwrap();
+        Project::create(&pool, &create_data, project_id)
+            .await
+            .unwrap();
 
         // Initially not GitHub enabled
         let projects = Project::find_github_enabled(&pool).await.unwrap();
@@ -163,10 +165,15 @@ mod tests {
             copy_files: None,
         };
 
-        Project::create(&pool, &create_data, project_id).await.unwrap();
+        Project::create(&pool, &create_data, project_id)
+            .await
+            .unwrap();
 
         // Initially counts are 0
-        let project = Project::find_by_id(&pool, project_id).await.unwrap().unwrap();
+        let project = Project::find_by_id(&pool, project_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(project.github_open_issues, 0);
         assert_eq!(project.github_open_prs, 0);
 
@@ -175,7 +182,10 @@ mod tests {
             .await
             .unwrap();
 
-        let project = Project::find_by_id(&pool, project_id).await.unwrap().unwrap();
+        let project = Project::find_by_id(&pool, project_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(project.github_open_issues, 10);
         assert_eq!(project.github_open_prs, 5);
         assert!(project.github_last_synced_at.is_some());
@@ -197,7 +207,9 @@ mod tests {
             copy_files: None,
         };
 
-        Project::create(&pool, &create_data, project_id).await.unwrap();
+        Project::create(&pool, &create_data, project_id)
+            .await
+            .unwrap();
 
         // Enable GitHub
         Project::set_github_enabled(

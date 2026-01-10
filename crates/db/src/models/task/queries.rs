@@ -432,11 +432,8 @@ mod tests {
         // Create tasks
         for i in 0..3 {
             let task_id = Uuid::new_v4();
-            let task_data = CreateTask::from_title_description(
-                project_id,
-                format!("Task {}", i),
-                None,
-            );
+            let task_data =
+                CreateTask::from_title_description(project_id, format!("Task {}", i), None);
             Task::create(&pool, &task_data, task_id)
                 .await
                 .expect("Failed to create task");

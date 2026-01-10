@@ -226,7 +226,13 @@ mod tests {
 
     #[test]
     fn test_project_config_field_equality() {
-        assert_eq!(ProjectConfigField::SetupScript, ProjectConfigField::SetupScript);
-        assert_ne!(ProjectConfigField::SetupScript, ProjectConfigField::DevScript);
+        assert_eq!(
+            ProjectConfigField::SetupScript,
+            ProjectConfigField::SetupScript
+        );
+        assert_ne!(
+            ProjectConfigField::SetupScript,
+            ProjectConfigField::DevScript
+        );
     }
 }

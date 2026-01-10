@@ -37,22 +37,45 @@ use crate::{
 
 // Import handlers from the handlers module
 use handlers::{
+    abort_conflicts_task_attempt,
+    attach_existing_pr,
+    change_target_branch,
+    cleanup_worktree,
+    compare_commit_to_head,
+    // GitHub handlers
+    create_github_pr,
     // Core handlers
-    create_task_attempt, create_task_attempt_by_task_id, get_task_attempt, get_task_attempts,
-    run_agent_setup, get_commit_info, compare_commit_to_head, open_task_attempt_in_editor,
-    get_task_attempt_children, stop_task_attempt_execution, start_dev_server,
-    fix_sessions, has_session_error,
+    create_task_attempt,
+    create_task_attempt_by_task_id,
+    fix_sessions,
     // Follow-up handler
     follow_up,
+    force_push_task_attempt_branch,
+    get_commit_info,
+    get_dirty_files,
+    get_task_attempt,
+    get_task_attempt_branch_status,
+    get_task_attempt_children,
+    get_task_attempts,
+    get_worktree_path,
+    gh_cli_setup_handler,
+    has_session_error,
+    list_worktree_files,
     // Git ops handlers
-    merge_task_attempt, push_task_attempt_branch, force_push_task_attempt_branch,
-    rebase_task_attempt, abort_conflicts_task_attempt, get_dirty_files, stash_changes,
-    pop_stash, get_task_attempt_branch_status, change_target_branch, rename_branch,
-    // GitHub handlers
-    create_github_pr, attach_existing_pr, gh_cli_setup_handler,
+    merge_task_attempt,
+    open_task_attempt_in_editor,
+    pop_stash,
+    purge_build_artifacts,
+    push_task_attempt_branch,
+    read_worktree_file,
+    rebase_task_attempt,
+    rename_branch,
+    run_agent_setup,
+    start_dev_server,
+    stash_changes,
+    stop_task_attempt_execution,
     // Worktree handlers
-    stream_task_attempt_diff_ws, list_worktree_files, read_worktree_file,
-    get_worktree_path, cleanup_worktree, purge_build_artifacts,
+    stream_task_attempt_diff_ws,
 };
 
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {

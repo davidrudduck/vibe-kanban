@@ -1,10 +1,6 @@
 //! GitHub-related handlers: PR creation, PR attachment, gh CLI setup.
 
-use axum::{
-    Extension, Json,
-    extract::State,
-    response::Json as ResponseJson,
-};
+use axum::{Extension, Json, extract::State, response::Json as ResponseJson};
 use db::models::{
     execution_process::ExecutionProcess,
     merge::{Merge, MergeStatus},
@@ -12,18 +8,21 @@ use db::models::{
     task::{Task, TaskStatus},
     task_attempt::{TaskAttempt, TaskAttemptError},
 };
-use git2::BranchType;
 use deployment::Deployment;
+use git2::BranchType;
 use services::services::{
     git::{GitCliError, GitServiceError},
     github::{CreatePrRequest, GitHubService, GitHubServiceError},
 };
 use utils::response::ApiResponse;
 
-use crate::{DeploymentImpl, error::ApiError, middleware::RemoteTaskAttemptContext, proxy::check_remote_task_attempt_proxy};
 use crate::routes::task_attempts::gh_cli_setup::{self, GhCliSetupError};
 use crate::routes::task_attempts::types::{AttachPrResponse, CreateGitHubPrRequest, CreatePrError};
 use crate::routes::task_attempts::util::ensure_worktree_path;
+use crate::{
+    DeploymentImpl, error::ApiError, middleware::RemoteTaskAttemptContext,
+    proxy::check_remote_task_attempt_proxy,
+};
 use executors::executors::ExecutorError;
 
 pub async fn create_github_pr(
@@ -33,9 +32,7 @@ pub async fn create_github_pr(
     Json(request): Json<CreateGitHubPrRequest>,
 ) -> Result<ResponseJson<ApiResponse<String, CreatePrError>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some(proxy_info) =
-        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
-    {
+    if let Some(proxy_info) = check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))? {
         tracing::debug!(
             node_id = %proxy_info.node_id,
             shared_task_id = %proxy_info.target_id,
@@ -203,16 +200,17 @@ pub async fn attach_existing_pr(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<AttachPrResponse>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some(proxy_info) =
-        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
-    {
+    if let Some(proxy_info) = check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))? {
         tracing::debug!(
             node_id = %proxy_info.node_id,
             shared_task_id = %proxy_info.target_id,
             "Proxying attach_existing_pr to remote node"
         );
 
-        let path = format!("/task-attempts/by-task-id/{}/pr/attach", proxy_info.target_id);
+        let path = format!(
+            "/task-attempts/by-task-id/{}/pr/attach",
+            proxy_info.target_id
+        );
         let response: ApiResponse<AttachPrResponse> = deployment
             .node_proxy_client()
             .proxy_post(&proxy_info.node_url, &path, &(), proxy_info.node_id)

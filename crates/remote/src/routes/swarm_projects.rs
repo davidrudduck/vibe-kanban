@@ -22,7 +22,8 @@ use crate::{
         node_local_projects::NodeLocalProjectRepository,
         swarm_projects::{
             CreateSwarmProjectData, LinkSwarmProjectNodeData, SwarmProject, SwarmProjectError,
-            SwarmProjectNode, SwarmProjectRepository, SwarmProjectWithNodes, UpdateSwarmProjectData,
+            SwarmProjectNode, SwarmProjectRepository, SwarmProjectWithNodes,
+            UpdateSwarmProjectData,
         },
     },
 };
@@ -106,14 +107,20 @@ pub struct ListSwarmProjectNodesResponse {
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/swarm/projects", get(list_swarm_projects).post(create_swarm_project))
+        .route(
+            "/swarm/projects",
+            get(list_swarm_projects).post(create_swarm_project),
+        )
         .route(
             "/swarm/projects/{project_id}",
             get(get_swarm_project)
                 .patch(update_swarm_project)
                 .delete(delete_swarm_project),
         )
-        .route("/swarm/projects/{project_id}/merge", post(merge_swarm_projects))
+        .route(
+            "/swarm/projects/{project_id}/merge",
+            post(merge_swarm_projects),
+        )
         .route(
             "/swarm/projects/{project_id}/nodes",
             get(list_swarm_project_nodes).post(link_node),
@@ -140,12 +147,16 @@ async fn list_swarm_projects(
 ) -> Result<Json<ListSwarmProjectsResponse>, ErrorResponse> {
     ensure_member_access(state.pool(), params.organization_id, ctx.user.id).await?;
 
-    let projects = SwarmProjectRepository::list_with_nodes_count(state.pool(), params.organization_id)
-        .await
-        .map_err(|error| {
-            tracing::error!(?error, "failed to list swarm projects");
-            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to list swarm projects")
-        })?;
+    let projects =
+        SwarmProjectRepository::list_with_nodes_count(state.pool(), params.organization_id)
+            .await
+            .map_err(|error| {
+                tracing::error!(?error, "failed to list swarm projects");
+                ErrorResponse::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "failed to list swarm projects",
+                )
+            })?;
 
     Ok(Json(ListSwarmProjectsResponse { projects }))
 }
@@ -164,7 +175,10 @@ async fn get_swarm_project(
         .await
         .map_err(|error| {
             tracing::error!(?error, %project_id, "failed to get swarm project");
-            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to get swarm project")
+            ErrorResponse::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to get swarm project",
+            )
         })?
         .ok_or_else(|| ErrorResponse::new(StatusCode::NOT_FOUND, "swarm project not found"))?;
 
@@ -209,7 +223,10 @@ async fn create_swarm_project(
         }
         _ => {
             tracing::error!(?error, "failed to create swarm project");
-            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to create swarm project")
+            ErrorResponse::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to create swarm project",
+            )
         }
     })?;
 
@@ -237,7 +254,10 @@ async fn update_swarm_project(
         .await
         .map_err(|error| {
             tracing::error!(?error, %project_id, "failed to get swarm project");
-            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to get swarm project")
+            ErrorResponse::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to get swarm project",
+            )
         })?
         .ok_or_else(|| ErrorResponse::new(StatusCode::NOT_FOUND, "swarm project not found"))?;
 
@@ -270,7 +290,10 @@ async fn update_swarm_project(
         }
         _ => {
             tracing::error!(?error, "failed to update swarm project");
-            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to update swarm project")
+            ErrorResponse::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to update swarm project",
+            )
         }
     })?;
 
@@ -297,7 +320,10 @@ async fn delete_swarm_project(
         .await
         .map_err(|error| {
             tracing::error!(?error, %project_id, "failed to get swarm project");
-            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to get swarm project")
+            ErrorResponse::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to get swarm project",
+            )
         })?
         .ok_or_else(|| ErrorResponse::new(StatusCode::NOT_FOUND, "swarm project not found"))?;
 
@@ -316,7 +342,10 @@ async fn delete_swarm_project(
             }
             _ => {
                 tracing::error!(?error, "failed to delete swarm project");
-                ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to delete swarm project")
+                ErrorResponse::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "failed to delete swarm project",
+                )
             }
         })?;
 
@@ -344,17 +373,27 @@ async fn merge_swarm_projects(
         .await
         .map_err(|error| {
             tracing::error!(?error, %project_id, "failed to get target project");
-            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to get swarm project")
+            ErrorResponse::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to get swarm project",
+            )
         })?
-        .ok_or_else(|| ErrorResponse::new(StatusCode::NOT_FOUND, "target swarm project not found"))?;
+        .ok_or_else(|| {
+            ErrorResponse::new(StatusCode::NOT_FOUND, "target swarm project not found")
+        })?;
 
     let source = SwarmProjectRepository::find_by_id(state.pool(), payload.source_id)
         .await
         .map_err(|error| {
             tracing::error!(?error, source_id = %payload.source_id, "failed to get source project");
-            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to get swarm project")
+            ErrorResponse::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to get swarm project",
+            )
         })?
-        .ok_or_else(|| ErrorResponse::new(StatusCode::NOT_FOUND, "source swarm project not found"))?;
+        .ok_or_else(|| {
+            ErrorResponse::new(StatusCode::NOT_FOUND, "source swarm project not found")
+        })?;
 
     // Both must be in the same organization
     if target.organization_id != source.organization_id {
@@ -382,7 +421,10 @@ async fn merge_swarm_projects(
             }
             _ => {
                 tracing::error!(?error, "failed to merge swarm projects");
-                ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to merge swarm projects")
+                ErrorResponse::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "failed to merge swarm projects",
+                )
             }
         })?;
 
@@ -413,7 +455,10 @@ async fn list_swarm_project_nodes(
         .await
         .map_err(|error| {
             tracing::error!(?error, %project_id, "failed to get swarm project");
-            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to get swarm project")
+            ErrorResponse::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to get swarm project",
+            )
         })?
         .ok_or_else(|| ErrorResponse::new(StatusCode::NOT_FOUND, "swarm project not found"))?;
 
@@ -445,7 +490,10 @@ async fn link_node(
         .await
         .map_err(|error| {
             tracing::error!(?error, %project_id, "failed to get swarm project");
-            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to get swarm project")
+            ErrorResponse::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to get swarm project",
+            )
         })?
         .ok_or_else(|| ErrorResponse::new(StatusCode::NOT_FOUND, "swarm project not found"))?;
 
@@ -468,9 +516,10 @@ async fn link_node(
     )
     .await
     .map_err(|error| match error {
-        SwarmProjectError::LinkAlreadyExists => {
-            ErrorResponse::new(StatusCode::CONFLICT, "node already linked to this swarm project")
-        }
+        SwarmProjectError::LinkAlreadyExists => ErrorResponse::new(
+            StatusCode::CONFLICT,
+            "node already linked to this swarm project",
+        ),
         _ => {
             tracing::error!(?error, "failed to link node to swarm project");
             ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to link node")
@@ -519,7 +568,10 @@ async fn unlink_node(
         .await
         .map_err(|error| {
             tracing::error!(?error, %project_id, "failed to get swarm project");
-            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to get swarm project")
+            ErrorResponse::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to get swarm project",
+            )
         })?
         .ok_or_else(|| ErrorResponse::new(StatusCode::NOT_FOUND, "swarm project not found"))?;
 

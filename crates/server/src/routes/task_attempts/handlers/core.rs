@@ -15,7 +15,6 @@ use db::models::{
     task_attempt::{CreateTaskAttempt, TaskAttempt, TaskAttemptError},
 };
 use deployment::Deployment;
-use services::services::container::ContainerService;
 use executors::{
     actions::{
         ExecutorAction, ExecutorActionType,
@@ -24,11 +23,11 @@ use executors::{
     executors::{CodingAgent, ExecutorError},
     profile::ExecutorConfigs,
 };
+use services::services::container::ContainerService;
 use sqlx::Error as SqlxError;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError, middleware::{RemoteAttemptNeeded, RemoteTaskAttemptContext}, proxy::check_remote_task_attempt_proxy};
 use crate::routes::task_attempts::codex_setup;
 use crate::routes::task_attempts::cursor_setup;
 use crate::routes::task_attempts::types::{
@@ -37,6 +36,12 @@ use crate::routes::task_attempts::types::{
     RunAgentSetupResponse, TaskAttemptQuery,
 };
 use crate::routes::task_attempts::util::ensure_worktree_path;
+use crate::{
+    DeploymentImpl,
+    error::ApiError,
+    middleware::{RemoteAttemptNeeded, RemoteTaskAttemptContext},
+    proxy::check_remote_task_attempt_proxy,
+};
 
 // ============================================================================
 // List and Get
@@ -55,7 +60,10 @@ pub async fn get_task_attempts(
         && let Ok(client) = deployment.remote_client()
     {
         // Try to get attempts from Hive
-        match client.list_task_attempts_by_shared_task(shared_task_id).await {
+        match client
+            .list_task_attempts_by_shared_task(shared_task_id)
+            .await
+        {
             Ok(hive_attempts) => {
                 // Convert NodeTaskAttempt to TaskAttempt
                 let attempts: Vec<TaskAttempt> = hive_attempts
@@ -111,9 +119,8 @@ pub async fn get_task_attempt(
             Ok(Some(hive_response)) => {
                 // Find local task by shared_task_id to map back to local task_id
                 let pool = &deployment.db().pool;
-                let task =
-                    Task::find_by_shared_task_id(pool, hive_response.attempt.shared_task_id)
-                        .await?;
+                let task = Task::find_by_shared_task_id(pool, hive_response.attempt.shared_task_id)
+                    .await?;
 
                 if let Some(task) = task {
                     // Convert NodeTaskAttempt to local TaskAttempt format
@@ -719,9 +726,7 @@ pub async fn stop_task_attempt_execution(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some(proxy_info) =
-        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
-    {
+    if let Some(proxy_info) = check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))? {
         tracing::debug!(
             node_id = %proxy_info.node_id,
             shared_task_id = %proxy_info.target_id,

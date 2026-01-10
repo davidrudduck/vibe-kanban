@@ -84,10 +84,7 @@ impl<'a> LabelRepository<'a> {
     }
 
     /// Find swarm labels for an organization (project_id = NULL, excludes deleted)
-    pub async fn find_swarm_labels(
-        &self,
-        organization_id: Uuid,
-    ) -> Result<Vec<Label>, LabelError> {
+    pub async fn find_swarm_labels(&self, organization_id: Uuid) -> Result<Vec<Label>, LabelError> {
         let labels = sqlx::query_as::<_, Label>(
             r#"
             SELECT

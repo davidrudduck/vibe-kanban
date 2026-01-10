@@ -99,7 +99,7 @@ mod tests {
     use super::*;
     use crate::models::{
         project::{CreateProject, Project},
-        task::{tests::setup_test_pool, CreateTask},
+        task::{CreateTask, tests::setup_test_pool},
     };
 
     #[tokio::test]
@@ -132,9 +132,7 @@ mod tests {
         assert!(task.archived_at.is_none());
 
         // Archive
-        let archived = Task::archive(&pool, task_id)
-            .await
-            .expect("Archive failed");
+        let archived = Task::archive(&pool, task_id).await.expect("Archive failed");
         assert!(archived.archived_at.is_some());
 
         // Unarchive
@@ -168,11 +166,8 @@ mod tests {
         let mut task_ids = Vec::new();
         for i in 0..5 {
             let task_id = Uuid::new_v4();
-            let task_data = CreateTask::from_title_description(
-                project_id,
-                format!("Task {}", i),
-                None,
-            );
+            let task_data =
+                CreateTask::from_title_description(project_id, format!("Task {}", i), None);
             Task::create(&pool, &task_data, task_id)
                 .await
                 .expect("Failed to create task");
@@ -233,9 +228,7 @@ mod tests {
         Task::create(&pool, &task_data, task_id)
             .await
             .expect("Failed to create task");
-        Task::archive(&pool, task_id)
-            .await
-            .expect("Archive failed");
+        Task::archive(&pool, task_id).await.expect("Archive failed");
 
         // Unarchive if archived - should return true
         let was_unarchived = Task::unarchive_if_archived(&pool, task_id)

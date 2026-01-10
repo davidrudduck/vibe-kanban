@@ -16,7 +16,6 @@ use ts_rs::TS;
 use utils::unified_log::{OutputType, PaginatedLogs};
 use uuid::Uuid;
 
-
 /// A single log entry stored in the database.
 ///
 /// This struct maps to the `log_entries` table and stores individual log messages
@@ -117,8 +116,8 @@ impl PaginatedDbLogEntries {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
     use sqlx::SqlitePool;
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
     use std::str::FromStr;
     use tempfile::TempDir;
     use utils::unified_log::Direction;

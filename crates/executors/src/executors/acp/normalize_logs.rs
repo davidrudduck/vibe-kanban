@@ -99,19 +99,11 @@ impl LogNormalizer for AcpNormalizer {
             }
             AcpEvent::Message(content) => {
                 self.streaming.thinking_text = None;
-                self.process_streaming_text(
-                    content,
-                    StreamingTextKind::Assistant,
-                    entry_index,
-                )
+                self.process_streaming_text(content, StreamingTextKind::Assistant, entry_index)
             }
             AcpEvent::Thought(content) => {
                 self.streaming.assistant_text = None;
-                self.process_streaming_text(
-                    content,
-                    StreamingTextKind::Thinking,
-                    entry_index,
-                )
+                self.process_streaming_text(content, StreamingTextKind::Thinking, entry_index)
             }
             AcpEvent::Plan(plan) => {
                 self.streaming.assistant_text = None;
@@ -322,8 +314,7 @@ fn map_to_action_type(tc: &PartialToolCallData) -> ActionType {
         agent_client_protocol::ToolKind::Execute => {
             let command = AcpEventParser::parse_execute_command(&tc.title);
             // Prefer structured raw_output, else fallback to aggregated text content
-            let completed =
-                matches!(tc.status, agent_client_protocol::ToolCallStatus::Completed);
+            let completed = matches!(tc.status, agent_client_protocol::ToolCallStatus::Completed);
             tracing::debug!(
                 "Mapping execute tool call, completed: {}, command: {}",
                 completed,
@@ -386,8 +377,8 @@ fn map_to_action_type(tc: &PartialToolCallData) -> ActionType {
             ActionType::WebFetch { url }
         }
         agent_client_protocol::ToolKind::Think => {
-            let tool_name = extract_tool_name_from_id(tc.id.0.as_ref())
-                .unwrap_or_else(|| tc.title.clone());
+            let tool_name =
+                extract_tool_name_from_id(tc.id.0.as_ref()).unwrap_or_else(|| tc.title.clone());
             // For think/save_memory, surface both title and aggregated text content as arguments
             let text = collect_text_content(&tc.content);
             let arguments = Some(match &text {
@@ -416,8 +407,8 @@ fn map_to_action_type(tc: &PartialToolCallData) -> ActionType {
         },
         agent_client_protocol::ToolKind::Other | agent_client_protocol::ToolKind::Move => {
             // Derive a friendlier tool name from the id if it looks like name-<digits>
-            let tool_name = extract_tool_name_from_id(tc.id.0.as_ref())
-                .unwrap_or_else(|| tc.title.clone());
+            let tool_name =
+                extract_tool_name_from_id(tc.id.0.as_ref()).unwrap_or_else(|| tc.title.clone());
 
             // Some tools embed JSON args into the title instead of raw_input
             let arguments = if let Some(raw) = &tc.raw_input {
@@ -469,11 +460,8 @@ fn extract_file_changes(tc: &PartialToolCallData) -> Vec<FileChange> {
                     content: diff.new_text.clone(),
                 });
             } else {
-                let unified = workspace_utils::diff::create_unified_diff(
-                    &rel,
-                    old_text,
-                    &diff.new_text,
-                );
+                let unified =
+                    workspace_utils::diff::create_unified_diff(&rel, old_text, &diff.new_text);
                 changes.push(FileChange::Edit {
                     unified_diff: unified,
                     has_line_numbers: false,
@@ -491,8 +479,8 @@ fn get_tool_content(tc: &PartialToolCallData) -> String {
         }
         agent_client_protocol::ToolKind::Think => "Saving memory".to_string(),
         agent_client_protocol::ToolKind::Other => {
-            let tool_name = extract_tool_name_from_id(tc.id.0.as_ref())
-                .unwrap_or_else(|| "tool".to_string());
+            let tool_name =
+                extract_tool_name_from_id(tc.id.0.as_ref()).unwrap_or_else(|| "tool".to_string());
             if tc.title.is_empty() {
                 tool_name
             } else {
@@ -527,15 +515,12 @@ fn extract_tool_name_from_id(id: &str) -> Option<String> {
 fn extract_url_from_text(text: &str) -> Option<String> {
     // Simple URL extractor
     lazy_static! {
-        static ref URL_RE: Regex =
-            Regex::new(r#"https?://[^\s"')]+"#).expect("valid regex");
+        static ref URL_RE: Regex = Regex::new(r#"https?://[^\s"')]+"#).expect("valid regex");
     }
     URL_RE.find(text).map(|m| m.as_str().to_string())
 }
 
-fn collect_text_content(
-    content: &[agent_client_protocol::ToolCallContent],
-) -> Option<String> {
+fn collect_text_content(content: &[agent_client_protocol::ToolCallContent]) -> Option<String> {
     let mut out = String::new();
     for c in content {
         if let agent_client_protocol::ToolCallContent::Content { content } = c

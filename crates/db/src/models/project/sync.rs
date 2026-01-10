@@ -458,7 +458,9 @@ mod tests {
             copy_files: None,
         };
 
-        Project::create(&pool, &create_data, project_id).await.unwrap();
+        Project::create(&pool, &create_data, project_id)
+            .await
+            .unwrap();
 
         let projects = Project::find_unlinked(&pool).await.unwrap();
         assert_eq!(projects.len(), 1);
@@ -482,7 +484,9 @@ mod tests {
             copy_files: None,
         };
 
-        Project::create(&pool, &create_data, project_id).await.unwrap();
+        Project::create(&pool, &create_data, project_id)
+            .await
+            .unwrap();
 
         // Initially unlinked
         let projects = Project::find_unlinked(&pool).await.unwrap();
@@ -526,7 +530,9 @@ mod tests {
             copy_files: None,
         };
 
-        Project::create(&pool, &create_data, project_id).await.unwrap();
+        Project::create(&pool, &create_data, project_id)
+            .await
+            .unwrap();
 
         let local = Project::find_local_projects(&pool).await.unwrap();
         assert_eq!(local.len(), 1);
@@ -611,7 +617,9 @@ mod tests {
             copy_files: None,
         };
 
-        Project::create(&pool, &create_data, project_id).await.unwrap();
+        Project::create(&pool, &create_data, project_id)
+            .await
+            .unwrap();
         Project::set_remote_project_id(&pool, project_id, Some(remote_id))
             .await
             .unwrap();
@@ -638,7 +646,9 @@ mod tests {
             copy_files: None,
         };
 
-        Project::create(&pool, &create_data, project_id).await.unwrap();
+        Project::create(&pool, &create_data, project_id)
+            .await
+            .unwrap();
         Project::set_remote_project_id(&pool, project_id, Some(remote_id))
             .await
             .unwrap();

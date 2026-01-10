@@ -7,20 +7,13 @@
 //! - branch listing
 //! - editor opening
 
-use axum::{
-    Extension, Json,
-    extract::State,
-    http::StatusCode,
-    response::Json as ResponseJson,
-};
+use axum::{Extension, Json, extract::State, http::StatusCode, response::Json as ResponseJson};
 use db::models::project::{
     CreateProject, Project, ProjectError, ScanConfigRequest, ScanConfigResponse, UpdateProject,
 };
 use deployment::Deployment;
 use services::services::{
-    git::GitBranch,
-    project_detector::ProjectDetector,
-    remote_client::CreateRemoteProjectPayload,
+    git::GitBranch, project_detector::ProjectDetector, remote_client::CreateRemoteProjectPayload,
     share::share_existing_tasks_to_hive,
 };
 use utils::{api::projects::RemoteProject, path::expand_tilde, response::ApiResponse};
@@ -28,7 +21,9 @@ use uuid::Uuid;
 
 use crate::{DeploymentImpl, error::ApiError, middleware::RemoteProjectContext};
 
-use super::super::types::{OpenEditorRequest, OpenEditorResponse, OrphanedProject, OrphanedProjectsResponse};
+use super::super::types::{
+    OpenEditorRequest, OpenEditorResponse, OrphanedProject, OrphanedProjectsResponse,
+};
 
 // Re-export for use in this module
 use crate::proxy::check_remote_proxy;
@@ -516,10 +511,12 @@ pub async fn list_orphaned_projects(
         .collect();
 
     let count = orphaned.len();
-    Ok(ResponseJson(ApiResponse::success(OrphanedProjectsResponse {
-        projects: orphaned,
-        count,
-    })))
+    Ok(ResponseJson(ApiResponse::success(
+        OrphanedProjectsResponse {
+            projects: orphaned,
+            count,
+        },
+    )))
 }
 
 /// DELETE /api/projects/orphaned - Remove projects with non-existent git_repo_path
@@ -553,10 +550,12 @@ pub async fn delete_orphaned_projects(
     }
 
     let count = deleted.len();
-    Ok(ResponseJson(ApiResponse::success(OrphanedProjectsResponse {
-        projects: deleted,
-        count,
-    })))
+    Ok(ResponseJson(ApiResponse::success(
+        OrphanedProjectsResponse {
+            projects: deleted,
+            count,
+        },
+    )))
 }
 
 pub async fn open_project_in_editor(

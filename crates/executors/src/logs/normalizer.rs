@@ -203,12 +203,8 @@ mod tests {
         msg_store.push_finished();
 
         // Wait for processing with timeout
-        let timeout_result =
-            tokio::time::timeout(Duration::from_millis(500), handle).await;
-        assert!(
-            timeout_result.is_ok(),
-            "Normalization task should complete"
-        );
+        let timeout_result = tokio::time::timeout(Duration::from_millis(500), handle).await;
+        assert!(timeout_result.is_ok(), "Normalization task should complete");
 
         // Verify events were processed
         let final_count = process_count.load(Ordering::Relaxed);

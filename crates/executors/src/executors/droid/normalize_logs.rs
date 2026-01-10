@@ -187,9 +187,7 @@ impl DroidNormalizer {
                 tool_name,
                 parameters: arguments,
                 ..
-            } => {
-                self.process_tool_call(id, tool_name, arguments, entry_index, &worktree_path_str)
-            }
+            } => self.process_tool_call(id, tool_name, arguments, entry_index, &worktree_path_str),
 
             DroidJson::ToolResult {
                 id: _,
@@ -335,8 +333,11 @@ impl DroidNormalizer {
                 new_string,
             } => {
                 let path = make_path_relative(&file_path, worktree_path_str);
-                let diff =
-                    workspace_utils::diff::create_unified_diff(&file_path, &old_string, &new_string);
+                let diff = workspace_utils::diff::create_unified_diff(
+                    &file_path,
+                    &old_string,
+                    &new_string,
+                );
                 let changes = vec![FileChange::Edit {
                     unified_diff: diff,
                     has_line_numbers: false,
@@ -349,9 +350,11 @@ impl DroidNormalizer {
                     status: ToolStatus::Created,
                 };
                 self.state.file_edits.insert(id.clone(), tool_state);
-                self.state.pending_fifo.push_back(PendingToolCall::FileEdit {
-                    tool_call_id: id.clone(),
-                });
+                self.state
+                    .pending_fifo
+                    .push_back(PendingToolCall::FileEdit {
+                        tool_call_id: id.clone(),
+                    });
                 let tool_state = self.state.file_edits.get_mut(&id).unwrap();
                 let idx = entry_index.next();
                 let entry = tool_state.to_normalized_entry();
@@ -386,9 +389,11 @@ impl DroidNormalizer {
                     status: ToolStatus::Created,
                 };
                 self.state.file_edits.insert(id.clone(), tool_state);
-                self.state.pending_fifo.push_back(PendingToolCall::FileEdit {
-                    tool_call_id: id.clone(),
-                });
+                self.state
+                    .pending_fifo
+                    .push_back(PendingToolCall::FileEdit {
+                        tool_call_id: id.clone(),
+                    });
                 let tool_state = self.state.file_edits.get_mut(&id).unwrap();
                 let idx = entry_index.next();
                 let entry = tool_state.to_normalized_entry();
@@ -407,9 +412,11 @@ impl DroidNormalizer {
                     status: ToolStatus::Created,
                 };
                 self.state.file_edits.insert(id.clone(), tool_state);
-                self.state.pending_fifo.push_back(PendingToolCall::FileEdit {
-                    tool_call_id: id.clone(),
-                });
+                self.state
+                    .pending_fifo
+                    .push_back(PendingToolCall::FileEdit {
+                        tool_call_id: id.clone(),
+                    });
 
                 let tool_state = self.state.file_edits.get_mut(&id).unwrap();
                 let idx = entry_index.next();
@@ -430,9 +437,11 @@ impl DroidNormalizer {
                     status: ToolStatus::Created,
                 };
                 self.state.file_edits.insert(id.clone(), tool_state);
-                self.state.pending_fifo.push_back(PendingToolCall::FileEdit {
-                    tool_call_id: id.clone(),
-                });
+                self.state
+                    .pending_fifo
+                    .push_back(PendingToolCall::FileEdit {
+                        tool_call_id: id.clone(),
+                    });
 
                 let tool_state = self.state.file_edits.get_mut(&id).unwrap();
                 let idx = entry_index.next();

@@ -66,7 +66,7 @@ impl SharePublisher {
             status: Some(status::to_remote(&task.status)),
             assignee_user_id,
             start_attempt: false, // Never auto-dispatch when sharing from local node
-            source_task_id: None,  // Not a re-sync operation
+            source_task_id: None, // Not a re-sync operation
             source_node_id: None,
         };
 

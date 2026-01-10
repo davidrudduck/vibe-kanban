@@ -1,10 +1,6 @@
 //! Git operations handlers: merge, rebase, push, stash, branch operations.
 
-use axum::{
-    Extension, Json,
-    extract::State,
-    response::Json as ResponseJson,
-};
+use axum::{Extension, Json, extract::State, response::Json as ResponseJson};
 use db::models::{
     execution_process::{ExecutionProcess, ExecutionProcessStatus},
     merge::Merge,
@@ -13,8 +9,8 @@ use db::models::{
     task::{Task, TaskStatus},
     task_attempt::{TaskAttempt, TaskAttemptError},
 };
-use git2::BranchType;
 use deployment::Deployment;
+use git2::BranchType;
 use services::services::{
     container::ContainerService,
     git::{ConflictOp, GitCliError, GitServiceError},
@@ -22,13 +18,16 @@ use services::services::{
 };
 use utils::response::ApiResponse;
 
-use crate::{DeploymentImpl, error::ApiError, middleware::RemoteTaskAttemptContext, proxy::check_remote_task_attempt_proxy};
 use crate::routes::task_attempts::types::{
-    BranchStatus, ChangeTargetBranchRequest, ChangeTargetBranchResponse,
-    DirtyFilesResponse, GitOperationError, PushError, RebaseTaskAttemptRequest,
-    RenameBranchRequest, RenameBranchResponse, StashChangesRequest, StashChangesResponse,
+    BranchStatus, ChangeTargetBranchRequest, ChangeTargetBranchResponse, DirtyFilesResponse,
+    GitOperationError, PushError, RebaseTaskAttemptRequest, RenameBranchRequest,
+    RenameBranchResponse, StashChangesRequest, StashChangesResponse,
 };
 use crate::routes::task_attempts::util::ensure_worktree_path;
+use crate::{
+    DeploymentImpl, error::ApiError, middleware::RemoteTaskAttemptContext,
+    proxy::check_remote_task_attempt_proxy,
+};
 
 // ============================================================================
 // Merge
@@ -41,9 +40,7 @@ pub async fn merge_task_attempt(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some(proxy_info) =
-        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
-    {
+    if let Some(proxy_info) = check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))? {
         tracing::debug!(
             node_id = %proxy_info.node_id,
             shared_task_id = %proxy_info.target_id,
@@ -155,9 +152,7 @@ pub async fn push_task_attempt_branch(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<(), PushError>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some(proxy_info) =
-        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
-    {
+    if let Some(proxy_info) = check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))? {
         tracing::debug!(
             node_id = %proxy_info.node_id,
             shared_task_id = %proxy_info.target_id,
@@ -196,16 +191,17 @@ pub async fn force_push_task_attempt_branch(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<(), PushError>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some(proxy_info) =
-        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
-    {
+    if let Some(proxy_info) = check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))? {
         tracing::debug!(
             node_id = %proxy_info.node_id,
             shared_task_id = %proxy_info.target_id,
             "Proxying force_push_task_attempt_branch to remote node"
         );
 
-        let path = format!("/task-attempts/by-task-id/{}/push/force", proxy_info.target_id);
+        let path = format!(
+            "/task-attempts/by-task-id/{}/push/force",
+            proxy_info.target_id
+        );
         let response: ApiResponse<(), PushError> = deployment
             .node_proxy_client()
             .proxy_post(&proxy_info.node_url, &path, &(), proxy_info.node_id)
@@ -237,9 +233,7 @@ pub async fn rebase_task_attempt(
     Json(payload): Json<RebaseTaskAttemptRequest>,
 ) -> Result<ResponseJson<ApiResponse<(), GitOperationError>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some(proxy_info) =
-        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
-    {
+    if let Some(proxy_info) = check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))? {
         tracing::debug!(
             node_id = %proxy_info.node_id,
             shared_task_id = %proxy_info.target_id,
@@ -333,9 +327,7 @@ pub async fn abort_conflicts_task_attempt(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some(proxy_info) =
-        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
-    {
+    if let Some(proxy_info) = check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))? {
         tracing::debug!(
             node_id = %proxy_info.node_id,
             shared_task_id = %proxy_info.target_id,
@@ -376,9 +368,7 @@ pub async fn get_dirty_files(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<DirtyFilesResponse>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some(proxy_info) =
-        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
-    {
+    if let Some(proxy_info) = check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))? {
         tracing::debug!(
             node_id = %proxy_info.node_id,
             shared_task_id = %proxy_info.target_id,
@@ -418,9 +408,7 @@ pub async fn stash_changes(
     Json(payload): Json<StashChangesRequest>,
 ) -> Result<ResponseJson<ApiResponse<StashChangesResponse>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some(proxy_info) =
-        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
-    {
+    if let Some(proxy_info) = check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))? {
         tracing::debug!(
             node_id = %proxy_info.node_id,
             shared_task_id = %proxy_info.target_id,
@@ -457,16 +445,17 @@ pub async fn pop_stash(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some(proxy_info) =
-        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
-    {
+    if let Some(proxy_info) = check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))? {
         tracing::debug!(
             node_id = %proxy_info.node_id,
             shared_task_id = %proxy_info.target_id,
             "Proxying pop_stash to remote node"
         );
 
-        let path = format!("/task-attempts/by-task-id/{}/stash/pop", proxy_info.target_id);
+        let path = format!(
+            "/task-attempts/by-task-id/{}/stash/pop",
+            proxy_info.target_id
+        );
         let response: ApiResponse<()> = deployment
             .node_proxy_client()
             .proxy_post(&proxy_info.node_url, &path, &(), proxy_info.node_id)
@@ -494,16 +483,17 @@ pub async fn get_task_attempt_branch_status(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<BranchStatus>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some(proxy_info) =
-        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
-    {
+    if let Some(proxy_info) = check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))? {
         tracing::debug!(
             node_id = %proxy_info.node_id,
             shared_task_id = %proxy_info.target_id,
             "Proxying get_task_attempt_branch_status to remote node"
         );
 
-        let path = format!("/task-attempts/by-task-id/{}/branch-status", proxy_info.target_id);
+        let path = format!(
+            "/task-attempts/by-task-id/{}/branch-status",
+            proxy_info.target_id
+        );
         let response: ApiResponse<BranchStatus> = deployment
             .node_proxy_client()
             .proxy_get(&proxy_info.node_url, &path, proxy_info.node_id)
@@ -581,10 +571,11 @@ pub async fn get_task_attempt_branch_status(
     // Fetch merges for this task attempt and add to branch status
     let merges = Merge::find_by_task_attempt_id(pool, task_attempt.id).await?;
     let (remote_ahead, remote_behind) = if let Some(Merge::Pr(PrMerge {
-        pr_info: db::models::merge::PullRequestInfo {
-            status: MergeStatus::Open,
-            ..
-        },
+        pr_info:
+            db::models::merge::PullRequestInfo {
+                status: MergeStatus::Open,
+                ..
+            },
         ..
     })) = merges.first()
     {
@@ -623,9 +614,7 @@ pub async fn change_target_branch(
     Json(payload): Json<ChangeTargetBranchRequest>,
 ) -> Result<ResponseJson<ApiResponse<ChangeTargetBranchResponse>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some(proxy_info) =
-        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
-    {
+    if let Some(proxy_info) = check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))? {
         tracing::debug!(
             node_id = %proxy_info.node_id,
             shared_task_id = %proxy_info.target_id,
@@ -697,16 +686,17 @@ pub async fn rename_branch(
     Json(payload): Json<RenameBranchRequest>,
 ) -> Result<ResponseJson<ApiResponse<RenameBranchResponse>>, ApiError> {
     // Check if this is a remote task attempt that should be proxied
-    if let Some(proxy_info) =
-        check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))?
-    {
+    if let Some(proxy_info) = check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))? {
         tracing::debug!(
             node_id = %proxy_info.node_id,
             shared_task_id = %proxy_info.target_id,
             "Proxying rename_branch to remote node"
         );
 
-        let path = format!("/task-attempts/by-task-id/{}/rename-branch", proxy_info.target_id);
+        let path = format!(
+            "/task-attempts/by-task-id/{}/rename-branch",
+            proxy_info.target_id
+        );
         let response: ApiResponse<RenameBranchResponse> = deployment
             .node_proxy_client()
             .proxy_post(&proxy_info.node_url, &path, &payload, proxy_info.node_id)

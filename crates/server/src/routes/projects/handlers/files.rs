@@ -24,7 +24,9 @@ use services::services::{
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError, middleware::RemoteProjectContext, proxy::check_remote_proxy};
+use crate::{
+    DeploymentImpl, error::ApiError, middleware::RemoteProjectContext, proxy::check_remote_proxy,
+};
 
 use super::super::types::ListProjectFilesQuery;
 

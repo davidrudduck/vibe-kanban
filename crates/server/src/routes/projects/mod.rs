@@ -26,17 +26,30 @@ use crate::{
 // Import handlers from the handlers module
 use handlers::{
     // Core handlers
-    create_project, delete_orphaned_projects, delete_project, get_project, get_project_branches,
-    get_projects, list_orphaned_projects, open_project_in_editor, scan_project_config,
-    update_project,
+    create_project,
+    delete_orphaned_projects,
+    delete_project,
+    // GitHub handlers
+    get_github_counts,
     // Merged handlers
     get_merged_projects,
-    // File handlers
-    list_project_files, read_project_file, read_project_file_by_remote_id, search_project_files,
+    get_project,
+    get_project_branches,
     // Linking handlers
-    get_project_remote_members, link_to_local_folder,
-    // GitHub handlers
-    get_github_counts, set_github_enabled, sync_github_counts,
+    get_project_remote_members,
+    get_projects,
+    link_to_local_folder,
+    list_orphaned_projects,
+    // File handlers
+    list_project_files,
+    open_project_in_editor,
+    read_project_file,
+    read_project_file_by_remote_id,
+    scan_project_config,
+    search_project_files,
+    set_github_enabled,
+    sync_github_counts,
+    update_project,
 };
 
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {

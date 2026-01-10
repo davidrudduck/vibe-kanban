@@ -176,8 +176,8 @@ impl Task {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
     use sqlx::SqlitePool;
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
     use std::str::FromStr;
     use tempfile::TempDir;
 

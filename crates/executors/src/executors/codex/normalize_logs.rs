@@ -124,9 +124,10 @@ impl LogNormalizer for CodexNormalizer {
             if let Ok(conv_response) =
                 serde_json::from_value::<NewConversationResponse>(response.result.clone())
             {
-                let session_id =
-                    SessionHandler::extract_session_id_from_rollout_path(conv_response.rollout_path)
-                        .ok();
+                let session_id = SessionHandler::extract_session_id_from_rollout_path(
+                    conv_response.rollout_path,
+                )
+                .ok();
                 return Some(CodexEvent::ModelParamsWithSession {
                     session_id,
                     model: conv_response.model,

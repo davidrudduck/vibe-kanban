@@ -102,7 +102,10 @@ pub struct MergeLabelsResult {
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/swarm/labels", get(list_swarm_labels).post(create_swarm_label))
+        .route(
+            "/swarm/labels",
+            get(list_swarm_labels).post(create_swarm_label),
+        )
         .route(
             "/swarm/labels/{label_id}",
             get(get_swarm_label)
@@ -137,7 +140,10 @@ async fn list_swarm_labels(
         .await
         .map_err(|error| {
             tracing::error!(?error, "failed to list swarm labels");
-            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to list swarm labels")
+            ErrorResponse::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to list swarm labels",
+            )
         })?;
 
     Ok(Json(ListSwarmLabelsResponse { labels }))
@@ -160,7 +166,10 @@ async fn get_swarm_label(
         .await
         .map_err(|error| {
             tracing::error!(?error, %label_id, "failed to get swarm label");
-            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to get swarm label")
+            ErrorResponse::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to get swarm label",
+            )
         })?
         .ok_or_else(|| ErrorResponse::new(StatusCode::NOT_FOUND, "swarm label not found"))?;
 
@@ -206,7 +215,10 @@ async fn create_swarm_label(
             LabelError::Conflict(msg) => ErrorResponse::new(StatusCode::CONFLICT, &msg),
             _ => {
                 tracing::error!(?error, "failed to create swarm label");
-                ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to create swarm label")
+                ErrorResponse::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "failed to create swarm label",
+                )
             }
         })?;
 
@@ -232,7 +244,10 @@ async fn update_swarm_label(
         .await
         .map_err(|error| {
             tracing::error!(?error, %label_id, "failed to get swarm label");
-            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to get swarm label")
+            ErrorResponse::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to get swarm label",
+            )
         })?
         .ok_or_else(|| ErrorResponse::new(StatusCode::NOT_FOUND, "swarm label not found"))?;
 
@@ -257,14 +272,19 @@ async fn update_swarm_label(
         )
         .await
         .map_err(|error| match error {
-            LabelError::NotFound => ErrorResponse::new(StatusCode::NOT_FOUND, "swarm label not found"),
+            LabelError::NotFound => {
+                ErrorResponse::new(StatusCode::NOT_FOUND, "swarm label not found")
+            }
             LabelError::VersionMismatch => {
                 ErrorResponse::new(StatusCode::CONFLICT, "label version mismatch")
             }
             LabelError::Conflict(msg) => ErrorResponse::new(StatusCode::CONFLICT, &msg),
             _ => {
                 tracing::error!(?error, "failed to update swarm label");
-                ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to update swarm label")
+                ErrorResponse::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "failed to update swarm label",
+                )
             }
         })?;
 
@@ -289,7 +309,10 @@ async fn delete_swarm_label(
         .await
         .map_err(|error| {
             tracing::error!(?error, %label_id, "failed to get swarm label");
-            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to get swarm label")
+            ErrorResponse::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to get swarm label",
+            )
         })?
         .ok_or_else(|| ErrorResponse::new(StatusCode::NOT_FOUND, "swarm label not found"))?;
 
@@ -305,10 +328,15 @@ async fn delete_swarm_label(
     repo.delete(label_id, None)
         .await
         .map_err(|error| match error {
-            LabelError::NotFound => ErrorResponse::new(StatusCode::NOT_FOUND, "swarm label not found"),
+            LabelError::NotFound => {
+                ErrorResponse::new(StatusCode::NOT_FOUND, "swarm label not found")
+            }
             _ => {
                 tracing::error!(?error, "failed to delete swarm label");
-                ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to delete swarm label")
+                ErrorResponse::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "failed to delete swarm label",
+                )
             }
         })?;
 
@@ -334,7 +362,10 @@ async fn merge_swarm_labels(
         .await
         .map_err(|error| {
             tracing::error!(?error, %label_id, "failed to get target label");
-            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to get swarm label")
+            ErrorResponse::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to get swarm label",
+            )
         })?
         .ok_or_else(|| ErrorResponse::new(StatusCode::NOT_FOUND, "target swarm label not found"))?;
 
@@ -343,7 +374,10 @@ async fn merge_swarm_labels(
         .await
         .map_err(|error| {
             tracing::error!(?error, source_id = %payload.source_id, "failed to get source label");
-            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to get swarm label")
+            ErrorResponse::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to get swarm label",
+            )
         })?
         .ok_or_else(|| ErrorResponse::new(StatusCode::NOT_FOUND, "source swarm label not found"))?;
 
@@ -385,7 +419,10 @@ async fn merge_swarm_labels(
         .await
         .map_err(|error| {
             tracing::error!(?error, "failed to merge swarm labels");
-            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to merge swarm labels")
+            ErrorResponse::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to merge swarm labels",
+            )
         })?;
 
     Ok(Json(MergeLabelsResult {
@@ -434,7 +471,10 @@ async fn promote_to_swarm(
             LabelError::Conflict(msg) => ErrorResponse::new(StatusCode::CONFLICT, &msg),
             _ => {
                 tracing::error!(?error, "failed to promote label to swarm");
-                ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "failed to promote label to swarm")
+                ErrorResponse::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "failed to promote label to swarm",
+                )
             }
         })?;
 

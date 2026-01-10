@@ -10,7 +10,7 @@ use crate::{
     },
     config::RemoteServerConfig,
     mail::Mailer,
-    nodes::{backfill::BackfillRequestTracker, BackfillService, ConnectionManager},
+    nodes::{BackfillService, ConnectionManager, backfill::BackfillRequestTracker},
     services::LogCache,
 };
 
