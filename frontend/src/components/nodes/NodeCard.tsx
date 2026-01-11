@@ -50,7 +50,8 @@ export function NodeCard({ node, onClick }: NodeCardProps) {
           {node.capabilities.version && (
             <div className="text-xs text-muted-foreground font-mono">
               v{node.capabilities.version}
-              {node.capabilities.git_commit && ` (${node.capabilities.git_commit})`}
+              {node.capabilities.git_commit &&
+                ` (${node.capabilities.git_commit})`}
             </div>
           )}
           {node.capabilities.executors.length > 0 && (

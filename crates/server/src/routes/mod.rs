@@ -33,7 +33,7 @@ pub mod swarm_projects;
 pub mod swarm_templates;
 pub mod task_attempts;
 pub mod task_variables;
-pub mod tasks;
+pub mod tasks_new;
 pub mod templates;
 pub mod terminal;
 
@@ -50,7 +50,7 @@ pub async fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(dashboard::router(&deployment))
         .merge(projects::router(&deployment))
         .merge(drafts::router(&deployment))
-        .merge(tasks::router(&deployment))
+        .merge(tasks_new::router(&deployment))
         .merge(all_tasks::router(&deployment))
         .merge(task_attempts::router(&deployment))
         .merge(execution_processes::router(&deployment))

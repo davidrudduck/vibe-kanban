@@ -52,7 +52,9 @@ function TaskKanbanBoard({
               color={statusBoardColors[statusKey]}
               onAddTask={onCreateTask}
               sortDirection={sortDirections?.[statusKey]}
-              onSortToggle={onSortToggle ? () => onSortToggle(statusKey) : undefined}
+              onSortToggle={
+                onSortToggle ? () => onSortToggle(statusKey) : undefined
+              }
             />
             <KanbanCards>
               {items.map((item, index) => (

@@ -245,27 +245,29 @@ export function SwarmProjectsSection({
               {[...projects]
                 .sort((a, b) => a.name.localeCompare(b.name))
                 .map((project) => (
-                <SwarmProjectRow
-                  key={project.id}
-                  project={project}
-                  nodes={expandedProjectId === project.id ? expandedNodes : []}
-                  isLoadingNodes={
-                    expandedProjectId === project.id && isLoadingNodes
-                  }
-                  isExpanded={expandedProjectId === project.id}
-                  onToggleExpand={() => handleToggleExpand(project.id)}
-                  onEdit={() =>
-                    setEditingProject({
-                      ...project,
-                      metadata: project.metadata,
-                    })
-                  }
-                  onDelete={() => handleDelete(project)}
-                  onUnlinkNode={(nodeId) =>
-                    handleUnlinkNode(project.id, nodeId)
-                  }
-                />
-              ))}
+                  <SwarmProjectRow
+                    key={project.id}
+                    project={project}
+                    nodes={
+                      expandedProjectId === project.id ? expandedNodes : []
+                    }
+                    isLoadingNodes={
+                      expandedProjectId === project.id && isLoadingNodes
+                    }
+                    isExpanded={expandedProjectId === project.id}
+                    onToggleExpand={() => handleToggleExpand(project.id)}
+                    onEdit={() =>
+                      setEditingProject({
+                        ...project,
+                        metadata: project.metadata,
+                      })
+                    }
+                    onDelete={() => handleDelete(project)}
+                    onUnlinkNode={(nodeId) =>
+                      handleUnlinkNode(project.id, nodeId)
+                    }
+                  />
+                ))}
 
               {/* Merge button at bottom if multiple projects */}
               {projects.length > 1 && (

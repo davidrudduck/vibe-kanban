@@ -292,9 +292,7 @@ export function TemplatePicker({
 
         {/* Error state */}
         {error && !loading && (
-          <div className="text-center py-8 text-destructive">
-            {error}
-          </div>
+          <div className="text-center py-8 text-destructive">{error}</div>
         )}
 
         {/* Empty state - no results */}
