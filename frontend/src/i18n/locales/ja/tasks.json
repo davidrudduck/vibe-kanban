@@ -471,6 +471,8 @@
   "templatePicker": {
     "title": "テンプレートを挿入",
     "searchPlaceholder": "テンプレートを検索...",
-    "noResults": "テンプレートが見つかりません"
+    "noResults": "テンプレートが見つかりません",
+    "loadError": "テンプレートの読み込みに失敗しました",
+    "retry": "再試行"
   }
 }
