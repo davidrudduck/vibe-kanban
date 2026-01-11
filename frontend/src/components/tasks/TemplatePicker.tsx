@@ -291,8 +291,13 @@ export function TemplatePicker({
       <div className="overflow-y-auto flex-1 px-2 py-2">
         {/* Loading state */}
         {loading && (
-          <div className="flex justify-center py-8">
+          <div
+            className="flex justify-center py-8"
+            role="status"
+            aria-live="polite"
+          >
             <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
+            <span className="sr-only">{t('common:states.loading', 'Loading...')}</span>
           </div>
         )}
 
