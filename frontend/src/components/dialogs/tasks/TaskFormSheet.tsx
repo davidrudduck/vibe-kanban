@@ -145,6 +145,7 @@ const TaskFormSheetImpl = NiceModal.create<TaskFormSheetProps>((props) => {
   const [customTemplates, setCustomTemplates] = useState<PickerTemplate[]>([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [templateError, setTemplateError] = useState<string | null>(null);
+  const [templateRetryCount, setTemplateRetryCount] = useState(0);
 
   const { data: branches, isLoading: branchesLoading } =
     useProjectBranches(projectId);
@@ -550,7 +551,12 @@ const TaskFormSheetImpl = NiceModal.create<TaskFormSheetProps>((props) => {
     return () => {
       cancelled = true;
     };
-  }, [showTemplatePicker, t]);
+  }, [showTemplatePicker, t, templateRetryCount]);
+
+  // Template retry handler
+  const handleRetryTemplates = useCallback(() => {
+    setTemplateRetryCount((c) => c + 1);
+  }, []);
 
   // Template selection handler
   const handleTemplateSelect = useCallback(
@@ -1143,6 +1149,7 @@ const TaskFormSheetImpl = NiceModal.create<TaskFormSheetProps>((props) => {
         showDefaults={true}
         loading={loadingTemplates}
         error={templateError}
+        onRetry={handleRetryTemplates}
       />
     </div>
   );
