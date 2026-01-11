@@ -15,3 +15,14 @@ export {
 } from './utils';
 
 export type { Ok, Err, Result } from './utils';
+
+// Projects API
+export { projectsApi } from './projects';
+
+// Tasks API
+export { tasksApi } from './tasks';
+export type {
+  ProjectNodeInfo,
+  ListProjectNodesResponse,
+  TaskStreamConnectionInfoResponse,
+} from './tasks';
