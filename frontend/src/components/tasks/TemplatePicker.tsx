@@ -185,6 +185,7 @@ export function TemplatePicker({
   showDefaults = true,
   loading = false,
   error = null,
+  onRetry,
 }: TemplatePickerProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const isMobile = useIsMobile();
@@ -297,7 +298,14 @@ export function TemplatePicker({
 
         {/* Error state */}
         {error && !loading && (
-          <div className="text-center py-8 text-destructive">{error}</div>
+          <div className="flex flex-col items-center py-8 gap-3">
+            <div className="text-center text-destructive">{error}</div>
+            {onRetry && (
+              <Button variant="outline" size="sm" onClick={onRetry}>
+                {t('templatePicker.retry', 'Retry')}
+              </Button>
+            )}
+          </div>
         )}
 
         {/* Empty state - no results */}
