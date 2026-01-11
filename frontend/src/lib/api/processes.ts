@@ -2,7 +2,12 @@
  * Processes API namespace - Process management endpoints.
  */
 
-import type { ProcessInfo, ProcessFilter, KillScope, KillResult } from 'shared/types';
+import type {
+  ProcessInfo,
+  ProcessFilter,
+  KillScope,
+  KillResult,
+} from 'shared/types';
 import { makeRequest, handleApiResponse } from './utils';
 
 export const processesApi = {
