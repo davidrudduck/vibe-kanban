@@ -3,7 +3,6 @@
 use axum::{
     Extension, Json,
     extract::{Query, State},
-    http::StatusCode,
     response::Json as ResponseJson,
 };
 use db::models::{
@@ -705,19 +704,21 @@ pub async fn start_dev_server(
 
 pub async fn get_task_attempt_children(
     Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
     State(deployment): State<DeploymentImpl>,
-) -> Result<ResponseJson<ApiResponse<TaskRelationships>>, StatusCode> {
-    match Task::find_relationships_for_attempt(&deployment.db().pool, &task_attempt).await {
-        Ok(relationships) => Ok(ResponseJson(ApiResponse::success(relationships))),
-        Err(e) => {
-            tracing::error!(
-                "Failed to fetch relationships for task attempt {}: {}",
-                task_attempt.id,
-                e
-            );
-            Err(StatusCode::INTERNAL_SERVER_ERROR)
-        }
+) -> Result<ResponseJson<ApiResponse<TaskRelationships>>, ApiError> {
+    // For remote tasks, relationships are stored on the Hive - return empty
+    if remote_ctx.is_some() {
+        return Ok(ResponseJson(ApiResponse::success(TaskRelationships {
+            parent_task: None,
+            current_attempt: task_attempt,
+            children: vec![],
+        })));
     }
+
+    let relationships =
+        Task::find_relationships_for_attempt(&deployment.db().pool, &task_attempt).await?;
+    Ok(ResponseJson(ApiResponse::success(relationships)))
 }
 
 pub async fn stop_task_attempt_execution(
