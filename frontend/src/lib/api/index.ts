@@ -48,3 +48,18 @@ export { fileSystemApi, fileBrowserApi } from './filesystem';
 
 // Execution Processes API
 export { executionProcessesApi } from './execution';
+
+// Templates API
+export { templatesApi } from './templates';
+
+// Labels API
+export { labelsApi } from './labels';
+
+// MCP Servers API
+export { mcpServersApi } from './mcp';
+
+// Profiles API
+export { profilesApi } from './profiles';
+
+// Images API
+export { imagesApi } from './images';
