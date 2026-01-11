@@ -163,6 +163,11 @@ export interface TemplatePickerProps {
    * Error message to display if template loading failed
    */
   error?: string | null;
+
+  /**
+   * Callback to retry loading templates when an error occurred
+   */
+  onRetry?: () => void;
 }
 
 /**
