@@ -18,14 +18,23 @@ use local_deployment::message_queue::{
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError, middleware::load_task_attempt_middleware};
+use crate::{
+    DeploymentImpl, error::ApiError,
+    middleware::{RemoteTaskAttemptContext, load_task_attempt_middleware},
+};
 use deployment::Deployment;
 
 /// List all queued messages for a task attempt.
 pub async fn list_queued_messages(
     Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<Vec<QueuedMessage>>>, ApiError> {
+    // Message queue is local-only - remote tasks have no local queue
+    if remote_ctx.is_some() {
+        return Ok(ResponseJson(ApiResponse::success(vec![])));
+    }
+
     let messages = deployment
         .local_container()
         .message_queue()
@@ -41,9 +50,17 @@ const MAX_QUEUE_SIZE: usize = 50;
 /// Add a new message to the queue.
 pub async fn add_queued_message(
     Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
     State(deployment): State<DeploymentImpl>,
     ResponseJson(payload): ResponseJson<AddQueuedMessageRequest>,
 ) -> Result<ResponseJson<ApiResponse<QueuedMessage>>, ApiError> {
+    // Cannot modify message queue for remote task attempts
+    if remote_ctx.is_some() {
+        return Err(ApiError::BadRequest(
+            "Cannot modify message queue for remote task attempts".into(),
+        ));
+    }
+
     if payload.content.trim().is_empty() {
         return Err(ApiError::BadRequest(
             "Message content cannot be empty".into(),
@@ -150,9 +167,17 @@ pub async fn remove_queued_message(
 /// Reorder queued messages.
 pub async fn reorder_queued_messages(
     Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
     State(deployment): State<DeploymentImpl>,
     ResponseJson(payload): ResponseJson<ReorderQueuedMessagesRequest>,
 ) -> Result<ResponseJson<ApiResponse<Vec<QueuedMessage>>>, ApiError> {
+    // Cannot modify message queue for remote task attempts
+    if remote_ctx.is_some() {
+        return Err(ApiError::BadRequest(
+            "Cannot modify message queue for remote task attempts".into(),
+        ));
+    }
+
     let result = deployment
         .local_container()
         .message_queue()
@@ -170,8 +195,16 @@ pub async fn reorder_queued_messages(
 /// Clear all queued messages for a task attempt.
 pub async fn clear_queued_messages(
     Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    // Cannot modify message queue for remote task attempts
+    if remote_ctx.is_some() {
+        return Err(ApiError::BadRequest(
+            "Cannot modify message queue for remote task attempts".into(),
+        ));
+    }
+
     deployment
         .local_container()
         .message_queue()
