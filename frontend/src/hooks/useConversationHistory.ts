@@ -61,6 +61,7 @@ const loadingPatch: PatchTypeWithKey = {
     },
     content: '',
     timestamp: null,
+    metadata: null,
   },
   patchKey: 'loading',
   executionProcessId: '',
@@ -69,14 +70,8 @@ const loadingPatch: PatchTypeWithKey = {
 const nextActionPatch: (
   failed: boolean,
   execution_processes: number,
-  needs_setup: boolean,
-  setup_help_text?: string
-) => PatchTypeWithKey = (
-  failed,
-  execution_processes,
-  needs_setup,
-  setup_help_text
-) => ({
+  needs_setup: boolean
+) => PatchTypeWithKey = (failed, execution_processes, needs_setup) => ({
   type: 'NORMALIZED_ENTRY',
   content: {
     entry_type: {
@@ -84,10 +79,10 @@ const nextActionPatch: (
       failed: failed,
       execution_processes: execution_processes,
       needs_setup: needs_setup,
-      setup_help_text: setup_help_text ?? null,
     },
     content: '',
     timestamp: null,
+    metadata: null,
   },
   patchKey: 'next_action',
   executionProcessId: '',
@@ -108,6 +103,7 @@ const executionStartPatch = (
     },
     content: '',
     timestamp: startedAt,
+    metadata: null,
   },
   patchKey: `${processId}:execution_start`,
   executionProcessId: processId,
@@ -138,6 +134,7 @@ const executionEndPatch = (
       },
       content: '',
       timestamp: endedAt,
+      metadata: null,
     },
     patchKey: `${processId}:execution_end`,
     executionProcessId: processId,
@@ -316,7 +313,6 @@ export const useConversationHistory = ({
       let hasRunningProcess = false;
       let lastProcessFailedOrKilled = false;
       let needsSetup = false;
-      let setupHelpText: string | undefined;
 
       // Helper to get process name from executor action
       const getProcessName = (executorAction: ExecutorAction): string => {
@@ -388,6 +384,7 @@ export const useConversationHistory = ({
               },
               content: p.executionProcess.executor_action.typ.prompt,
               timestamp: null,
+              metadata: null,
             };
             const userPatch: PatchType = {
               type: 'NORMALIZED_ENTRY',
@@ -444,14 +441,10 @@ export const useConversationHistory = ({
               // Check if this failed process has a SetupRequired entry
               const hasSetupRequired = entriesExcludingUser.some((entry) => {
                 if (entry.type !== 'NORMALIZED_ENTRY') return false;
-                if (
+                return (
                   entry.content.entry_type.type === 'error_message' &&
                   entry.content.entry_type.error_type.type === 'setup_required'
-                ) {
-                  setupHelpText = entry.content.content;
-                  return true;
-                }
-                return false;
+                );
               });
 
               if (hasSetupRequired) {
@@ -546,6 +539,7 @@ export const useConversationHistory = ({
               },
               content: toolName,
               timestamp: null,
+              metadata: null,
             };
             const toolPatch: PatchType = {
               type: 'NORMALIZED_ENTRY',
@@ -587,8 +581,7 @@ export const useConversationHistory = ({
           nextActionPatch(
             lastProcessFailedOrKilled,
             Object.keys(executionProcessState).length,
-            needsSetup,
-            setupHelpText
+            needsSetup
           )
         );
       }

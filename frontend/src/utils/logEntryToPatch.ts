@@ -123,11 +123,11 @@ export function createNextActionPatch(
         failed: options.failed,
         execution_processes: options.executionProcesses,
         needs_setup: options.needsSetup,
-        setup_help_text: options.setupHelpText ?? null,
       },
       content: '',
       timestamp: null,
-    } as NormalizedEntry,
+      metadata: null,
+    },
   };
   return Object.assign({}, base, {
     patchKey: 'next_action',
