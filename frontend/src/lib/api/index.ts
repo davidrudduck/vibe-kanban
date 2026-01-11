@@ -26,3 +26,12 @@ export type {
   ListProjectNodesResponse,
   TaskStreamConnectionInfoResponse,
 } from './tasks';
+
+// Task Attempts API
+export { attemptsApi } from './attempts';
+
+// Task Variables API
+export { taskVariablesApi } from './taskVariables';
+
+// Commits API
+export { commitsApi } from './commits';
