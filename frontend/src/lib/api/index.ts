@@ -35,3 +35,16 @@ export { taskVariablesApi } from './taskVariables';
 
 // Commits API
 export { commitsApi } from './commits';
+
+// Health API
+export { healthApi } from './health';
+export type { HealthResponse } from './health';
+
+// Config API
+export { configApi } from './config';
+
+// Filesystem APIs
+export { fileSystemApi, fileBrowserApi } from './filesystem';
+
+// Execution Processes API
+export { executionProcessesApi } from './execution';
