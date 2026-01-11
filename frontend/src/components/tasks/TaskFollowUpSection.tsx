@@ -5,6 +5,7 @@ import {
   StopCircle,
   AlertCircle,
   ListPlus,
+  FileText,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -47,6 +48,7 @@ import { useDefaultVariant } from '@/hooks/follow-up/useDefaultVariant';
 import { buildResolveConflictsInstructions } from '@/lib/conflicts';
 import { insertImageMarkdownAtPosition } from '@/utils/markdownImages';
 import { useTranslation } from 'react-i18next';
+import { TemplatePicker, type Template } from '@/components/tasks/TemplatePicker';
 
 interface TaskFollowUpSectionProps {
   task: TaskWithAttemptStatus;
