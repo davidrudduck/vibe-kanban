@@ -63,3 +63,12 @@ export { profilesApi } from './profiles';
 
 // Images API
 export { imagesApi } from './images';
+
+// Approvals API
+export { approvalsApi } from './approvals';
+
+// OAuth API
+export { oauthApi } from './oauth';
+
+// Organizations API
+export { organizationsApi } from './organizations';
