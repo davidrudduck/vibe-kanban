@@ -24,7 +24,7 @@ use sqlx::Error as SqlxError;
 use utils::response::ApiResponse;
 
 use crate::{DeploymentImpl, error::ApiError};
-use crate::routes::tasks_new::types::{
+use crate::routes::tasks::types::{
     format_user_display_name, ArchiveTaskRequest, ArchiveTaskResponse,
 };
 
