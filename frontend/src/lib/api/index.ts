@@ -100,3 +100,10 @@ export { processesApi } from './processes';
 // Logs API
 export { logsApi } from './logs';
 export type { LogsPaginationParams } from './logs';
+
+// Terminal API
+export { terminalApi } from './terminal';
+export type { CreateTerminalSessionRequest } from './terminal';
+
+// Message Queue API
+export { messageQueueApi } from './messageQueue';
