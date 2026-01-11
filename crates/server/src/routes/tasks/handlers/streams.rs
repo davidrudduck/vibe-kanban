@@ -23,7 +23,7 @@ use crate::{
     error::ApiError,
     ws_util::{WsKeepAlive, run_ws_stream},
 };
-use crate::routes::tasks_new::types::TaskQuery;
+use crate::routes::tasks::types::TaskQuery;
 
 // ============================================================================
 // WebSocket Task Stream

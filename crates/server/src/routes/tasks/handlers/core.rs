@@ -24,7 +24,7 @@ use utils::response::ApiResponse;
 use uuid::Uuid;
 
 use crate::{DeploymentImpl, error::ApiError};
-use crate::routes::tasks_new::types::{CreateAndStartTaskRequest, TaskQuery};
+use crate::routes::tasks::types::{CreateAndStartTaskRequest, TaskQuery};
 use super::remote::{create_remote_task, delete_remote_task, update_remote_task};
 
 // ============================================================================
