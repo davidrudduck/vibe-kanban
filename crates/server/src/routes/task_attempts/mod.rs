@@ -167,6 +167,10 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/draft/queue", post(drafts::set_draft_queue))
         .route("/files", get(list_worktree_files))
         .route("/diff/ws", get(stream_task_attempt_diff_ws))
+        // These routes were added for node-to-node proxy support
+        .route("/children", get(get_task_attempt_children))
+        .route("/has-session-error", get(has_session_error))
+        .route("/fix-sessions", post(fix_sessions))
         .layer(from_fn_with_state(
             deployment.clone(),
             load_task_attempt_by_task_id_middleware,
