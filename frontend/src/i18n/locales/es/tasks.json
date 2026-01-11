@@ -471,6 +471,8 @@
   "templatePicker": {
     "title": "Insertar Plantilla",
     "searchPlaceholder": "Buscar plantillas...",
-    "noResults": "No se encontraron plantillas"
+    "noResults": "No se encontraron plantillas",
+    "loadError": "Error al cargar las plantillas",
+    "retry": "Reintentar"
   }
 }
