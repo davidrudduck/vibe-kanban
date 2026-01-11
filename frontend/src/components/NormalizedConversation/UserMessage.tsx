@@ -13,11 +13,14 @@ const UserMessage = ({
   content,
   executionProcessId,
   taskAttempt,
+  metadata,
 }: {
   content: string;
   executionProcessId?: string;
   taskAttempt?: TaskAttempt;
+  metadata?: Record<string, unknown> | null;
 }) => {
+  const isInjected = metadata?.injected === true;
   const [isEditing, setIsEditing] = useState(false);
   const retryHook = useProcessRetry(taskAttempt);
   const { capabilities } = useUserSystem();
@@ -78,6 +81,11 @@ const UserMessage = ({
     <div className={`py-2 ${greyed ? 'opacity-50 pointer-events-none' : ''}`}>
       <div className="group bg-background px-4 py-2 text-sm flex gap-2">
         <div className="flex-1 py-3">
+          {isInjected && (
+            <span className="text-xs text-muted-foreground mb-1 block">
+              (injected)
+            </span>
+          )}
           {showRetryEditor ? (
             <RetryEditorInline
               attempt={taskAttempt as TaskAttempt}
