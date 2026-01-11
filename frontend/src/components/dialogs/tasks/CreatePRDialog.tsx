@@ -13,11 +13,11 @@ import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import BranchSelector from '@/components/tasks/BranchSelector';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { attemptsApi } from '@/lib/api.ts';
+import { attemptsApi } from '@/lib/api';
 import { useTranslation } from 'react-i18next';
 
 import { GitBranch, TaskAttempt, TaskWithAttemptStatus } from 'shared/types';
-import { projectsApi } from '@/lib/api.ts';
+import { projectsApi } from '@/lib/api';
 import { Loader2 } from 'lucide-react';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { useAuth } from '@/hooks';

@@ -14,7 +14,7 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 //
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { imagesApi } from '@/lib/api.ts';
+import { imagesApi } from '@/lib/api';
 import type { TaskWithAttemptStatus } from 'shared/types';
 import {
   useBranchStatus,

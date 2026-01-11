@@ -30,6 +30,12 @@ export type {
 // Task Attempts API
 export { attemptsApi } from './attempts';
 
+// Re-export draft types used in hooks
+export type {
+  UpdateFollowUpDraftRequest,
+  UpdateRetryFollowUpDraftRequest,
+} from 'shared/types';
+
 // Task Variables API
 export { taskVariablesApi } from './taskVariables';
 

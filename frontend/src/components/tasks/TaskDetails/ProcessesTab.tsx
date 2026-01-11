@@ -9,7 +9,7 @@ import {
   Cog,
   ArrowLeft,
 } from 'lucide-react';
-import { executionProcessesApi } from '@/lib/api.ts';
+import { executionProcessesApi } from '@/lib/api';
 import { ProfileVariantBadge } from '@/components/common/ProfileVariantBadge.tsx';
 import { useExecutionProcesses } from '@/hooks/useExecutionProcesses';
 import ProcessLogsViewer from './ProcessLogsViewer';
