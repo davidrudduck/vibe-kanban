@@ -87,3 +87,16 @@ export { swarmLabelsApi } from './swarmLabels';
 
 // Swarm Templates API
 export { swarmTemplatesApi } from './swarmTemplates';
+
+// Backups API
+export { backupsApi } from './backups';
+
+// Diagnostics API
+export { diagnosticsApi } from './diagnostics';
+
+// Processes API
+export { processesApi } from './processes';
+
+// Logs API
+export { logsApi } from './logs';
+export type { LogsPaginationParams } from './logs';
