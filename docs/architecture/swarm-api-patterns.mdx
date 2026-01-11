@@ -1,0 +1,288 @@
+---
+title: "Swarm API Patterns"
+description: "Patterns for handling remote task attempts and cross-node proxy requests in the swarm architecture"
+---
+
+This document describes the patterns used to handle API requests for remote task attempts in the vibe-kanban swarm architecture.
+
+## Overview
+
+In a swarm deployment, tasks and task attempts can be viewed from any node, but the actual data lives on different nodes:
+
+- **Hive (PostgreSQL)**: Stores swarm-level data (tasks, labels, templates)
+- **Owning Node (SQLite)**: Stores execution data (attempts, processes, logs)
+- **Viewing Node (SQLite)**: Has cached swarm data but not execution data
+
+When a user views a remote task attempt (one that belongs to another node), API handlers must decide how to respond based on where the data lives.
+
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         USER REQUEST FLOW                               │
+└─────────────────────────────────────────────────────────────────────────┘
+
+User Browser ──→ Viewing Node (Node A)
+                      │
+                      ├─→ Is task attempt local? ──→ Query local SQLite
+                      │
+                      └─→ Is task attempt remote?
+                              │
+                              ├─→ Read operation? ──→ Return fallback value
+                              │
+                              └─→ Write operation? ──→ Proxy to owning node
+                                                            │
+                                                            ▼
+                                                    Owning Node (Node B)
+                                                            │
+                                                            ▼
+                                                    Execute & return
+```
+
+## Remote Context Detection
+
+The middleware injects `RemoteTaskAttemptContext` when a task attempt belongs to a remote project:
+
+```rust
+/// Context for remote task attempt operations.
+///
+/// Injected into request extensions when the task attempt belongs to a
+/// remote project (project.is_remote == true).
+#[derive(Debug, Clone)]
+pub struct RemoteTaskAttemptContext {
+    /// The UUID of the remote node that owns this task's project
+    pub node_id: Uuid,
+    /// The public URL of the remote node (e.g., "https://node.example.com")
+    pub node_url: Option<String>,
+    /// Current status of the remote node ("online", "offline", etc.)
+    pub node_status: Option<String>,
+    /// The shared_task_id used for cross-node routing
+    pub task_id: Uuid,
+}
+```
+
+Handlers extract this as an optional extension:
+
+```rust
+pub async fn my_handler(
+    Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,  // None if local
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<MyResponse>>, ApiError> {
+    // Handle remote vs local
+}
+```
+
+## Three Patterns for Remote Handling
+
+### Pattern 1: Read Operations with Local-Only Data → Return Fallback
+
+For data that only exists locally (in-memory queues, local sessions), return appropriate empty/false values:
+
+```rust
+pub async fn list_queued_messages(
+    Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<Vec<QueuedMessage>>>, ApiError> {
+    // Message queue is local-only - remote tasks have no local queue
+    if remote_ctx.is_some() {
+        return Ok(ResponseJson(ApiResponse::success(vec![])));
+    }
+
+    // Local logic...
+    let messages = deployment.local_container().message_queue().list(task_attempt.id).await;
+    Ok(ResponseJson(ApiResponse::success(messages)))
+}
+```
+
+**When to use:** The data is inherently local (in-memory state, local sessions, local caches).
+
+**Examples:**
+- `list_queued_messages` → Returns empty `Vec<QueuedMessage>`
+- `has_session_error` → Returns `false`
+- `get_task_attempt_children` → Returns empty `TaskRelationships`
+
+### Pattern 2: Write Operations → Proxy to Owning Node
+
+For operations that modify state, proxy the request to the owning node:
+
+```rust
+pub async fn stop_task_attempt_execution(
+    Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    // Check if this is a remote task attempt that should be proxied
+    if let Some(proxy_info) = check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))? {
+        tracing::debug!(
+            node_id = %proxy_info.node_id,
+            shared_task_id = %proxy_info.target_id,
+            "Proxying stop_task_attempt_execution to remote node"
+        );
+
+        let path = format!("/task-attempts/by-task-id/{}/stop", proxy_info.target_id);
+        let response: ApiResponse<()> = deployment
+            .node_proxy_client()
+            .proxy_post(&proxy_info.node_url, &path, &(), proxy_info.node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
+    // Local execution...
+    deployment.container().try_stop(&task_attempt).await;
+    Ok(ResponseJson(ApiResponse::success(())))
+}
+```
+
+**When to use:** The operation modifies state on the owning node (stop execution, fix sessions, git operations).
+
+**Examples:**
+- `stop_task_attempt_execution` → Proxy POST to `/task-attempts/by-task-id/{id}/stop`
+- `fix_sessions` → Proxy POST to `/task-attempts/by-task-id/{id}/fix-sessions`
+
+### Pattern 3: Write Operations with Local-Only Data → Reject
+
+For write operations that can't be proxied (e.g., in-memory queues), reject with an error:
+
+```rust
+pub async fn add_queued_message(
+    Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
+    State(deployment): State<DeploymentImpl>,
+    ResponseJson(payload): ResponseJson<AddQueuedMessageRequest>,
+) -> Result<ResponseJson<ApiResponse<QueuedMessage>>, ApiError> {
+    // Cannot modify message queue for remote task attempts
+    if remote_ctx.is_some() {
+        return Err(ApiError::BadRequest(
+            "Cannot modify message queue for remote task attempts".into(),
+        ));
+    }
+
+    // Local logic...
+}
+```
+
+**When to use:** The operation modifies local-only state that doesn't make sense to proxy.
+
+**Examples:**
+- `add_queued_message` → Returns `BadRequest`
+- `reorder_queued_messages` → Returns `BadRequest`
+- `clear_queued_messages` → Returns `BadRequest`
+
+## The `check_remote_task_attempt_proxy` Helper
+
+Located in `crates/server/src/proxy.rs`, this helper validates remote context and returns proxy info:
+
+```rust
+pub fn check_remote_task_attempt_proxy(
+    remote_ctx: Option<&RemoteTaskAttemptContext>,
+) -> Result<Option<RemoteProxyInfo>, ApiError> {
+    match remote_ctx {
+        Some(ctx) => {
+            // Check if the node is online
+            if ctx.node_status.as_deref() != Some("online") {
+                return Err(ApiError::BadGateway(format!(
+                    "Remote node '{}' is offline",
+                    ctx.node_id
+                )));
+            }
+
+            // Check if we have a URL to proxy to
+            let node_url = ctx.node_url.as_ref().ok_or_else(|| {
+                ApiError::BadGateway(format!(
+                    "Remote node '{}' has no public URL configured",
+                    ctx.node_id
+                ))
+            })?;
+
+            Ok(Some(RemoteProxyInfo {
+                node_url: node_url.clone(),
+                node_id: ctx.node_id,
+                target_id: ctx.task_id,
+            }))
+        }
+        None => Ok(None),
+    }
+}
+```
+
+**Return values:**
+- `Ok(None)` → Local operation, proceed normally
+- `Ok(Some(info))` → Remote operation, use info to proxy
+- `Err(ApiError::BadGateway)` → Remote node offline or no URL configured
+
+## The `by-task-id` Router for Proxy Requests
+
+When a node proxies a request to another node, it uses a special route prefix:
+
+```text
+/api/task-attempts/by-task-id/{shared_task_id}/...
+```
+
+This router uses `load_task_attempt_by_task_id_middleware` which:
+1. Looks up the task attempt by `shared_task_id` (swarm task ID)
+2. Validates the proxy authentication token
+3. Injects the `TaskAttempt` extension
+
+The `by_task_id_router` must include all endpoints that may be proxied:
+
+```rust
+let by_task_id_router = Router::new()
+    .route("/follow-up", post(follow_up))
+    .route("/stop", post(stop_task_attempt_execution))
+    .route("/branch-status", get(get_task_attempt_branch_status))
+    // ... other routes ...
+    .route("/children", get(get_task_attempt_children))
+    .route("/has-session-error", get(has_session_error))
+    .route("/fix-sessions", post(fix_sessions))
+    .layer(from_fn_with_state(
+        deployment.clone(),
+        load_task_attempt_by_task_id_middleware,
+    ));
+```
+
+## Decision Matrix
+
+| Endpoint | Data Location | Remote Behavior |
+|----------|---------------|-----------------|
+| `GET /children` | Local SQLite | Return empty `TaskRelationships` |
+| `GET /has-session-error` | Local SQLite | Return `false` |
+| `GET /message-queue` | In-memory | Return empty array |
+| `POST /message-queue` | In-memory | Reject with `BadRequest` |
+| `POST /stop` | Local process | Proxy to owning node |
+| `POST /fix-sessions` | Local SQLite | Proxy to owning node |
+| `POST /follow-up` | Local process | Proxy to owning node |
+| `GET /logs/*` | Local SQLite | Proxy to owning node |
+
+## Error Handling
+
+Remote operations can fail in several ways:
+
+| Scenario | Error | HTTP Status |
+|----------|-------|-------------|
+| Remote node offline | `ApiError::BadGateway("Remote node 'X' is offline")` | 502 |
+| Remote node no URL | `ApiError::BadGateway("Remote node 'X' has no public URL")` | 502 |
+| Write on local-only data | `ApiError::BadRequest("Cannot modify X for remote task")` | 400 |
+| Proxy request failed | `ApiError::Internal(...)` | 500 |
+
+## Adding New Endpoints
+
+When adding a new endpoint that handles task attempts:
+
+1. **Determine data location**: Is the data local-only, on the owning node, or on the Hive?
+
+2. **Add remote context extraction**:
+   ```rust
+   remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
+   ```
+
+3. **Handle remote case first** (early return):
+   ```rust
+   if remote_ctx.is_some() {
+       // Return fallback, proxy, or reject
+   }
+   ```
+
+4. **Add to `by_task_id_router`** if the endpoint may receive proxied requests.
+
+5. **Add tests** for both local and remote cases.
