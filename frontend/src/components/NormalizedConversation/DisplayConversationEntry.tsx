@@ -821,6 +821,7 @@ function DisplayConversationEntry({
         content={entry.content}
         executionProcessId={executionProcessId}
         taskAttempt={taskAttempt}
+        metadata={entry.metadata}
       />
     );
   }
