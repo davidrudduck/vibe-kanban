@@ -71,4 +71,22 @@ describe('TemplatePicker', () => {
       ).not.toBeInTheDocument();
     });
   });
+
+  describe('Accessibility', () => {
+    it('loading spinner has role="status"', () => {
+      render(<TemplatePicker {...baseProps} loading />);
+      expect(screen.getByRole('status')).toBeInTheDocument();
+    });
+
+    it('loading spinner has aria-live="polite"', () => {
+      render(<TemplatePicker {...baseProps} loading />);
+      const status = screen.getByRole('status');
+      expect(status).toHaveAttribute('aria-live', 'polite');
+    });
+
+    it('loading spinner has sr-only text', () => {
+      render(<TemplatePicker {...baseProps} loading />);
+      expect(screen.getByText(/loading/i)).toHaveClass('sr-only');
+    });
+  });
 });
