@@ -72,3 +72,18 @@ export { oauthApi } from './oauth';
 
 // Organizations API
 export { organizationsApi } from './organizations';
+
+// Dashboard API
+export { dashboardApi } from './dashboard';
+
+// Nodes API (swarm/hive architecture)
+export { nodesApi } from './nodes';
+
+// Swarm Projects API
+export { swarmProjectsApi } from './swarmProjects';
+
+// Swarm Labels API
+export { swarmLabelsApi } from './swarmLabels';
+
+// Swarm Templates API
+export { swarmTemplatesApi } from './swarmTemplates';
