@@ -534,8 +534,6 @@ HOST=0.0.0.0 pnpm run dev            # Network-accessible dev server
 ### Stopping the Server
 ```bash
 pnpm run stop                         # Stop instance for current directory
-pnpm run stop --list                  # List all running instances with ports
-pnpm run stop --all                   # Stop all running instances
 pnpm run stop /path/to/project        # Stop a specific project's instance
 ```
 
