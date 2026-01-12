@@ -386,4 +386,41 @@ mod tests {
             result
         );
     }
+
+    /// Test that reject_if_remote returns NotFound for missing task.
+    /// This test verifies that when a task attempt references a non-existent
+    /// task_id, the function correctly returns a NotFound error.
+    #[tokio::test]
+    async fn test_reject_if_remote_returns_not_found_for_missing_task() {
+        use chrono::Utc;
+
+        let (pool, _temp_dir) = create_test_pool().await;
+
+        // Create a fake TaskAttempt with a non-existent task_id
+        // Note: This attempt is NOT in the database - we construct it manually
+        let fake_attempt = TaskAttempt {
+            id: Uuid::new_v4(),
+            task_id: Uuid::new_v4(), // Non-existent task
+            container_ref: None,
+            branch: "test-branch".to_string(),
+            target_branch: "main".to_string(),
+            executor: "CLAUDE_CODE".to_string(),
+            worktree_deleted: false,
+            setup_completed_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            hive_synced_at: None,
+            hive_assignment_id: None,
+        };
+
+        // Call reject_if_remote - should return NotFound for missing task
+        let result = reject_if_remote(&pool, &fake_attempt).await;
+
+        // Verify that the result is Err(ApiError::NotFound(_))
+        assert!(
+            matches!(result, Err(ApiError::NotFound(ref msg)) if msg.contains("not found")),
+            "Expected NotFound error for missing task, got: {:?}",
+            result
+        );
+    }
 }
