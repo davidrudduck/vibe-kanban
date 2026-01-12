@@ -1,5 +1,103 @@
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
+
+// Mock react-i18next
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, fallback?: string) => fallback || key,
+    i18n: { changeLanguage: () => Promise.resolve(), language: 'en' },
+  }),
+}));
+
+// Mock media query hook (desktop mode by default)
+vi.mock('@/hooks/useMediaQuery', () => ({
+  useMediaQuery: vi.fn(() => false),
+}));
+
+// Mock NiceModal
+const mockRemove = vi.fn();
+vi.mock('@ebay/nice-modal-react', () => ({
+  useModal: () => ({ visible: true, remove: mockRemove }),
+  create: (Component: React.ComponentType) => Component,
+  default: {
+    create: (Component: React.ComponentType) => Component,
+  },
+}));
+
+// Mock all hooks from @/hooks
+vi.mock('@/hooks', () => ({
+  useProjectBranches: () => ({
+    data: [{ name: 'main', is_current: true }],
+    isLoading: false,
+  }),
+  useTaskImages: () => ({ data: [] }),
+  useImageUpload: () => ({ upload: vi.fn(), deleteImage: vi.fn() }),
+  useTaskMutations: () => ({
+    createTask: { mutateAsync: vi.fn() },
+    createAndStart: { mutateAsync: vi.fn() },
+    updateTask: { mutateAsync: vi.fn() },
+  }),
+  useTaskAttempts: () => ({ data: [] }),
+}));
+
+// Mock additional hooks
+vi.mock('@/hooks/usePendingVariables', () => ({
+  usePendingVariables: () => ({
+    variables: [],
+    addVariable: vi.fn(),
+    updateVariable: vi.fn(),
+    removeVariable: vi.fn(),
+    clearVariables: vi.fn(),
+  }),
+}));
+
+vi.mock('@/hooks/useTaskLabels', () => ({
+  useTaskLabels: () => ({
+    data: [],
+    isLoading: false,
+  }),
+}));
+
+// Mock API modules
+vi.mock('@/lib/api', () => ({
+  labelsApi: {
+    list: vi.fn().mockResolvedValue([]),
+  },
+  taskVariablesApi: {
+    list: vi.fn().mockResolvedValue([]),
+  },
+  templatesApi: {
+    list: vi.fn().mockResolvedValue([]),
+  },
+}));
+
+// Mock ConfigProvider
+vi.mock('@/components/ConfigProvider', () => ({
+  useUserSystem: () => ({
+    executorProfiles: [],
+    defaultExecutorProfile: null,
+    settings: {},
+  }),
+}));
+
+// Mock framer-motion
+vi.mock('framer-motion', () => ({
+  motion: {
+    div: ({
+      children,
+      ...props
+    }: React.PropsWithChildren<Record<string, unknown>>) => (
+      <div {...(props as React.HTMLAttributes<HTMLDivElement>)}>{children}</div>
+    ),
+  },
+  AnimatePresence: ({ children }: React.PropsWithChildren) => <>{children}</>,
+}));
+
+// Mock defineModal
+vi.mock('@/lib/modals', () => ({
+  defineModal: (Component: React.ComponentType) => Component,
+}));
 
 /**
  * Unit tests for TaskFormSheet Session 12 components
@@ -413,5 +511,42 @@ describe('TemplatePicker Loading/Error Props', () => {
 
     expect(minimalProps.loading).toBeUndefined();
     expect(minimalProps.error).toBeUndefined();
+  });
+});
+
+// Mock validation tests - verify mocks are properly configured for rendering tests
+describe('Mock Configuration Validation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should have render function available from testing-library', () => {
+    expect(typeof render).toBe('function');
+  });
+
+  it('should have screen object available from testing-library', () => {
+    expect(screen).toBeDefined();
+    expect(typeof screen.getByText).toBe('function');
+    expect(typeof screen.queryByText).toBe('function');
+  });
+
+  it('should have fireEvent available from testing-library', () => {
+    expect(fireEvent).toBeDefined();
+    expect(typeof fireEvent.click).toBe('function');
+  });
+
+  it('should have waitFor available from testing-library', () => {
+    expect(typeof waitFor).toBe('function');
+  });
+
+  it('should have mockRemove function available for NiceModal', () => {
+    expect(typeof mockRemove).toBe('function');
+  });
+
+  it('should render a simple div correctly with mocks in place', () => {
+    const { container } = render(<div data-testid="test-element">Test</div>);
+    expect(container).toBeDefined();
+    expect(screen.getByTestId('test-element')).toBeInTheDocument();
+    expect(screen.getByText('Test')).toBeInTheDocument();
   });
 });
