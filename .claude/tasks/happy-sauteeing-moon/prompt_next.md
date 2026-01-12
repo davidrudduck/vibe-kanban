@@ -255,7 +255,7 @@ Task({
   prompt: "Execute task 005..."
 })
 ```
-```
+```bash
 
 ---
 
@@ -287,3 +287,414 @@ Using the recommended model selection for this 9-task plan:
 - Use Opus for validation to catch any Sonnet/Haiku errors
 - Sonnet handles the bulk of implementation safely given structured plans
 - Haiku only for truly mechanical tasks
+
+---
+
+## 6. Task File Model Specification
+
+**Question:** Can task files specify which model to use?
+
+**Yes.** Add a `model` field to the task frontmatter:
+
+```markdown
+---
+name: Add test module structure
+status: open
+created: 2026-01-12T00:16:47Z
+updated: 2026-01-12T00:16:47Z
+depends_on: []
+conflicts_with: []
+model: haiku          # NEW FIELD: haiku | sonnet | opus
+complexity: XS        # NEW FIELD: XS | S | M | L | XL
+tdd_phase: setup      # NEW FIELD: setup | red | green | refactor | verify
+---
+```
+
+**Model Selection Rules by Complexity:**
+
+| Complexity | Default Model | Override Allowed? |
+|------------|---------------|-------------------|
+| XS | haiku | Yes, to sonnet |
+| S | sonnet | Yes, to haiku or opus |
+| M | sonnet | Yes, to opus |
+| L | opus | No |
+| XL | opus | No |
+
+**Model Selection Rules by TDD Phase:**
+
+| TDD Phase | Recommended Model | Rationale |
+|-----------|-------------------|-----------|
+| setup | haiku | Scaffolding is mechanical |
+| red | sonnet | Writing tests needs moderate reasoning |
+| green | sonnet | Implementation from spec is straightforward |
+| refactor | sonnet | Following patterns is straightforward |
+| verify | opus | Validation needs strong reasoning |
+
+---
+
+## 7. Sub-Agent Execution Architecture
+
+**Question:** Can we execute tasks using sub-agents?
+
+**Yes.** This provides significant advantages:
+
+### Architecture
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│  Orchestrator Agent (Opus 4.5)                              │
+│  - Reads plan and task files                                │
+│  - Determines execution order from dependencies             │
+│  - Spawns sub-agents with appropriate model                 │
+│  - Validates results between tasks                          │
+│  - Handles errors and retries                               │
+└─────────────────────────────────────────────────────────────┘
+           │                    │                    │
+           ▼                    ▼                    ▼
+┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+│  Task 001       │  │  Task 002       │  │  Task 003       │
+│  Model: haiku   │  │  Model: sonnet  │  │  Model: sonnet  │
+│  Phase: setup   │  │  Phase: red     │  │  Phase: red     │
+└─────────────────┘  └─────────────────┘  └─────────────────┘
+```
+
+### Orchestrator Implementation
+
+```javascript
+// Orchestrator reads task files and spawns sub-agents
+async function executeTask(taskFile) {
+  const task = parseTaskFile(taskFile);
+
+  // Determine model from task metadata
+  const model = task.frontmatter.model || inferModel(task);
+
+  // Build focused prompt for sub-agent
+  const prompt = buildTaskPrompt(task);
+
+  // Execute via Task tool
+  const result = await Task({
+    subagent_type: "general-purpose",
+    model: model,
+    prompt: prompt,
+    description: `Task ${task.number}: ${task.name}`
+  });
+
+  // Validate result before proceeding
+  return validateTaskCompletion(task, result);
+}
+```
+
+### Sub-Agent Prompt Template
+
+```markdown
+# Task Execution: ${task.number} - ${task.name}
+
+## Context
+You are executing a single, well-defined task from an approved implementation plan.
+
+**Your model:** ${model}
+**TDD Phase:** ${task.tdd_phase}
+**Complexity:** ${task.complexity}
+
+## Task Specification
+${task.description}
+
+## Acceptance Criteria
+${task.acceptance_criteria}
+
+## Technical Details
+${task.technical_details}
+
+## Files to Modify
+${task.files_affected}
+
+## Constraints
+- ONLY modify files listed above
+- ONLY implement what is specified
+- Do NOT add features, refactor, or "improve" beyond spec
+- Do NOT run `cargo fmt --all` or `cargo clippy --all` (orchestrator handles this)
+
+## Completion Checklist
+Before returning, verify:
+- [ ] All acceptance criteria met
+- [ ] Only specified files modified
+- [ ] Code compiles: `cargo check -p ${crate}`
+- [ ] Tests pass: `cargo test -p ${crate} ${test_filter}`
+
+## Output Format
+Return a structured response:
+\`\`\`json
+{
+  "status": "complete" | "blocked" | "failed",
+  "files_modified": ["path/to/file.rs"],
+  "tests_passed": true,
+  "notes": "Any important observations",
+  "blockers": []  // If status is "blocked"
+}
+\`\`\`
+```
+
+### Benefits of Sub-Agent Execution
+
+| Benefit | Description |
+|---------|-------------|
+| **Cost optimization** | Use haiku for 40% of tasks, sonnet for 50%, opus for 10% |
+| **Context isolation** | Each task gets fresh context, no pollution |
+| **Parallel execution** | Independent tasks can run concurrently |
+| **Better error recovery** | Failed task doesn't lose other context |
+| **Cleaner git history** | One commit per task, clear attribution |
+
+---
+
+## 8. Improved Initializer Prompt
+
+**Goals:**
+1. Specify model per task
+2. Keep tasks within context limits
+3. Maintain TDD discipline
+4. Enable sub-agent execution
+
+### Revised Task Decomposition Section
+
+Replace the current "TASK 3: Decompose Plan into Specific, Actionable Tasks" with:
+
+```markdown
+## TASK 3: Decompose Plan into Executable Task Files
+
+### Task Sizing Rules (CRITICAL)
+
+**Maximum task size: S (Small)**
+- Each task must complete in < 1 hour
+- Each task must fit in < 50K tokens of context
+- Each task should modify ≤ 3 files
+- Each task should have ≤ 5 acceptance criteria
+
+**If a task exceeds these limits:**
+1. Split into multiple sequential tasks
+2. Add explicit dependencies between them
+3. Each sub-task gets its own TDD phase
+
+### TDD Phase Assignment
+
+**Every task MUST have a TDD phase:**
+
+| Phase | Description | Typical Tasks |
+|-------|-------------|---------------|
+| `setup` | Scaffolding, module structure, imports | Add test module, create file structure |
+| `red` | Write failing tests | Each test case is a separate task |
+| `green` | Make tests pass | Implementation of functionality |
+| `refactor` | Integrate, clean up | Apply to handlers, consolidate |
+| `verify` | Validate, document | Run linter, update docs |
+
+**TDD Sequencing:**
+```
+setup → red(1) → red(2) → red(3) → green → refactor(1) → refactor(2) → verify
+```text
+
+### Model Assignment Rules
+
+**Assign model based on task characteristics:**
+
+```markdown
+# In task frontmatter:
+model: haiku    # For: setup, simple verify, mechanical changes
+model: sonnet   # For: red, green, refactor, documentation
+model: opus     # For: complex debugging, architecture decisions
+```
+
+**Decision tree:**
+```text
+Is this scaffolding/boilerplate? → haiku
+Is this writing tests from spec? → sonnet
+Is this implementing from spec? → sonnet
+Is this running linter/formatter? → haiku
+Does this require judgment? → opus
+```
+
+### Task File Format (Enhanced)
+
+```markdown
+---
+name: [Descriptive Task Title]
+status: open
+created: [ISO datetime]
+updated: [ISO datetime]
+depends_on: []
+conflicts_with: []
+model: sonnet              # REQUIRED: haiku | sonnet | opus
+complexity: S              # REQUIRED: XS | S
+tdd_phase: red             # REQUIRED: setup | red | green | refactor | verify
+estimated_tokens: 25000    # OPTIONAL: helps with batching
+---
+
+# Task: [Task Title]
+
+## Description
+[2-3 sentences max. Be specific.]
+
+## Acceptance Criteria
+- [ ] Criterion 1 (specific, verifiable)
+- [ ] Criterion 2 (specific, verifiable)
+- [ ] Criterion 3 (specific, verifiable)
+[Maximum 5 criteria]
+
+## Files Affected
+- `path/to/file1.rs` - [what changes]
+- `path/to/file2.rs` - [what changes]
+[Maximum 3 files]
+
+## Implementation Spec
+[Exact code to add/modify, or precise instructions]
+[Include line numbers where possible]
+
+## Verification Command
+\`\`\`bash
+# Command to verify this task is complete
+cargo test -p server test_name_here
+\`\`\`
+
+## Dependencies
+- Depends on: [task numbers]
+- Blocks: [task numbers]
+
+## Effort Estimate
+- Size: XS | S
+- Tokens: ~25000
+- Time: < 30 min
+```
+
+### Task Batching for Parallel Execution
+
+**Group independent tasks for parallel sub-agent execution:**
+
+```markdown
+## Execution Batches
+
+### Batch 1 (Sequential - Setup)
+- 001: Add test module structure [haiku]
+
+### Batch 2 (Parallel - RED Phase)
+- 002: Write test_reject_if_remote_rejects [sonnet]
+- 003: Write test_reject_if_remote_allows [sonnet]
+- 004: Write test_reject_if_remote_not_found [sonnet]
+[These can run in parallel - no dependencies between them]
+
+### Batch 3 (Sequential - GREEN Phase)
+- 005: Implement reject_if_remote [sonnet]
+[Depends on all RED tests existing]
+
+### Batch 4 (Parallel - REFACTOR Phase)
+- 006: Integrate into update_queued_message [sonnet]
+- 007: Integrate into remove_queued_message [sonnet]
+[These can run in parallel - different files]
+
+### Batch 5 (Sequential - VERIFY Phase)
+- 008: Run formatter and linter [haiku]
+- 009: Update documentation [sonnet]
+```
+
+### Context Budget Planning
+
+**Calculate token budget for each task:**
+
+| Component | Estimated Tokens |
+|-----------|------------------|
+| System prompt | 5,000 |
+| Task file content | 2,000 |
+| File reads (3 files × 500 lines) | 15,000 |
+| Code generation | 5,000 |
+| Tool calls overhead | 3,000 |
+| **Total per task** | ~30,000 |
+
+**Haiku context limit:** 200K tokens → ~6 tasks safely
+**Sonnet context limit:** 200K tokens → ~6 tasks safely
+
+**Rule:** Each sub-agent executes exactly ONE task, then returns.
+
+---
+
+## 9. Session Variable Additions
+
+**Add these task variables for orchestration:**
+
+```markdown
+## ENDING THIS SESSION
+
+Set these variables using `mcp__vkswarm__set_task_variable`:
+
+| Variable | Value | Purpose |
+|----------|-------|---------|
+| SESSION | 1 | Current session number |
+| TASK | 001 | Next task to execute |
+| TASKS | .claude/tasks/{plan}/ | Task files directory |
+| TASKSMAX | 009 | Total task count |
+| EXECUTION_MODE | subagent | NEW: `subagent` or `sequential` |
+| BATCH_PARALLEL | true | NEW: Enable parallel execution |
+```
+
+---
+
+## 10. Validation Checkpoints
+
+**Add validation between batches:**
+
+```markdown
+## Orchestrator Validation Checkpoints
+
+After each batch, the orchestrator (Opus) should:
+
+1. **Verify all tasks in batch completed:**
+   ```bash
+   grep -l "status: done" .claude/tasks/{plan}/*.md | wc -l
+   ```
+
+2. **Run integration check:**
+   ```bash
+   cargo check --workspace
+   cargo test --workspace --no-run
+   ```
+
+3. **Check for scope creep:**
+   ```bash
+   git diff --stat origin/main
+   # Verify only expected files modified
+   ```
+
+4. **Proceed or rollback:**
+   - If all pass → continue to next batch
+   - If validation fails → rollback batch, diagnose, retry with opus
+```
+
+---
+
+## Summary: Initializer Prompt Improvements
+
+| Improvement | Impact |
+|-------------|--------|
+| Model field in frontmatter | 40-50% cost reduction |
+| TDD phase field | Better task categorization |
+| Complexity field | Automatic model selection |
+| Execution batches | Parallel sub-agent execution |
+| Token budgeting | Stay within context limits |
+| Verification commands | Clear completion criteria |
+| Validation checkpoints | Catch errors between batches |
+
+**Recommended execution flow:**
+
+```
+Initializer (Opus)
+    ↓
+Creates task files with model/phase/complexity
+    ↓
+Orchestrator (Opus)
+    ↓
+Spawns sub-agents per batch
+    ├── Batch 1: haiku (setup)
+    ├── Batch 2: sonnet ×3 parallel (red)
+    ├── Batch 3: sonnet (green)
+    ├── Batch 4: sonnet ×2 parallel (refactor)
+    └── Batch 5: haiku + sonnet (verify)
+    ↓
+Validator (Opus)
+    ↓
+Final review and merge
