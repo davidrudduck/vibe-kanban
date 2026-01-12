@@ -241,3 +241,12 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         )
         .merge(message_routes)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use db::test_utils::create_test_pool;
+    use uuid::Uuid;
+
+    // Tests for reject_if_remote helper function will be added in subsequent tasks
+}
