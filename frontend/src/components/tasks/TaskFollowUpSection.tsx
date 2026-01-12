@@ -48,7 +48,10 @@ import { useDefaultVariant } from '@/hooks/follow-up/useDefaultVariant';
 import { buildResolveConflictsInstructions } from '@/lib/conflicts';
 import { insertImageMarkdownAtPosition } from '@/utils/markdownImages';
 import { useTranslation } from 'react-i18next';
-import { TemplatePicker, type Template } from '@/components/tasks/TemplatePicker';
+import {
+  TemplatePicker,
+  type Template,
+} from '@/components/tasks/TemplatePicker';
 
 interface TaskFollowUpSectionProps {
   task: TaskWithAttemptStatus;
@@ -161,9 +164,12 @@ export function TaskFollowUpSection({
   }, []);
 
   // Handle template selection - append template content to message
-  const handleTemplateSelect = useCallback((template: Template) => {
-    setFollowUpMessage(prev => prev + template.content);
-  }, [setFollowUpMessage]);
+  const handleTemplateSelect = useCallback(
+    (template: Template) => {
+      setFollowUpMessage((prev) => prev + template.content);
+    },
+    [setFollowUpMessage]
+  );
 
   // Track whether the follow-up textarea is focused
   const [isTextareaFocused, setIsTextareaFocused] = useState(false);
