@@ -3,7 +3,6 @@
 use axum::{
     Extension, Json,
     extract::{Query, State},
-    http::StatusCode,
     response::Json as ResponseJson,
 };
 use db::models::{
@@ -705,19 +704,21 @@ pub async fn start_dev_server(
 
 pub async fn get_task_attempt_children(
     Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
     State(deployment): State<DeploymentImpl>,
-) -> Result<ResponseJson<ApiResponse<TaskRelationships>>, StatusCode> {
-    match Task::find_relationships_for_attempt(&deployment.db().pool, &task_attempt).await {
-        Ok(relationships) => Ok(ResponseJson(ApiResponse::success(relationships))),
-        Err(e) => {
-            tracing::error!(
-                "Failed to fetch relationships for task attempt {}: {}",
-                task_attempt.id,
-                e
-            );
-            Err(StatusCode::INTERNAL_SERVER_ERROR)
-        }
+) -> Result<ResponseJson<ApiResponse<TaskRelationships>>, ApiError> {
+    // For remote tasks, relationships are stored on the Hive - return empty
+    if remote_ctx.is_some() {
+        return Ok(ResponseJson(ApiResponse::success(TaskRelationships {
+            parent_task: None,
+            current_attempt: task_attempt,
+            children: vec![],
+        })));
     }
+
+    let relationships =
+        Task::find_relationships_for_attempt(&deployment.db().pool, &task_attempt).await?;
+    Ok(ResponseJson(ApiResponse::success(relationships)))
 }
 
 pub async fn stop_task_attempt_execution(
@@ -754,8 +755,26 @@ pub async fn stop_task_attempt_execution(
 /// Fix corrupted sessions by invalidating sessions from failed/killed execution processes
 pub async fn fix_sessions(
     Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<FixSessionsResponse>>, ApiError> {
+    // Proxy to owning node - this is a write operation
+    if let Some(proxy_info) = check_remote_task_attempt_proxy(remote_ctx.as_ref().map(|e| &e.0))? {
+        tracing::debug!(
+            node_id = %proxy_info.node_id,
+            shared_task_id = %proxy_info.target_id,
+            "Proxying fix_sessions to remote node"
+        );
+
+        let path = format!("/task-attempts/by-task-id/{}/fix-sessions", proxy_info.target_id);
+        let response: ApiResponse<FixSessionsResponse> = deployment
+            .node_proxy_client()
+            .proxy_post(&proxy_info.node_url, &path, &(), proxy_info.node_id)
+            .await?;
+
+        return Ok(ResponseJson(response));
+    }
+
     let pool = &deployment.db().pool;
 
     let invalidated = ExecutorSession::invalidate_failed_sessions(pool, task_attempt.id).await?;
@@ -778,8 +797,14 @@ pub async fn fix_sessions(
 /// 2. There are sessions from failed processes that can still be invalidated
 pub async fn has_session_error(
     Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<bool>>, ApiError> {
+    // Sessions are local-only - remote tasks have no local session
+    if remote_ctx.is_some() {
+        return Ok(ResponseJson(ApiResponse::success(false)));
+    }
+
     let pool = &deployment.db().pool;
 
     // Get latest coding agent execution
