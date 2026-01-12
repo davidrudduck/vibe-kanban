@@ -35,8 +35,6 @@ use deployment::Deployment;
 /// # Errors
 /// - `ApiError::NotFound` - If the task or project doesn't exist
 /// - `ApiError::BadRequest` - If the project is remote (`is_remote = true`)
-// TODO: Remove allow(dead_code) after integrating into handlers (Task 006/007)
-#[allow(dead_code)]
 async fn reject_if_remote(
     pool: &sqlx::SqlitePool,
     task_attempt: &TaskAttempt,
@@ -153,6 +151,9 @@ pub async fn update_queued_message(
     let task_attempt = TaskAttempt::find_by_id(&deployment.db().pool, params.task_attempt_id)
         .await?
         .ok_or_else(|| ApiError::NotFound("Task attempt not found".into()))?;
+
+    // Check if this belongs to a remote project (bypass middleware needs manual check)
+    reject_if_remote(&deployment.db().pool, &task_attempt).await?;
 
     // Validate content if provided
     if let Some(ref content) = payload.content
