@@ -11,19 +11,16 @@ use axum::{
 use db::models::{project::Project, task::Task};
 use deployment::Deployment;
 use futures_util::TryStreamExt;
-use remote::routes::{
-    projects::ListProjectNodesResponse,
-    tasks::TaskStreamConnectionInfoResponse,
-};
+use remote::routes::{projects::ListProjectNodesResponse, tasks::TaskStreamConnectionInfoResponse};
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
+use crate::routes::tasks::types::TaskQuery;
 use crate::{
     DeploymentImpl,
     error::ApiError,
     ws_util::{WsKeepAlive, run_ws_stream},
 };
-use crate::routes::tasks::types::TaskQuery;
 
 // ============================================================================
 // WebSocket Task Stream
