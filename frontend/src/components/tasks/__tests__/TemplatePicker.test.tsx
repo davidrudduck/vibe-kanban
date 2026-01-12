@@ -45,13 +45,19 @@ describe('TemplatePicker', () => {
   describe('Retry Button', () => {
     it('shows retry button when error and onRetry provided', () => {
       const onRetry = vi.fn();
-      render(<TemplatePicker {...baseProps} error="Failed" onRetry={onRetry} />);
-      expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+      render(
+        <TemplatePicker {...baseProps} error="Failed" onRetry={onRetry} />
+      );
+      expect(
+        screen.getByRole('button', { name: /retry/i })
+      ).toBeInTheDocument();
     });
 
     it('calls onRetry when retry button clicked', () => {
       const onRetry = vi.fn();
-      render(<TemplatePicker {...baseProps} error="Failed" onRetry={onRetry} />);
+      render(
+        <TemplatePicker {...baseProps} error="Failed" onRetry={onRetry} />
+      );
       fireEvent.click(screen.getByRole('button', { name: /retry/i }));
       expect(onRetry).toHaveBeenCalledTimes(1);
     });
