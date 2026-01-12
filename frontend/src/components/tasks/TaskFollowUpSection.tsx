@@ -138,6 +138,7 @@ export function TaskFollowUpSection({
 
   // Presentation-only: show/hide image upload panel
   const [showImageUpload, setShowImageUpload] = useState(false);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const imageUploadRef = useRef<ImageUploadSectionHandle>(null);
 
   // Track insert position for pasted images (sequential insertion)
@@ -158,6 +159,11 @@ export function TaskFollowUpSection({
   const handleSelectionChange = useCallback((cursorPosition: number) => {
     insertPositionRef.current = cursorPosition;
   }, []);
+
+  // Handle template selection - append template content to message
+  const handleTemplateSelect = useCallback((template: Template) => {
+    setFollowUpMessage(prev => prev + template.content);
+  }, [setFollowUpMessage]);
 
   // Track whether the follow-up textarea is focused
   const [isTextareaFocused, setIsTextareaFocused] = useState(false);
