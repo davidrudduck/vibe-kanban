@@ -245,8 +245,77 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::ApiError;
     use db::test_utils::create_test_pool;
     use uuid::Uuid;
 
-    // Tests for reject_if_remote helper function will be added in subsequent tasks
+    /// Test that reject_if_remote returns BadRequest for remote projects.
+    /// This test verifies that when a task attempt belongs to a remote project
+    /// (is_remote = true, source_node_id set), the function correctly rejects
+    /// the operation with a BadRequest error.
+    #[tokio::test]
+    async fn test_reject_if_remote_rejects_remote_project() {
+        let (pool, _temp_dir) = create_test_pool().await;
+
+        // Create a remote project (is_remote = true, source_node_id set)
+        let project_id = Uuid::new_v4();
+        let source_node_id = Uuid::new_v4();
+        sqlx::query(
+            r#"INSERT INTO projects (id, name, git_repo_path, is_remote, source_node_id)
+               VALUES ($1, $2, $3, $4, $5)"#,
+        )
+        .bind(project_id)
+        .bind("Remote Test Project")
+        .bind("/tmp/test-remote")
+        .bind(true)
+        .bind(source_node_id)
+        .execute(&pool)
+        .await
+        .expect("Failed to create remote project");
+
+        // Create a task associated with the remote project
+        let task_id = Uuid::new_v4();
+        sqlx::query(
+            r#"INSERT INTO tasks (id, project_id, title, status)
+               VALUES ($1, $2, $3, $4)"#,
+        )
+        .bind(task_id)
+        .bind(project_id)
+        .bind("Test Task")
+        .bind("todo")
+        .execute(&pool)
+        .await
+        .expect("Failed to create task");
+
+        // Create a task attempt
+        let attempt_id = Uuid::new_v4();
+        sqlx::query(
+            r#"INSERT INTO task_attempts (id, task_id, executor, branch, target_branch)
+               VALUES ($1, $2, $3, $4, $5)"#,
+        )
+        .bind(attempt_id)
+        .bind(task_id)
+        .bind("CLAUDE_CODE")
+        .bind("test-branch")
+        .bind("main")
+        .execute(&pool)
+        .await
+        .expect("Failed to create task attempt");
+
+        // Load the task attempt
+        let task_attempt = TaskAttempt::find_by_id(&pool, attempt_id)
+            .await
+            .expect("Failed to query task attempt")
+            .expect("Task attempt not found");
+
+        // Call reject_if_remote - should return BadRequest for remote project
+        let result = reject_if_remote(&pool, &task_attempt).await;
+
+        // Verify that the result is Err(ApiError::BadRequest(_))
+        assert!(
+            matches!(result, Err(ApiError::BadRequest(ref msg)) if msg.contains("remote")),
+            "Expected BadRequest error for remote project, got: {:?}",
+            result
+        );
+    }
 }
