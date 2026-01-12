@@ -5,6 +5,7 @@ import {
   StopCircle,
   AlertCircle,
   ListPlus,
+  FileText,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -47,6 +48,10 @@ import { useDefaultVariant } from '@/hooks/follow-up/useDefaultVariant';
 import { buildResolveConflictsInstructions } from '@/lib/conflicts';
 import { insertImageMarkdownAtPosition } from '@/utils/markdownImages';
 import { useTranslation } from 'react-i18next';
+import {
+  TemplatePicker,
+  type Template,
+} from '@/components/tasks/TemplatePicker';
 
 interface TaskFollowUpSectionProps {
   task: TaskWithAttemptStatus;
@@ -136,6 +141,7 @@ export function TaskFollowUpSection({
 
   // Presentation-only: show/hide image upload panel
   const [showImageUpload, setShowImageUpload] = useState(false);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const imageUploadRef = useRef<ImageUploadSectionHandle>(null);
 
   // Track insert position for pasted images (sequential insertion)
@@ -156,6 +162,14 @@ export function TaskFollowUpSection({
   const handleSelectionChange = useCallback((cursorPosition: number) => {
     insertPositionRef.current = cursorPosition;
   }, []);
+
+  // Handle template selection - append template content to message
+  const handleTemplateSelect = useCallback(
+    (template: Template) => {
+      setFollowUpMessage((prev) => prev + template.content);
+    },
+    [setFollowUpMessage]
+  );
 
   // Track whether the follow-up textarea is focused
   const [isTextareaFocused, setIsTextareaFocused] = useState(false);
@@ -535,7 +549,8 @@ export function TaskFollowUpSection({
         {/* Always-visible action bar */}
         <div className="border-t bg-background p-4">
           <div className="flex flex-row gap-2 items-center">
-            <div className="flex-1 flex gap-2">
+            {/* Left side: Image + Template buttons */}
+            <div className="flex gap-2">
               {/* Image button */}
               <Button
                 variant={
@@ -548,108 +563,131 @@ export function TaskFollowUpSection({
                 <ImageIcon className="h-4 w-4" />
               </Button>
 
-              <VariantSelector
-                currentProfile={currentProfile}
-                selectedVariant={selectedVariant}
-                onChange={setSelectedVariant}
+              {/* Template button */}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowTemplatePicker(true)}
                 disabled={!isEditable}
-              />
+              >
+                <FileText className="h-4 w-4" />
+              </Button>
             </div>
 
-            {isAttemptRunning ? (
-              <Button
-                onClick={stopExecution}
-                disabled={isStopping}
-                size="sm"
-                variant="destructive"
-              >
-                {isStopping ? (
-                  <Loader2 className="animate-spin h-4 w-4 mr-2" />
-                ) : (
-                  <>
-                    <StopCircle className="h-4 w-4 mr-2" />
-                    {t('followUp.stop')}
-                  </>
-                )}
-              </Button>
-            ) : (
-              <div className="flex items-center gap-2">
-                {comments.length > 0 && (
+            {/* Spacer */}
+            <div className="flex-1" />
+
+            {/* Right side: Variant (when idle) + Action buttons */}
+            <div className="flex items-center gap-2">
+              {!isAttemptRunning && (
+                <VariantSelector
+                  currentProfile={currentProfile}
+                  selectedVariant={selectedVariant}
+                  onChange={setSelectedVariant}
+                  disabled={!isEditable}
+                />
+              )}
+
+              {isAttemptRunning ? (
+                <>
                   <Button
-                    onClick={clearComments}
+                    onClick={stopExecution}
+                    disabled={isStopping}
                     size="sm"
                     variant="destructive"
-                    disabled={!isEditable}
                   >
-                    {t('followUp.clearReviewComments')}
+                    {isStopping ? (
+                      <Loader2 className="animate-spin h-4 w-4 mr-2" />
+                    ) : (
+                      <>
+                        <StopCircle className="h-4 w-4 mr-2" />
+                        {t('followUp.stop')}
+                      </>
+                    )}
                   </Button>
-                )}
-                <Button
-                  onClick={onSendFollowUp}
-                  disabled={
-                    !canSendFollowUp ||
-                    isDraftLocked ||
-                    !isDraftLoaded ||
-                    isSendingFollowUp ||
-                    isRetryActive
-                  }
-                  size="sm"
-                >
-                  {isSendingFollowUp ? (
-                    <Loader2 className="animate-spin h-4 w-4 mr-2" />
-                  ) : (
-                    <>
-                      <Send className="h-4 w-4 mr-2" />
-                      {conflictResolutionInstructions
-                        ? t('followUp.resolveConflicts')
-                        : t('followUp.send')}
-                    </>
-                  )}
-                </Button>
-              </div>
-            )}
-            {isAttemptRunning && (
-              <div className="flex items-center gap-2">
-                {/* Add to Message Queue button (with live injection when running) */}
-                {/* Note: variant is always null - injected messages use executor's current mode */}
-                <Button
-                  onClick={async () => {
-                    if (followUpMessage.trim()) {
-                      await addAndInject(followUpMessage.trim(), null);
-                      setFollowUpMessage('');
+                  {/* Add to Message Queue button (with live injection when running) */}
+                  {/* Note: variant is always null - injected messages use executor's current mode */}
+                  <Button
+                    onClick={async () => {
+                      if (followUpMessage.trim()) {
+                        await addAndInject(followUpMessage.trim(), null);
+                        setFollowUpMessage('');
+                      }
+                    }}
+                    disabled={
+                      !followUpMessage.trim() ||
+                      isAddingToQueue ||
+                      isInjecting ||
+                      !isDraftLoaded ||
+                      isRetryActive
                     }
-                  }}
-                  disabled={
-                    !followUpMessage.trim() ||
-                    isAddingToQueue ||
-                    isInjecting ||
-                    !isDraftLoaded ||
-                    isRetryActive
-                  }
-                  size="sm"
-                  variant="secondary"
-                  title={t('messageQueue.addToQueueTooltip')}
-                >
-                  {isAddingToQueue || isInjecting ? (
-                    <>
-                      <Loader2 className="animate-spin h-4 w-4 mr-1" />
-                      <span className="hidden sm:inline">
-                        {t('messageQueue.injectingMessage')}
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <ListPlus className="h-4 w-4 mr-1" />
-                      <span className="hidden sm:inline">
-                        {t('messageQueue.addToQueue')}
-                      </span>
-                    </>
+                    size="sm"
+                    title={t('messageQueue.addToQueueTooltip')}
+                  >
+                    {isAddingToQueue || isInjecting ? (
+                      <>
+                        <Loader2 className="animate-spin h-4 w-4 mr-2" />
+                        <span className="hidden sm:inline">
+                          {t('messageQueue.queueing')}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <ListPlus className="h-4 w-4 mr-2" />
+                        <span className="hidden sm:inline">
+                          {t('messageQueue.queue')}
+                        </span>
+                      </>
+                    )}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {comments.length > 0 && (
+                    <Button
+                      onClick={clearComments}
+                      size="sm"
+                      variant="destructive"
+                      disabled={!isEditable}
+                    >
+                      {t('followUp.clearReviewComments')}
+                    </Button>
                   )}
-                </Button>
-              </div>
-            )}
+                  <Button
+                    onClick={onSendFollowUp}
+                    disabled={
+                      !canSendFollowUp ||
+                      isDraftLocked ||
+                      !isDraftLoaded ||
+                      isSendingFollowUp ||
+                      isRetryActive
+                    }
+                    size="sm"
+                  >
+                    {isSendingFollowUp ? (
+                      <Loader2 className="animate-spin h-4 w-4 mr-2" />
+                    ) : (
+                      <>
+                        <Send className="h-4 w-4 mr-2" />
+                        {conflictResolutionInstructions
+                          ? t('followUp.resolveConflicts')
+                          : t('followUp.send')}
+                      </>
+                    )}
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
         </div>
+
+        {/* Template Picker */}
+        <TemplatePicker
+          open={showTemplatePicker}
+          onOpenChange={setShowTemplatePicker}
+          onSelect={handleTemplateSelect}
+          showDefaults={true}
+        />
       </div>
     )
   );

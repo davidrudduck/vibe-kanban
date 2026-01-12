@@ -177,6 +177,8 @@
     "variant": "Variant:",
     "addToQueue": "Add to Queue",
     "addToQueueTooltip": "Add message to queue",
+    "queue": "Queue",
+    "queueing": "Queueing...",
     "saveError": "Failed to save changes",
     "confirmRemove": "Remove this message from the queue?",
     "removeError": "Failed to remove message",

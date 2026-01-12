@@ -138,7 +138,9 @@ describe('useMessageQueueInjection', () => {
       );
 
       // Suppress console.error for this test
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const consoleSpy = vi
+        .spyOn(console, 'error')
+        .mockImplementation(() => {});
 
       const { result } = renderHook(
         () => useMessageQueueInjection(testAttemptId, testProcessId),
@@ -280,7 +282,9 @@ describe('useMessageQueueInjection', () => {
       );
 
       // Suppress console.error for this test
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const consoleSpy = vi
+        .spyOn(console, 'error')
+        .mockImplementation(() => {});
 
       const { result } = renderHook(
         () => useMessageQueueInjection(testAttemptId, testProcessId),
@@ -298,7 +302,9 @@ describe('useMessageQueueInjection', () => {
 
       expect(response!).toEqual({ injected: false });
       expect(result.current.lastInjectionError).toBeInstanceOf(Error);
-      expect(result.current.lastInjectionError?.message).toBe('Injection failed');
+      expect(result.current.lastInjectionError?.message).toBe(
+        'Injection failed'
+      );
 
       consoleSpy.mockRestore();
     });
@@ -326,7 +332,9 @@ describe('useMessageQueueInjection', () => {
 
   describe('isInjecting state', () => {
     it('sets isInjecting to true during injection', async () => {
-      let resolveInjection: ((value: { injected: boolean }) => void) | undefined;
+      let resolveInjection:
+        | ((value: { injected: boolean }) => void)
+        | undefined;
       mockExecutionProcessesApi.injectMessage.mockImplementation(
         () =>
           new Promise((resolve) => {
