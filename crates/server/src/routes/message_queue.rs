@@ -194,6 +194,9 @@ pub async fn remove_queued_message(
         .await?
         .ok_or_else(|| ApiError::NotFound("Task attempt not found".into()))?;
 
+    // Check if this belongs to a remote project (bypass middleware needs manual check)
+    reject_if_remote(&deployment.db().pool, &task_attempt).await?;
+
     let removed = deployment
         .local_container()
         .message_queue()
