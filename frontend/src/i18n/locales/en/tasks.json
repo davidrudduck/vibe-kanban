@@ -469,7 +469,9 @@
   "templatePicker": {
     "title": "Insert Template",
     "searchPlaceholder": "Search templates...",
-    "noResults": "No templates found"
+    "noResults": "No templates found",
+    "loadError": "Failed to load templates",
+    "retry": "Retry"
   },
   "variables": {
     "title": "Variables",

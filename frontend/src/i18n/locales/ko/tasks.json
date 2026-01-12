@@ -473,6 +473,8 @@
   "templatePicker": {
     "title": "템플릿 삽입",
     "searchPlaceholder": "템플릿 검색...",
-    "noResults": "템플릿을 찾을 수 없습니다"
+    "noResults": "템플릿을 찾을 수 없습니다",
+    "loadError": "템플릿을 불러오지 못했습니다",
+    "retry": "다시 시도"
   }
 }

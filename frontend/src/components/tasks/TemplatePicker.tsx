@@ -163,6 +163,11 @@ export interface TemplatePickerProps {
    * Error message to display if template loading failed
    */
   error?: string | null;
+
+  /**
+   * Callback to retry loading templates when an error occurred
+   */
+  onRetry?: () => void;
 }
 
 /**
@@ -180,6 +185,7 @@ export function TemplatePicker({
   showDefaults = true,
   loading = false,
   error = null,
+  onRetry,
 }: TemplatePickerProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const isMobile = useIsMobile();
@@ -285,14 +291,28 @@ export function TemplatePicker({
       <div className="overflow-y-auto flex-1 px-2 py-2">
         {/* Loading state */}
         {loading && (
-          <div className="flex justify-center py-8">
+          <div
+            className="flex justify-center py-8"
+            role="status"
+            aria-live="polite"
+          >
             <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
+            <span className="sr-only">
+              {t('common:states.loading', 'Loading...')}
+            </span>
           </div>
         )}
 
         {/* Error state */}
         {error && !loading && (
-          <div className="text-center py-8 text-destructive">{error}</div>
+          <div className="flex flex-col items-center py-8 gap-3">
+            <div className="text-center text-destructive">{error}</div>
+            {onRetry && (
+              <Button variant="outline" size="sm" onClick={onRetry}>
+                {t('templatePicker.retry', 'Retry')}
+              </Button>
+            )}
+          </div>
         )}
 
         {/* Empty state - no results */}
