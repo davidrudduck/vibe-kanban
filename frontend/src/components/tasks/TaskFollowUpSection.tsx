@@ -622,14 +622,14 @@ export function TaskFollowUpSection({
                       <>
                         <Loader2 className="animate-spin h-4 w-4 mr-2" />
                         <span className="hidden sm:inline">
-                          {t('messageQueue.injectingMessage')}
+                          {t('messageQueue.queueing')}
                         </span>
                       </>
                     ) : (
                       <>
                         <ListPlus className="h-4 w-4 mr-2" />
                         <span className="hidden sm:inline">
-                          {t('messageQueue.addToQueue')}
+                          {t('messageQueue.queue')}
                         </span>
                       </>
                     )}
