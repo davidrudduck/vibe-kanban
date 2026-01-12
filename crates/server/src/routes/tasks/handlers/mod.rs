@@ -14,9 +14,7 @@ pub mod status;
 pub mod streams;
 
 // Re-export all handlers for convenient access from the router
-pub use core::{
-    create_task, create_task_and_start, delete_task, get_task, get_tasks, update_task,
-};
+pub use core::{create_task, create_task_and_start, delete_task, get_task, get_tasks, update_task};
 pub use labels::{get_task_labels, set_task_labels};
 pub use status::{archive_task, assign_task, get_task_children, unarchive_task};
 pub use streams::{get_available_nodes, get_stream_connection_info, stream_tasks_ws};

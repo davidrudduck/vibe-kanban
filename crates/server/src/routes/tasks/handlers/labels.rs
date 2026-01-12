@@ -1,10 +1,6 @@
 //! Label management handlers: get_task_labels, set_task_labels.
 
-use axum::{
-    Extension, Json,
-    extract::State,
-    response::Json as ResponseJson,
-};
+use axum::{Extension, Json, extract::State, response::Json as ResponseJson};
 use db::models::{
     label::{Label, SetTaskLabels},
     task::Task,
@@ -12,8 +8,8 @@ use db::models::{
 use deployment::Deployment;
 use utils::response::ApiResponse;
 
-use crate::{DeploymentImpl, error::ApiError};
 use super::remote::resync_task_to_hive;
+use crate::{DeploymentImpl, error::ApiError};
 
 // ============================================================================
 // Get Labels

@@ -19,9 +19,9 @@ if [ -f "$PROJECT_DIR/.env" ]; then
 fi
 
 # Configuration - use .env values if loaded, otherwise defaults
-FRONTEND_PORT=${FRONTEND_PORT:-5100}
-BACKEND_PORT=${BACKEND_PORT:-5101}
-MCP_PORT=${MCP_PORT:-5102}
+FRONTEND_PORT=${FRONTEND_PORT:-4600}
+BACKEND_PORT=${BACKEND_PORT:-4601}
+MCP_PORT=${MCP_PORT:-4602}
 
 # Colors for output
 RED='\033[0;31m'
