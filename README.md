@@ -8,17 +8,6 @@
   </a>
 </p>
 
-<p align="center">Get 10X more out of Claude Code, Gemini CLI, Codex, Amp and other coding agents...</p>
-<p align="center">
-  <a href="https://www.npmjs.com/package/vibe-kanban"><img alt="npm" src="https://img.shields.io/npm/v/vibe-kanban?style=flat-square" /></a>
-  <a href="https://github.com/BloopAI/vibe-kanban/blob/main/.github/workflows/publish.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/BloopAI/vibe-kanban/.github%2Fworkflows%2Fpublish.yml" /></a>
-  <a href="https://deepwiki.com/BloopAI/vibe-kanban"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
-</p>
-
-<h1 align="center">
-  <a href="https://jobs.polymer.co/vibe-kanban?source=github"><strong>We're hiring!</strong></a>
-</h1>
-
 ![](frontend/public/vibe-kanban-screenshot-overview.png)
 
 ## Overview
@@ -93,8 +82,6 @@ This will start the backend. A blank DB will be copied from the `dev_assets_seed
 
 ```bash
 pnpm run stop              # Stop instance for current directory
-pnpm run stop --list       # List all running instances
-pnpm run stop --all        # Stop all running instances
 ```
 
 <details>
@@ -202,5 +189,3 @@ When running Vibe Kanban on a remote server (e.g., via systemctl, Docker, or clo
    - VSCode Remote-SSH extension
 
 When configured, the "Open in VSCode" buttons will generate URLs like `vscode://vscode-remote/ssh-remote+user@host/path` that open your local editor and connect to the remote server.
-
-See the [documentation](https://vibekanban.com/docs/configuration-customisation/global-settings#remote-ssh-configuration) for detailed setup instructions.
