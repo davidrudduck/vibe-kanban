@@ -54,7 +54,9 @@
       "entries100": "100件",
       "entries200": "200件",
       "entries500": "500件"
-    }
+    },
+    "injectedLabel": "(注入済み)",
+    "injectedTooltip": "このメッセージは実行中のプロセスに注入されました"
   },
   "language": {
     "browserDefault": "ブラウザ設定"

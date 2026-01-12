@@ -53,7 +53,9 @@
       "entries100": "100 entries",
       "entries200": "200 entries",
       "entries500": "500 entries"
-    }
+    },
+    "injectedLabel": "(injected)",
+    "injectedTooltip": "This message was injected into the running process"
   },
   "branchSelector": {
     "placeholder": "Select a branch",
