@@ -8,6 +8,13 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import { useDraftStream } from '@/hooks/follow-up/useDraftStream';
 import { RetryEditorInline } from './RetryEditorInline';
 import { useRetryUi } from '@/contexts/RetryUiContext';
+import { useTranslation } from 'react-i18next';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 const UserMessage = ({
   content,
@@ -21,6 +28,7 @@ const UserMessage = ({
   metadata?: Record<string, unknown> | null;
 }) => {
   const isInjected = metadata?.injected === true;
+  const { t } = useTranslation('common');
   const [isEditing, setIsEditing] = useState(false);
   const retryHook = useProcessRetry(taskAttempt);
   const { capabilities } = useUserSystem();
@@ -82,9 +90,21 @@ const UserMessage = ({
       <div className="group bg-background px-4 py-2 text-sm flex gap-2">
         <div className="flex-1 py-3">
           {isInjected && (
-            <span className="text-xs text-muted-foreground mb-1 block">
-              (injected)
-            </span>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className="text-xs text-muted-foreground mb-1 block border-l-2 border-muted-foreground/30 pl-2"
+                    aria-label={t('conversation.injectedLabel')}
+                  >
+                    {t('conversation.injectedLabel')}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  {t('conversation.injectedTooltip')}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           )}
           {showRetryEditor ? (
             <RetryEditorInline
