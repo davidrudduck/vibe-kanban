@@ -318,4 +318,72 @@ mod tests {
             result
         );
     }
+
+    /// Test that reject_if_remote returns Ok(()) for local projects.
+    /// This test verifies that when a task attempt belongs to a local project
+    /// (is_remote = false, no source_node_id), the function correctly allows
+    /// the operation to proceed by returning Ok(()).
+    #[tokio::test]
+    async fn test_reject_if_remote_allows_local_project() {
+        let (pool, _temp_dir) = create_test_pool().await;
+
+        // Create a local project (is_remote = false, no source_node_id)
+        let project_id = Uuid::new_v4();
+        sqlx::query(
+            r#"INSERT INTO projects (id, name, git_repo_path, is_remote)
+               VALUES ($1, $2, $3, $4)"#,
+        )
+        .bind(project_id)
+        .bind("Local Test Project")
+        .bind("/tmp/test-local")
+        .bind(false)
+        .execute(&pool)
+        .await
+        .expect("Failed to create local project");
+
+        // Create a task associated with the local project
+        let task_id = Uuid::new_v4();
+        sqlx::query(
+            r#"INSERT INTO tasks (id, project_id, title, status)
+               VALUES ($1, $2, $3, $4)"#,
+        )
+        .bind(task_id)
+        .bind(project_id)
+        .bind("Test Task")
+        .bind("todo")
+        .execute(&pool)
+        .await
+        .expect("Failed to create task");
+
+        // Create a task attempt
+        let attempt_id = Uuid::new_v4();
+        sqlx::query(
+            r#"INSERT INTO task_attempts (id, task_id, executor, branch, target_branch)
+               VALUES ($1, $2, $3, $4, $5)"#,
+        )
+        .bind(attempt_id)
+        .bind(task_id)
+        .bind("CLAUDE_CODE")
+        .bind("test-branch")
+        .bind("main")
+        .execute(&pool)
+        .await
+        .expect("Failed to create task attempt");
+
+        // Load the task attempt
+        let task_attempt = TaskAttempt::find_by_id(&pool, attempt_id)
+            .await
+            .expect("Failed to query task attempt")
+            .expect("Task attempt not found");
+
+        // Call reject_if_remote - should return Ok(()) for local project
+        let result = reject_if_remote(&pool, &task_attempt).await;
+
+        // Verify that the result is Ok(())
+        assert!(
+            result.is_ok(),
+            "Expected Ok(()) for local project, got: {:?}",
+            result
+        );
+    }
 }
