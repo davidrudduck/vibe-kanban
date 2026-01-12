@@ -13,8 +13,8 @@ pub mod types;
 
 // Re-export types for public API
 pub use types::{
-    format_user_display_name, ArchiveTaskRequest, ArchiveTaskResponse, CreateAndStartTaskRequest,
-    TaskQuery,
+    ArchiveTaskRequest, ArchiveTaskResponse, CreateAndStartTaskRequest, TaskQuery,
+    format_user_display_name,
 };
 
 /// Creates the tasks router with all task-related endpoints.
@@ -44,9 +44,15 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/unarchive", post(handlers::unarchive_task))
         .route("/assign", post(handlers::assign_task))
         .route("/children", get(handlers::get_task_children))
-        .route("/labels", get(handlers::get_task_labels).put(handlers::set_task_labels))
+        .route(
+            "/labels",
+            get(handlers::get_task_labels).put(handlers::set_task_labels),
+        )
         .route("/available-nodes", get(handlers::get_available_nodes))
-        .route("/stream-connection-info", get(handlers::get_stream_connection_info));
+        .route(
+            "/stream-connection-info",
+            get(handlers::get_stream_connection_info),
+        );
 
     // Routes with {task_id} path parameter - apply load_task_middleware
     let task_id_router = Router::new()
