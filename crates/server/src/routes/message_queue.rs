@@ -10,7 +10,7 @@ use axum::{
     response::Json as ResponseJson,
     routing::{delete, get, post, put},
 };
-use db::models::task_attempt::TaskAttempt;
+use db::models::{project::Project, task::Task, task_attempt::TaskAttempt};
 use local_deployment::message_queue::{
     AddQueuedMessageRequest, QueuedMessage, ReorderQueuedMessagesRequest,
     UpdateQueuedMessageRequest,
@@ -19,10 +19,52 @@ use utils::response::ApiResponse;
 use uuid::Uuid;
 
 use crate::{
-    DeploymentImpl, error::ApiError,
+    DeploymentImpl,
+    error::ApiError,
     middleware::{RemoteTaskAttemptContext, load_task_attempt_middleware},
 };
 use deployment::Deployment;
+
+/// Helper function to reject operations on remote task attempts.
+///
+/// This function checks if the given task attempt belongs to a remote project
+/// (where `is_remote = true`). If so, it returns a `BadRequest` error since
+/// message queue operations are local-only and cannot be performed on remote
+/// task attempts.
+///
+/// # Errors
+/// - `ApiError::NotFound` - If the task or project doesn't exist
+/// - `ApiError::BadRequest` - If the project is remote (`is_remote = true`)
+// TODO: Remove allow(dead_code) after integrating into handlers (Task 006/007)
+#[allow(dead_code)]
+async fn reject_if_remote(
+    pool: &sqlx::SqlitePool,
+    task_attempt: &TaskAttempt,
+) -> Result<(), ApiError> {
+    // Look up the task to get its project_id
+    let task = Task::find_by_id(pool, task_attempt.task_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Task not found".into()))?;
+
+    // Look up the project to check if it's remote
+    let project = Project::find_by_id(pool, task.project_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Project not found".into()))?;
+
+    // Reject if this is a remote project
+    if project.is_remote {
+        tracing::debug!(
+            task_attempt_id = %task_attempt.id,
+            project_id = %project.id,
+            "Rejecting message queue operation for remote project"
+        );
+        return Err(ApiError::BadRequest(
+            "Cannot modify message queue for remote task attempts".into(),
+        ));
+    }
+
+    Ok(())
+}
 
 /// List all queued messages for a task attempt.
 pub async fn list_queued_messages(
