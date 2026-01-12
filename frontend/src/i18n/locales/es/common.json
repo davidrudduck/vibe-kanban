@@ -54,7 +54,9 @@
       "entries100": "100 entradas",
       "entries200": "200 entradas",
       "entries500": "500 entradas"
-    }
+    },
+    "injectedLabel": "(inyectado)",
+    "injectedTooltip": "Este mensaje fue inyectado en el proceso en ejecución"
   },
   "language": {
     "browserDefault": "Predeterminado del navegador"

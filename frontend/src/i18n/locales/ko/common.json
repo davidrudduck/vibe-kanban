@@ -54,7 +54,9 @@
       "entries100": "100개 항목",
       "entries200": "200개 항목",
       "entries500": "500개 항목"
-    }
+    },
+    "injectedLabel": "(주입됨)",
+    "injectedTooltip": "이 메시지는 실행 중인 프로세스에 주입되었습니다"
   },
   "language": {
     "browserDefault": "브라우저 기본값"
