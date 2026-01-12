@@ -218,7 +218,7 @@ pub struct NormalizedEntry {
     pub timestamp: Option<String>,
     pub entry_type: NormalizedEntryType,
     pub content: String,
-    #[ts(skip)]
+    #[ts(type = "Record<string, unknown> | null")]
     pub metadata: Option<serde_json::Value>,
 }
 

@@ -80,6 +80,44 @@ User adds message
 | `crates/local-deployment/src/container.rs:1542` | `inject_message()` implementation |
 | `crates/executors/src/executors/claude/protocol.rs` | `ProtocolPeer` stdin management |
 
+## Visual Indicator
+
+Injected messages include `metadata: { injected: true }` which the frontend uses to display a visual indicator distinguishing them from regular user messages.
+
+### How It Works
+
+1. **Backend**: When a message is injected, the backend sets `metadata.injected = true` on the resulting log entry
+2. **Type Export**: The `NormalizedEntry` struct exports `metadata` as `Record<string, unknown> | null` to TypeScript
+3. **Frontend Detection**: The `UserMessage` component checks `metadata?.injected === true`
+4. **Display**: Injected messages show an "(injected)" label above the message content
+
+### Implementation
+
+```typescript
+// frontend/src/components/NormalizedConversation/UserMessage.tsx
+const isInjected = metadata?.injected === true;
+
+return (
+  <div>
+    {isInjected && (
+      <span className="text-xs text-muted-foreground mb-1 block">
+        (injected)
+      </span>
+    )}
+    {/* message content */}
+  </div>
+);
+```
+
+### User Experience
+
+| Message Type | Display |
+|--------------|---------|
+| Regular user message | No indicator |
+| Injected message | "(injected)" label in muted text above content |
+
+This helps users distinguish between messages they typed manually and messages that were injected into a running process when reviewing conversation history.
+
 ## API Endpoints
 
 ### POST `/api/task-attempts/{id}/message-queue`

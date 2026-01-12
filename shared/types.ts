@@ -825,7 +825,7 @@ export type CommandExitStatus = { "type": "exit_code", code: number, } | { "type
 
 export type CommandRunResult = { exit_status: CommandExitStatus | null, output: string | null, };
 
-export type NormalizedEntry = { timestamp: string | null, entry_type: NormalizedEntryType, content: string, };
+export type NormalizedEntry = { timestamp: string | null, entry_type: NormalizedEntryType, content: string, metadata: Record<string, unknown> | null, };
 
 export type NormalizedEntryType = { "type": "user_message" } | { "type": "user_feedback", denied_tool: string, } | { "type": "assistant_message" } | { "type": "tool_use", tool_name: string, action_type: ActionType, status: ToolStatus, } | { "type": "system_message" } | { "type": "error_message", error_type: NormalizedEntryError, } | { "type": "thinking" } | { "type": "loading" } | { "type": "next_action", failed: boolean, execution_processes: number, needs_setup: boolean, } | { "type": "execution_start", process_id: string, process_name: string, started_at: string, } | { "type": "execution_end", process_id: string, process_name: string, started_at: string, ended_at: string, duration_seconds: bigint, status: string, };
 
