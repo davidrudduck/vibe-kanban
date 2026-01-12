@@ -63,3 +63,6 @@ urlencoding = "2.1"
 
 [build-dependencies]
 dotenv = "0.15"
+
+[dev-dependencies]
+db = { path = "../db", features = ["test-utils"] }

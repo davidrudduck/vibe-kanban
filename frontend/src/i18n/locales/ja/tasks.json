@@ -203,6 +203,8 @@
     "variant": "バリアント:",
     "addToQueue": "キューに追加",
     "addToQueueTooltip": "メッセージをキューに追加",
+    "queue": "キュー",
+    "queueing": "キュー中...",
     "saveError": "変更の保存に失敗しました",
     "confirmRemove": "このメッセージをキューから削除しますか？",
     "removeError": "メッセージの削除に失敗しました",

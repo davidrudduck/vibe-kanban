@@ -265,6 +265,89 @@ Remote operations can fail in several ways:
 | Write on local-only data | `ApiError::BadRequest("Cannot modify X for remote task")` | 400 |
 | Proxy request failed | `ApiError::Internal(...)` | 500 |
 
+## Middleware Bypass Pattern: Manual Remote Checks
+
+Some handlers cannot use the `load_task_attempt_middleware` due to Axum routing constraints. These handlers must manually check for remote context using the `reject_if_remote` helper.
+
+### When This Applies
+
+The `update_queued_message` and `remove_queued_message` handlers need access to both `{attempt_id}` and `{message_id}` path parameters. Axum's nested router structure means these handlers load the `TaskAttempt` directly rather than through middleware:
+
+```rust
+// These routes bypass load_task_attempt_middleware
+.route("/task-attempts/{attempt_id}/message-queue/{message_id}",
+    patch(update_queued_message).delete(remove_queued_message))
+```
+
+### The `reject_if_remote` Helper
+
+Located in `crates/server/src/routes/message_queue.rs`, this helper performs the same remote check that middleware would:
+
+```rust
+/// Check if task attempt belongs to a remote project.
+/// Returns Err(ApiError::BadRequest) if remote, Ok(()) otherwise.
+///
+/// Note: Handlers that bypass load_task_attempt_middleware must call this manually.
+async fn reject_if_remote(
+    pool: &sqlx::SqlitePool,
+    task_attempt: &TaskAttempt,
+) -> Result<(), ApiError> {
+    let task = Task::find_by_id(pool, task_attempt.task_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Task not found".into()))?;
+    let project = Project::find_by_id(pool, task.project_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Project not found".into()))?;
+    if project.is_remote {
+        tracing::debug!(
+            task_attempt_id = %task_attempt.id,
+            project_id = %project.id,
+            "Rejecting message queue modification for remote task attempt"
+        );
+        return Err(ApiError::BadRequest(
+            "Cannot modify message queue for remote task attempts".into(),
+        ));
+    }
+    Ok(())
+}
+```
+
+### Usage in Handlers
+
+Call `reject_if_remote` immediately after loading the task attempt:
+
+```rust
+pub async fn update_queued_message(
+    State(deployment): State<DeploymentImpl>,
+    Path((attempt_id, message_id)): Path<(Uuid, Uuid)>,
+    Json(payload): Json<UpdateQueuedMessageRequest>,
+) -> Result<ResponseJson<ApiResponse<QueuedMessage>>, ApiError> {
+    let task_attempt = TaskAttempt::find_by_id(&deployment.db().pool, attempt_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Task attempt not found".into()))?;
+
+    // Check if this belongs to a remote project (bypass middleware needs manual check)
+    reject_if_remote(&deployment.db().pool, &task_attempt).await?;
+
+    // Local logic continues...
+}
+```
+
+### Consistent Error Message
+
+All message queue modification endpoints use the same error message for consistency:
+
+```bash
+"Cannot modify message queue for remote task attempts"
+```
+
+This includes:
+- `add_queued_message` (uses middleware remote_ctx check)
+- `update_queued_message` (uses `reject_if_remote`)
+- `remove_queued_message` (uses `reject_if_remote`)
+- `reorder_queued_messages` (uses middleware remote_ctx check)
+- `clear_queued_messages` (uses middleware remote_ctx check)
+
 ## Adding New Endpoints
 
 When adding a new endpoint that handles task attempts:
