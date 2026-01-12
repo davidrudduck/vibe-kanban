@@ -650,6 +650,28 @@
           "projectDescriptionPlaceholder": "Enter description...",
           "confirm": "Link Project",
           "createAndLink": "Create & Link"
+        },
+        "unlinkDialog": {
+          "title": "Unlink from Swarm",
+          "description": "Are you sure you want to unlink \"{{projectName}}\" from the Swarm?",
+          "warning": "This will clear all sync state for this project. Tasks will no longer be shared with other nodes.",
+          "confirm": "Unlink Project"
+        },
+        "health": {
+          "title": "Swarm Health Issues",
+          "description": "Some projects have sync state issues that need to be resolved.",
+          "projectsWithIssues_one": "{{count}} project with issues",
+          "projectsWithIssues_other": "{{count}} projects with issues",
+          "orphanedTasks_one": "{{count}} orphaned task",
+          "orphanedTasks_other": "{{count}} orphaned tasks",
+          "fixAllConfirm": "This will unlink {{count}} project(s) from the swarm, clearing all sync state. Are you sure?",
+          "partialSuccess": "Fixed {{success}} project(s), {{error}} failed. Check console for details.",
+          "success": "Successfully fixed {{count}} project(s).",
+          "error": "Failed to fix swarm issues. Please check console for details.",
+          "fixing": "Fixing...",
+          "fixAll": "Fix All Issues",
+          "fixAllHint": "This will unlink projects from the swarm and clear all sync state.",
+          "resolved": "All sync issues resolved!"
         }
       },
       "nodeTemplates": {

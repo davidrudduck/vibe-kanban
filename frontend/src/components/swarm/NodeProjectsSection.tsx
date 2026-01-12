@@ -33,6 +33,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -78,6 +86,10 @@ export function NodeProjectsSection({
     new Set()
   );
   const [linkingProject, setLinkingProject] = useState<{
+    nodeId: string;
+    project: NodeProject;
+  } | null>(null);
+  const [unlinkingProject, setUnlinkingProject] = useState<{
     nodeId: string;
     project: NodeProject;
   } | null>(null);
@@ -449,10 +461,9 @@ export function NodeProjectsSection({
                                           onClick={(e) => {
                                             e.stopPropagation();
                                             if (project.swarm_project_id) {
-                                              mutations.unlinkNode.mutate({
-                                                projectId:
-                                                  project.swarm_project_id,
+                                              setUnlinkingProject({
                                                 nodeId: node.id,
+                                                project,
                                               });
                                             }
                                           }}
@@ -722,6 +733,75 @@ export function NodeProjectsSection({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Unlink Confirmation Dialog */}
+      <AlertDialog
+        open={!!unlinkingProject}
+        onOpenChange={(open) => {
+          if (!open) {
+            setUnlinkingProject(null);
+          }
+        }}
+      >
+        <AlertDialogContent className="sm:max-w-[425px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t(
+                'settings.swarm.nodeProjects.unlinkDialog.title',
+                'Unlink from Swarm'
+              )}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {unlinkingProject && (
+                <>
+                  {t(
+                    'settings.swarm.nodeProjects.unlinkDialog.description',
+                    'Are you sure you want to unlink "{{projectName}}" from the Swarm?',
+                    { projectName: unlinkingProject.project.name }
+                  )}
+                  <br />
+                  <br />
+                  {t(
+                    'settings.swarm.nodeProjects.unlinkDialog.warning',
+                    'This will clear all sync state for this project. Tasks will no longer be shared with other nodes.'
+                  )}
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setUnlinkingProject(null)}
+            >
+              {t('common:cancel', 'Cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (unlinkingProject && unlinkingProject.project.swarm_project_id) {
+                  mutations.unlinkNode.mutate({
+                    projectId: unlinkingProject.project.swarm_project_id,
+                    nodeId: unlinkingProject.nodeId,
+                  });
+                  setUnlinkingProject(null);
+                }
+              }}
+              disabled={mutations.unlinkNode.isPending}
+            >
+              {mutations.unlinkNode.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Unlink className="h-4 w-4 mr-2" />
+              )}
+              {t(
+                'settings.swarm.nodeProjects.unlinkDialog.confirm',
+                'Unlink Project'
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
