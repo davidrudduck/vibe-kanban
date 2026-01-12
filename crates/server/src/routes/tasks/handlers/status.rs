@@ -2,17 +2,9 @@
 
 use std::path::PathBuf;
 
-use axum::{
-    Extension, Json,
-    extract::State,
-    http::StatusCode,
-    response::Json as ResponseJson,
-};
+use axum::{Extension, Json, extract::State, http::StatusCode, response::Json as ResponseJson};
 use chrono::Utc;
-use db::models::{
-    task::Task,
-    task_attempt::TaskAttempt,
-};
+use db::models::{task::Task, task_attempt::TaskAttempt};
 use deployment::Deployment;
 use remote::routes::tasks::{AssignSharedTaskRequest, UpdateSharedTaskRequest};
 use services::services::{
@@ -23,10 +15,10 @@ use services::services::{
 use sqlx::Error as SqlxError;
 use utils::response::ApiResponse;
 
-use crate::{DeploymentImpl, error::ApiError};
 use crate::routes::tasks::types::{
-    format_user_display_name, ArchiveTaskRequest, ArchiveTaskResponse,
+    ArchiveTaskRequest, ArchiveTaskResponse, format_user_display_name,
 };
+use crate::{DeploymentImpl, error::ApiError};
 
 // ============================================================================
 // Archive Remote Task Helper
