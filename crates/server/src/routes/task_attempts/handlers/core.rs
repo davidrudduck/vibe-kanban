@@ -766,7 +766,10 @@ pub async fn fix_sessions(
             "Proxying fix_sessions to remote node"
         );
 
-        let path = format!("/task-attempts/by-task-id/{}/fix-sessions", proxy_info.target_id);
+        let path = format!(
+            "/task-attempts/by-task-id/{}/fix-sessions",
+            proxy_info.target_id
+        );
         let response: ApiResponse<FixSessionsResponse> = deployment
             .node_proxy_client()
             .proxy_post(&proxy_info.node_url, &path, &(), proxy_info.node_id)
