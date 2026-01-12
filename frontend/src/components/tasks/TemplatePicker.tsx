@@ -297,7 +297,9 @@ export function TemplatePicker({
             aria-live="polite"
           >
             <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
-            <span className="sr-only">{t('common:states.loading', 'Loading...')}</span>
+            <span className="sr-only">
+              {t('common:states.loading', 'Loading...')}
+            </span>
           </div>
         )}
 
