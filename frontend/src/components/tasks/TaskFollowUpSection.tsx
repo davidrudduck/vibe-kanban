@@ -15,7 +15,7 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 //
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { imagesApi } from '@/lib/api';
+import { imagesApi, templatesApi } from '@/lib/api';
 import type { TaskWithAttemptStatus } from 'shared/types';
 import {
   useBranchStatus,
@@ -50,7 +50,7 @@ import { insertImageMarkdownAtPosition } from '@/utils/markdownImages';
 import { useTranslation } from 'react-i18next';
 import {
   TemplatePicker,
-  type Template,
+  type Template as PickerTemplate,
 } from '@/components/tasks/TemplatePicker';
 
 interface TaskFollowUpSectionProps {
@@ -144,6 +144,11 @@ export function TaskFollowUpSection({
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const imageUploadRef = useRef<ImageUploadSectionHandle>(null);
 
+  // Template fetching state
+  const [customTemplates, setCustomTemplates] = useState<PickerTemplate[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [templateError, setTemplateError] = useState<string | null>(null);
+
   // Track insert position for pasted images (sequential insertion)
   const insertPositionRef = useRef<number>(0);
 
@@ -165,11 +170,47 @@ export function TaskFollowUpSection({
 
   // Handle template selection - append template content to message
   const handleTemplateSelect = useCallback(
-    (template: Template) => {
+    (template: PickerTemplate) => {
       setFollowUpMessage((prev) => prev + template.content);
     },
     [setFollowUpMessage]
   );
+
+  // Fetch custom templates when picker opens
+  useEffect(() => {
+    if (!showTemplatePicker) return;
+
+    let cancelled = false;
+    setLoadingTemplates(true);
+    setTemplateError(null);
+
+    templatesApi
+      .list()
+      .then((templates) => {
+        if (cancelled) return;
+        setCustomTemplates(
+          templates.map((tmpl) => ({
+            id: tmpl.id,
+            name: tmpl.template_name,
+            description: `@${tmpl.template_name}`,
+            content: tmpl.content,
+          }))
+        );
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('Failed to load templates:', err);
+        setTemplateError(t('templatePicker.loadError', 'Failed to load templates'));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoadingTemplates(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showTemplatePicker, t]);
 
   // Track whether the follow-up textarea is focused
   const [isTextareaFocused, setIsTextareaFocused] = useState(false);
@@ -686,7 +727,10 @@ export function TaskFollowUpSection({
           open={showTemplatePicker}
           onOpenChange={setShowTemplatePicker}
           onSelect={handleTemplateSelect}
+          customTemplates={customTemplates}
           showDefaults={true}
+          loading={loadingTemplates}
+          error={templateError}
         />
       </div>
     )

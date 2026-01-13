@@ -87,12 +87,20 @@ dev_assets/logs/
 /frontend/.env.sentry-build-plugin
 .ssh
 
+# Runtime logs
+*.log
+backend.log
+start.log
+
 vibe-kanban-cloud/
 remote-frontend/dist
 
-# Claude Code (exclude settings, keep task plans and reports)
+# Claude Code (exclude settings, keep task plans, reports, and workflow commands)
 .claude/*
 !.claude/tasks/
+!.claude/commands/
+!.claude/workflow-improvements.md
+!.claude/log-cleanup-summary.md
 
 # Worktree progress tracking (branch-specific, not carried forward)
 .vk_progress.md
