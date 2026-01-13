@@ -1,0 +1,26 @@
+# type: Brief description (max 72 chars)
+
+# Valid types: feat, fix, test, docs, chore, refactor
+
+# Body (optional, wrap at 72 chars):
+# - What changed
+# - Why it changed
+# - Any breaking changes
+
+# Examples:
+# feat: add user authentication with JWT
+# fix: prevent null pointer in user profile
+# docs: update API documentation for auth endpoints
+# test: add integration tests for login flow
+# chore: update dependencies and gitignore
+# refactor: extract helper functions from controller
+
+# Commit message format (conventional commits):
+# type: description
+#
+# Rules:
+# - Use imperative mood ("add" not "added")
+# - Lowercase description (unless proper noun)
+# - No period at end
+# - Keep under 72 characters
+# - Describe WHAT changed, not your thoughts
