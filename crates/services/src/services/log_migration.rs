@@ -207,7 +207,7 @@ pub async fn migrate_execution_logs_with_options(
                 existing_count = existing_count,
                 "Execution already migrated, skipping"
             );
-            result.skipped = existing_count as usize;
+            result.skipped = 1; // One execution skipped
             return Ok(result);
         }
     }
@@ -250,9 +250,9 @@ pub async fn migrate_execution_logs_with_options(
         }
     };
 
-    // Create temporary MsgStore and populate with stdout/stderr
-    let msg_store = Arc::new(MsgStore::new());
-    let mut line_count = 0;
+    // Collect all messages, separating patches from raw logs
+    let mut stdout_stderr_messages = Vec::new();
+    let mut existing_patches: Vec<Patch> = Vec::new();
 
     for record in &records {
         for line in record.logs.lines() {
@@ -264,12 +264,16 @@ pub async fn migrate_execution_logs_with_options(
             // Parse JSONL line
             match serde_json::from_str::<LogMsg>(line) {
                 Ok(log_msg) => {
-                    if matches!(
-                        log_msg,
-                        LogMsg::Stdout(_) | LogMsg::Stderr(_) | LogMsg::JsonPatch(_)
-                    ) {
-                        msg_store.push(log_msg);
-                        line_count += 1;
+                    match log_msg {
+                        LogMsg::JsonPatch(patch) => {
+                            existing_patches.push(patch);
+                        }
+                        LogMsg::Stdout(_) | LogMsg::Stderr(_) => {
+                            stdout_stderr_messages.push(log_msg);
+                        }
+                        _ => {
+                            // Ignore other message types
+                        }
                     }
                 }
                 Err(e) => {
@@ -285,92 +289,107 @@ pub async fn migrate_execution_logs_with_options(
         }
     }
 
-    if line_count == 0 {
-        debug!(execution_id = %execution_id, "No stdout/stderr lines found to normalize");
-        return Ok(result);
-    }
+    // Determine which path to take based on whether patches exist
+    let patches: Vec<Patch> = if !existing_patches.is_empty() {
+        debug!(
+            execution_id = %execution_id,
+            patch_count = existing_patches.len(),
+            "Found existing JsonPatch entries, using them directly (no re-normalization)"
+        );
+        existing_patches
+    } else if !stdout_stderr_messages.is_empty() {
+        debug!(
+            execution_id = %execution_id,
+            message_count = stdout_stderr_messages.len(),
+            "No existing patches found, normalizing stdout/stderr messages"
+        );
 
-    debug!(
-        execution_id = %execution_id,
-        line_count = line_count,
-        "Populated MsgStore with log lines"
-    );
+        // Create temporary MsgStore and populate with stdout/stderr
+        let msg_store = Arc::new(MsgStore::new());
 
-    // Signal end of input
-    msg_store.push_finished();
+        for log_msg in stdout_stderr_messages {
+            msg_store.push(log_msg);
+        }
 
-    // Get the executor and run normalization
-    let executor = ExecutorConfigs::get_cached().get_coding_agent_or_default(executor_profile_id);
+        // Signal end of input
+        msg_store.push_finished();
 
-    debug!(
-        execution_id = %execution_id,
-        executor_type = ?executor_profile_id.executor,
-        "Running normalization with executor"
-    );
+        // Get the executor and run normalization
+        let executor = ExecutorConfigs::get_cached().get_coding_agent_or_default(executor_profile_id);
 
-    // Use a placeholder worktree path since we don't have the actual directory
-    // The path is only used for making file paths relative in tool output
-    let worktree_path = PathBuf::from("/");
+        debug!(
+            execution_id = %execution_id,
+            executor_type = ?executor_profile_id.executor,
+            "Running normalization with executor"
+        );
 
-    executor.normalize_logs(msg_store.clone(), &worktree_path);
+        // Use a placeholder worktree path since we don't have the actual directory
+        // The path is only used for making file paths relative in tool output
+        let worktree_path = PathBuf::from("/");
 
-    // Wait for normalization to complete by polling until no new patches appear
-    // The normalizer processes stdout_lines_stream and pushes JsonPatch entries to the store
-    let collect_result = timeout(Duration::from_secs(30), async {
-        // Give the normalizer task time to start and process
-        // We poll the history until patch count stabilizes
-        let mut last_count = 0;
-        let mut stable_iterations = 0;
+        executor.normalize_logs(msg_store.clone(), &worktree_path);
 
-        loop {
-            // Small delay to let normalizer process
-            tokio::time::sleep(Duration::from_millis(50)).await;
+        // Wait for normalization to complete by polling until no new patches appear
+        // The normalizer processes stdout_lines_stream and pushes JsonPatch entries to the store
+        let collect_result = timeout(Duration::from_secs(30), async {
+            // Give the normalizer task time to start and process
+            // We poll the history until patch count stabilizes
+            let mut last_count = 0;
+            let mut stable_iterations = 0;
 
-            let current_patches: Vec<_> = msg_store
-                .get_history()
-                .into_iter()
-                .filter(|msg| matches!(msg, LogMsg::JsonPatch(_)))
-                .collect();
+            loop {
+                // Small delay to let normalizer process
+                tokio::time::sleep(Duration::from_millis(50)).await;
 
-            let current_count = current_patches.len();
+                let current_patches: Vec<_> = msg_store
+                    .get_history()
+                    .into_iter()
+                    .filter(|msg| matches!(msg, LogMsg::JsonPatch(_)))
+                    .collect();
 
-            if current_count == last_count {
-                stable_iterations += 1;
-                // If count is stable for 3 iterations (150ms), normalization is likely done
-                if stable_iterations >= 3 {
-                    debug!(
-                        execution_id = %execution_id,
-                        patch_count = current_count,
-                        "Normalization complete, patch count stable"
-                    );
-                    return current_patches
-                        .into_iter()
-                        .filter_map(|msg| {
-                            if let LogMsg::JsonPatch(patch) = msg {
-                                Some(patch)
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
+                let current_count = current_patches.len();
+
+                if current_count == last_count {
+                    stable_iterations += 1;
+                    // If count is stable for 3 iterations (150ms), normalization is likely done
+                    if stable_iterations >= 3 {
+                        debug!(
+                            execution_id = %execution_id,
+                            patch_count = current_count,
+                            "Normalization complete, patch count stable"
+                        );
+                        return current_patches
+                            .into_iter()
+                            .filter_map(|msg| {
+                                if let LogMsg::JsonPatch(patch) = msg {
+                                    Some(patch)
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                    }
+                } else {
+                    stable_iterations = 0;
+                    last_count = current_count;
                 }
-            } else {
-                stable_iterations = 0;
-                last_count = current_count;
+            }
+        })
+        .await;
+
+        match collect_result {
+            Ok(patches) => patches,
+            Err(_) => {
+                error!(
+                    execution_id = %execution_id,
+                    "Normalization timed out after 30 seconds"
+                );
+                return Err(LogMigrationError::NormalizationTimeout);
             }
         }
-    })
-    .await;
-
-    let patches: Vec<Patch> = match collect_result {
-        Ok(patches) => patches,
-        Err(_) => {
-            error!(
-                execution_id = %execution_id,
-                "Normalization timed out after 30 seconds"
-            );
-            return Err(LogMigrationError::NormalizationTimeout);
-        }
+    } else {
+        debug!(execution_id = %execution_id, "No log messages found to process");
+        return Ok(result);
     };
 
     debug!(
@@ -382,7 +401,7 @@ pub async fn migrate_execution_logs_with_options(
     // Extract final entries directly from patches instead of applying sequentially.
     // This avoids errors when "replace" operations target indices that don't exist yet
     // (which happens when streaming content creates add+replace sequences).
-    // We build a map of entry_index -> latest value, then sort by index.
+    // We build a map of id -> latest value, then sort by index.
     let mut entry_map: BTreeMap<usize, Value> = BTreeMap::new();
 
     for patch in &patches {
@@ -691,6 +710,11 @@ pub async fn migrate_all_logs_with_options(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use db::test_utils::create_test_pool;
+    use executors::actions::{coding_agent_initial::CodingAgentInitialRequest, ExecutorAction, ExecutorActionType};
+    use executors::executors::BaseCodingAgent;
+    use executors::profile::ExecutorProfileId;
+    use serde_json::json;
 
     #[test]
     fn test_execution_migration_result_default() {
@@ -707,5 +731,335 @@ mod tests {
         assert_eq!(result.total_migrated, 0);
         assert_eq!(result.total_skipped, 0);
         assert_eq!(result.total_errors, 0);
+    }
+
+    #[tokio::test]
+    async fn test_migrate_execution_logs_no_duplicates() {
+        let (pool, _temp_dir) = create_test_pool().await;
+
+        // Setup: Create execution_process with minimal dependencies by directly inserting
+        let project_id = Uuid::new_v4();
+        let task_id = Uuid::new_v4();
+        let task_attempt_id = Uuid::new_v4();
+        let execution_id = Uuid::new_v4();
+
+        // Insert minimal project record
+        sqlx::query("INSERT INTO projects (id, name) VALUES ($1, $2)")
+            .bind(project_id)
+            .bind("Test Project")
+            .execute(&pool)
+            .await
+            .expect("Failed to insert project");
+
+        // Insert minimal task record
+        sqlx::query("INSERT INTO tasks (id, project_id, title) VALUES ($1, $2, $3)")
+            .bind(task_id)
+            .bind(project_id)
+            .bind("Test Task")
+            .execute(&pool)
+            .await
+            .expect("Failed to insert task");
+
+        // Insert minimal task_attempt record
+        sqlx::query(
+            "INSERT INTO task_attempts (id, task_id, branch, target_branch, executor) VALUES ($1, $2, $3, $4, $5)"
+        )
+        .bind(task_attempt_id)
+        .bind(task_id)
+        .bind("test-branch")
+        .bind("main")
+        .bind("claude_code")
+        .execute(&pool)
+        .await
+        .expect("Failed to insert task_attempt");
+
+        // Create executor action
+        let executor_action = ExecutorAction::new(
+            ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
+                executor_profile_id: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
+                prompt: "Test prompt".to_string(),
+            }),
+            None,
+        );
+        let executor_action_json = serde_json::to_string(&executor_action).unwrap();
+
+        // Insert minimal execution_process record
+        sqlx::query(
+            r#"INSERT INTO execution_processes
+               (id, task_attempt_id, run_reason, executor_action, status, started_at)
+               VALUES ($1, $2, $3, $4, $5, $6)"#,
+        )
+        .bind(execution_id)
+        .bind(task_attempt_id)
+        .bind("codingagent")
+        .bind(executor_action_json)
+        .bind("completed")
+        .bind(Utc::now())
+        .execute(&pool)
+        .await
+        .expect("Failed to insert execution_process");
+
+        // Create legacy logs with existing JsonPatch entries (already normalized)
+        let patch1 = json!([{
+            "op": "add",
+            "path": "/entries/0",
+            "value": {
+                "type": "assistant_message",
+                "content": "Test message 1"
+            }
+        }]);
+
+        let patch2 = json!([{
+            "op": "add",
+            "path": "/entries/1",
+            "value": {
+                "type": "assistant_message",
+                "content": "Test message 2"
+            }
+        }]);
+
+        // Create JSONL with both JsonPatch and Stdout entries
+        let jsonl = format!(
+            "{}\n{}\n{}",
+            serde_json::to_string(&LogMsg::JsonPatch(
+                serde_json::from_value(patch1).expect("Failed to create patch1")
+            ))
+            .expect("Failed to serialize patch1"),
+            serde_json::to_string(&LogMsg::JsonPatch(
+                serde_json::from_value(patch2).expect("Failed to create patch2")
+            ))
+            .expect("Failed to serialize patch2"),
+            serde_json::to_string(&LogMsg::Stdout("stdout line".to_string()))
+                .expect("Failed to serialize stdout")
+        );
+
+        // Insert legacy log record
+        sqlx::query(
+            r#"INSERT INTO execution_process_logs (execution_id, logs, byte_size, inserted_at)
+               VALUES ($1, $2, $3, $4)"#,
+        )
+        .bind(execution_id)
+        .bind(&jsonl)
+        .bind(jsonl.len() as i64)
+        .bind(Utc::now())
+        .execute(&pool)
+        .await
+        .expect("Failed to insert legacy log record");
+
+        // Run migration
+        let result = migrate_execution_logs_with_options(&pool, execution_id, false)
+            .await
+            .expect("Migration failed");
+
+        // Assert: log_entries count should match original JsonPatch count (2)
+        // The migration should not create duplicates from the stdout line
+        let count: i64 = sqlx::query_scalar(
+            r#"SELECT COUNT(*) FROM log_entries WHERE execution_id = $1"#
+        )
+        .bind(execution_id)
+        .fetch_one(&pool)
+        .await
+        .expect("Failed to count log entries");
+
+        assert_eq!(
+            count, 2,
+            "Expected 2 log entries (matching original JsonPatch count), no duplicates"
+        );
+        assert_eq!(
+            result.migrated, 2,
+            "Expected 2 migrated entries"
+        );
+        assert_eq!(
+            result.errors, 0,
+            "Expected no errors"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_migrate_execution_logs_idempotent() {
+        let (pool, _temp_dir) = create_test_pool().await;
+
+        // Setup: Create execution_process with minimal dependencies
+        let project_id = Uuid::new_v4();
+        let task_id = Uuid::new_v4();
+        let task_attempt_id = Uuid::new_v4();
+        let execution_id = Uuid::new_v4();
+
+        // Insert minimal project record
+        sqlx::query("INSERT INTO projects (id, name) VALUES ($1, $2)")
+            .bind(project_id)
+            .bind("Test Project")
+            .execute(&pool)
+            .await
+            .expect("Failed to insert project");
+
+        // Insert minimal task record
+        sqlx::query("INSERT INTO tasks (id, project_id, title) VALUES ($1, $2, $3)")
+            .bind(task_id)
+            .bind(project_id)
+            .bind("Test Task")
+            .execute(&pool)
+            .await
+            .expect("Failed to insert task");
+
+        // Insert minimal task_attempt record
+        sqlx::query(
+            "INSERT INTO task_attempts (id, task_id, branch, target_branch, executor) VALUES ($1, $2, $3, $4, $5)"
+        )
+        .bind(task_attempt_id)
+        .bind(task_id)
+        .bind("test-branch")
+        .bind("main")
+        .bind("claude_code")
+        .execute(&pool)
+        .await
+        .expect("Failed to insert task_attempt");
+
+        // Create executor action
+        let executor_action = ExecutorAction::new(
+            ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
+                executor_profile_id: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
+                prompt: "Test prompt".to_string(),
+            }),
+            None,
+        );
+        let executor_action_json = serde_json::to_string(&executor_action).unwrap();
+
+        // Insert minimal execution_process record
+        sqlx::query(
+            r#"INSERT INTO execution_processes
+               (id, task_attempt_id, run_reason, executor_action, status, started_at)
+               VALUES ($1, $2, $3, $4, $5, $6)"#,
+        )
+        .bind(execution_id)
+        .bind(task_attempt_id)
+        .bind("codingagent")
+        .bind(executor_action_json)
+        .bind("completed")
+        .bind(Utc::now())
+        .execute(&pool)
+        .await
+        .expect("Failed to insert execution_process");
+
+        // Create legacy logs with existing JsonPatch entries
+        let patch1 = json!([{
+            "op": "add",
+            "path": "/entries/0",
+            "value": {
+                "type": "assistant_message",
+                "content": "Idempotency test message 1"
+            }
+        }]);
+
+        let patch2 = json!([{
+            "op": "add",
+            "path": "/entries/1",
+            "value": {
+                "type": "assistant_message",
+                "content": "Idempotency test message 2"
+            }
+        }]);
+
+        let jsonl = format!(
+            "{}\n{}",
+            serde_json::to_string(&LogMsg::JsonPatch(
+                serde_json::from_value(patch1).expect("Failed to create patch1")
+            ))
+            .expect("Failed to serialize patch1"),
+            serde_json::to_string(&LogMsg::JsonPatch(
+                serde_json::from_value(patch2).expect("Failed to create patch2")
+            ))
+            .expect("Failed to serialize patch2")
+        );
+
+        // Insert legacy log record
+        sqlx::query(
+            r#"INSERT INTO execution_process_logs (execution_id, logs, byte_size, inserted_at)
+               VALUES ($1, $2, $3, $4)"#,
+        )
+        .bind(execution_id)
+        .bind(&jsonl)
+        .bind(jsonl.len() as i64)
+        .bind(Utc::now())
+        .execute(&pool)
+        .await
+        .expect("Failed to insert legacy log record");
+
+        // Run migration first time
+        let result1 = migrate_execution_logs_with_options(&pool, execution_id, false)
+            .await
+            .expect("First migration failed");
+
+        // Get log entries after first migration
+        let entries_after_first: Vec<(i64, String)> = sqlx::query_as(
+            r#"SELECT id, content FROM log_entries WHERE execution_id = $1 ORDER BY id"#
+        )
+        .bind(execution_id)
+        .fetch_all(&pool)
+        .await
+        .expect("Failed to fetch log entries after first migration");
+
+        let count_after_first = entries_after_first.len();
+
+        // Run migration second time
+        let result2 = migrate_execution_logs_with_options(&pool, execution_id, false)
+            .await
+            .expect("Second migration failed");
+
+        // Get log entries after second migration
+        let entries_after_second: Vec<(i64, String)> = sqlx::query_as(
+            r#"SELECT id, content FROM log_entries WHERE execution_id = $1 ORDER BY id"#
+        )
+        .bind(execution_id)
+        .fetch_all(&pool)
+        .await
+        .expect("Failed to fetch log entries after second migration");
+
+        let count_after_second = entries_after_second.len();
+
+        // Assert: Count should remain the same after second run (idempotent)
+        assert_eq!(
+            count_after_first, count_after_second,
+            "Expected same count after second migration (idempotent)"
+        );
+
+        assert_eq!(
+            count_after_first, 2,
+            "Expected 2 log entries after first migration"
+        );
+
+        assert_eq!(
+            count_after_second, 2,
+            "Expected 2 log entries after second migration (no duplicates)"
+        );
+
+        // Assert: Content should be identical
+        for (i, (first, second)) in entries_after_first.iter().zip(entries_after_second.iter()).enumerate() {
+            assert_eq!(
+                first.0, second.0,
+                "Entry index {} should match between runs", i
+            );
+            assert_eq!(
+                first.1, second.1,
+                "Content at index {} should match between runs", i
+            );
+        }
+
+        // Assert: First run should have migrated 2 entries
+        assert_eq!(
+            result1.migrated, 2,
+            "Expected 2 entries migrated in first run"
+        );
+
+        // Assert: Second run should skip (already migrated)
+        assert_eq!(
+            result2.skipped, 1,
+            "Expected execution to be skipped in second run (already migrated)"
+        );
+
+        assert_eq!(
+            result2.migrated, 0,
+            "Expected 0 entries migrated in second run (already complete)"
+        );
     }
 }

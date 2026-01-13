@@ -1484,6 +1484,12 @@ impl StreamingContentState {
             ) => {
                 self.buffer.push_str(thinking);
             }
+            // Signature deltas are metadata, not content - ignore them
+            (_, ClaudeContentBlockDelta::SignatureDelta { .. }) => {}
+            // Demote Unknown to debug level to reduce log noise
+            (_, ClaudeContentBlockDelta::Unknown) => {
+                tracing::debug!("Received unknown content block delta type");
+            }
             _ => {
                 tracing::warn!(
                     "Mismatched content types: delta {:?}, kind {:?}",
@@ -1662,6 +1668,8 @@ pub enum ClaudeContentBlockDelta {
     TextDelta { text: String },
     #[serde(rename = "thinking_delta")]
     ThinkingDelta { thinking: String },
+    #[serde(rename = "signature_delta")]
+    SignatureDelta { signature: String },
     #[serde(other)]
     Unknown,
 }
@@ -2474,5 +2482,23 @@ mod tests {
             config_true.interactive_questions,
             "interactive_questions: true should deserialize to true"
         );
+    }
+
+    #[test]
+    fn test_signature_delta_deserialization() {
+        let json = r#"{"type": "signature_delta", "signature": "abc123"}"#;
+        let delta: ClaudeContentBlockDelta = serde_json::from_str(json).unwrap();
+        assert!(matches!(delta, ClaudeContentBlockDelta::SignatureDelta { .. }));
+    }
+
+    #[test]
+    fn test_signature_delta_ignored_in_content() {
+        let mut content = StreamingContentState {
+            kind: StreamingContentKind::Thinking,
+            buffer: "test".to_string(),
+            entry_index: None,
+        };
+        content.apply_content_delta(&ClaudeContentBlockDelta::SignatureDelta { signature: "abc".into() });
+        assert_eq!(content.buffer, "test");
     }
 }
