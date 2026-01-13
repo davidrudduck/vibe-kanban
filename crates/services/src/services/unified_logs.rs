@@ -10,6 +10,7 @@ use thiserror::Error;
 use utils::unified_log::{Direction, PaginatedLogs};
 use uuid::Uuid;
 
+use super::log_migration;
 use super::node_proxy_client::{NodeProxyClient, NodeProxyError};
 
 /// Error type for unified log service operations.
@@ -84,6 +85,20 @@ impl LocalLogService {
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
+
+    /// Check if legacy logs exist for an execution.
+    ///
+    /// Returns true if the execution has any entries in the legacy
+    /// `execution_process_logs` table, false otherwise.
+    async fn has_legacy_logs(&self, execution_id: Uuid) -> Result<bool, sqlx::Error> {
+        let count: i64 = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) as "count!: i64" FROM execution_process_logs WHERE execution_id = $1"#,
+            execution_id
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count > 0)
+    }
 }
 
 #[async_trait]
@@ -98,6 +113,24 @@ impl LogService for LocalLogService {
         // Use log_entries table for efficient pagination with individual rows
         let paginated =
             DbLogEntry::find_paginated(&self.pool, execution_id, cursor, limit, direction).await?;
+
+        // On-demand migration fallback
+        if paginated.entries.is_empty()
+            && paginated.total_count == Some(0)
+            && self.has_legacy_logs(execution_id).await.unwrap_or(false)
+        {
+            tracing::info!(execution_id = %execution_id, "Triggering on-demand log migration");
+            if let Err(e) = log_migration::migrate_execution_logs(&self.pool, execution_id).await {
+                tracing::warn!(execution_id = %execution_id, error = %e, "On-demand migration failed");
+            } else {
+                // Retry fetch after successful migration
+                let retry =
+                    DbLogEntry::find_paginated(&self.pool, execution_id, cursor, limit, direction)
+                        .await?;
+                return Ok(retry.to_paginated_logs());
+            }
+        }
+
         Ok(paginated.to_paginated_logs())
     }
 
@@ -386,5 +419,425 @@ mod tests {
         fn _check_api(service: &UnifiedLogService) -> (&LocalLogService, &RemoteLogService) {
             (service.local(), service.remote())
         }
+    }
+
+    #[tokio::test]
+    async fn test_get_logs_paginated_triggers_migration() {
+        use db::test_utils::create_test_pool;
+        use executors::actions::{coding_agent_initial::CodingAgentInitialRequest, ExecutorAction, ExecutorActionType};
+        use executors::executors::BaseCodingAgent;
+        use executors::profile::ExecutorProfileId;
+        use utils::log_msg::LogMsg;
+        use chrono::Utc;
+        use serde_json::json;
+
+        let (pool, _temp_dir) = create_test_pool().await;
+
+        // Setup: Create execution_process with minimal dependencies
+        let project_id = Uuid::new_v4();
+        let task_id = Uuid::new_v4();
+        let task_attempt_id = Uuid::new_v4();
+        let execution_id = Uuid::new_v4();
+
+        // Insert minimal project record
+        sqlx::query("INSERT INTO projects (id, name) VALUES ($1, $2)")
+            .bind(project_id)
+            .bind("Test Project")
+            .execute(&pool)
+            .await
+            .expect("Failed to insert project");
+
+        // Insert minimal task record
+        sqlx::query("INSERT INTO tasks (id, project_id, title) VALUES ($1, $2, $3)")
+            .bind(task_id)
+            .bind(project_id)
+            .bind("Test Task")
+            .execute(&pool)
+            .await
+            .expect("Failed to insert task");
+
+        // Insert minimal task_attempt record
+        sqlx::query(
+            "INSERT INTO task_attempts (id, task_id, branch, target_branch, executor) VALUES ($1, $2, $3, $4, $5)"
+        )
+        .bind(task_attempt_id)
+        .bind(task_id)
+        .bind("test-branch")
+        .bind("main")
+        .bind("claude_code")
+        .execute(&pool)
+        .await
+        .expect("Failed to insert task_attempt");
+
+        // Create executor action
+        let executor_action = ExecutorAction::new(
+            ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
+                executor_profile_id: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
+                prompt: "Test prompt".to_string(),
+            }),
+            None,
+        );
+        let executor_action_json = serde_json::to_string(&executor_action).unwrap();
+
+        // Insert minimal execution_process record (completed status)
+        sqlx::query(
+            r#"INSERT INTO execution_processes
+               (id, task_attempt_id, run_reason, executor_action, status, started_at)
+               VALUES ($1, $2, $3, $4, $5, $6)"#,
+        )
+        .bind(execution_id)
+        .bind(task_attempt_id)
+        .bind("codingagent")
+        .bind(executor_action_json)
+        .bind("completed")
+        .bind(Utc::now())
+        .execute(&pool)
+        .await
+        .expect("Failed to insert execution_process");
+
+        // Create legacy logs with JsonPatch entries
+        let patch1 = json!([{
+            "op": "add",
+            "path": "/entries/0",
+            "value": {
+                "type": "assistant_message",
+                "content": "Test message 1"
+            }
+        }]);
+
+        let patch2 = json!([{
+            "op": "add",
+            "path": "/entries/1",
+            "value": {
+                "type": "assistant_message",
+                "content": "Test message 2"
+            }
+        }]);
+
+        // Create JSONL with JsonPatch entries
+        let jsonl = format!(
+            "{}\n{}",
+            serde_json::to_string(&LogMsg::JsonPatch(
+                serde_json::from_value(patch1).expect("Failed to create patch1")
+            ))
+            .expect("Failed to serialize patch1"),
+            serde_json::to_string(&LogMsg::JsonPatch(
+                serde_json::from_value(patch2).expect("Failed to create patch2")
+            ))
+            .expect("Failed to serialize patch2")
+        );
+
+        // Insert legacy log record (but don't run migration yet)
+        sqlx::query(
+            r#"INSERT INTO execution_process_logs (execution_id, logs, byte_size, inserted_at)
+               VALUES ($1, $2, $3, $4)"#,
+        )
+        .bind(execution_id)
+        .bind(&jsonl)
+        .bind(jsonl.len() as i64)
+        .bind(Utc::now())
+        .execute(&pool)
+        .await
+        .expect("Failed to insert legacy log record");
+
+        // Verify log_entries is empty before calling get_logs_paginated
+        let count_before: i64 = sqlx::query_scalar(
+            r#"SELECT COUNT(*) FROM log_entries WHERE execution_id = $1"#
+        )
+        .bind(execution_id)
+        .fetch_one(&pool)
+        .await
+        .expect("Failed to count log entries");
+        assert_eq!(count_before, 0, "log_entries should be empty before migration");
+
+        // Call get_logs_paginated - this should trigger automatic migration
+        let service = LocalLogService::new(pool.clone());
+        let result = service
+            .get_logs_paginated(execution_id, None, 100, Direction::Forward)
+            .await
+            .expect("get_logs_paginated should succeed");
+
+        // Assert: logs are returned (migration was triggered)
+        assert_eq!(
+            result.entries.len(),
+            2,
+            "Expected 2 log entries after automatic migration"
+        );
+
+        // Verify log_entries table is now populated
+        let count_after: i64 = sqlx::query_scalar(
+            r#"SELECT COUNT(*) FROM log_entries WHERE execution_id = $1"#
+        )
+        .bind(execution_id)
+        .fetch_one(&pool)
+        .await
+        .expect("Failed to count log entries");
+        assert_eq!(
+            count_after, 2,
+            "log_entries table should be populated after migration"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_logs_paginated_no_migration_when_populated() {
+        use db::test_utils::create_test_pool;
+        use executors::actions::{coding_agent_initial::CodingAgentInitialRequest, ExecutorAction, ExecutorActionType};
+        use executors::executors::BaseCodingAgent;
+        use executors::profile::ExecutorProfileId;
+        use chrono::Utc;
+
+        let (pool, _temp_dir) = create_test_pool().await;
+
+        // Setup: Create execution_process with minimal dependencies
+        let project_id = Uuid::new_v4();
+        let task_id = Uuid::new_v4();
+        let task_attempt_id = Uuid::new_v4();
+        let execution_id = Uuid::new_v4();
+
+        // Insert minimal project record
+        sqlx::query("INSERT INTO projects (id, name) VALUES ($1, $2)")
+            .bind(project_id)
+            .bind("Test Project")
+            .execute(&pool)
+            .await
+            .expect("Failed to insert project");
+
+        // Insert minimal task record
+        sqlx::query("INSERT INTO tasks (id, project_id, title) VALUES ($1, $2, $3)")
+            .bind(task_id)
+            .bind(project_id)
+            .bind("Test Task")
+            .execute(&pool)
+            .await
+            .expect("Failed to insert task");
+
+        // Insert minimal task_attempt record
+        sqlx::query(
+            "INSERT INTO task_attempts (id, task_id, branch, target_branch, executor) VALUES ($1, $2, $3, $4, $5)"
+        )
+        .bind(task_attempt_id)
+        .bind(task_id)
+        .bind("test-branch")
+        .bind("main")
+        .bind("claude_code")
+        .execute(&pool)
+        .await
+        .expect("Failed to insert task_attempt");
+
+        // Create executor action
+        let executor_action = ExecutorAction::new(
+            ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
+                executor_profile_id: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
+                prompt: "Test prompt".to_string(),
+            }),
+            None,
+        );
+        let executor_action_json = serde_json::to_string(&executor_action).unwrap();
+
+        // Insert minimal execution_process record (completed status)
+        sqlx::query(
+            r#"INSERT INTO execution_processes
+               (id, task_attempt_id, run_reason, executor_action, status, started_at)
+               VALUES ($1, $2, $3, $4, $5, $6)"#,
+        )
+        .bind(execution_id)
+        .bind(task_attempt_id)
+        .bind("codingagent")
+        .bind(executor_action_json)
+        .bind("completed")
+        .bind(Utc::now())
+        .execute(&pool)
+        .await
+        .expect("Failed to insert execution_process");
+
+        // Directly insert log_entries (simulating already-migrated state)
+        use db::models::log_entry::{DbLogEntry, CreateLogEntry};
+        use utils::unified_log::OutputType;
+
+        DbLogEntry::create(
+            &pool,
+            CreateLogEntry::new(
+                execution_id,
+                OutputType::JsonPatch,
+                r#"[{"op":"add","path":"/entries/0","value":{"type":"assistant_message","content":"Existing entry"}}]"#.to_string(),
+            ),
+        )
+        .await
+        .expect("Failed to insert log entry");
+
+        // Also insert legacy logs (to ensure they're ignored when log_entries exists)
+        sqlx::query(
+            r#"INSERT INTO execution_process_logs (execution_id, logs, byte_size, inserted_at)
+               VALUES ($1, $2, $3, $4)"#,
+        )
+        .bind(execution_id)
+        .bind("legacy log data")
+        .bind(15_i64)
+        .bind(Utc::now())
+        .execute(&pool)
+        .await
+        .expect("Failed to insert legacy log record");
+
+        // Call get_logs_paginated - should NOT trigger migration
+        let service = LocalLogService::new(pool.clone());
+        let result = service
+            .get_logs_paginated(execution_id, None, 100, Direction::Forward)
+            .await
+            .expect("get_logs_paginated should succeed");
+
+        // Assert: Returns existing log_entries without migration
+        assert_eq!(
+            result.entries.len(),
+            1,
+            "Expected 1 existing log entry, no migration should occur"
+        );
+
+        // Verify log_entries count hasn't changed (no duplicate migration)
+        let count: i64 = sqlx::query_scalar(
+            r#"SELECT COUNT(*) FROM log_entries WHERE execution_id = $1"#
+        )
+        .bind(execution_id)
+        .fetch_one(&pool)
+        .await
+        .expect("Failed to count log entries");
+        assert_eq!(
+            count, 1,
+            "log_entries count should remain 1, migration should not have run"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_logs_paginated_handles_migration_failure() {
+        use db::test_utils::create_test_pool;
+        use executors::actions::{coding_agent_initial::CodingAgentInitialRequest, ExecutorAction, ExecutorActionType};
+        use executors::executors::BaseCodingAgent;
+        use executors::profile::ExecutorProfileId;
+        use utils::log_msg::LogMsg;
+        use chrono::Utc;
+        use serde_json::json;
+
+        let (pool, _temp_dir) = create_test_pool().await;
+
+        // Setup: Create execution_process with minimal dependencies
+        let project_id = Uuid::new_v4();
+        let task_id = Uuid::new_v4();
+        let task_attempt_id = Uuid::new_v4();
+        let execution_id = Uuid::new_v4();
+
+        // Insert minimal project record
+        sqlx::query("INSERT INTO projects (id, name) VALUES ($1, $2)")
+            .bind(project_id)
+            .bind("Test Project")
+            .execute(&pool)
+            .await
+            .expect("Failed to insert project");
+
+        // Insert minimal task record
+        sqlx::query("INSERT INTO tasks (id, project_id, title) VALUES ($1, $2, $3)")
+            .bind(task_id)
+            .bind(project_id)
+            .bind("Test Task")
+            .execute(&pool)
+            .await
+            .expect("Failed to insert task");
+
+        // Insert minimal task_attempt record
+        sqlx::query(
+            "INSERT INTO task_attempts (id, task_id, branch, target_branch, executor) VALUES ($1, $2, $3, $4, $5)"
+        )
+        .bind(task_attempt_id)
+        .bind(task_id)
+        .bind("test-branch")
+        .bind("main")
+        .bind("claude_code")
+        .execute(&pool)
+        .await
+        .expect("Failed to insert task_attempt");
+
+        // Create executor action
+        let executor_action = ExecutorAction::new(
+            ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
+                executor_profile_id: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
+                prompt: "Test prompt".to_string(),
+            }),
+            None,
+        );
+        let executor_action_json = serde_json::to_string(&executor_action).unwrap();
+
+        // Insert minimal execution_process record (completed status)
+        sqlx::query(
+            r#"INSERT INTO execution_processes
+               (id, task_attempt_id, run_reason, executor_action, status, started_at)
+               VALUES ($1, $2, $3, $4, $5, $6)"#,
+        )
+        .bind(execution_id)
+        .bind(task_attempt_id)
+        .bind("codingagent")
+        .bind(executor_action_json)
+        .bind("completed")
+        .bind(Utc::now())
+        .execute(&pool)
+        .await
+        .expect("Failed to insert execution_process");
+
+        // Create legacy logs with mix of invalid and valid JSON
+        // Migration should skip invalid lines but process valid ones gracefully
+        let patch1 = json!([{
+            "op": "add",
+            "path": "/entries/0",
+            "value": {
+                "type": "assistant_message",
+                "content": "Valid message"
+            }
+        }]);
+
+        let mixed_jsonl = format!(
+            "{}\n{}\n{}",
+            "not valid json at all",  // Invalid - should be skipped
+            serde_json::to_string(&LogMsg::JsonPatch(
+                serde_json::from_value(patch1).expect("Failed to create patch1")
+            )).unwrap(),  // Valid - should be migrated
+            "also invalid"  // Invalid - should be skipped
+        );
+
+        // Insert legacy log record with mixed valid/invalid data
+        sqlx::query(
+            r#"INSERT INTO execution_process_logs (execution_id, logs, byte_size, inserted_at)
+               VALUES ($1, $2, $3, $4)"#,
+        )
+        .bind(execution_id)
+        .bind(&mixed_jsonl)
+        .bind(mixed_jsonl.len() as i64)
+        .bind(Utc::now())
+        .execute(&pool)
+        .await
+        .expect("Failed to insert legacy log record");
+
+        // Call get_logs_paginated - migration should handle errors gracefully
+        let service = LocalLogService::new(pool.clone());
+        let result = service
+            .get_logs_paginated(execution_id, None, 100, Direction::Forward)
+            .await
+            .expect("get_logs_paginated should succeed even with invalid JSONL lines");
+
+        // Assert: Returns valid entries (migration succeeded for valid lines)
+        assert_eq!(
+            result.entries.len(),
+            1,
+            "Expected 1 valid entry to be migrated despite invalid lines"
+        );
+
+        // Verify log_entries contains only the valid entry
+        let count: i64 = sqlx::query_scalar(
+            r#"SELECT COUNT(*) FROM log_entries WHERE execution_id = $1"#
+        )
+        .bind(execution_id)
+        .fetch_one(&pool)
+        .await
+        .expect("Failed to count log entries");
+        assert_eq!(
+            count, 1,
+            "log_entries should contain only the valid entry, invalid lines skipped"
+        );
     }
 }
