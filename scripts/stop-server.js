@@ -6,6 +6,13 @@
  * and sends SIGTERM to stop them safely, avoiding the "killall" problem
  * where child processes accidentally kill the parent server.
  *
+ * Graceful Shutdown Sequence (dev mode):
+ * 1. SIGTERM → backend (triggers graceful shutdown)
+ * 2. WAIT for backend exit (max 10s) - CRITICAL for database safety
+ *    Backend performs: log flush, WAL checkpoint, connection pool close
+ * 3. SIGTERM → dev_root_pid (kills concurrently/cargo-watch/Vite)
+ * 4. Port-based cleanup fallback (lsof) for any orphaned processes
+ *
  * Usage:
  *   pnpm run stop              # Stop instance for current directory (or show menu)
  *   pnpm run stop --all        # Stop all running instances
@@ -16,6 +23,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { execSync } = require('child_process');
 
 const INSTANCES_DIR = path.join(os.tmpdir(), 'vibe-kanban', 'instances');
 const LEGACY_INFO_FILE = path.join(os.tmpdir(), 'vibe-kanban', 'vibe-kanban.info');
@@ -70,30 +78,148 @@ function filterRunning(instances) {
   return instances.filter(i => isProcessRunning(i.pid));
 }
 
-function stopInstance(info) {
+/**
+ * Sleep for a given number of milliseconds.
+ */
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Kill any process listening on a given port (fallback cleanup).
+ * Uses lsof to find the process, then sends SIGTERM (and SIGKILL if needed).
+ */
+async function killProcessOnPort(port, label) {
+  try {
+    const result = execSync(`lsof -ti:${port} 2>/dev/null || true`, { encoding: 'utf8' });
+    const pids = result.trim().split('\n').filter(p => p);
+
+    for (const pidStr of pids) {
+      const pid = parseInt(pidStr, 10);
+      if (!pid || !isProcessRunning(pid)) continue;
+
+      console.log(`  Found orphaned ${label} process on port ${port} (PID: ${pid})`);
+
+      try {
+        process.kill(pid, 'SIGTERM');
+
+        // Wait briefly for process to exit
+        await sleep(500);
+
+        if (isProcessRunning(pid)) {
+          console.log(`  Force killing ${label} process (PID: ${pid})`);
+          process.kill(pid, 'SIGKILL');
+        } else {
+          console.log(`  Orphaned ${label} process terminated`);
+        }
+      } catch (e) {
+        // Process may have already exited
+      }
+    }
+  } catch (e) {
+    // Silent fail - port may already be free or lsof not available
+  }
+}
+
+/**
+ * Stop an instance with proper graceful shutdown sequence.
+ *
+ * The order is CRITICAL for data safety:
+ * 1. SIGTERM → backend (triggers graceful shutdown)
+ * 2. WAIT for backend exit (max 10s)
+ *    - Backend flushes log buffers
+ *    - Backend runs WAL checkpoint (TRUNCATE)
+ *    - Backend closes database pool
+ * 3. SIGTERM → dev_root_pid (kills concurrently/cargo-watch/Vite)
+ * 4. Port-based cleanup fallback for orphans
+ */
+async function stopInstance(info) {
   console.log(`Stopping instance:`);
   console.log(`  Project: ${info.project_root}`);
-  console.log(`  PID: ${info.pid}`);
+  console.log(`  Backend PID: ${info.pid}`);
+  if (info.dev_root_pid) {
+    console.log(`  Dev root PID: ${info.dev_root_pid} (concurrently)`);
+  }
   console.log(`  Ports: backend=${info.ports?.backend || 'N/A'}, frontend=${info.ports?.frontend || 'N/A'}, mcp=${info.ports?.mcp || 'N/A'}`);
 
+  // STEP 1: Send SIGTERM to backend (Rust server) - triggers graceful shutdown
+  // This is THE CRITICAL STEP - backend will flush logs, checkpoint WAL, close DB
   if (!isProcessRunning(info.pid)) {
-    console.log('  Status: Process not found (already stopped)');
-    // Clean up stale file
-    if (info._file && fs.existsSync(info._file)) {
-      fs.unlinkSync(info._file);
-      console.log('  Cleaned up stale instance file');
+    console.log('  Backend process not found (already stopped)');
+  } else {
+    try {
+      process.kill(info.pid, 'SIGTERM');
+      console.log(`  Sent SIGTERM to backend (PID: ${info.pid})`);
+
+      // STEP 2: Wait for backend to complete graceful shutdown
+      // Typical cleanup takes 1-3 seconds (flush logs, WAL checkpoint, etc.)
+      // Max wait: 10 seconds (generous timeout)
+      console.log('  Waiting for backend cleanup to complete...');
+      const maxWaitMs = 10000;
+      const checkIntervalMs = 200;
+      let waited = 0;
+
+      while (isProcessRunning(info.pid) && waited < maxWaitMs) {
+        await sleep(checkIntervalMs);
+        waited += checkIntervalMs;
+      }
+
+      if (isProcessRunning(info.pid)) {
+        console.warn(`  Backend still running after ${maxWaitMs}ms, forcing kill...`);
+        try {
+          process.kill(info.pid, 'SIGKILL');
+        } catch (e) {
+          // Process may have exited between check and kill
+        }
+      } else {
+        console.log(`  Backend exited cleanly after ${waited}ms`);
+      }
+    } catch (e) {
+      console.error(`  Failed to signal backend: ${e.message}`);
     }
-    return false;
   }
 
-  try {
-    process.kill(info.pid, 'SIGTERM');
-    console.log('  Status: SIGTERM sent, server will terminate gracefully');
-    return true;
-  } catch (e) {
-    console.error(`  Error: Failed to send signal - ${e.message}`);
-    return false;
+  // STEP 3: NOW kill dev root PID (concurrently) - this terminates cargo-watch and Vite
+  // Safe to do this now because backend has already completed its cleanup
+  if (info.dev_root_pid && isProcessRunning(info.dev_root_pid)) {
+    try {
+      process.kill(info.dev_root_pid, 'SIGTERM');
+      console.log(`  Sent SIGTERM to dev root process (PID: ${info.dev_root_pid})`);
+
+      // Give concurrently a moment to clean up its children
+      await sleep(500);
+
+      // Force kill if still running
+      if (isProcessRunning(info.dev_root_pid)) {
+        console.log(`  Force killing dev root process...`);
+        try {
+          process.kill(info.dev_root_pid, 'SIGKILL');
+        } catch (e) {
+          // Process may have exited
+        }
+      }
+    } catch (e) {
+      console.warn(`  Failed to kill dev root PID: ${e.message}`);
+    }
   }
+
+  // STEP 4: Fallback - kill any orphaned processes on frontend/backend ports
+  // This catches Vite, cargo-watch, or other stragglers that weren't children of concurrently
+  if (info.ports?.frontend) {
+    await killProcessOnPort(info.ports.frontend, 'frontend');
+  }
+  if (info.ports?.backend) {
+    await killProcessOnPort(info.ports.backend, 'backend');
+  }
+
+  // STEP 5: Clean up instance file
+  if (info._file && fs.existsSync(info._file)) {
+    fs.unlinkSync(info._file);
+    console.log('  Cleaned up instance registry file');
+  }
+
+  console.log('  Instance stopped successfully');
+  return true;
 }
 
 function listInstances(instances) {
@@ -149,7 +275,7 @@ async function main() {
     }
     console.log(`Stopping all ${running.length} instance(s)...\n`);
     for (const info of running) {
-      stopInstance(info);
+      await stopInstance(info);
       console.log('');
     }
     return;
@@ -161,7 +287,7 @@ async function main() {
     const targetPath = path.resolve(pathArg);
     const instance = findInstanceForDir(running, targetPath);
     if (instance) {
-      stopInstance(instance);
+      await stopInstance(instance);
     } else {
       console.log(`No running instance found for: ${targetPath}`);
     }
@@ -173,7 +299,7 @@ async function main() {
   const instance = findInstanceForDir(running, currentDir);
 
   if (instance) {
-    stopInstance(instance);
+    await stopInstance(instance);
     return;
   }
 

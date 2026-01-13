@@ -244,6 +244,9 @@ fn generate_types_content() -> String {
         local_deployment::message_queue::AddQueuedMessageRequest::decl(),
         local_deployment::message_queue::UpdateQueuedMessageRequest::decl(),
         local_deployment::message_queue::ReorderQueuedMessagesRequest::decl(),
+        // Instance registry types
+        utils::port_file::InstanceInfo::decl(),
+        utils::port_file::InstancePorts::decl(),
     ];
 
     let body = decls

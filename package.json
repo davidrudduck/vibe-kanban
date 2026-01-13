@@ -16,7 +16,7 @@
     "lint": "pnpm run frontend:lint && pnpm run backend:lint",
     "format": "cargo fmt --all && cd frontend && pnpm run format",
     "check": "pnpm run frontend:check && pnpm run backend:check",
-    "dev": "export FRONTEND_PORT=$(node scripts/setup-dev-environment.js frontend) && export BACKEND_PORT=$(node scripts/setup-dev-environment.js backend) && export HOST=$(node scripts/setup-dev-environment.js host) && concurrently \"pnpm run backend:dev:watch\" \"pnpm run frontend:dev\"",
+    "dev": "node scripts/start-dev.js",
     "dev:network": "HOST=0.0.0.0 pnpm run dev",
     "stop": "node scripts/stop-server.js",
     "prod:build": "cd frontend && pnpm run build && cd .. && cargo build --release",
