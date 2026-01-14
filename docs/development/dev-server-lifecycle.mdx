@@ -1,0 +1,149 @@
+---
+title: Development Server Lifecycle
+description: How to start, stop, and manage development servers
+---
+
+# Development Server Lifecycle
+
+## Starting the Dev Server
+
+### Using init.sh (Recommended)
+```bash
+./init.sh start
+```
+
+This starts both frontend (Vite) and backend (Rust) servers with configured ports.
+
+### Using pnpm
+```bash
+pnpm run dev
+```
+
+### What Happens on Start
+
+1. `start-dev.js` reads port configuration from `setup-dev-environment.js`
+2. Spawns `concurrently` to run frontend and backend in parallel
+3. Tracks concurrently PID in `/tmp/vibe-kanban/instances/.dev_root_pid`
+4. Backend registers instance in `/tmp/vibe-kanban/instances/{hash}.json`
+
+**Process hierarchy:**
+```text
+start-dev.js (PID 1000)
+  └─ concurrently (PID 1001, tracked as dev_root_pid)
+      ├─ cargo watch (PID 1002)
+      │   └─ vks-node-server (PID 1003, tracked as backend PID)
+      └─ npm/vite (PID 1004)
+```
+
+## Stopping the Dev Server
+
+### Using init.sh (Recommended)
+```bash
+./init.sh stop
+```
+
+### Using pnpm
+```bash
+pnpm run stop
+```
+
+### Graceful Shutdown Sequence
+
+The stop script ensures safe termination in this order:
+
+1. **Send SIGTERM to backend** (Rust process)
+   - Backend stops accepting new requests
+   - Completes in-flight requests
+   - **Flushes all log buffers** (executor logs)
+   - **Runs WAL checkpoint** (SQLite durability)
+   - Closes database connection pool
+   - Unregisters from instance registry
+   - Exits
+
+2. **Wait for backend to exit** (max 10 seconds)
+   - Allows cleanup to complete
+   - Prevents data loss or corruption
+
+3. **Kill dev root PID** (concurrently process)
+   - Terminates cargo-watch
+   - Terminates Vite frontend
+
+4. **Port-based fallback cleanup**
+   - Uses `lsof` to find any orphaned processes
+   - Sends SIGTERM, then SIGKILL if needed
+
+### Why This Order Matters
+
+**Database Safety**: The backend MUST complete its WAL checkpoint before any other processes are killed. Interrupting the checkpoint can cause:
+- Database corruption
+- Lost executor logs
+- Inconsistent transaction state
+
+**Process Cleanup**: Killing the dev root PID (concurrently) ensures cargo-watch and Vite terminate, even if they're not direct children of the backend process.
+
+## Troubleshooting
+
+### Port Already in Use
+
+If you see "port already in use" errors:
+
+```bash
+# Check what's using the port
+lsof -i :FRONTEND_PORT
+lsof -i :BACKEND_PORT
+
+# Clean up orphaned processes
+pnpm run stop --all
+
+# If that doesn't work, manual cleanup:
+kill -9 <PID>
+```
+
+### Orphaned Processes
+
+If processes don't terminate cleanly:
+
+```bash
+# List all running instances
+pnpm run stop --list
+
+# Stop all instances
+pnpm run stop --all
+
+# Find and kill Vite manually
+ps aux | grep vite
+kill <PID>
+```
+
+### Backend Won't Stop
+
+If the backend hangs during shutdown (rare):
+
+```bash
+# Wait for the 10s timeout, then:
+kill -9 <backend_PID>
+
+# Clean up registry manually
+rm /tmp/vibe-kanban/instances/*.json
+```
+
+## Multiple Instances
+
+You can run multiple vibe-kanban instances simultaneously (different projects):
+
+```bash
+cd /path/to/project1
+pnpm run dev  # Starts instance 1
+
+cd /path/to/project2
+pnpm run dev  # Starts instance 2 (different ports)
+
+# Stop specific instance
+cd /path/to/project1
+pnpm run stop  # Only stops instance 1
+
+# Stop all instances
+pnpm run stop --all
+```
+
+Each instance tracks its own dev_root_pid and ports.

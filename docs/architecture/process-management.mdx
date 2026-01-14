@@ -1,0 +1,216 @@
+---
+title: Process Management
+description: How development processes are tracked and terminated
+---
+
+# Process Management Architecture
+
+## Overview
+
+The vibe-kanban development environment uses a multi-process architecture with careful shutdown orchestration to ensure data safety.
+
+## Process Hierarchy
+
+```bash
+Shell (pnpm run dev)
+  └─ start-dev.js (Node.js wrapper)
+      └─ concurrently (dev_root_pid) ────────┐
+          ├─ cargo watch                       │
+          │   └─ vks-node-server (backend PID) │ ← Tracked in registry
+          └─ npm/vite (frontend)               │
+                                               │
+/tmp/vibe-kanban/instances/{hash}.json ───────┘
+```
+
+## PID Tracking
+
+### Instance Registry
+
+**Location**: `/tmp/vibe-kanban/instances/{SHA256}.json`
+
+**Structure**:
+```json
+{
+  "project_root": "/path/to/project",
+  "pid": 12345,                    // Backend Rust process
+  "dev_root_pid": 12340,           // Concurrently (dev mode only)
+  "binary": "vks-node-server",
+  "started_at": "2026-01-13T10:00:00Z",
+  "ports": {
+    "backend": 4601,
+    "frontend": 4600,
+    "mcp": 4602,
+    "hive": null
+  },
+  "name": "my-project"
+}
+```
+
+**File naming**: Instances are keyed by SHA-256 hash of `project_root` to support multiple concurrent instances.
+
+### Dev Root PID Temp File
+
+**Location**: `/tmp/vibe-kanban/instances/.dev_root_pid`
+
+**Purpose**: Temporary file written by `start-dev.js` containing the concurrently PID. Read by the backend during instance registration.
+
+**Lifecycle**:
+- Created: When `start-dev.js` spawns concurrently
+- Read: When backend calls `InstanceRegistry::register()`
+- Deleted: When `start-dev.js` exits (normal or signal)
+
+## Shutdown Sequence
+
+### Signal Flow
+
+```text
+User runs: pnpm run stop
+  ↓
+stop-server.js reads instance registry
+  ↓
+SIGTERM → backend (PID from registry)
+  ↓
+Backend's shutdown_signal() handler triggered
+  ↓
+Axum stops accepting new connections
+  ↓
+In-flight requests complete
+  ↓
+perform_cleanup_actions() executes:
+  - Flush all log buffers
+  - Kill running execution processes
+  - PRAGMA wal_checkpoint(TRUNCATE)
+  - Close database pool
+  ↓
+InstanceRegistry::unregister()
+  ↓
+Backend process exits
+  ↓
+stop-server.js detects backend exit (polling)
+  ↓
+SIGTERM → dev_root_pid (concurrently)
+  ↓
+Concurrently forwards SIGTERM to children:
+  - cargo-watch terminates
+  - npm/vite terminates
+  ↓
+Port-based fallback cleanup (lsof)
+  ↓
+All processes terminated ✓
+```
+
+### Critical Timing
+
+**Backend cleanup duration**: Typically 1-3 seconds, max 10 seconds
+
+**Components**:
+- Log flush: ~200ms
+- WAL checkpoint: ~500-1000ms (depends on WAL size)
+- DB pool close: ~100ms
+- Execution cleanup: ~100-500ms
+
+**Timeout handling**: If backend doesn't exit after 10s, `stop-server.js` sends SIGKILL.
+
+## Safety Guarantees
+
+### Database Integrity
+
+**WAL Checkpoint**: The backend MUST complete `PRAGMA wal_checkpoint(TRUNCATE)` before any dev processes are killed.
+
+**Why**: SQLite's Write-Ahead Log (WAL) contains uncommitted transactions. Checkpointing ensures all data is flushed to the main database file.
+
+**Risk if interrupted**: Database corruption, lost writes, inconsistent state.
+
+**Mitigation**: `stop-server.js` waits for backend to exit before killing dev_root_pid.
+
+### Log Durability
+
+**Log buffer flush**: All pending `LogEntry` writes must complete before shutdown.
+
+**Why**: Executor logs are buffered in memory for performance. Unflushed logs are lost on crash.
+
+**Risk if interrupted**: Missing execution logs, incomplete conversation history.
+
+**Mitigation**: `perform_cleanup_actions()` calls `flush_all_buffers()` before returning.
+
+### Process Group Cleanup
+
+**Dev root PID killing**: Ensures cargo-watch and Vite terminate even if they're not direct children of the backend process.
+
+**Why**: `concurrently` spawns processes that aren't part of the backend's process group.
+
+**Risk if not handled**: Orphaned Vite process holds the frontend port, preventing restart.
+
+**Mitigation**: Track dev_root_pid, kill it after backend exits, fallback to port-based cleanup.
+
+## Edge Cases
+
+### Backend Hangs During Cleanup
+
+**Scenario**: Deadlock or infinite loop in cleanup code
+
+**Detection**: Backend still running after 10s timeout
+
+**Handling**: Send SIGKILL to backend
+
+**Fallback**: Port-based cleanup still runs, removing orphaned Vite/cargo-watch
+
+### Dev Root PID Dies Early
+
+**Scenario**: Concurrently crashes before the backend stops
+
+**Detection**: `isProcessRunning(dev_root_pid)` returns false
+
+**Handling**: Skip dev_root_pid kill, proceed to port-based cleanup
+
+### Missing lsof
+
+**Scenario**: Platform doesn't have `lsof` installed (rare)
+
+**Detection**: `execSync('lsof ...')` throws error
+
+**Handling**: Silent fail, port-based cleanup skipped
+
+**Impact**: Orphaned processes may persist (manual cleanup needed)
+
+### Production Mode
+
+**Scenario**: Running `pnpm run prod` (no dev_root_pid)
+
+**Detection**: `dev_root_pid` field is `null` in registry
+
+**Handling**: Skip dev_root_pid kill step, proceed with backend shutdown
+
+**Behavior**: Identical to previous graceful shutdown (no change)
+
+## Multi-Instance Support
+
+### Instance Isolation
+
+Each project has its own instance registry file:
+
+```text
+/tmp/vibe-kanban/instances/
+  ├── a1b2c3d4.json  (project A, SHA-256 hash)
+  ├── e5f6g7h8.json  (project B, SHA-256 hash)
+  └── .dev_root_pid  (shared temp file, last writer wins)
+```
+
+**Note**: `.dev_root_pid` is overwritten by each `start-dev.js` instance. This is intentional - only the most recently started instance's dev_root_pid is tracked. Older instances must have already registered their dev_root_pid before the next instance starts.
+
+### Stopping Specific Instance
+
+```bash
+cd /path/to/project-A
+pnpm run stop  # Only stops project-A instance
+```
+
+**Mechanism**: `stop-server.js` uses `findInstanceForDir()` to match `process.cwd()` against `project_root` in the registry.
+
+### Stopping All Instances
+
+```bash
+pnpm run stop --all
+```
+
+**Mechanism**: Iterates over all instances in the registry, stops each sequentially (to allow graceful shutdown for each backend).

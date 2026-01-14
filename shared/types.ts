@@ -1134,3 +1134,51 @@ export type AddQueuedMessageRequest = { content: string, variant: string | null,
 export type UpdateQueuedMessageRequest = { content: string | null, variant: string | null, };
 
 export type ReorderQueuedMessagesRequest = { message_ids: Array<string>, };
+
+export type InstanceInfo = { 
+/**
+ * Canonical path to the project root directory
+ */
+project_root: string, 
+/**
+ * Process ID of the server
+ */
+pid: number, 
+/**
+ * Dev root process ID (concurrently, only in dev mode)
+ */
+dev_root_pid: number | null, 
+/**
+ * Binary name (e.g., "vks-node-server")
+ */
+binary: string, 
+/**
+ * When this instance started (RFC 3339)
+ */
+started_at: string, 
+/**
+ * All service ports for this instance
+ */
+ports: InstancePorts, 
+/**
+ * Optional human-readable instance name
+ */
+name: string | null, };
+
+export type InstancePorts = { 
+/**
+ * Backend API server port
+ */
+backend: number | null, 
+/**
+ * Frontend dev server port (only in dev mode)
+ */
+frontend: number | null, 
+/**
+ * MCP HTTP server port (if enabled)
+ */
+mcp: number | null, 
+/**
+ * Remote/Hive WebSocket port (if enabled)
+ */
+hive: number | null, };
