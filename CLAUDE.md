@@ -535,9 +535,36 @@ HOST=0.0.0.0 pnpm run dev            # Network-accessible dev server
 ```bash
 pnpm run stop                         # Stop instance for current directory
 pnpm run stop /path/to/project        # Stop a specific project's instance
+pnpm run stop --all                   # Stop all running instances
+pnpm run stop --list                  # List all running instances
 ```
 
-**Multi-instance support**: Multiple vibe-kanban instances can run simultaneously. Each instance registers in `/tmp/vibe-kanban/instances/` with project root, PID, and all ports (backend, frontend, MCP, hive).
+**Graceful Shutdown Sequence**: The stop command ensures safe termination in dev mode:
+1. **SIGTERM → backend** - Triggers graceful shutdown of the Rust process
+2. **Wait for backend exit** (max 10s) - Backend performs critical cleanup:
+   - Flushes all log buffers (executor logs)
+   - Runs `PRAGMA wal_checkpoint(TRUNCATE)` (SQLite durability)
+   - Closes database connection pool
+3. **SIGTERM → dev_root_pid** - Kills concurrently, terminating cargo-watch and Vite
+4. **Port-based fallback** - Uses `lsof` to clean up any orphaned processes
+
+**Critical**: The backend's cleanup sequence MUST complete before dev processes are killed. This ensures database integrity and prevents log loss.
+
+**Multi-instance support**: Multiple vibe-kanban instances can run simultaneously. Each instance registers in `/tmp/vibe-kanban/instances/` with project root, PID, dev_root_pid (dev mode), and all ports.
+
+**Process hierarchy in dev mode**:
+```text
+start-dev.js
+  └─ concurrently (dev_root_pid)
+      ├─ cargo watch
+      │   └─ vks-node-server (backend PID)
+      └─ npm/vite (frontend)
+```
+
+**Troubleshooting**: If you encounter "port already in use" errors after stopping:
+- Run `pnpm run stop --all` to clean up all instances
+- Check for orphaned processes: `lsof -i :PORT`
+- Manually kill if needed: `kill -9 <PID>`
 
 ### Production
 ```bash

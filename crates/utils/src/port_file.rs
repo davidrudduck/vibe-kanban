@@ -15,15 +15,20 @@ use std::{
 
 use sha2::{Digest, Sha256};
 use tokio::fs;
+use ts_rs::TS;
 
 /// Complete instance information including all service ports.
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, TS)]
+#[ts(export, export_to = "shared/types.ts")]
 pub struct InstanceInfo {
     /// Canonical path to the project root directory
     pub project_root: PathBuf,
 
     /// Process ID of the server
     pub pid: u32,
+
+    /// Dev root process ID (concurrently, only in dev mode)
+    pub dev_root_pid: Option<u32>,
 
     /// Binary name (e.g., "vks-node-server")
     pub binary: String,
@@ -39,7 +44,8 @@ pub struct InstanceInfo {
 }
 
 /// All ports used by a vibe-kanban instance.
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default, TS)]
+#[ts(export, export_to = "shared/types.ts")]
 pub struct InstancePorts {
     /// Backend API server port
     pub backend: Option<u16>,
@@ -60,6 +66,7 @@ impl InstanceInfo {
         Self {
             project_root,
             pid: process::id(),
+            dev_root_pid: None, // Will be set later if running in dev mode
             binary: env::current_exe()
                 .ok()
                 .and_then(|p| p.file_name().map(|s| s.to_string_lossy().to_string()))
@@ -101,6 +108,21 @@ impl InstanceInfo {
 /// Registry for all running vibe-kanban instances.
 pub struct InstanceRegistry;
 
+/// Reads the dev root PID from temporary file (dev mode only).
+/// Returns None if file doesn't exist or contains invalid data.
+fn read_dev_root_pid() -> Option<u32> {
+    let pid_file = env::temp_dir()
+        .join("vibe-kanban")
+        .join("instances")
+        .join(".dev_root_pid");
+
+    std::fs::read_to_string(pid_file)
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+}
+
 impl InstanceRegistry {
     /// Directory where instance files are stored.
     fn registry_dir() -> PathBuf {
@@ -128,8 +150,17 @@ impl InstanceRegistry {
         let dir = Self::registry_dir();
         fs::create_dir_all(&dir).await?;
 
+        // Read dev_root_pid from temp file if present (dev mode only)
+        let dev_root_pid = read_dev_root_pid();
+        let mut info_with_dev_pid = info.clone();
+        info_with_dev_pid.dev_root_pid = dev_root_pid;
+
+        if dev_root_pid.is_some() {
+            tracing::debug!(pid = ?dev_root_pid, "Registered with dev root PID");
+        }
+
         let path = Self::instance_path(&info.project_root);
-        let json = serde_json::to_string_pretty(info)
+        let json = serde_json::to_string_pretty(&info_with_dev_pid)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
         fs::write(&path, &json).await?;
@@ -427,4 +458,49 @@ pub async fn read_port_file(app_name: &str) -> std::io::Result<u16> {
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
     Ok(port)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_read_dev_root_pid_missing_file() {
+        // Test: Returns None when .dev_root_pid file doesn't exist
+        // Clean up any existing file first
+        let pid_file = env::temp_dir()
+            .join("vibe-kanban")
+            .join("instances")
+            .join(".dev_root_pid");
+        let _ = fs::remove_file(&pid_file);
+
+        let pid = read_dev_root_pid();
+        assert!(pid.is_none());
+    }
+
+    #[test]
+    fn test_read_dev_root_pid_valid() {
+        // Test: Reads PID from temp file successfully
+        let instances_dir = env::temp_dir().join("vibe-kanban").join("instances");
+        fs::create_dir_all(&instances_dir).unwrap();
+        let pid_file = instances_dir.join(".dev_root_pid");
+        fs::write(&pid_file, "12345").unwrap();
+
+        let pid = read_dev_root_pid();
+        assert_eq!(pid, Some(12345));
+
+        // Cleanup
+        fs::remove_file(&pid_file).ok();
+    }
+
+    #[test]
+    fn test_instance_info_with_dev_root_pid() {
+        // Test: InstanceInfo serializes dev_root_pid correctly
+        let mut info = InstanceInfo::new(PathBuf::from("/test/project"));
+        info.dev_root_pid = Some(99999);
+
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("\"dev_root_pid\":99999"));
+    }
 }
