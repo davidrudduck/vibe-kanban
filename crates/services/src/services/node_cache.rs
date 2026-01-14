@@ -44,7 +44,7 @@ use remote::nodes::Node;
 use sqlx::SqlitePool;
 use tokio::sync::RwLock;
 use tokio::time::{self, MissedTickBehavior};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use super::remote_client::{RemoteClient, RemoteClientError};
