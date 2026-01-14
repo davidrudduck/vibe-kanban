@@ -153,13 +153,15 @@ async fn test_upsert_remote_project_where_local_exists() {
     // b) Link the local project to the remote
     // For now, we document that this fails at the DB level
     // The fix should be at the sync_node_projects level to skip these
-    if result.is_err() {
-        // Expected current behavior - the sync layer should skip this
-        println!("Expected: upsert failed due to local project with same path");
-    } else {
-        // If it succeeds (after fix), verify the project
-        let project = result.unwrap();
-        println!("Upsert succeeded, project id: {}", project.id);
+    match result {
+        Err(_) => {
+            // Expected current behavior - the sync layer should skip this
+            println!("Expected: upsert failed due to local project with same path");
+        }
+        Ok(project) => {
+            // If it succeeds (after fix), verify the project
+            println!("Upsert succeeded, project id: {}", project.id);
+        }
     }
 }
 
