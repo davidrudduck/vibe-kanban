@@ -237,7 +237,10 @@ pub fn router() -> Router<DeploymentImpl> {
         .route("/database/vacuum", post(vacuum))
         .route("/database/analyze", post(analyze))
         .route("/database/archived-stats", get(archived_stats))
-        .route("/database/archived-non-terminal", get(archived_non_terminal))
+        .route(
+            "/database/archived-non-terminal",
+            get(archived_non_terminal),
+        )
         .route("/database/purge-archived", post(purge_archived))
         .route("/database/log-stats", get(log_stats))
         .route("/database/purge-logs", post(purge_logs))

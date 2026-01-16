@@ -116,11 +116,7 @@ fn read_dev_root_pid() -> Option<u32> {
         .join("instances")
         .join(".dev_root_pid");
 
-    std::fs::read_to_string(pid_file)
-        .ok()?
-        .trim()
-        .parse()
-        .ok()
+    std::fs::read_to_string(pid_file).ok()?.trim().parse().ok()
 }
 
 impl InstanceRegistry {
