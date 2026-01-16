@@ -6,7 +6,8 @@ pub use types::{
     GitHubCountsResponse, LinkToLocalFolderRequest, ListProjectFilesQuery, MergedProject,
     MergedProjectsResponse, NodeLocation, OpenEditorRequest, OpenEditorResponse, OrphanedProject,
     OrphanedProjectsResponse, RemoteNodeGroup, RemoteNodeProject, SetGitHubEnabledRequest,
-    TaskCounts, UnifiedProject,
+    SyncHealthResponse, SyncIssue, TaskCounts, UnifiedProject, UnlinkSwarmRequest,
+    UnlinkSwarmResponse,
 };
 
 use axum::{
@@ -35,6 +36,7 @@ use handlers::{
     get_merged_projects,
     get_project,
     get_project_branches,
+    get_project_sync_health,
     // Linking handlers
     get_project_remote_members,
     get_projects,
@@ -49,6 +51,8 @@ use handlers::{
     search_project_files,
     set_github_enabled,
     sync_github_counts,
+    // Swarm handlers
+    unlink_from_swarm,
     update_project,
 };
 
@@ -64,10 +68,14 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/open-editor", post(open_project_in_editor))
         // File browser endpoints
         .route("/files", get(list_project_files))
+        // Sync health endpoint
+        .route("/sync-health", get(get_project_sync_health))
         // GitHub integration endpoints
         .route("/github", post(set_github_enabled))
         .route("/github/counts", get(get_github_counts))
         .route("/github/sync", post(sync_github_counts))
+        // Swarm integration endpoints
+        .route("/unlink-swarm", post(unlink_from_swarm))
         .layer(from_fn_with_state(
             deployment.clone(),
             load_project_middleware,

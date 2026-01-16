@@ -34,6 +34,7 @@ import { ProjectEditorSelectionDialog } from '@/components/dialogs/projects/Proj
 import { GitHubBadges } from './GitHubBadges';
 import { TaskCountPills } from './TaskCountPills';
 import { LocationBadges } from './LocationBadges';
+import { SyncHealthIndicator } from './SyncHealthIndicator';
 import { cn } from '@/lib/utils';
 
 type Props = {
@@ -187,12 +188,16 @@ function UnifiedProjectCard({ project, isFocused, onRefresh, onEdit }: Props) {
       ref={ref}
     >
       <CardHeader className="pb-2">
-        {/* Header row: Title + Dropdown */}
+        {/* Header row: Title + Sync Health + Dropdown */}
         <div className="flex items-start justify-between gap-2">
           <CardTitle className="text-base sm:text-lg font-semibold leading-tight line-clamp-1">
             {project.name}
           </CardTitle>
-          <DropdownMenu>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {project.has_local && project.local_project_id && (
+              <SyncHealthIndicator projectId={project.local_project_id} />
+            )}
+            <DropdownMenu>
             <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
               <Button
                 variant="ghost"
@@ -302,7 +307,8 @@ function UnifiedProjectCard({ project, isFocused, onRefresh, onEdit }: Props) {
                 </>
               )}
             </DropdownMenuContent>
-          </DropdownMenu>
+            </DropdownMenu>
+          </div>
         </div>
 
         {/* Location badges row */}
