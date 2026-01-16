@@ -211,6 +211,15 @@ pub enum NormalizedEntryType {
         duration_seconds: u64,
         status: String,
     },
+    /// Session result message from Claude Code
+    ResultMessage {
+        subtype: String,
+        duration_ms: u64,
+        num_turns: u64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        total_cost_usd: Option<f64>,
+        is_error: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
