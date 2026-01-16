@@ -19,9 +19,9 @@ if [ -f "$PROJECT_DIR/.env" ]; then
 fi
 
 # Configuration - use .env values if loaded, otherwise defaults
-FRONTEND_PORT=${FRONTEND_PORT:-5500}
-BACKEND_PORT=${BACKEND_PORT:-5501}
-MCP_PORT=${MCP_PORT:-5502}
+FRONTEND_PORT=${FRONTEND_PORT:-4500}
+BACKEND_PORT=${BACKEND_PORT:-4501}
+MCP_PORT=${MCP_PORT:-4502}
 
 # Colors for output
 RED='\033[0;31m'
@@ -143,18 +143,23 @@ setup_database() {
     mkdir -p "$PROJECT_DIR/dev_assets"
 
     local LOCAL_DB="$PROJECT_DIR/dev_assets/db.sqlite"
+    local TEST_DB="$HOME/.vkswarm/db/test.sqlite"
     local PROD_DB="$HOME/.vkswarm/db/db.sqlite"
     local SEED_DB="$PROJECT_DIR/dev_assets_seed/db.sqlite"
 
     if [ -f "$LOCAL_DB" ]; then
         log_info "Local database already exists, skipping copy..."
+    elif [ -f "$TEST_DB" ]; then
+        log_info "Copying test database to local dev_assets..."
+        cp "$TEST_DB" "$LOCAL_DB"
+        log_success "Test database copied to $LOCAL_DB"
     elif [ -f "$PROD_DB" ]; then
         log_info "Copying production database to local dev_assets..."
         # Note: This may take a while for large databases
         cp "$PROD_DB" "$LOCAL_DB"
         log_success "Production database copied to $LOCAL_DB"
     elif [ -f "$SEED_DB" ]; then
-        log_info "Production database not found, copying from seed..."
+        log_info "Test/Production database not found, copying from seed..."
         cp "$SEED_DB" "$LOCAL_DB"
         log_success "Seed database copied to $LOCAL_DB"
     else
