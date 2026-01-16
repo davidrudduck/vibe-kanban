@@ -4,6 +4,7 @@
 //! relationships, be archived, and sync with the Hive (remote server).
 
 mod archive;
+mod cleanup;
 mod hierarchy;
 mod queries;
 mod sync;

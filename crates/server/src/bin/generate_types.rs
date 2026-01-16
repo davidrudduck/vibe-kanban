@@ -31,10 +31,6 @@ fn generate_types_content() -> String {
         server::routes::projects::NodeLocation::decl(),
         server::routes::projects::TaskCounts::decl(),
         server::routes::projects::MergedProjectsResponse::decl(),
-        server::routes::projects::SyncHealthResponse::decl(),
-        server::routes::projects::SyncIssue::decl(),
-        server::routes::projects::UnlinkSwarmRequest::decl(),
-        server::routes::projects::UnlinkSwarmResponse::decl(),
         db::models::cached_node::CachedNodeStatus::decl(),
         db::models::cached_node::CachedNodeCapabilities::decl(),
         executors::actions::ExecutorAction::decl(),
@@ -251,6 +247,13 @@ fn generate_types_content() -> String {
         // Instance registry types
         utils::port_file::InstanceInfo::decl(),
         utils::port_file::InstancePorts::decl(),
+        // Database maintenance types
+        db::DatabaseStats::decl(),
+        db::VacuumResult::decl(),
+        server::routes::database::ArchivedStatsResponse::decl(),
+        server::routes::database::ArchivedPurgeResult::decl(),
+        server::routes::database::LogStatsResponse::decl(),
+        server::routes::database::LogPurgeResult::decl(),
     ];
 
     let body = decls

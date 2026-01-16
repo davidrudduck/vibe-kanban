@@ -300,9 +300,13 @@ if (require.main === module) {
       {
         const disableCleanup = process.env.DISABLE_WORKTREE_ORPHAN_CLEANUP ?? "0";
         const rustLog = process.env.RUST_LOG ?? "debug";
+        // SQLX_OFFLINE=true uses cached .sqlx folders instead of live database queries
+        // This is required because the workspace has both SQLite (db crate) and PostgreSQL (remote crate)
+        // and a single DATABASE_URL cannot satisfy both during compile-time checking
         // Output in format suitable for shell eval
         console.log(`export DISABLE_WORKTREE_ORPHAN_CLEANUP=${disableCleanup}`);
         console.log(`export RUST_LOG=${rustLog}`);
+        console.log(`export SQLX_OFFLINE=true`);
       }
       break;
 

@@ -19,5 +19,4 @@ This folder contains technical architecture documentation for Vibe Kanban's inte
 ## Related Documentation
 
 - [Swarm/Hive Setup Guide](../swarm-hive-setup.mdx) - How to configure nodes to connect to a hive
-- [Swarm Sync Architecture](./swarm-sync.md) - Sync health checking, orphaned task detection, and unlink functionality
 - [CLAUDE.md](/CLAUDE.md) - Development conventions and API patterns

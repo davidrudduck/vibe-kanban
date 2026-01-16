@@ -113,3 +113,6 @@ export type { CreateTerminalSessionRequest } from './terminal';
 
 // Message Queue API
 export { messageQueueApi } from './messageQueue';
+
+// Database API
+export { databaseApi } from './database';

@@ -16,7 +16,9 @@
         "swarm": "Swarm",
         "swarmDesc": "Manage shared projects across nodes",
         "backups": "Backups",
-        "backupsDesc": "Database backup management"
+        "backupsDesc": "Database backup management",
+        "system": "System",
+        "systemDesc": "Database maintenance and storage"
       },
       "searchPlaceholder": "Search settings...",
       "noResults": "No settings match your search",
@@ -49,6 +51,56 @@
       "restoreError": "Failed to restore backup",
       "confirmDelete": "Delete this backup?",
       "confirmRestore": "This will replace your database. A backup will be created first. Continue?"
+    },
+    "system": {
+      "title": "System Settings",
+      "description": "Database maintenance and storage management",
+      "operationSuccess": "Operation completed successfully.",
+      "diskUsage": {
+        "title": "Disk Usage",
+        "description": "Monitor and manage disk space used by worktrees."
+      },
+      "database": {
+        "title": "Database Maintenance",
+        "description": "View database statistics and optimize performance.",
+        "loading": "Loading database statistics...",
+        "loadError": "Failed to load database statistics.",
+        "fileSize": "Database Size",
+        "walSize": "WAL Size",
+        "pageSize": "Page Size",
+        "freePages": "Free Pages",
+        "tableCounts": "Table Row Counts",
+        "optimize": "Optimize Database",
+        "optimizing": "Optimizing...",
+        "optimizeHint": "Run VACUUM and ANALYZE to reclaim space and optimize queries.",
+        "vacuumSuccess": "Vacuum complete. Freed {{freed}}.",
+        "vacuumError": "Failed to vacuum database.",
+        "analyzeSuccess": "Database analysis complete.",
+        "analyzeError": "Failed to analyze database."
+      },
+      "cleanup": {
+        "title": "Data Cleanup",
+        "description": "Remove old archived tasks and log entries to free up space.",
+        "olderThan": "Older than",
+        "tasksFound": "tasks found",
+        "entriesFound": "entries found",
+        "purge": "Purge",
+        "stuckTasksWarning": "Found {{count}} archived task(s) that are not in a terminal state (done/cancelled). These may need attention.",
+        "archivedTasks": {
+          "title": "Archived Tasks",
+          "description": "Delete completed/cancelled archived tasks older than the selected period."
+        },
+        "logEntries": {
+          "title": "Log Entries",
+          "description": "Delete log entries older than the selected period."
+        },
+        "confirmPurgeArchived": "Are you sure you want to permanently delete {{count}} archived tasks? This cannot be undone.",
+        "confirmPurgeLogs": "Are you sure you want to permanently delete {{count}} log entries? This cannot be undone.",
+        "purgeArchivedSuccess": "Deleted {{count}} archived tasks.",
+        "purgeArchivedError": "Failed to purge archived tasks.",
+        "purgeLogsSuccess": "Deleted {{count}} log entries.",
+        "purgeLogsError": "Failed to purge log entries."
+      }
     },
     "general": {
       "loading": "Loading settings...",
@@ -650,28 +702,6 @@
           "projectDescriptionPlaceholder": "Enter description...",
           "confirm": "Link Project",
           "createAndLink": "Create & Link"
-        },
-        "unlinkDialog": {
-          "title": "Unlink from Swarm",
-          "description": "Are you sure you want to unlink \"{{projectName}}\" from the Swarm?",
-          "warning": "This will clear all sync state for this project. Tasks will no longer be shared with other nodes.",
-          "confirm": "Unlink Project"
-        },
-        "health": {
-          "title": "Swarm Health Issues",
-          "description": "Some projects have sync state issues that need to be resolved.",
-          "projectsWithIssues_one": "{{count}} project with issues",
-          "projectsWithIssues_other": "{{count}} projects with issues",
-          "orphanedTasks_one": "{{count}} orphaned task",
-          "orphanedTasks_other": "{{count}} orphaned tasks",
-          "fixAllConfirm": "This will unlink {{count}} project(s) from the swarm, clearing all sync state. Are you sure?",
-          "partialSuccess": "Fixed {{success}} project(s), {{error}} failed. Check console for details.",
-          "success": "Successfully fixed {{count}} project(s).",
-          "error": "Failed to fix swarm issues. Please check console for details.",
-          "fixing": "Fixing...",
-          "fixAll": "Fix All Issues",
-          "fixAllHint": "This will unlink projects from the swarm and clear all sync state.",
-          "resolved": "All sync issues resolved!"
         }
       },
       "nodeTemplates": {

@@ -75,7 +75,6 @@ import { useFeedback } from '@/hooks/useFeedback';
 import { useFonts } from '@/components/FontProvider';
 import { TemplateManager } from '@/components/TemplateManager';
 import { LabelManager } from '@/components/LabelManager';
-import { DiskUsageIndicator } from '@/components/dashboard/DiskUsageIndicator';
 import { FontPreview, BuildInfo } from '@/components/settings';
 import {
   loadFont,
@@ -1229,23 +1228,6 @@ export function GeneralSettings() {
               {t('settings.general.performance.initialLoad.helper')}
             </p>
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            {t('settings.general.diskUsage.title', 'Disk Usage')}
-          </CardTitle>
-          <CardDescription>
-            {t(
-              'settings.general.diskUsage.description',
-              'Monitor and manage disk space used by worktrees.'
-            )}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <DiskUsageIndicator />
         </CardContent>
       </Card>
 

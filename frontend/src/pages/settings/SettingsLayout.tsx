@@ -45,7 +45,7 @@ const settingsNavigation = [
     icon: Server,
   },
   {
-    path: 'backups',
+    path: 'system',
     icon: Database,
   },
 ];
