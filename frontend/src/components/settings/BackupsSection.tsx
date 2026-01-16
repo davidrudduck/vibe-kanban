@@ -11,6 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Download, HardDrive, Loader2, Plus, Trash2, Upload } from 'lucide-react';
 import { backupsApi } from '@/lib/api';
+import { ConfirmDialog } from '@/components/dialogs';
 import type { BackupInfo } from 'shared/types';
 
 function formatBytes(bytes: bigint): string {
@@ -82,9 +83,18 @@ export function BackupsSection({ onSuccess, onError }: BackupsSectionProps) {
     },
   });
 
-  const handleDeleteBackup = (filename: string) => {
-    const confirmed = window.confirm(t('settings.backups.confirmDelete'));
-    if (!confirmed) return;
+  const handleDeleteBackup = async (filename: string) => {
+    const result = await ConfirmDialog.show({
+      title: t('settings.backups.confirmDelete'),
+      message: t('settings.backups.confirmDeleteMessage', {
+        filename,
+        defaultValue: `Are you sure you want to delete ${filename}? This cannot be undone.`,
+      }),
+      confirmText: t('common.delete', { defaultValue: 'Delete' }),
+      cancelText: t('common.cancel', { defaultValue: 'Cancel' }),
+      variant: 'destructive',
+    });
+    if (result !== 'confirmed') return;
     deleteBackupMutation.mutate(filename);
   };
 
@@ -92,12 +102,22 @@ export function BackupsSection({ onSuccess, onError }: BackupsSectionProps) {
     fileInputRef.current?.click();
   };
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const confirmed = window.confirm(t('settings.backups.confirmRestore'));
-    if (!confirmed) {
+    const result = await ConfirmDialog.show({
+      title: t('settings.backups.confirmRestore'),
+      message: t('settings.backups.confirmRestoreMessage', {
+        defaultValue:
+          'This will replace your database. A backup will be created first. Continue?',
+      }),
+      confirmText: t('common.restore', { defaultValue: 'Restore' }),
+      cancelText: t('common.cancel', { defaultValue: 'Cancel' }),
+      variant: 'destructive',
+    });
+
+    if (result !== 'confirmed') {
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }

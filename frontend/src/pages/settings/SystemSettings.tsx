@@ -23,6 +23,7 @@ import {
   AlertTriangle,
   Database,
   HardDrive,
+  Info,
   Loader2,
   RefreshCw,
   Settings2,
@@ -34,6 +35,7 @@ import { useDatabaseMaintenance } from '@/hooks/useDatabaseMaintenance';
 import { DiskUsageIndicator } from '@/components/dashboard/DiskUsageIndicator';
 import { BackupsSection } from '@/components/settings';
 import { useFeedback } from '@/hooks/useFeedback';
+import { ConfirmDialog } from '@/components/dialogs';
 import type { Task } from 'shared/types';
 
 const DAY_OPTIONS = [
@@ -66,6 +68,11 @@ export function SystemSettings() {
   // Day selectors state
   const [archivedDays, setArchivedDays] = useState('14');
   const [logDays, setLogDays] = useState('14');
+
+  // VACUUM cooldown state (5 minutes)
+  const [lastVacuumTime, setLastVacuumTime] = useState<number | null>(null);
+  const canVacuum =
+    lastVacuumTime === null || Date.now() - lastVacuumTime > 5 * 60 * 1000;
 
   // Database stats
   const {
@@ -106,6 +113,7 @@ export function SystemSettings() {
   // Database maintenance mutations
   const { vacuum, analyze, purgeArchived, purgeLogs } = useDatabaseMaintenance({
     onVacuumSuccess: (result) => {
+      setLastVacuumTime(Date.now());
       showSuccess(
         t('settings.system.database.vacuumSuccess', {
           freed: formatBytes(result.freed_bytes),
@@ -178,21 +186,29 @@ export function SystemSettings() {
     }
   };
 
-  const handlePurgeArchived = () => {
+  const handlePurgeArchived = async () => {
     const count = Number(archivedStats?.count ?? 0);
-    const confirmed = window.confirm(
-      `Are you sure you want to permanently delete ${count} archived tasks? This cannot be undone.`
-    );
-    if (!confirmed) return;
+    const result = await ConfirmDialog.show({
+      title: 'Confirm Purge',
+      message: `Are you sure you want to permanently delete ${count} archived tasks? This cannot be undone.`,
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+    });
+    if (result !== 'confirmed') return;
     purgeArchived.mutate(Number(archivedDays));
   };
 
-  const handlePurgeLogs = () => {
+  const handlePurgeLogs = async () => {
     const count = Number(logStats?.count ?? 0);
-    const confirmed = window.confirm(
-      `Are you sure you want to permanently delete ${count} log entries? This cannot be undone.`
-    );
-    if (!confirmed) return;
+    const result = await ConfirmDialog.show({
+      title: 'Confirm Purge',
+      message: `Are you sure you want to permanently delete ${count} log entries? This cannot be undone.`,
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+    });
+    if (result !== 'confirmed') return;
     purgeLogs.mutate(Number(logDays));
   };
 
@@ -253,6 +269,14 @@ export function SystemSettings() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <Alert className="mb-4">
+            <Info className="h-4 w-4" />
+            <AlertDescription>
+              {t('settings.system.database.vacuumWarning', {
+                defaultValue: 'VACUUM may take several minutes on large databases. The database will be briefly locked during this operation.',
+              })}
+            </AlertDescription>
+          </Alert>
           {statsLoading ? (
             <div className="flex items-center gap-2 text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -357,7 +381,7 @@ export function SystemSettings() {
                 </div>
                 <Button
                   onClick={handleOptimize}
-                  disabled={isOptimizing}
+                  disabled={isOptimizing || !canVacuum}
                   variant="outline"
                 >
                   {isOptimizing ? (

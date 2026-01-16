@@ -18,10 +18,15 @@ if [ -f "$PROJECT_DIR/.env" ]; then
     eval "$(grep -E '^(FRONTEND_PORT|BACKEND_PORT|MCP_PORT)=' "$PROJECT_DIR/.env" 2>/dev/null || true)"
 fi
 
-# Configuration - use .env values if loaded, otherwise defaults
-FRONTEND_PORT=${FRONTEND_PORT:-4500}
-BACKEND_PORT=${BACKEND_PORT:-4501}
-MCP_PORT=${MCP_PORT:-4502}
+# Function to find an available port
+find_available_port() {
+    python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()"
+}
+
+# Configuration - use .env values if loaded, otherwise find available ports
+FRONTEND_PORT=${FRONTEND_PORT:-$(find_available_port)}
+BACKEND_PORT=${BACKEND_PORT:-$(find_available_port)}
+MCP_PORT=${MCP_PORT:-$(find_available_port)}
 
 # Colors for output
 RED='\033[0;31m'

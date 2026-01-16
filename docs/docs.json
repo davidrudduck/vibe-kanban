@@ -58,6 +58,7 @@
           "features/executor-logging",
           "features/task-sorting",
           "features/task-templates",
+          "features/database-maintenance",
           "core-features/completing-a-task",
           "core-features/mobile-experience",
           "core-features/task-cards"

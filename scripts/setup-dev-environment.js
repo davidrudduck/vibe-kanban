@@ -307,6 +307,15 @@ if (require.main === module) {
         console.log(`export DISABLE_WORKTREE_ORPHAN_CLEANUP=${disableCleanup}`);
         console.log(`export RUST_LOG=${rustLog}`);
         console.log(`export SQLX_OFFLINE=true`);
+
+        // Pass through all VK_* environment variables from .env
+        for (const [key, value] of Object.entries(process.env)) {
+          if (key.startsWith('VK_')) {
+            // Escape value for shell safety (handle quotes and special chars)
+            const escapedValue = value.replace(/'/g, "'\\''");
+            console.log(`export ${key}='${escapedValue}'`);
+          }
+        }
       }
       break;
 
