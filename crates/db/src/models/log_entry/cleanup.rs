@@ -36,7 +36,9 @@ impl DbLogEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::log_entry::{tests::create_test_execution, tests::setup_test_pool, CreateLogEntry};
+    use crate::models::log_entry::{
+        CreateLogEntry, tests::create_test_execution, tests::setup_test_pool,
+    };
 
     #[tokio::test]
     async fn test_count_older_than() {

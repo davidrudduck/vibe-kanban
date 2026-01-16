@@ -315,7 +315,8 @@ pub async fn migrate_execution_logs_with_options(
         msg_store.push_finished();
 
         // Get the executor and run normalization
-        let executor = ExecutorConfigs::get_cached().get_coding_agent_or_default(executor_profile_id);
+        let executor =
+            ExecutorConfigs::get_cached().get_coding_agent_or_default(executor_profile_id);
 
         debug!(
             execution_id = %execution_id,
@@ -711,7 +712,9 @@ pub async fn migrate_all_logs_with_options(
 mod tests {
     use super::*;
     use db::test_utils::create_test_pool;
-    use executors::actions::{coding_agent_initial::CodingAgentInitialRequest, ExecutorAction, ExecutorActionType};
+    use executors::actions::{
+        ExecutorAction, ExecutorActionType, coding_agent_initial::CodingAgentInitialRequest,
+    };
     use executors::executors::BaseCodingAgent;
     use executors::profile::ExecutorProfileId;
     use serde_json::json;
@@ -853,26 +856,19 @@ mod tests {
 
         // Assert: log_entries count should match original JsonPatch count (2)
         // The migration should not create duplicates from the stdout line
-        let count: i64 = sqlx::query_scalar(
-            r#"SELECT COUNT(*) FROM log_entries WHERE execution_id = $1"#
-        )
-        .bind(execution_id)
-        .fetch_one(&pool)
-        .await
-        .expect("Failed to count log entries");
+        let count: i64 =
+            sqlx::query_scalar(r#"SELECT COUNT(*) FROM log_entries WHERE execution_id = $1"#)
+                .bind(execution_id)
+                .fetch_one(&pool)
+                .await
+                .expect("Failed to count log entries");
 
         assert_eq!(
             count, 2,
             "Expected 2 log entries (matching original JsonPatch count), no duplicates"
         );
-        assert_eq!(
-            result.migrated, 2,
-            "Expected 2 migrated entries"
-        );
-        assert_eq!(
-            result.errors, 0,
-            "Expected no errors"
-        );
+        assert_eq!(result.migrated, 2, "Expected 2 migrated entries");
+        assert_eq!(result.errors, 0, "Expected no errors");
     }
 
     #[tokio::test]
@@ -992,7 +988,7 @@ mod tests {
 
         // Get log entries after first migration
         let entries_after_first: Vec<(i64, String)> = sqlx::query_as(
-            r#"SELECT id, content FROM log_entries WHERE execution_id = $1 ORDER BY id"#
+            r#"SELECT id, content FROM log_entries WHERE execution_id = $1 ORDER BY id"#,
         )
         .bind(execution_id)
         .fetch_all(&pool)
@@ -1008,7 +1004,7 @@ mod tests {
 
         // Get log entries after second migration
         let entries_after_second: Vec<(i64, String)> = sqlx::query_as(
-            r#"SELECT id, content FROM log_entries WHERE execution_id = $1 ORDER BY id"#
+            r#"SELECT id, content FROM log_entries WHERE execution_id = $1 ORDER BY id"#,
         )
         .bind(execution_id)
         .fetch_all(&pool)
@@ -1034,14 +1030,20 @@ mod tests {
         );
 
         // Assert: Content should be identical
-        for (i, (first, second)) in entries_after_first.iter().zip(entries_after_second.iter()).enumerate() {
+        for (i, (first, second)) in entries_after_first
+            .iter()
+            .zip(entries_after_second.iter())
+            .enumerate()
+        {
             assert_eq!(
                 first.0, second.0,
-                "Entry index {} should match between runs", i
+                "Entry index {} should match between runs",
+                i
             );
             assert_eq!(
                 first.1, second.1,
-                "Content at index {} should match between runs", i
+                "Content at index {} should match between runs",
+                i
             );
         }
 

@@ -424,13 +424,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_logs_paginated_triggers_migration() {
+        use chrono::Utc;
         use db::test_utils::create_test_pool;
-        use executors::actions::{coding_agent_initial::CodingAgentInitialRequest, ExecutorAction, ExecutorActionType};
+        use executors::actions::{
+            ExecutorAction, ExecutorActionType, coding_agent_initial::CodingAgentInitialRequest,
+        };
         use executors::executors::BaseCodingAgent;
         use executors::profile::ExecutorProfileId;
-        use utils::log_msg::LogMsg;
-        use chrono::Utc;
         use serde_json::json;
+        use utils::log_msg::LogMsg;
 
         let (pool, _temp_dir) = create_test_pool().await;
 
@@ -542,14 +544,16 @@ mod tests {
         .expect("Failed to insert legacy log record");
 
         // Verify log_entries is empty before calling get_logs_paginated
-        let count_before: i64 = sqlx::query_scalar(
-            r#"SELECT COUNT(*) FROM log_entries WHERE execution_id = $1"#
-        )
-        .bind(execution_id)
-        .fetch_one(&pool)
-        .await
-        .expect("Failed to count log entries");
-        assert_eq!(count_before, 0, "log_entries should be empty before migration");
+        let count_before: i64 =
+            sqlx::query_scalar(r#"SELECT COUNT(*) FROM log_entries WHERE execution_id = $1"#)
+                .bind(execution_id)
+                .fetch_one(&pool)
+                .await
+                .expect("Failed to count log entries");
+        assert_eq!(
+            count_before, 0,
+            "log_entries should be empty before migration"
+        );
 
         // Call get_logs_paginated - this should trigger automatic migration
         let service = LocalLogService::new(pool.clone());
@@ -566,13 +570,12 @@ mod tests {
         );
 
         // Verify log_entries table is now populated
-        let count_after: i64 = sqlx::query_scalar(
-            r#"SELECT COUNT(*) FROM log_entries WHERE execution_id = $1"#
-        )
-        .bind(execution_id)
-        .fetch_one(&pool)
-        .await
-        .expect("Failed to count log entries");
+        let count_after: i64 =
+            sqlx::query_scalar(r#"SELECT COUNT(*) FROM log_entries WHERE execution_id = $1"#)
+                .bind(execution_id)
+                .fetch_one(&pool)
+                .await
+                .expect("Failed to count log entries");
         assert_eq!(
             count_after, 2,
             "log_entries table should be populated after migration"
@@ -581,11 +584,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_logs_paginated_no_migration_when_populated() {
+        use chrono::Utc;
         use db::test_utils::create_test_pool;
-        use executors::actions::{coding_agent_initial::CodingAgentInitialRequest, ExecutorAction, ExecutorActionType};
+        use executors::actions::{
+            ExecutorAction, ExecutorActionType, coding_agent_initial::CodingAgentInitialRequest,
+        };
         use executors::executors::BaseCodingAgent;
         use executors::profile::ExecutorProfileId;
-        use chrono::Utc;
 
         let (pool, _temp_dir) = create_test_pool().await;
 
@@ -652,7 +657,7 @@ mod tests {
         .expect("Failed to insert execution_process");
 
         // Directly insert log_entries (simulating already-migrated state)
-        use db::models::log_entry::{DbLogEntry, CreateLogEntry};
+        use db::models::log_entry::{CreateLogEntry, DbLogEntry};
         use utils::unified_log::OutputType;
 
         DbLogEntry::create(
@@ -694,13 +699,12 @@ mod tests {
         );
 
         // Verify log_entries count hasn't changed (no duplicate migration)
-        let count: i64 = sqlx::query_scalar(
-            r#"SELECT COUNT(*) FROM log_entries WHERE execution_id = $1"#
-        )
-        .bind(execution_id)
-        .fetch_one(&pool)
-        .await
-        .expect("Failed to count log entries");
+        let count: i64 =
+            sqlx::query_scalar(r#"SELECT COUNT(*) FROM log_entries WHERE execution_id = $1"#)
+                .bind(execution_id)
+                .fetch_one(&pool)
+                .await
+                .expect("Failed to count log entries");
         assert_eq!(
             count, 1,
             "log_entries count should remain 1, migration should not have run"
@@ -709,13 +713,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_logs_paginated_handles_migration_failure() {
+        use chrono::Utc;
         use db::test_utils::create_test_pool;
-        use executors::actions::{coding_agent_initial::CodingAgentInitialRequest, ExecutorAction, ExecutorActionType};
+        use executors::actions::{
+            ExecutorAction, ExecutorActionType, coding_agent_initial::CodingAgentInitialRequest,
+        };
         use executors::executors::BaseCodingAgent;
         use executors::profile::ExecutorProfileId;
-        use utils::log_msg::LogMsg;
-        use chrono::Utc;
         use serde_json::json;
+        use utils::log_msg::LogMsg;
 
         let (pool, _temp_dir) = create_test_pool().await;
 
@@ -794,11 +800,12 @@ mod tests {
 
         let mixed_jsonl = format!(
             "{}\n{}\n{}",
-            "not valid json at all",  // Invalid - should be skipped
+            "not valid json at all", // Invalid - should be skipped
             serde_json::to_string(&LogMsg::JsonPatch(
                 serde_json::from_value(patch1).expect("Failed to create patch1")
-            )).unwrap(),  // Valid - should be migrated
-            "also invalid"  // Invalid - should be skipped
+            ))
+            .unwrap(), // Valid - should be migrated
+            "also invalid"           // Invalid - should be skipped
         );
 
         // Insert legacy log record with mixed valid/invalid data
@@ -829,13 +836,12 @@ mod tests {
         );
 
         // Verify log_entries contains only the valid entry
-        let count: i64 = sqlx::query_scalar(
-            r#"SELECT COUNT(*) FROM log_entries WHERE execution_id = $1"#
-        )
-        .bind(execution_id)
-        .fetch_one(&pool)
-        .await
-        .expect("Failed to count log entries");
+        let count: i64 =
+            sqlx::query_scalar(r#"SELECT COUNT(*) FROM log_entries WHERE execution_id = $1"#)
+                .bind(execution_id)
+                .fetch_one(&pool)
+                .await
+                .expect("Failed to count log entries");
         assert_eq!(
             count, 1,
             "log_entries should contain only the valid entry, invalid lines skipped"
