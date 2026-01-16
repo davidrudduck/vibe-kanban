@@ -12,7 +12,59 @@
         "mcp": "MCP 서버",
         "mcpDesc": "Model Context Protocol 서버",
         "organizations": "Organization Settings",
-        "organizationsDesc": "Manage organization members and permissions"
+        "organizationsDesc": "Manage organization members and permissions",
+        "system": "시스템",
+        "systemDesc": "데이터베이스 유지보수 및 저장소"
+      }
+    },
+    "system": {
+      "title": "시스템 설정",
+      "description": "데이터베이스 유지보수 및 저장소 관리",
+      "operationSuccess": "작업이 성공적으로 완료되었습니다.",
+      "diskUsage": {
+        "title": "디스크 사용량",
+        "description": "워크트리에서 사용하는 디스크 공간을 모니터링하고 관리합니다."
+      },
+      "database": {
+        "title": "데이터베이스 유지보수",
+        "description": "데이터베이스 통계를 보고 성능을 최적화합니다.",
+        "loading": "데이터베이스 통계 로딩 중...",
+        "loadError": "데이터베이스 통계를 불러오지 못했습니다.",
+        "fileSize": "데이터베이스 크기",
+        "walSize": "WAL 크기",
+        "pageSize": "페이지 크기",
+        "freePages": "여유 페이지",
+        "tableCounts": "테이블 행 수",
+        "optimize": "데이터베이스 최적화",
+        "optimizing": "최적화 중...",
+        "optimizeHint": "VACUUM과 ANALYZE를 실행하여 공간을 회수하고 쿼리를 최적화합니다.",
+        "vacuumSuccess": "Vacuum 완료. {{freed}}를 해제했습니다.",
+        "vacuumError": "데이터베이스 Vacuum에 실패했습니다.",
+        "analyzeSuccess": "데이터베이스 분석이 완료되었습니다.",
+        "analyzeError": "데이터베이스 분석에 실패했습니다."
+      },
+      "cleanup": {
+        "title": "데이터 정리",
+        "description": "오래된 아카이브된 작업과 로그 항목을 제거하여 공간을 확보합니다.",
+        "olderThan": "경과 기간",
+        "tasksFound": "개 작업 발견",
+        "entriesFound": "개 항목 발견",
+        "purge": "삭제",
+        "stuckTasksWarning": "종료 상태(완료/취소)가 아닌 아카이브된 작업이 {{count}}개 발견되었습니다. 확인이 필요할 수 있습니다.",
+        "archivedTasks": {
+          "title": "아카이브된 작업",
+          "description": "선택한 기간보다 오래된 완료/취소된 아카이브 작업을 삭제합니다."
+        },
+        "logEntries": {
+          "title": "로그 항목",
+          "description": "선택한 기간보다 오래된 로그 항목을 삭제합니다."
+        },
+        "confirmPurgeArchived": "{{count}}개의 아카이브된 작업을 영구적으로 삭제하시겠습니까? 이 작업은 취소할 수 없습니다.",
+        "confirmPurgeLogs": "{{count}}개의 로그 항목을 영구적으로 삭제하시겠습니까? 이 작업은 취소할 수 없습니다.",
+        "purgeArchivedSuccess": "{{count}}개의 아카이브된 작업을 삭제했습니다.",
+        "purgeArchivedError": "아카이브된 작업 삭제에 실패했습니다.",
+        "purgeLogsSuccess": "{{count}}개의 로그 항목을 삭제했습니다.",
+        "purgeLogsError": "로그 항목 삭제에 실패했습니다."
       }
     },
     "general": {

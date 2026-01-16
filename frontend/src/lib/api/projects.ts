@@ -15,9 +15,6 @@ import type {
   RemoteProjectMembersResponse,
   OpenEditorRequest,
   OpenEditorResponse,
-  SyncHealthResponse,
-  UnlinkSwarmRequest,
-  UnlinkSwarmResponse,
 } from 'shared/types';
 import { makeRequest, handleApiResponse } from './utils';
 
@@ -163,28 +160,5 @@ export const projectsApi = {
       open_prs: number;
       last_synced_at: Date | null;
     }>(response);
-  },
-
-  // Sync Health
-  getSyncHealth: async (projectId: string): Promise<SyncHealthResponse> => {
-    const response = await makeRequest(
-      `/api/projects/${projectId}/sync-health`
-    );
-    return handleApiResponse<SyncHealthResponse>(response);
-  },
-
-  // Swarm Management
-  unlinkFromSwarm: async (
-    projectId: string,
-    data: UnlinkSwarmRequest
-  ): Promise<UnlinkSwarmResponse> => {
-    const response = await makeRequest(
-      `/api/projects/${projectId}/unlink-swarm`,
-      {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }
-    );
-    return handleApiResponse<UnlinkSwarmResponse>(response);
   },
 };

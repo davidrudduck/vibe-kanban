@@ -40,8 +40,8 @@ const AgentSettings = lazy(() =>
 const McpSettings = lazy(() =>
   import('./McpSettings').then((m) => ({ default: m.McpSettings }))
 );
-const BackupSettings = lazy(() =>
-  import('./BackupSettings').then((m) => ({ default: m.BackupSettings }))
+const SystemSettings = lazy(() =>
+  import('./SystemSettings').then((m) => ({ default: m.SystemSettings }))
 );
 
 interface SettingsSection {
@@ -89,10 +89,10 @@ const settingsSections: SettingsSection[] = [
     component: McpSettings,
   },
   {
-    id: 'backups',
-    path: 'backups',
+    id: 'system',
+    path: 'system',
     icon: Database,
-    component: BackupSettings,
+    component: SystemSettings,
   },
 ];
 

@@ -5,6 +5,7 @@
 //! `execution_process_logs` table which stores JSONL batches, this table stores
 //! one row per log message for efficient pagination and real-time sync.
 
+mod cleanup;
 mod pagination;
 mod queries;
 mod sync;
@@ -123,7 +124,7 @@ mod tests {
     use utils::unified_log::Direction;
 
     /// Create a test SQLite pool with migrations applied.
-    async fn setup_test_pool() -> (SqlitePool, TempDir) {
+    pub async fn setup_test_pool() -> (SqlitePool, TempDir) {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let db_path = temp_dir.path().join("test.db");
 
@@ -148,7 +149,7 @@ mod tests {
 
     /// Create a test execution process for log entry tests.
     /// Returns the execution_id.
-    async fn create_test_execution(pool: &SqlitePool) -> Uuid {
+    pub async fn create_test_execution(pool: &SqlitePool) -> Uuid {
         use crate::models::{
             project::{CreateProject, Project},
             task::{CreateTask, Task},

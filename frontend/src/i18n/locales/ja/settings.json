@@ -12,7 +12,59 @@
         "mcp": "MCPサーバー",
         "mcpDesc": "モデルコンテキストプロトコルサーバー",
         "organizations": "Organization Settings",
-        "organizationsDesc": "Manage organization members and permissions"
+        "organizationsDesc": "Manage organization members and permissions",
+        "system": "システム",
+        "systemDesc": "データベースメンテナンスとストレージ"
+      }
+    },
+    "system": {
+      "title": "システム設定",
+      "description": "データベースメンテナンスとストレージ管理",
+      "operationSuccess": "操作が正常に完了しました。",
+      "diskUsage": {
+        "title": "ディスク使用量",
+        "description": "ワークツリーで使用されているディスク容量を監視・管理します。"
+      },
+      "database": {
+        "title": "データベースメンテナンス",
+        "description": "データベースの統計情報を表示し、パフォーマンスを最適化します。",
+        "loading": "データベース統計を読み込み中...",
+        "loadError": "データベース統計の読み込みに失敗しました。",
+        "fileSize": "データベースサイズ",
+        "walSize": "WALサイズ",
+        "pageSize": "ページサイズ",
+        "freePages": "空きページ",
+        "tableCounts": "テーブル行数",
+        "optimize": "データベースを最適化",
+        "optimizing": "最適化中...",
+        "optimizeHint": "VACUUMとANALYZEを実行して空き容量を回収し、クエリを最適化します。",
+        "vacuumSuccess": "バキューム完了。{{freed}}を解放しました。",
+        "vacuumError": "データベースのバキュームに失敗しました。",
+        "analyzeSuccess": "データベース分析が完了しました。",
+        "analyzeError": "データベースの分析に失敗しました。"
+      },
+      "cleanup": {
+        "title": "データクリーンアップ",
+        "description": "古いアーカイブ済みタスクとログエントリを削除して容量を解放します。",
+        "olderThan": "経過日数",
+        "tasksFound": "件のタスクが見つかりました",
+        "entriesFound": "件のエントリが見つかりました",
+        "purge": "削除",
+        "stuckTasksWarning": "終了状態（完了/キャンセル）でないアーカイブ済みタスクが{{count}}件見つかりました。確認が必要な場合があります。",
+        "archivedTasks": {
+          "title": "アーカイブ済みタスク",
+          "description": "選択した期間より古い完了/キャンセル済みのアーカイブタスクを削除します。"
+        },
+        "logEntries": {
+          "title": "ログエントリ",
+          "description": "選択した期間より古いログエントリを削除します。"
+        },
+        "confirmPurgeArchived": "{{count}}件のアーカイブ済みタスクを完全に削除してもよろしいですか？この操作は元に戻せません。",
+        "confirmPurgeLogs": "{{count}}件のログエントリを完全に削除してもよろしいですか？この操作は元に戻せません。",
+        "purgeArchivedSuccess": "{{count}}件のアーカイブ済みタスクを削除しました。",
+        "purgeArchivedError": "アーカイブ済みタスクの削除に失敗しました。",
+        "purgeLogsSuccess": "{{count}}件のログエントリを削除しました。",
+        "purgeLogsError": "ログエントリの削除に失敗しました。"
       }
     },
     "general": {
@@ -447,215 +499,6 @@
         "unsavedChanges": "• 未保存の変更があります",
         "discard": "破棄",
         "confirmSwitch": "未保存の変更があります。本当にプロジェクトを切り替えますか？変更は失われます。"
-      }
-    },
-    "swarm": {
-      "title": "スワーム管理",
-      "description": "スワームノード全体で共有プロジェクト、ラベル、テンプレートを管理します。",
-      "loading": "スワーム設定を読み込み中...",
-      "loadError": "組織の読み込みに失敗しました",
-      "selectOrg": "組織を選択",
-      "selectOrgPlaceholder": "組織を選択してください...",
-      "selectOrgHelper": "スワーム設定を管理する組織を選択してください。",
-      "noOrgs": "利用可能な組織がありません",
-      "loginRequired": {
-        "title": "スワームを管理するにはログインしてください",
-        "description": "組織全体のスワームプロジェクト、ラベル、テンプレートを管理するにはアカウントにログインしてください。",
-        "action": "ログイン"
-      },
-      "projects": {
-        "title": "スワームプロジェクト",
-        "description": "スワームノード全体で共有プロジェクトを管理します。ローカルプロジェクトをリンクしてノード間でタスクを共有します。",
-        "noOrganization": "スワームプロジェクトを管理するには組織を選択してください。",
-        "loading": "スワームプロジェクトを読み込み中...",
-        "error": "スワームプロジェクトの読み込みに失敗しました。もう一度お試しください。",
-        "empty": "スワームプロジェクトがまだありません。ノード間でプロジェクトを共有するには、プロジェクトを作成してください。",
-        "createFirst": "最初のプロジェクトを作成",
-        "add": "プロジェクトを追加",
-        "addShort": "追加",
-        "refresh": "更新",
-        "mergeProjects": "プロジェクトを統合",
-        "node": "ノード",
-        "nodes": "ノード",
-        "edit": "編集",
-        "editTooltip": "プロジェクトを編集",
-        "delete": "削除",
-        "deleteTooltip": "プロジェクトを削除",
-        "unlink": "リンク解除",
-        "unlinkTooltip": "このノードのリンクを解除",
-        "loadingNodes": "リンクされたノードを読み込み中...",
-        "noNodes": "このプロジェクトにリンクされたノードはまだありません。",
-        "linkedAt": "リンク日",
-        "dialog": {
-          "createTitle": "スワームプロジェクトを作成",
-          "createDescription": "ノードプロジェクトにリンクできる新しいスワームプロジェクトを作成します。",
-          "editTitle": "スワームプロジェクトを編集",
-          "editDescription": "プロジェクト名と説明を更新します。",
-          "nameLabel": "名前",
-          "namePlaceholder": "例：共有プロジェクト",
-          "nameRequired": "プロジェクト名は必須です",
-          "descriptionLabel": "説明",
-          "descriptionPlaceholder": "プロジェクトの簡単な説明",
-          "save": "変更を保存",
-          "create": "プロジェクトを作成"
-        },
-        "deleteConfirm": {
-          "title": "スワームプロジェクトを削除しますか？",
-          "description": "「{{name}}」を削除し、すべての{{count}}ノードのリンクを解除します。この操作は元に戻せません。",
-          "confirm": "プロジェクトを削除"
-        }
-      },
-      "merge": {
-        "title": "プロジェクトを統合",
-        "description": "別のプロジェクトを「{{target}}」に統合します。すべてのリンクされたノードが転送され、ソースプロジェクトは削除されます。",
-        "sourceLabel": "統合元",
-        "selectSource": "統合するプロジェクトを選択...",
-        "targetLabel": "統合先",
-        "sourceRequired": "統合するプロジェクトを選択してください",
-        "noOtherProjects": "統合可能な他のプロジェクトがありません。",
-        "warning": "「{{source}}」は統合後に削除されます。この操作は元に戻せません。",
-        "confirm": "プロジェクトを統合"
-      },
-      "labels": {
-        "title": "スワームラベル",
-        "description": "すべてのスワームプロジェクトで使用できる組織全体のラベルを管理します。",
-        "noOrganization": "スワームラベルを管理するには組織を選択してください。",
-        "loading": "スワームラベルを読み込み中...",
-        "error": "スワームラベルの読み込みに失敗しました。もう一度お試しください。",
-        "empty": "スワームラベルがまだありません。組織全体でタスクを分類するラベルを作成してください。",
-        "createFirst": "最初のラベルを作成",
-        "add": "ラベルを追加",
-        "addShort": "追加",
-        "refresh": "更新",
-        "mergeLabels": "ラベルを統合",
-        "edit": "編集",
-        "delete": "削除",
-        "projectSpecific": "プロジェクト固有",
-        "deleteConfirm": "ラベル「{{name}}」を削除してもよろしいですか？この操作は元に戻せません。",
-        "dialog": {
-          "createTitle": "スワームラベルを作成",
-          "createDescription": "新しい組織全体のラベルを作成します。",
-          "editTitle": "スワームラベルを編集",
-          "editDescription": "ラベルの詳細を更新します。",
-          "nameLabel": "名前",
-          "namePlaceholder": "例：バグ、機能、ドキュメント",
-          "nameRequired": "ラベル名は必須です",
-          "colorLabel": "色",
-          "iconLabel": "アイコン",
-          "preview": "プレビュー",
-          "previewPlaceholder": "ラベルプレビューがここに表示されます",
-          "save": "変更を保存",
-          "create": "ラベルを作成"
-        },
-        "merge": {
-          "title": "ラベルを統合",
-          "description": "別のラベルを「{{target}}」に統合します。ソースラベルを使用しているすべてのタスクがターゲットラベルを使用するように更新されます。",
-          "sourceLabel": "統合元",
-          "selectSource": "統合するラベルを選択...",
-          "warning": "「{{source}}」は統合後に削除されます。この操作は元に戻せません。",
-          "confirm": "ラベルを統合"
-        }
-      },
-      "templates": {
-        "title": "スワームテンプレート",
-        "description": "@メンションを使用したタスク説明用の組織全体のテンプレートを管理します。",
-        "noOrganization": "スワームテンプレートを管理するには組織を選択してください。",
-        "loading": "スワームテンプレートを読み込み中...",
-        "error": "スワームテンプレートの読み込みに失敗しました。もう一度お試しください。",
-        "empty": "スワームテンプレートがまだありません。共通のタスク説明を再利用するテンプレートを作成してください。",
-        "createFirst": "最初のテンプレートを作成",
-        "add": "テンプレートを追加",
-        "addShort": "追加",
-        "refresh": "更新",
-        "mergeTemplates": "テンプレートを統合",
-        "edit": "編集",
-        "delete": "削除",
-        "deleteConfirm": "テンプレート「{{name}}」を削除してもよろしいですか？この操作は元に戻せません。",
-        "dialog": {
-          "createTitle": "スワームテンプレートを作成",
-          "createDescription": "新しい組織全体のテンプレートを作成します。",
-          "editTitle": "スワームテンプレートを編集",
-          "editDescription": "テンプレートの詳細を更新します。",
-          "nameLabel": "名前",
-          "namePlaceholder": "例：bug_fix、test_plan",
-          "nameHelper": "タスクの説明で@を付けてこの名前を使用します：@{{name}}",
-          "nameRequired": "テンプレート名は必須です",
-          "contentLabel": "内容",
-          "contentPlaceholder": "テンプレートの内容を入力...",
-          "contentHelper": "タスクの説明で@template_nameを使用すると、このテキストが挿入されます。",
-          "save": "変更を保存",
-          "create": "テンプレートを作成"
-        },
-        "merge": {
-          "title": "テンプレートを統合",
-          "description": "別のテンプレートを「{{target}}」に統合します。ソーステンプレートの内容が追加されます。",
-          "sourceLabel": "統合元",
-          "selectSource": "統合するテンプレートを選択...",
-          "warning": "「{{source}}」は統合後に削除されます。この操作は元に戻せません。",
-          "confirm": "テンプレートを統合"
-        }
-      },
-      "nodeProjects": {
-        "title": "ノードプロジェクト",
-        "description": "各ノードのローカルプロジェクトを表示し、ノード間でタスクを共有するためにスワームプロジェクトにリンクします。",
-        "noOrganization": "ノードプロジェクトを表示するには組織を選択してください。",
-        "refresh": "更新",
-        "error": "ノードの読み込みに失敗しました。もう一度お試しください。",
-        "noNodes": "この組織に接続されたノードはまだありません。",
-        "noProjects": "このノードに登録されたプロジェクトはありません。",
-        "fetchError": "プロジェクトの読み込みに失敗しました。",
-        "linkToSwarm": "スワームにリンク",
-        "link": "リンク",
-        "unlinkFromSwarm": "リンク解除",
-        "linkDialog": {
-          "title": "スワームプロジェクトにリンク",
-          "description": "このローカルプロジェクトをリンクするスワームプロジェクトを選択します。タスクはすべてのリンクされたノード間で共有されます。",
-          "localProject": "ローカルプロジェクト",
-          "swarmProject": "スワームプロジェクト",
-          "selectProject": "スワームプロジェクトを選択...",
-          "noProjects": "利用可能なスワームプロジェクトがありません",
-          "linkExisting": "既存にリンク",
-          "createNew": "新規作成",
-          "projectName": "プロジェクト名",
-          "projectNamePlaceholder": "プロジェクト名を入力...",
-          "projectDescription": "説明",
-          "projectDescriptionPlaceholder": "説明を入力...",
-          "confirm": "プロジェクトをリンク",
-          "createAndLink": "作成してリンク"
-        },
-        "unlinkDialog": {
-          "title": "スワームからリンク解除",
-          "description": "「{{projectName}}」をスワームからリンク解除してもよろしいですか？",
-          "warning": "このプロジェクトのすべての同期状態がクリアされます。タスクは他のノードと共有されなくなります。",
-          "confirm": "プロジェクトをリンク解除"
-        },
-        "health": {
-          "title": "スワームヘルスの問題",
-          "description": "一部のプロジェクトに解決が必要な同期状態の問題があります。",
-          "projectsWithIssues": "{{count}}件のプロジェクトに問題があります",
-          "orphanedTasks": "{{count}}件の孤立タスク",
-          "fixAllConfirm": "{{count}}件のプロジェクトをスワームからリンク解除し、すべての同期状態をクリアします。よろしいですか？",
-          "partialSuccess": "{{success}}件のプロジェクトを修正、{{error}}件が失敗しました。詳細はコンソールを確認してください。",
-          "success": "{{count}}件のプロジェクトを正常に修正しました。",
-          "error": "スワームの問題の修正に失敗しました。詳細はコンソールを確認してください。",
-          "fixing": "修正中...",
-          "fixAll": "すべての問題を修正",
-          "fixAllHint": "プロジェクトをスワームからリンク解除し、すべての同期状態をクリアします。",
-          "resolved": "すべての同期の問題が解決しました！"
-        }
-      },
-      "nodeTemplates": {
-        "title": "ローカルテンプレート",
-        "description": "ローカルテンプレートを昇格させて、組織内のすべてのノードで利用可能にします。",
-        "refresh": "更新",
-        "promote": "スワームに昇格",
-        "promoteShort": "昇格",
-        "promoted": "スワーム内",
-        "promoteDialog": {
-          "title": "テンプレートを昇格",
-          "description": "このテンプレートを組織内のすべてのノードで利用可能にします。",
-          "confirm": "昇格"
-        }
       }
     }
   },

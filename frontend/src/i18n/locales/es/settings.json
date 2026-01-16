@@ -12,7 +12,59 @@
         "mcp": "Servidores MCP",
         "mcpDesc": "Servidores de Protocolo de Contexto de Modelo (MCP)",
         "organizations": "Organization Settings",
-        "organizationsDesc": "Manage organization members and permissions"
+        "organizationsDesc": "Manage organization members and permissions",
+        "system": "Sistema",
+        "systemDesc": "Mantenimiento de base de datos y almacenamiento"
+      }
+    },
+    "system": {
+      "title": "Configuración del Sistema",
+      "description": "Mantenimiento de base de datos y gestión de almacenamiento",
+      "operationSuccess": "Operación completada con éxito.",
+      "diskUsage": {
+        "title": "Uso de Disco",
+        "description": "Monitorea y gestiona el espacio en disco utilizado por los worktrees."
+      },
+      "database": {
+        "title": "Mantenimiento de Base de Datos",
+        "description": "Ver estadísticas de la base de datos y optimizar el rendimiento.",
+        "loading": "Cargando estadísticas de la base de datos...",
+        "loadError": "Error al cargar las estadísticas de la base de datos.",
+        "fileSize": "Tamaño de Base de Datos",
+        "walSize": "Tamaño WAL",
+        "pageSize": "Tamaño de Página",
+        "freePages": "Páginas Libres",
+        "tableCounts": "Recuentos de Filas",
+        "optimize": "Optimizar Base de Datos",
+        "optimizing": "Optimizando...",
+        "optimizeHint": "Ejecuta VACUUM y ANALYZE para recuperar espacio y optimizar consultas.",
+        "vacuumSuccess": "Vacuum completado. Se liberaron {{freed}}.",
+        "vacuumError": "Error al ejecutar vacuum en la base de datos.",
+        "analyzeSuccess": "Análisis de la base de datos completado.",
+        "analyzeError": "Error al analizar la base de datos."
+      },
+      "cleanup": {
+        "title": "Limpieza de Datos",
+        "description": "Elimina tareas archivadas antiguas y entradas de registro para liberar espacio.",
+        "olderThan": "Más antiguo que",
+        "tasksFound": "tareas encontradas",
+        "entriesFound": "entradas encontradas",
+        "purge": "Purgar",
+        "stuckTasksWarning": "Se encontraron {{count}} tarea(s) archivada(s) que no están en estado terminal (completada/cancelada). Pueden necesitar atención.",
+        "archivedTasks": {
+          "title": "Tareas Archivadas",
+          "description": "Elimina tareas archivadas completadas/canceladas más antiguas que el período seleccionado."
+        },
+        "logEntries": {
+          "title": "Entradas de Registro",
+          "description": "Elimina entradas de registro más antiguas que el período seleccionado."
+        },
+        "confirmPurgeArchived": "¿Está seguro de que desea eliminar permanentemente {{count}} tareas archivadas? Esta acción no se puede deshacer.",
+        "confirmPurgeLogs": "¿Está seguro de que desea eliminar permanentemente {{count}} entradas de registro? Esta acción no se puede deshacer.",
+        "purgeArchivedSuccess": "Se eliminaron {{count}} tareas archivadas.",
+        "purgeArchivedError": "Error al purgar las tareas archivadas.",
+        "purgeLogsSuccess": "Se eliminaron {{count}} entradas de registro.",
+        "purgeLogsError": "Error al purgar las entradas de registro."
       }
     },
     "general": {

@@ -27,7 +27,6 @@ import {
   SwarmLabelsSection,
   SwarmTemplatesSection,
   NodeTemplatesSection,
-  SwarmHealthSection,
 } from '@/components/swarm';
 
 export function SwarmSettings() {
@@ -100,9 +99,6 @@ export function SwarmSettings() {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-
-      {/* Swarm Health Section - shows only when there are issues */}
-      <SwarmHealthSection />
 
       {/* Organization Selector */}
       <Card>

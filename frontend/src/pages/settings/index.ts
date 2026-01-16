@@ -6,4 +6,5 @@ export { SwarmSettings } from './SwarmSettings';
 export { AgentSettings } from './AgentSettings';
 export { McpSettings } from './McpSettings';
 export { BackupSettings } from './BackupSettings';
+export { SystemSettings } from './SystemSettings';
 export { MobileSettingsAccordion } from './MobileSettingsAccordion';

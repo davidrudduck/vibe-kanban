@@ -91,10 +91,11 @@ impl LocalLogService {
     /// Returns true if the execution has any entries in the legacy
     /// `execution_process_logs` table, false otherwise.
     async fn has_legacy_logs(&self, execution_id: Uuid) -> Result<bool, sqlx::Error> {
-        let count: i64 = sqlx::query_scalar!(
-            r#"SELECT COUNT(*) as "count!: i64" FROM execution_process_logs WHERE execution_id = $1"#,
-            execution_id
+        // Use runtime query to avoid compile-time sqlx macro issues with dual-database workspace
+        let count: i64 = sqlx::query_scalar(
+            r#"SELECT COUNT(*) FROM execution_process_logs WHERE execution_id = ?"#,
         )
+        .bind(execution_id)
         .fetch_one(&self.pool)
         .await?;
         Ok(count > 0)
