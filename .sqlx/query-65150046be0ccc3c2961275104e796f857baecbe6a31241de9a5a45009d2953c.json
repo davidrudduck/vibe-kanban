@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT COUNT(*) as \"count!: i64\" FROM execution_process_logs WHERE execution_id = $1",
+  "query": "SELECT COUNT(*) as \"count!: i64\" FROM log_entries WHERE timestamp < ?",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "391ff4245e5678d85cb7f370913f9942e9b2fbbc1e74730f79b8160d17e4041e"
+  "hash": "65150046be0ccc3c2961275104e796f857baecbe6a31241de9a5a45009d2953c"
 }
