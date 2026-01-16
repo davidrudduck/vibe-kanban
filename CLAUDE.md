@@ -521,7 +521,18 @@ let handle = normalize_logs_with(normalizer, msg_store.clone(), &worktree_path);
 ### Setup
 ```bash
 pnpm install                          # Install all dependencies
+./init.sh                             # Full setup: prerequisites, .env, database, dependencies
+./init.sh start                       # Start servers after setup
 ```
+
+**Note on init.sh (January 2026)**: The init.sh script has been significantly enhanced to support isolated development in worktrees. Key improvements include:
+- **Respect existing .env values**: Loads FRONTEND_PORT, BACKEND_PORT, and MCP_PORT from .env if present before auto-assigning ports
+- **Database isolation**: Copies from ~/.vkswarm/db/test.sqlite or production database to local dev_assets/db.sqlite for worktree-local development
+- **Port conflict detection**: Validates port availability before starting servers and provides clear error messages
+- **Integrated stop command**: Uses pnpm run stop for graceful shutdown (see "Stopping the Server" section)
+- **Status checking**: ./init.sh status shows running instances and port usage
+
+This approach prevents worktree conflicts when multiple developers or AI agents work on different tasks simultaneously, each with isolated databases and ports.
 
 ### Development
 ```bash

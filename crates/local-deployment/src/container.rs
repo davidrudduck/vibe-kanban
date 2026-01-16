@@ -1206,6 +1206,58 @@ impl LocalContainerService {
 
         Ok(())
     }
+
+    /// Create a .env file in the worktree with auto-assigned ports
+    async fn create_worktree_env(&self, worktree_path: &Path) -> std::io::Result<()> {
+        use std::net::TcpListener;
+
+        // Find three available ports for frontend, backend, and MCP
+        let frontend_port = TcpListener::bind(("127.0.0.1", 0))?
+            .local_addr()?
+            .port();
+        let backend_port = TcpListener::bind(("127.0.0.1", 0))?
+            .local_addr()?
+            .port();
+        let mcp_port = TcpListener::bind(("127.0.0.1", 0))?
+            .local_addr()?
+            .port();
+
+        // Build the .env content
+        let env_content = format!(
+            r#"# Auto-generated .env for worktree
+# These ports are automatically assigned to avoid conflicts
+
+# Development Server Ports
+FRONTEND_PORT={}
+BACKEND_PORT={}
+MCP_PORT={}
+
+# Database Configuration
+# Use the worktree's local dev_assets for isolation
+VK_DATABASE_PATH=./dev_assets/db.sqlite
+
+# Network Configuration
+HOST=127.0.0.1
+
+# Logging
+RUST_LOG=info
+"#,
+            frontend_port, backend_port, mcp_port
+        );
+
+        let env_path = worktree_path.join(".env");
+        tokio::fs::write(&env_path, env_content).await?;
+
+        tracing::info!(
+            worktree = %worktree_path.display(),
+            frontend_port = frontend_port,
+            backend_port = backend_port,
+            mcp_port = mcp_port,
+            "Created worktree .env file with auto-assigned ports"
+        );
+
+        Ok(())
+    }
 }
 
 fn failure_exit_status() -> std::process::ExitStatus {
@@ -1286,6 +1338,11 @@ impl ContainerService for LocalContainerService {
             true, // create new branch
         )
         .await?;
+
+        // Create .env file with auto-assigned ports for this worktree
+        if let Err(e) = self.create_worktree_env(&worktree_path).await {
+            tracing::warn!("Failed to create worktree .env file: {}", e);
+        }
 
         // Copy files specified in the project's copy_files field
         if let Some(copy_files) = &project.copy_files

@@ -1,0 +1,184 @@
+---
+title: "Database Maintenance"
+description: "Manage database size, optimise performance, and clean up old data"
+---
+
+## Overview
+
+The System Settings page provides tools for maintaining your Vibe Kanban database. Regular maintenance helps keep your database performant and prevents excessive disk usage.
+
+Access database maintenance features from Settings → System → Database Maintenance section.
+
+## Database Statistics
+
+The Database Maintenance section displays key metrics to help you understand your database health:
+
+| Metric | Description |
+|--------|-------------|
+| **Database Size** | Total size of the main database file on disk |
+| **WAL Size** | Size of the Write-Ahead Log file (temporary transaction log) |
+| **Page Size** | SQLite page size (typically 4096 bytes) |
+| **Free Pages** | Number of pages available for reuse after deletions |
+
+### Table Row Counts
+
+View current row counts across all tables:
+- **Tasks** - All tasks across all projects
+- **Attempts** - Task execution attempts (one per executor run)
+- **Processes** - Execution processes (subprocess spawns)
+- **Log Entries** - Executor log entries (can grow very large)
+
+<Tip>
+If you see many free pages or a large WAL size after deleting data, running VACUUM will reclaim that disk space.
+</Tip>
+
+## Optimise Database
+
+The **Optimise Database** button runs two SQLite maintenance operations:
+
+### VACUUM
+
+Reclaims disk space from deleted records. When you delete tasks or log entries, SQLite marks those pages as free but doesn't immediately shrink the database file. VACUUM rebuilds the database to reclaim this space.
+
+<Warning>
+VACUUM may take several minutes on large databases. The database will be briefly locked during this operation. Avoid running VACUUM while tasks are actively executing.
+</Warning>
+
+**When to run VACUUM:**
+- After purging large numbers of archived tasks
+- After purging old log entries
+- When free pages accumulate to more than 10-20% of total pages
+- When database size seems larger than expected
+
+**Technical details:**
+- Creates a new copy of the database with compacted data
+- Removes fragmentation and optimises page layout
+- Automatically runs a checkpoint on the WAL file
+- 5-minute cooldown enforced between VACUUM operations
+
+### ANALYSE
+
+Updates query planner statistics. SQLite's query optimiser uses these statistics to choose efficient execution plans for your queries.
+
+**When to run ANALYSE:**
+- After significant data changes (bulk imports, large deletions)
+- If you notice queries running slower than expected
+- Automatically runs alongside VACUUM
+
+## Data Cleanup
+
+### Purge Archived Tasks
+
+Permanently deletes archived tasks older than the selected time period.
+
+<Note>
+Only tasks in terminal states (done/cancelled) that have been archived are deleted. Tasks that are archived while still "in progress" or "in review" are shown as "stuck tasks" in the statistics and are excluded from purging to prevent data loss.
+</Note>
+
+**Available retention periods:**
+- 7 days
+- 14 days
+- 30 days
+- 60 days
+- 90 days
+
+**What gets deleted:**
+- Task records
+- Associated task attempts
+- Execution processes
+- Worktree references (worktrees are cleaned on archive)
+
+**Best practices:**
+- Wait at least 14 days before purging to ensure you don't need the task history
+- Review the "stuck tasks" count before purging - investigate why tasks are archived while still in progress
+- Run VACUUM after large purges to reclaim disk space
+
+### Purge Log Entries
+
+Permanently deletes executor log entries older than the selected time period.
+
+<Note>
+Log deletion is processed in batches of 10,000 rows to avoid long database locks. Large purge operations may take a few seconds but won't block other operations.
+</Note>
+
+**Available retention periods:**
+- 7 days
+- 14 days
+- 30 days
+- 60 days
+- 90 days
+
+**What gets deleted:**
+- Raw log entries from executor output
+- Normalised log entries (conversation messages)
+- Associated metadata
+
+**Best practices:**
+- Keep recent logs (30+ days) for debugging active tasks
+- Logs are independent of task status - you can delete old logs even for active tasks
+- Log entries can grow very large (millions of rows) - regular cleanup prevents database bloat
+- Run VACUUM after purging large numbers of logs
+
+<Warning>
+Purging logs is irreversible. Once deleted, you cannot recover the execution history for debugging purposes.
+</Warning>
+
+## Maintenance Workflow
+
+A typical maintenance workflow might look like:
+
+1. **Review statistics** - Check database size, free pages, and row counts
+2. **Purge old data** - Delete archived tasks older than 30 days
+3. **Purge old logs** - Delete log entries older than 30 days
+4. **Run VACUUM** - Reclaim disk space from deletions
+5. **Check results** - Verify database size decreased and free pages reduced
+
+<Tip>
+Schedule regular maintenance (monthly or quarterly) to prevent the database from growing unnecessarily large. This keeps Vibe Kanban responsive and efficient.
+</Tip>
+
+## Troubleshooting
+
+### VACUUM Takes Too Long
+
+If VACUUM is taking more than 10 minutes:
+- Check if other processes are accessing the database
+- Ensure adequate disk space (VACUUM needs temporary space equal to database size)
+- Consider purging more data before running VACUUM
+- Check server logs for errors
+
+### "Cannot purge while tasks are running"
+
+You cannot purge data while task attempts are actively executing:
+- Wait for running tasks to complete
+- Stop running processes from the Processes panel
+- Archive completed tasks before purging
+
+### Free Pages Not Decreasing
+
+If free pages remain high after VACUUM:
+- This is expected - VACUUM reclaims space at the file level, not always visible in free pages
+- Check if database file size decreased (more important metric)
+- Pages may be reserved for future writes (this is normal SQLite behaviour)
+
+### WAL Size Growing
+
+If WAL file size keeps growing:
+- Check the WAL monitoring in [Database Performance](/configuration-customisation/database-performance)
+- VACUUM automatically checkpoints the WAL
+- Consider reducing the number of concurrent tasks
+- See WAL troubleshooting in the database performance guide
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Database Performance" icon="gauge" href="/configuration-customisation/database-performance">
+    SQLite performance tuning and monitoring
+  </Card>
+  <Card title="Storage Configuration" icon="hard-drive" href="/configuration-customisation/storage-configuration">
+    Configure database and backup locations
+  </Card>
+  <Card title="Task Archiving" icon="archive" href="/features/task-archiving">
+    Archive tasks to prepare them for purging
+  </Card>
+</CardGroup>

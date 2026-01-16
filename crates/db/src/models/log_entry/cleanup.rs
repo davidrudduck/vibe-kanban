@@ -5,6 +5,7 @@
 
 use chrono::{Duration, Utc};
 use sqlx::SqlitePool;
+use std::time::Duration as StdDuration;
 
 use super::DbLogEntry;
 
@@ -22,14 +23,48 @@ impl DbLogEntry {
         Ok(result)
     }
 
-    /// Delete log entries older than the specified number of days.
-    /// Returns the number of log entries deleted.
+    /// Delete log entries older than the specified number of days using batched deletion.
+    ///
+    /// This function deletes entries in batches of 10,000 rows to prevent long database locks
+    /// on large purge operations. A 10ms yield is added between batches to allow other
+    /// database operations to proceed.
+    ///
+    /// Returns the total number of log entries deleted.
     pub async fn delete_older_than(pool: &SqlitePool, days: i64) -> Result<i64, sqlx::Error> {
         let cutoff = Utc::now() - Duration::days(days);
-        let result = sqlx::query!("DELETE FROM log_entries WHERE timestamp < ?", cutoff)
+        const BATCH_SIZE: i64 = 10_000;
+        const YIELD_DURATION_MS: u64 = 10;
+
+        let mut total_deleted: i64 = 0;
+
+        loop {
+            // Delete a batch using DELETE with LIMIT via a subquery
+            let result = sqlx::query(
+                r#"DELETE FROM log_entries
+                   WHERE id IN (
+                       SELECT id FROM log_entries
+                       WHERE timestamp < ?
+                       LIMIT ?
+                   )"#,
+            )
+            .bind(cutoff)
+            .bind(BATCH_SIZE)
             .execute(pool)
             .await?;
-        Ok(result.rows_affected() as i64)
+
+            let batch_deleted = result.rows_affected() as i64;
+            total_deleted += batch_deleted;
+
+            // If we deleted fewer rows than the batch size, we're done
+            if batch_deleted < BATCH_SIZE {
+                break;
+            }
+
+            // Yield to allow other database operations to proceed
+            tokio::time::sleep(StdDuration::from_millis(YIELD_DURATION_MS)).await;
+        }
+
+        Ok(total_deleted)
     }
 }
 

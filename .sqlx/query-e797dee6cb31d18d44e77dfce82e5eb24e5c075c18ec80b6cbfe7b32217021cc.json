@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM log_entries\n                   WHERE id IN (\n                       SELECT id FROM log_entries\n                       WHERE timestamp < ?\n                       LIMIT ?\n                   )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "e797dee6cb31d18d44e77dfce82e5eb24e5c075c18ec80b6cbfe7b32217021cc"
+}
