@@ -13,13 +13,13 @@ import { useAuth } from '@/hooks';
 
 import {
   AgentSettings,
-  BackupSettings,
   GeneralSettings,
   McpSettings,
   OrganizationSettings,
   ProjectSettings,
   SettingsLayout,
   SwarmSettings,
+  SystemSettings,
 } from '@/pages/settings/';
 import { UserSystemProvider, useUserSystem } from '@/components/ConfigProvider';
 import { ThemeProvider } from '@/components/ThemeProvider';
@@ -131,7 +131,7 @@ function AppContent() {
                       <Route path="swarm" element={<SwarmSettings />} />
                       <Route path="agents" element={<AgentSettings />} />
                       <Route path="mcp" element={<McpSettings />} />
-                      <Route path="backups" element={<BackupSettings />} />
+                      <Route path="system" element={<SystemSettings />} />
                     </Route>
                     <Route
                       path="/mcp-servers"

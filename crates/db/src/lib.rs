@@ -12,6 +12,7 @@ use utils::assets::database_path;
 
 pub mod backup;
 pub mod backup_scheduler;
+pub mod database_stats;
 pub mod metrics;
 pub mod models;
 pub mod retry;
@@ -25,6 +26,10 @@ pub use backup::{
     scheduled_retention,
 };
 pub use backup_scheduler::{BackupScheduler, BackupSchedulerConfig, BackupSchedulerHandle};
+pub use database_stats::{
+    DatabaseStats, DatabaseStatsError, VacuumResult, analyze_database, get_database_stats,
+    vacuum_database,
+};
 pub use metrics::DbMetrics;
 pub use retry::{RetryConfig, is_retryable_error, with_retry};
 pub use wal_monitor::{WalMonitor, WalMonitorConfig, WalMonitorHandle, get_wal_size};

@@ -11,6 +11,7 @@ pub mod backups;
 pub mod config;
 pub mod containers;
 pub mod dashboard;
+pub mod database;
 pub mod diagnostics;
 pub mod filesystem;
 // pub mod github;
@@ -68,6 +69,7 @@ pub async fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(events::router(&deployment))
         .merge(approvals::router())
         .merge(backups::router())
+        .merge(database::router())
         .merge(diagnostics::router(&deployment))
         .merge(logs::router(&deployment))
         .merge(message_queue::router(&deployment))

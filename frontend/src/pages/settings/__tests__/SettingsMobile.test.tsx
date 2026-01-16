@@ -36,9 +36,9 @@ vi.mock('../AgentSettings', () => ({
 vi.mock('../McpSettings', () => ({
   McpSettings: () => <div data-testid="mcp-settings">MCP Settings Content</div>,
 }));
-vi.mock('../BackupSettings', () => ({
-  BackupSettings: () => (
-    <div data-testid="backup-settings">Backup Settings Content</div>
+vi.mock('../SystemSettings', () => ({
+  SystemSettings: () => (
+    <div data-testid="system-settings">System Settings Content</div>
   ),
 }));
 
