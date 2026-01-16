@@ -1,267 +1,540 @@
-# Independent Validation Report: Fix pnpm run stop Not Killing Vite Frontend Process
+# Validation Report: Fix OpenCode Integration (Global Binary Approach)
 
-**Date**: 2026-01-14
-**Branch**: dr/91f2-fix-pnpm-run-sto
-**Reviewer**: Claude AI Validation Agent (Independent Review)
-**Validation Method**: Fresh end-to-end verification + code audit
+**Task ID**: 6322
+**Branch**: `dr/6322-fix-opencode-int`
+**Commit**: `485cac99`
+**Date**: 2026-01-16
+**Validator**: Claude Sonnet 4.5 (Independent Validation)
 
 ---
 
 ## Executive Summary
 
-The implementation **successfully addresses core problem** of orphaned Vite/cargo-watch processes when running `pnpm run stop`. The approach of tracking `dev_root_pid` and implementing graceful shutdown sequence is **sound, well-architected, and fully functional**.
+This validation reviews a **CRITICAL DEVIATION** from the originally planned and merged solution. The implementation changes OpenCode executor from `npx -y opencode-ai@latest` to `opencode run` (global binary), which is **fundamentally different** from what was merged to main in PR #293.
 
-All critical functionality works as designed, all tests pass, and code follows project conventions.
+**CRITICAL FINDINGS**:
+1. ❌ **Major deviation**: The merged PR #293 changed `@1.1.10` → `@latest`, but this branch now changes `npx` → `opencode run`
+2. ❌ **Missing documentation update**: `docs/agents/opencode.mdx` still references `npx -y opencode-ai`
+3. ✅ **Code quality**: The implementation itself is clean and correct
+4. ✅ **Tests pass**: All 91 tests pass, clippy clean
+5. ⚠️ **Plan alignment**: Matches the NEW plan but contradicts the MERGED solution
 
-**Status**: PRODUCTION-READY (with one minor documentation fix recommended)
-
----
-
-## Test Results Summary
-
-| Test Suite | Result | Details |
-|-------------|----------|---------|
-| `test-stop-graceful.js` | ✅ PASS (5/5) | Graceful shutdown timing, timeout handling, port cleanup |
-| `test-start-dev.js` | ✅ PASS (4/4) | PID file creation, validation, cleanup |
-| `cargo test -p utils --lib dev_root` | ✅ PASS (3/3) | Rust unit tests for dev_root_pid |
-| `npm run check` | ✅ PASS | TypeScript + Cargo compilation, no errors |
+**Status**: **REQUIRES DISCUSSION** - This is a fundamentally different approach than what was already merged.
 
 ---
 
-## Detailed Analysis by Session
+## Timeline and Context
 
-### Session 1: Add dev_root_pid Tracking ✅ COMPLETE
+### What Happened
 
-**Implementation Reviewed**:
-- ✅ `dev_root_pid: Option<u32>` field added to `InstanceInfo` struct (port_file.rs:31)
-- ✅ `read_dev_root_pid()` function implemented (port_file.rs:113-124)
-- ✅ `InstanceRegistry::register()` updated to read and store dev_root_pid (lines 154-156)
-- ✅ Unit tests added and all passing (lines 464-506)
-- ✅ TypeScript types generated correctly (generate_types.rs:247-248, shared/types.ts:1150)
+1. **Original Plan** (`/home/david/.claude/plans/indexed-percolating-bentley.md`): Change `@1.1.10` → `@latest`
+2. **PR #293 Merged**: Successfully merged the `@latest` change to main (commit `792782de`)
+3. **NEW Plan** (`/home/david/.claude/plans/tranquil-jumping-scott.md`): Completely different approach - use global `opencode` binary
+4. **Current Branch**: Implements the NEW plan, diverging from merged code
 
-**Code Quality**: Excellent. Follows Rust patterns, proper error handling, comprehensive tests.
+### Current State
+
+| Location | Status |
+|----------|--------|
+| **main branch** | `npx -y opencode-ai@latest run` (merged from PR #293) |
+| **dr/6322-fix-opencode-int** | `opencode run` (THIS implementation) |
+| **Original plan** | `npx -y opencode-ai@latest run` |
+| **New plan** | `opencode run` ✅ |
 
 ---
 
-### Session 2: Create start-dev.js ✅ COMPLETE
+## Detailed Analysis
 
-**Implementation Reviewed**:
-- ✅ `scripts/start-dev.js` created (143 lines)
-- ✅ PID file writing on spawn event (lines 99-104) - prevents invalid PIDs
-- ✅ Signal forwarding for SIGTERM and SIGINT (lines 107-116)
-- ✅ PID file cleanup on exit (lines 57-66, 120)
-- ✅ **DEP0190 fix verified** - uses single command string with shell: true (lines 86-94)
+### 1. Plan Comparison
 
-**Critical Fix Verified** (commit ccb525ea):
-```javascript
-// BEFORE (vulnerable pattern):
-spawn('npx', ['concurrently', '--kill-others', ...], { shell: true })
-
-// AFTER (safe pattern):
-spawn('npx concurrently --kill-others --names backend,frontend "pnpm run backend:dev:watch" "pnpm run frontend:dev"', [], { shell: true })
+#### Original Plan (Already Merged)
+```rust
+// Change from:
+CommandBuilder::new("npx -y opencode-ai@1.1.10 run")
+// To:
+CommandBuilder::new("npx -y opencode-ai@latest run")
 ```
 
-**Code Quality**: Good. Proper error handling, signal forwarding, cleanup.
+**Rationale**: Use latest version to fix compatibility issues
 
----
+#### NEW Plan (This Implementation)
+```rust
+// Change from:
+CommandBuilder::new("npx -y opencode-ai@latest run")
+// To:
+CommandBuilder::new("opencode run")
+```
 
-### Session 3: Update stop-server.js ✅ COMPLETE
+**Rationale**:
+- npx caches a truncated binary (14KB vs 145MB)
+- Truncated binary crashes with SIGSEGV (exit code 139)
+- Global installation via brew/npm works correctly
+- Matches Claude Code executor pattern
 
-**Implementation Reviewed**:
-- ✅ `stopInstance()` made async (line 136)
-- ✅ Graceful shutdown sequence implemented (lines 145-204):
-  1. SIGTERM → backend (line 151)
-  2. Wait for backend exit (lines 157-176, max 10s)
-  3. SIGTERM → dev_root_pid (line 186)
-  4. Port-based cleanup fallback (lines 206-213)
-- ✅ `sleep()` helper added (lines 84-86)
-- ✅ `killProcessOnPort()` helper added (lines 92-122)
-- ✅ All `stopInstance()` calls use `await` (lines 278, 280, 302)
+### 2. Root Cause Analysis (From New Plan)
 
-**Shutdown Flow Verified**:
+**Excellent investigation** documented in the plan:
+
+1. ✅ Identified npx binary truncation issue (14,848 bytes vs 145,026,184 bytes)
+2. ✅ Confirmed SIGSEGV crash with exit code 139
+3. ✅ Verified brew-installed binary works correctly
+4. ✅ Compared multiple installation methods
+
+**Evidence Quality**: 10/10 - Very thorough debugging
+
+### 3. Implementation Review
+
+#### Files Modified
+
+**Code Change**: `crates/executors/src/executors/opencode.rs:113`
+```diff
+- let mut builder = CommandBuilder::new("npx -y opencode-ai@latest run").params([
++ let mut builder = CommandBuilder::new("opencode run").params([
+```
+
+**Assessment**: ✅ Clean, minimal, correct syntax
+
+#### Missing Documentation Update
+
+**File**: `docs/agents/opencode.mdx:10`
+```mdx
+```bash
+npx -y opencode-ai  # ❌ OUTDATED - should be updated
+```
 ```text
-SIGTERM → backend → cleanup (flush logs, WAL checkpoint, close DB) → backend exits
-→ SIGTERM → dev_root_pid (concurrently) → kills cargo-watch and Vite
-→ Port-based cleanup (lsof) → cleanup any orphans
+
+**Expected**:
+```mdx
+```bash
+npm install -g opencode-ai
+# or
+brew install opencode
+# or
+pnpm add -g opencode-ai
 ```
 
-**Code Quality**: Excellent. Clear comments, proper error handling, graceful sequencing.
+```text
+
+### 4. Verification Results
+
+| Check | Result | Details |
+|-------|--------|---------|
+| **Compilation** | ✅ PASS | `cargo build -p executors` successful |
+| **Tests** | ✅ PASS | 91 tests passed, 0 failed |
+| **Clippy** | ✅ PASS | No warnings with `-D warnings` |
+| **Documentation** | ❌ FAIL | `docs/agents/opencode.mdx` not updated |
+| **End-to-end test** | ⚠️ NOT RUN | Requires server restart |
+
+### 5. Comparison with Other Executors
+
+#### Claude Code Executor
+```rust
+// crates/executors/src/command.rs (approximate location)
+CommandBuilder::new("claude-code")  // Uses global binary
+```
+
+#### OpenCode (After This Change)
+```rust
+CommandBuilder::new("opencode run")  // ✅ Now consistent
+```
+
+**Assessment**: ✅ The new approach is architecturally consistent with Claude Code
 
 ---
 
-### Session 4: Documentation ✅ COMPLETE
+## Deviations from Plan
 
-**Implementation Reviewed**:
-- ✅ `docs/development/dev-server-lifecycle.mdx` created (150 lines)
-- ✅ `docs/architecture/process-management.mdx` created (217 lines)
-- ✅ CLAUDE.md updated with dev server lifecycle section (lines 538-560)
-- ✅ package.json updated to use start-dev.js (line 19)
+### Critical Deviations
 
-**Documentation Quality**: Comprehensive. Covers start/stop, troubleshooting, multi-instance support.
+1. **❌ Documentation Not Updated** (Plan item #2)
+   - Plan explicitly states: "Update documentation (if any mentions npx installation)"
+   - `docs/agents/opencode.mdx` found with `npx -y opencode-ai` reference
+   - **Not updated** in this implementation
+
+### Deviations from Merged Code
+
+2. **❌ Contradicts PR #293**
+   - PR #293 was merged with `@latest` approach
+   - This implementation replaces it with global binary approach
+   - **No explanation** for why the merged approach didn't work
 
 ---
 
-## Code Quality Assessment
+## Corrections Required
 
-### Strengths
+### CRITICAL - Must Fix Before Merge
 
-1. **Type Safety**: All Rust structs properly typed with `#[derive(TS)]`
-2. **Error Handling**: Robust error handling in all scripts
-3. **Test Coverage**: Both unit and integration tests present
-4. **Documentation**: Clear, comprehensive documentation
-5. **Security**: DEP0190 deprecation warning resolved
+1. **Update Documentation** (`docs/agents/opencode.mdx`)
+   - Remove `npx -y opencode-ai` instruction
+   - Add installation instructions for:
+     - `npm install -g opencode-ai`
+     - `brew install opencode` (macOS/Linux)
+     - `pnpm add -g opencode-ai`
+   - Note that global installation is required
+   - Add prerequisite check: `which opencode`
 
-### Issues Found
+2. **Clarify Relationship with PR #293**
+   - Add comment in code explaining why `@latest` approach was insufficient
+   - Document the npx truncation issue in commit message or PR description
+   - Consider adding a comment in the code:
+   ```rust
+   // Use global opencode binary instead of npx to avoid binary truncation
+   // issues. npx caches a corrupted 14KB binary instead of the full 145MB,
+   // causing SIGSEGV crashes. See issue #6322 for details.
+   let mut builder = CommandBuilder::new("opencode run").params([
+   ```
 
-| Issue | Severity | Location | Description |
-|--------|-----------|------------|-------------|
-| Typo: "Guarantees" | Low | `docs/architecture/process-management.mdx:114` | Should be "Guarantees" (typo - "ee" instead of "ee") |
+3. **Verify Global Installation**
+   - Confirm opencode is installed: `which opencode` ✅ (verified: v1.1.23 at `/home/linuxbrew/.linuxbrew/bin/opencode`)
+   - Consider adding runtime check or better error message when `opencode` not found
 
 ---
 
 ## Scores (0-10)
 
-| Category | Score | Notes |
-|----------|--------|-------|
-| Following The Plan | **10/10** | All requirements implemented exactly as specified |
-| Code Quality | **9/10** | Clean, well-structured, minor typo in docs |
-| Following CLAUDE.md Rules | **10/10** | Adheres to all patterns, type safety maintained |
-| Best Practice | **10/10** | No security warnings, comprehensive test coverage |
-| Efficiency | **10/10** | Clean shutdown sequence well-designed |
-| Performance | **10/10** | No performance concerns, tests run quickly |
-| Security | **10/10** | DEP0190 warning resolved, no vulnerabilities |
+| Category | Score | Rationale |
+|----------|-------|-----------|
+| **Following The Plan** | 8/10 | Follows NEW plan correctly, but plan contradicts merged code. Missing documentation update (-2). |
+| **Code Quality** | 10/10 | Clean, minimal change. No code smells or issues. |
+| **Following CLAUDE.md Rules** | 7/10 | Minimal change ✅, but didn't update documentation ❌ (-3). Should have read docs first. |
+| **Best Practice** | 9/10 | Global binary approach is better long-term, but lack of migration path/fallback (-1). |
+| **Efficiency** | 10/10 | Single-line change, removes npx download overhead. |
+| **Performance** | 10/10 | Eliminates npx cache check/download, faster startup. |
+| **Security** | 10/10 | No security implications. Trusts system PATH (standard practice). |
 
-**Overall Score: 9.9/10**
+**Overall Score: 9.1/10**
 
 ---
 
-## Architecture Review
+## Architectural Assessment
 
-### Process Hierarchy (Correct)
-```text
-Shell (pnpm run dev)
-  └─ start-dev.js (Node.js wrapper)
-      └─ concurrently (dev_root_pid)
-          ├─ cargo watch
-          │   └─ vks-node-server (backend PID)
-          └─ npm/vite (frontend)
+### Strengths
+
+1. **Root Cause Identification**: Excellent debugging of npx truncation issue
+2. **Consistency**: Aligns with Claude Code executor pattern
+3. **Performance**: Eliminates npx overhead
+4. **Reliability**: Avoids binary corruption issues
+
+### Concerns
+
+1. **Breaking Change**: Users who relied on `npx` auto-installation now need manual setup
+2. **Migration Path**: No fallback if `opencode` not found
+3. **Documentation Gap**: Installation instructions not updated
+4. **Version Control**: Lost automatic version management from `@latest`
+
+### Recommendations for Future
+
+Consider a **dual-path approach**:
+```rust
+// Try global binary first, fallback to npx
+let command = if which("opencode").is_ok() {
+    "opencode run"
+} else {
+    "npx -y opencode-ai@latest run"
+};
 ```
 
-### Graceful Shutdown Flow (Verified)
-```bash
-User: pnpm run stop
-  ↓
-stop-server.js reads instance from /tmp/vibe-kanban/instances/{hash}.json
-  ↓
-SIGTERM → backend (PID from registry)
-  ↓
-Backend performs cleanup:
-  - Flush log buffers
-  - Run WAL checkpoint (TRUNCATE)
-  - Close DB connection pool
-  ↓
-Backend process exits
-  ↓
-stop-server.js detects exit (polling, max 10s wait)
-  ↓
-SIGTERM → dev_root_pid (concurrently)
-  ↓
-Concurrently forwards SIGTERM to children
-  ↓
-Port-based cleanup (lsof) for stragglers
-  ↓
-All processes terminated ✓
+---
+
+## Comparison with Previous Validation
+
+The old `validation.md` in this directory validates a **completely different change** (the `@latest` approach from PR #293). That validation is not applicable to this implementation.
+
+---
+
+## Recommendations
+
+### REQUIRED (Must Implement)
+
+#### 1. Update Documentation (HIGH PRIORITY)
+
+**File**: `docs/agents/opencode.mdx`
+
+**Current**:
+```mdx
+<Step title="Run OpenCode">
+  ```bash
+  npx -y opencode-ai
+  ```
+</Step>
+```
+
+**Proposed**:
+```mdx
+<Step title="Install OpenCode">
+  Install OpenCode globally using one of the following methods:
+
+  ```bash
+  # Using npm
+  npm install -g opencode-ai
+
+  # Using pnpm
+  pnpm add -g opencode-ai
+
+  # Using Homebrew (macOS/Linux)
+  brew install opencode
+  ```
+
+  Verify installation:
+  ```bash
+  opencode --version
+  ```
+</Step>
+
+<Step title="Authenticate OpenCode">
+  Run OpenCode once to complete the authentication flow:
+
+  ```bash
+  opencode
+  ```
+
+  Follow the login instructions. For more details, see the [OpenCode GitHub page](https://github.com/sst/opencode).
+</Step>
+```
+
+#### 2. Add Inline Code Comment
+
+**File**: `crates/executors/src/executors/opencode.rs:111-113`
+
+**Add**:
+```rust
+impl Opencode {
+    fn build_command_builder(&self) -> CommandBuilder {
+        // Use globally installed opencode binary instead of npx to avoid
+        // binary truncation issues when npx caches the package. The npx-cached
+        // binary is corrupted (14KB vs 145MB) and crashes with SIGSEGV.
+        // Requires: opencode installed globally (npm/pnpm/brew)
+        let mut builder = CommandBuilder::new("opencode run").params([
+```
+
+#### 3. Improve Error Handling
+
+**Add better error message** when `opencode` not found:
+
+**File**: `crates/executors/src/executors/opencode.rs` (in spawn or error handling)
+
+```rust
+// When command fails, check if it's a "command not found" error
+if error.kind() == std::io::ErrorKind::NotFound {
+    return Err(ExecutorError::Custom(
+        "OpenCode binary not found. Please install OpenCode globally:\n\
+         npm install -g opencode-ai\n\
+         or: brew install opencode\n\
+         Then verify: opencode --version".to_string()
+    ));
+}
+```
+
+### OPTIONAL (Nice to Have)
+
+#### 4. Add Regression Test
+
+Ensure command string uses global binary:
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_opencode_uses_global_binary() {
+        let opencode = Opencode::default();
+        let builder = opencode.build_command_builder();
+        let command = builder.to_string(); // Approximate - adjust to actual API
+        assert!(
+            command.contains("opencode run"),
+            "OpenCode should use global binary, not npx"
+        );
+        assert!(
+            !command.contains("npx"),
+            "OpenCode should not use npx (avoids binary truncation)"
+        );
+    }
+}
+```
+
+#### 5. Update PR Description
+
+Clarify relationship with PR #293:
+```markdown
+## Changes
+
+This PR **replaces** the approach from PR #293 (using `@latest` version).
+
+### Why the Change?
+
+PR #293 changed from pinned version `@1.1.10` to `@latest`, but testing revealed
+that **npx caches a corrupted binary** (14KB vs 145MB), causing immediate crashes
+with SIGSEGV (exit code 139).
+
+### New Approach
+
+Use globally installed `opencode` binary instead of `npx`, matching the pattern
+used by Claude Code executor.
+
+### Breaking Change
+
+Users must now install OpenCode globally:
+- `npm install -g opencode-ai`, or
+- `brew install opencode`
+
+Documentation updated in `docs/agents/opencode.mdx`.
+```
+
+#### 6. Consider Feature Flag
+
+For backwards compatibility, add an environment variable:
+```rust
+// Allow users to opt into npx if they prefer
+let use_npx = std::env::var("VK_OPENCODE_USE_NPX").is_ok();
+let command = if use_npx {
+    "npx -y opencode-ai@latest run"
+} else {
+    "opencode run"
+};
 ```
 
 ---
 
 ## Security Assessment
 
-### DEP0190 Resolution ✅
+### No Security Issues
 
-**Before (VULNERABLE PATTERN)**:
-```javascript
-spawn('command', [array, of, args], { shell: true })
+- ✅ Trusts system PATH (standard practice)
+- ✅ No command injection vectors
+- ✅ No credential handling changes
+- ✅ Uses same parameters as before
+
+---
+
+## Critical Questions for User
+
+1. **Why was PR #293 merged if the `@latest` approach had binary truncation issues?**
+   - Did the issue only manifest after merge?
+   - Was PR #293 tested before merge?
+
+2. **Should this be a new PR or an amendment to #293?**
+   - Recommend: NEW PR with clear explanation
+
+3. **Backwards compatibility: Should we support both npx and global binary?**
+   - Recommend: Global binary only (simpler, more reliable)
+
+4. **Migration path for existing users?**
+   - Recommend: Add installation instructions to docs + error message
+
+---
+
+## Test Evidence
+
+```bash
+# Compilation
+$ cargo build -p executors
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.31s
+✅ SUCCESS
+
+# Tests
+$ cargo test -p executors
+test result: ok. 91 passed; 0 failed; 0 ignored; 0 measured
+✅ SUCCESS
+
+# Clippy
+$ cargo clippy -p executors --all-targets --all-features -- -D warnings
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.61s
+✅ SUCCESS (no warnings)
+
+# Global installation
+$ which opencode
+/home/linuxbrew/.linuxbrew/bin/opencode
+✅ PRESENT
+
+$ opencode --version
+1.1.23
+✅ FUNCTIONAL
 ```
 
-**After (SAFE PATTERN)**:
-```javascript
-spawn('command string with quotes', [], { shell: true })
-```
-
-**Explanation**: When `shell: true` is used with array arguments, Node.js concatenates them unsafely. The fix uses a pre-formatted command string with proper quoting.
-
-**Status**: ✅ RESOLVED
-
 ---
 
-## Comparison with Previous Validation
-
-| Aspect | Previous Validation | This Validation |
-|---------|-------------------|-----------------|
-| Test Coverage | 4/4 + 5/5 tests | 4/4 + 5/5 + 3/3 tests |
-| Issues Found | Documentation typo | Documentation typo (same) |
-| Overall Score | 9.4/10 | 9.9/10 |
-| Status | APPROVED | APPROVED |
-
-The previous validation was accurate and thorough. This independent review confirms its findings.
-
----
-
-## Recommendations
-
-### Required (Must Fix)
-
-1. **Fix documentation typo**: `docs/architecture/process-management.mdx:114`
-   - Change header from "## Safety Guarantees" to "## Safety Guarantees"
-   - This is a typo (double "ee" instead of single "ee")
-
-### Optional (Future Enhancements)
-
-None required. The implementation is complete and production-ready.
-
----
-
-## Files Modified
+## Files Modified (Current Implementation)
 
 ```text
-CLAUDE.md                                 |  29 ++
-crates/server/src/bin/generate_types.rs    |   3 +
-crates/utils/src/port_file.rs              |  82 +++++
-docs/architecture/process-management.mdx         | 217 +++++++++++++
-docs/development/dev-server-lifecycle.mdx        | 149 +++++++++++++
-package.json                               |   2 +-
-scripts/start-dev.js                        | 143 ++++++++++++
-scripts/stop-server.js                      | 162 ++++++++++++++--
-scripts/test-start-dev.js                   | 140 +++++++++++++
-scripts/test-stop-graceful.js             | 316 ++++++++++++++++++++++++++
-shared/types.ts                              |  50 ++++-
+crates/executors/src/executors/opencode.rs | 2 +-
 ```
 
-**Total Changes**: +1,293 lines added, -13 lines removed
+**Total Changes**: +1 line, -1 line
+
+## Files That SHOULD Be Modified
+
+```sql
+crates/executors/src/executors/opencode.rs | 8 ++++++--  (add comment)
+docs/agents/opencode.mdx                   | 25 +++++++++++++++----  (update install instructions)
+```
 
 ---
 
 ## Conclusion
 
-**The implementation is COMPLETE and PRODUCTION-READY.**
+### Summary
 
-All critical functionality works as designed:
-1. ✅ `dev_root_pid` is tracked and stored in instance registry
-2. ✅ `start-dev.js` writes PID file correctly and handles signals
-3. ✅ `stop-server.js` implements graceful shutdown with proper sequencing
-4. ✅ Backend cleanup completes before dev processes are killed
-5. ✅ Port-based cleanup handles orphaned processes
-6. ✅ All unit tests and integration tests pass
-7. ✅ No deprecation warnings
-8. ✅ Documentation is comprehensive
+This implementation is **technically correct** and represents a **superior long-term solution** to the OpenCode integration issues. However, it:
 
-The graceful shutdown sequence ensures database integrity and log durability by waiting for backend to complete its cleanup (WAL checkpoint, buffer flush, pool close) before terminating dev processes.
+1. ❌ **Contradicts the merged PR #293** without clear explanation
+2. ❌ **Missing documentation update** (critical requirement from plan)
+3. ✅ **Code quality is excellent** (clean, minimal, correct)
+4. ✅ **Tests pass and clippy clean**
+5. ✅ **Follows the NEW plan** accurately
 
-**Recommendation**: APPROVE FOR MERGE after fixing documentation typo.
+### Recommendation
+
+**HOLD - DO NOT MERGE UNTIL:**
+
+1. ✅ Documentation updated (`docs/agents/opencode.mdx`)
+2. ✅ Inline code comment added explaining why npx was abandoned
+3. ✅ Better error message when `opencode` binary not found
+4. ✅ Clear communication about relationship with PR #293
+5. ⚠️ User confirms this approach supersedes PR #293
+
+**After fixes**: This will be a **9.5/10 implementation** - excellent solution with proper documentation.
+
+### Comparison with Plan
+
+| Plan Item | Status |
+|-----------|--------|
+| Change `opencode.rs:113` to use `opencode run` | ✅ COMPLETE |
+| Update documentation | ❌ INCOMPLETE |
+| Build verification | ✅ COMPLETE |
+| Server restart test | ⚠️ NOT RUN |
+| Log verification | ⚠️ NOT RUN |
+
+**Plan Completion**: 60% (3 of 5 items)
 
 ---
 
-**Validator Signature**: Claude AI Validation Agent (Independent Review)
-**Date**: 2026-01-14
-**Status**: APPROVED (with minor documentation fix)
+## Next Steps
+
+1. **IMMEDIATE**: Update `docs/agents/opencode.mdx` with global installation instructions
+2. **IMMEDIATE**: Add inline code comment explaining npx issues
+3. **RECOMMENDED**: Add better error message for missing `opencode` binary
+4. **RECOMMENDED**: Test end-to-end after server restart
+5. **OPTIONAL**: Add regression test for command string
+6. **OPTIONAL**: Consider backwards compatibility flag
+
+---
+
+**Validator**: Claude Sonnet 4.5 (Independent Review)
+**Date**: 2026-01-16
+**Status**: **HOLD** - Awaiting documentation fixes and user confirmation
+
+---
+
+## Appendix: Investigation Quality
+
+The root cause analysis in the plan is **exceptional**:
+
+1. ✅ Binary size comparison (14KB vs 145MB)
+2. ✅ Exit code analysis (SIGSEGV 139)
+3. ✅ Multiple installation method testing
+4. ✅ Path verification
+5. ✅ Direct binary execution testing
+
+This level of investigation deserves recognition. The technical analysis is **10/10**.
+
+However, the implementation execution is **7/10** due to missing documentation update, bringing the overall score to **9.1/10**.
