@@ -47,3 +47,4 @@ windows-sys = { version = "0.61", features = ["Win32_System_Environment", "Win32
 
 [dev-dependencies]
 serial_test = "3.0"
+tempfile = "3"

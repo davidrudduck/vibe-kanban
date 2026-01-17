@@ -660,6 +660,7 @@ Network:
 - `MCP_PORT`: HTTP MCP server port. If set, spawns MCP at `http://{HOST}:{MCP_PORT}/mcp`
 
 Storage (see `docs/configuration-customisation/storage-configuration.mdx`):
+- `VK_CONFIG_DIR`: Override config directory for config.json, profiles.json, credentials.json (default: `{data_dir}`)
 - `VK_DATABASE_PATH`: Override database file location (supports tilde expansion)
 - `VK_BACKUP_DIR`: Override backup directory (default: `{data_dir}/backups`)
 - `VK_WORKTREE_DIR`: Override worktree directory (default: `/var/tmp/vibe-kanban/worktrees`)
