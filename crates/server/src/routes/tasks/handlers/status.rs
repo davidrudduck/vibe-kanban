@@ -163,8 +163,22 @@ pub async fn archive_task(
 ) -> Result<(StatusCode, ResponseJson<ApiResponse<ArchiveTaskResponse>>), ApiError> {
     let pool = &deployment.db().pool;
 
-    // Tasks synced from Hive are archived by proxying to the Hive API
+    // Validate sync state: if task has shared_task_id, project must have remote_project_id
     if task.shared_task_id.is_some() {
+        use sqlx::Error as SqlxError;
+
+        let project = task
+            .parent_project(pool)
+            .await?
+            .ok_or_else(|| ApiError::Database(SqlxError::RowNotFound))?;
+
+        if project.remote_project_id.is_none() {
+            return Err(ApiError::SyncStateBroken(
+                "Project is unlinked from swarm. Please use 'Unlink & Reset' to clean up sync state before archiving this task.".to_string()
+            ));
+        }
+
+        // Tasks synced from Hive are archived by proxying to the Hive API
         return archive_remote_task(&deployment, &task).await;
     }
 

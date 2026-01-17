@@ -170,6 +170,50 @@ export type TaskCounts = { todo: number, in_progress: number, in_review: number,
 
 export type MergedProjectsResponse = { projects: Array<MergedProject>, };
 
+export type SyncHealthResponse = { 
+/**
+ * Whether the project is currently linked to a Hive project
+ */
+is_linked: boolean, 
+/**
+ * The remote project ID if linked
+ */
+remote_project_id: string | null, 
+/**
+ * Number of tasks with orphaned shared_task_id values
+ */
+orphaned_task_count: bigint, 
+/**
+ * Whether the project has any sync issues
+ */
+has_sync_issues: boolean, 
+/**
+ * List of specific sync issues found
+ */
+issues: Array<SyncIssue>, };
+
+export type SyncIssue = { "type": "orphaned_tasks", count: bigint, } | { "type": "project_not_linked" };
+
+export type UnlinkSwarmRequest = { 
+/**
+ * Whether to notify the Hive server about the unlink
+ */
+notify_hive: boolean, };
+
+export type UnlinkSwarmResponse = { 
+/**
+ * Number of tasks that had their shared_task_id cleared
+ */
+tasks_unlinked: bigint, 
+/**
+ * Number of task attempts that had their hive sync reset
+ */
+attempts_reset: bigint, 
+/**
+ * Whether the Hive was successfully notified
+ */
+hive_notified: boolean, };
+
 export type CachedNodeStatus = "pending" | "online" | "offline" | "busy" | "draining";
 
 export type CachedNodeCapabilities = { 

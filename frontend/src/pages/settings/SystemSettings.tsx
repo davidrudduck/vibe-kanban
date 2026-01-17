@@ -239,7 +239,9 @@ export function SystemSettings() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <HardDrive className="h-5 w-5" />
-            {t('settings.system.diskUsage.title', { defaultValue: 'Disk Usage' })}
+            {t('settings.system.diskUsage.title', {
+              defaultValue: 'Disk Usage',
+            })}
           </CardTitle>
           <CardDescription>
             {t('settings.system.diskUsage.description', {
@@ -273,7 +275,8 @@ export function SystemSettings() {
             <Info className="h-4 w-4" />
             <AlertDescription>
               {t('settings.system.database.vacuumWarning', {
-                defaultValue: 'VACUUM may take several minutes on large databases. The database will be briefly locked during this operation.',
+                defaultValue:
+                  'VACUUM may take several minutes on large databases. The database will be briefly locked during this operation.',
               })}
             </AlertDescription>
           </Alert>
@@ -404,7 +407,9 @@ export function SystemSettings() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Trash2 className="h-5 w-5" />
-            {t('settings.system.cleanup.title', { defaultValue: 'Data Cleanup' })}
+            {t('settings.system.cleanup.title', {
+              defaultValue: 'Data Cleanup',
+            })}
           </CardTitle>
           <CardDescription>
             {t('settings.system.cleanup.description', {
@@ -460,15 +465,15 @@ export function SystemSettings() {
 
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
-                <Label htmlFor="archived-days" className="text-sm whitespace-nowrap">
+                <Label
+                  htmlFor="archived-days"
+                  className="text-sm whitespace-nowrap"
+                >
                   {t('settings.system.cleanup.olderThan', {
                     defaultValue: 'Older than',
                   })}
                 </Label>
-                <Select
-                  value={archivedDays}
-                  onValueChange={setArchivedDays}
-                >
+                <Select value={archivedDays} onValueChange={setArchivedDays}>
                   <SelectTrigger id="archived-days" className="w-[120px]">
                     <SelectValue />
                   </SelectTrigger>

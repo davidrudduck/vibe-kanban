@@ -9,7 +9,14 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Download, HardDrive, Loader2, Plus, Trash2, Upload } from 'lucide-react';
+import {
+  Download,
+  HardDrive,
+  Loader2,
+  Plus,
+  Trash2,
+  Upload,
+} from 'lucide-react';
 import { backupsApi } from '@/lib/api';
 import { ConfirmDialog } from '@/components/dialogs';
 import type { BackupInfo } from 'shared/types';
@@ -102,7 +109,9 @@ export function BackupsSection({ onSuccess, onError }: BackupsSectionProps) {
     fileInputRef.current?.click();
   };
 
-  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
