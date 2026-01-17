@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use executors::executors::BaseCodingAgent;
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool, Type};
+use sqlx::{Executor, FromRow, Sqlite, SqlitePool, Type};
 use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
@@ -658,5 +658,52 @@ impl TaskAttempt {
         )
         .fetch_optional(pool)
         .await
+    }
+
+    /// Clear hive_synced_at for all attempts in a project.
+    /// This is used when unlinking a project from a shared task to trigger re-sync.
+    pub async fn clear_hive_sync_for_project(
+        pool: &SqlitePool,
+        project_id: Uuid,
+    ) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"UPDATE task_attempts
+               SET hive_synced_at = NULL
+               WHERE task_id IN (
+                   SELECT id FROM tasks WHERE project_id = $1
+               )"#,
+            project_id
+        )
+        .execute(pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Clear hive_synced_at for all task attempts in a project (transaction-safe).
+    ///
+    /// Transaction-safe variant that accepts an executor trait, enabling it to participate
+    /// in database transactions.
+    ///
+    /// Sets `hive_synced_at = NULL` for all task attempts belonging to tasks in the project.
+    ///
+    /// Returns the number of task attempts that were updated.
+    pub async fn clear_hive_sync_for_project_tx<'e, E>(
+        executor: E,
+        project_id: Uuid,
+    ) -> Result<u64, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        let result = sqlx::query!(
+            r#"UPDATE task_attempts
+               SET hive_synced_at = NULL
+               FROM tasks
+               WHERE task_attempts.task_id = tasks.id
+                 AND tasks.project_id = $1"#,
+            project_id
+        )
+        .execute(executor)
+        .await?;
+        Ok(result.rows_affected())
     }
 }

@@ -49,11 +49,15 @@ export const databaseApi = {
    *
    * @param olderThanDays - Number of days old a task must be (default: 14)
    */
-  getArchivedStats: async (olderThanDays = 14): Promise<ArchivedStatsResponse> => {
+  getArchivedStats: async (
+    olderThanDays = 14
+  ): Promise<ArchivedStatsResponse> => {
     const params = new URLSearchParams({
       older_than_days: String(olderThanDays),
     });
-    const response = await makeRequest(`/api/database/archived-stats?${params}`);
+    const response = await makeRequest(
+      `/api/database/archived-stats?${params}`
+    );
     return handleApiResponse<ArchivedStatsResponse>(response);
   },
 
@@ -77,9 +81,12 @@ export const databaseApi = {
     const params = new URLSearchParams({
       older_than_days: String(olderThanDays),
     });
-    const response = await makeRequest(`/api/database/purge-archived?${params}`, {
-      method: 'POST',
-    });
+    const response = await makeRequest(
+      `/api/database/purge-archived?${params}`,
+      {
+        method: 'POST',
+      }
+    );
     return handleApiResponse<ArchivedPurgeResult>(response);
   },
 

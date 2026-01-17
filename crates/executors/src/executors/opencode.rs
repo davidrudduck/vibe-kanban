@@ -110,11 +110,8 @@ pub struct Opencode {
 
 impl Opencode {
     fn build_command_builder(&self) -> CommandBuilder {
-        let mut builder = CommandBuilder::new("opencode run").params([
-            "--print-logs",
-            "--log-level",
-            "ERROR",
-        ]);
+        let mut builder =
+            CommandBuilder::new("opencode run").params(["--print-logs", "--log-level", "ERROR"]);
 
         if let Some(model) = &self.model {
             builder = builder.extend_params(["--model", model]);

@@ -46,6 +46,53 @@ pub async fn get_project(
     Ok(ResponseJson(ApiResponse::success(project)))
 }
 
+/// Get sync health status for a project.
+///
+/// Returns information about any sync issues with the Hive, including:
+/// - Whether the project is linked to a remote project
+/// - Count of orphaned tasks (tasks with shared_task_id but no valid sync)
+/// - List of specific sync issues found
+pub async fn get_project_sync_health(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<super::super::types::SyncHealthResponse>>, ApiError> {
+    use super::super::types::{SyncHealthResponse, SyncIssue};
+    use db::models::task::Task;
+
+    let pool = &deployment.db().pool;
+
+    // Check if project is linked to Hive
+    let is_linked = project.remote_project_id.is_some();
+
+    // Count orphaned tasks (tasks with shared_task_id for this project)
+    let orphaned_count = Task::count_orphaned_for_project(pool, project.id)
+        .await
+        .map_err(|e| {
+            tracing::error!(project_id = %project.id, error = ?e, "Failed to count orphaned tasks");
+            e
+        })?;
+
+    // Build list of issues
+    let mut issues = Vec::new();
+    if orphaned_count > 0 {
+        issues.push(SyncIssue::OrphanedTasks {
+            count: orphaned_count,
+        });
+    }
+
+    let has_sync_issues = !issues.is_empty();
+
+    let response = SyncHealthResponse {
+        is_linked,
+        remote_project_id: project.remote_project_id,
+        orphaned_task_count: orphaned_count,
+        has_sync_issues,
+        issues,
+    };
+
+    Ok(ResponseJson(ApiResponse::success(response)))
+}
+
 pub async fn get_project_branches(
     Extension(project): Extension<Project>,
     remote_ctx: Option<Extension<RemoteProjectContext>>,

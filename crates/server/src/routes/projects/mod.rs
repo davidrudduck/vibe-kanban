@@ -37,6 +37,7 @@ use handlers::{
     get_project_branches,
     // Linking handlers
     get_project_remote_members,
+    get_project_sync_health,
     get_projects,
     link_to_local_folder,
     list_orphaned_projects,
@@ -49,6 +50,8 @@ use handlers::{
     search_project_files,
     set_github_enabled,
     sync_github_counts,
+    // Swarm handlers
+    unlink_from_swarm,
     update_project,
 };
 
@@ -68,6 +71,9 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/github", post(set_github_enabled))
         .route("/github/counts", get(get_github_counts))
         .route("/github/sync", post(sync_github_counts))
+        // Swarm sync health endpoints
+        .route("/sync-health", get(get_project_sync_health))
+        .route("/unlink-swarm", post(unlink_from_swarm))
         .layer(from_fn_with_state(
             deployment.clone(),
             load_project_middleware,

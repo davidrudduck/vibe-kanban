@@ -5,6 +5,8 @@ import type {
   UpdateProject,
   Project,
   LinkToLocalFolderRequest,
+  UnlinkSwarmRequest,
+  UnlinkSwarmResponse,
 } from 'shared/types';
 
 interface UseProjectMutationsOptions {
@@ -17,7 +19,7 @@ interface UseProjectMutationsOptions {
   // Legacy link/unlink options (deprecated - API not implemented)
   onLinkSuccess?: () => void;
   onLinkError?: (err: unknown) => void;
-  onUnlinkSuccess?: () => void;
+  onUnlinkSuccess?: (response?: UnlinkSwarmResponse) => void;
   onUnlinkError?: (err: unknown) => void;
 }
 
@@ -127,11 +129,38 @@ export function useProjectMutations(options?: UseProjectMutationsOptions) {
     },
   });
 
+  const unlinkFromSwarm = useMutation({
+    mutationKey: ['unlinkFromSwarm'],
+    mutationFn: ({
+      projectId,
+      data,
+    }: {
+      projectId: string;
+      data: UnlinkSwarmRequest;
+    }) => projectsApi.unlinkFromSwarm(projectId, data),
+    onSuccess: (response: UnlinkSwarmResponse, variables) => {
+      const projectId = variables.projectId;
+
+      // Invalidate project queries to refetch updated data
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      queryClient.invalidateQueries({
+        queryKey: ['project', projectId, 'sync-health'],
+      });
+
+      options?.onUnlinkSuccess?.(response);
+    },
+    onError: (err) => {
+      console.error('Failed to unlink project from swarm:', err);
+      options?.onUnlinkError?.(err);
+    },
+  });
+
   return {
     createProject,
     updateProject,
     linkLocalFolder,
     linkToExisting,
     unlinkProject,
+    unlinkFromSwarm,
   };
 }

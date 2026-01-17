@@ -156,11 +156,11 @@ setup_database() {
         log_info "Local database already exists, skipping copy..."
     elif [ -f "$TEST_DB" ]; then
         log_info "Copying test database to local dev_assets..."
+        # Note: This may take a while for large databases
         cp "$TEST_DB" "$LOCAL_DB"
         log_success "Test database copied to $LOCAL_DB"
     elif [ -f "$PROD_DB" ]; then
         log_info "Copying production database to local dev_assets..."
-        # Note: This may take a while for large databases
         cp "$PROD_DB" "$LOCAL_DB"
         log_success "Production database copied to $LOCAL_DB"
     elif [ -f "$SEED_DB" ]; then

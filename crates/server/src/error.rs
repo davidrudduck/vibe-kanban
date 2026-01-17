@@ -72,6 +72,8 @@ pub enum ApiError {
     NotFound(String),
     #[error("Conflict: {0}")]
     Conflict(String),
+    #[error("Sync state broken: {0}")]
+    SyncStateBroken(String),
     #[error("Forbidden: {0}")]
     Forbidden(String),
     #[error("Bad gateway: {0}")]
@@ -193,6 +195,7 @@ impl IntoResponse for ApiError {
             ApiError::BadRequest(_) => (StatusCode::BAD_REQUEST, "BadRequest"),
             ApiError::NotFound(_) => (StatusCode::NOT_FOUND, "NotFound"),
             ApiError::Conflict(_) => (StatusCode::CONFLICT, "ConflictError"),
+            ApiError::SyncStateBroken(_) => (StatusCode::CONFLICT, "SyncStateBroken"),
             ApiError::Forbidden(_) => (StatusCode::FORBIDDEN, "ForbiddenError"),
             ApiError::BadGateway(_) => (StatusCode::BAD_GATEWAY, "BadGateway"),
             ApiError::GatewayTimeout => (StatusCode::GATEWAY_TIMEOUT, "GatewayTimeout"),
@@ -301,6 +304,7 @@ impl IntoResponse for ApiError {
             ApiError::BadRequest(msg) => msg.clone(),
             ApiError::NotFound(msg) => msg.clone(),
             ApiError::Conflict(msg) => msg.clone(),
+            ApiError::SyncStateBroken(msg) => msg.clone(),
             ApiError::Forbidden(msg) => msg.clone(),
             ApiError::BadGateway(msg) => msg.clone(),
             ApiError::GatewayTimeout => "Remote node did not respond in time. Please try again.".to_string(),

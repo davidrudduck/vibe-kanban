@@ -142,6 +142,64 @@ impl Task {
         .await
     }
 
+    /// Clears all shared_task_id references for tasks in a project.
+    ///
+    /// This is used when a project is unlinked from the Hive to remove all
+    /// sync metadata from tasks. Sets `shared_task_id = NULL`, `remote_version = 0`,
+    /// and `remote_last_synced_at = NULL` for all tasks in the project that have
+    /// a shared_task_id.
+    ///
+    /// Returns the number of tasks that were updated.
+    pub async fn clear_all_shared_task_ids_for_project(
+        pool: &SqlitePool,
+        project_id: Uuid,
+    ) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"UPDATE tasks
+               SET shared_task_id = NULL,
+                   remote_version = 0,
+                   remote_last_synced_at = NULL,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE project_id = $1
+                 AND shared_task_id IS NOT NULL"#,
+            project_id
+        )
+        .execute(pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Clears all shared_task_id references for tasks in a project (transaction-safe variant).
+    ///
+    /// This is a transaction-safe variant of `clear_all_shared_task_ids_for_project`
+    /// that accepts an executor trait, enabling it to participate in database transactions.
+    ///
+    /// Sets `shared_task_id = NULL`, `remote_version = 0`, and `remote_last_synced_at = NULL`
+    /// for all tasks in the project that have a shared_task_id.
+    ///
+    /// Returns the number of tasks that were updated.
+    pub async fn clear_all_shared_task_ids_for_project_tx<'e, E>(
+        executor: E,
+        project_id: Uuid,
+    ) -> Result<u64, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        let result = sqlx::query!(
+            r#"UPDATE tasks
+               SET shared_task_id = NULL,
+                   remote_version = 0,
+                   remote_last_synced_at = NULL,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE project_id = $1
+                 AND shared_task_id IS NOT NULL"#,
+            project_id
+        )
+        .execute(executor)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     /// Clear shared_task_id for all tasks belonging to a project with the given remote_project_id.
     /// This breaks the link between local tasks and hive tasks when a project is unlinked.
     pub async fn clear_shared_task_ids_for_remote_project<'e, E>(
@@ -392,6 +450,29 @@ impl Task {
         .bind(limit)
         .fetch_all(pool)
         .await
+    }
+
+    /// Count orphaned tasks for a project.
+    ///
+    /// An orphaned task is one that has a `shared_task_id` value but the sync
+    /// relationship is broken (e.g., project was unlinked from Hive).
+    /// This is used for sync health detection.
+    ///
+    /// Returns the count of tasks with non-NULL `shared_task_id` for the given project.
+    pub async fn count_orphaned_for_project(
+        pool: &SqlitePool,
+        project_id: Uuid,
+    ) -> Result<i64, sqlx::Error> {
+        let count = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) as "count!: i64"
+               FROM tasks
+               WHERE project_id = $1
+                 AND shared_task_id IS NOT NULL"#,
+            project_id
+        )
+        .fetch_one(pool)
+        .await?;
+        Ok(count)
     }
 }
 

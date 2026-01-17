@@ -1212,15 +1212,9 @@ impl LocalContainerService {
         use std::net::TcpListener;
 
         // Find three available ports for frontend, backend, and MCP
-        let frontend_port = TcpListener::bind(("127.0.0.1", 0))?
-            .local_addr()?
-            .port();
-        let backend_port = TcpListener::bind(("127.0.0.1", 0))?
-            .local_addr()?
-            .port();
-        let mcp_port = TcpListener::bind(("127.0.0.1", 0))?
-            .local_addr()?
-            .port();
+        let frontend_port = TcpListener::bind(("127.0.0.1", 0))?.local_addr()?.port();
+        let backend_port = TcpListener::bind(("127.0.0.1", 0))?.local_addr()?.port();
+        let mcp_port = TcpListener::bind(("127.0.0.1", 0))?.local_addr()?.port();
 
         // Build the .env content
         let env_content = format!(

@@ -1,6 +1,9 @@
 // Swarm Management Components
-// These components are used in the Swarm Settings page for managing
+// These components are used in Swarm Settings page for managing
 // organization-wide swarm projects, labels, and templates.
+
+// Swarm Health
+export { SwarmHealthSection } from './SwarmHealthSection';
 
 // Swarm Projects
 export { SwarmProjectsSection } from './SwarmProjectsSection';

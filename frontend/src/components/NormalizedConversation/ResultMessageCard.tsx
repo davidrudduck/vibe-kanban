@@ -61,7 +61,10 @@ const RESULT_APPEARANCE: Record<
   },
 };
 
-function getAppearanceFromSubtype(subtype: string, isError: boolean): ResultAppearance {
+function getAppearanceFromSubtype(
+  subtype: string,
+  isError: boolean
+): ResultAppearance {
   if (isError) {
     // Warning-level errors (budget/retry limits)
     if (
@@ -94,9 +97,7 @@ function formatDuration(durationMs: number): string {
   }
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
-  return remainingMinutes > 0
-    ? `${hours}h ${remainingMinutes}m`
-    : `${hours}h`;
+  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
 }
 
 type Props = {
@@ -137,11 +138,7 @@ const ResultMessageCard: React.FC<Props> = ({
             e.preventDefault();
             toggle();
           }}
-          title={
-            expanded
-              ? 'Hide session result'
-              : 'Show session result'
-          }
+          title={expanded ? 'Hide session result' : 'Show session result'}
           className={cn(
             'w-full px-2 py-1.5 flex items-center gap-1.5 text-left border-b',
             tone.headerBg,
