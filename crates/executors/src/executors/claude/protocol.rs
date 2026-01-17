@@ -101,30 +101,12 @@ impl ProtocolPeer {
                         }
                         Ok(CLIMessage::ControlResponse { .. }) => {}
                         Ok(CLIMessage::Result(value)) => {
-                            // Check if result string is empty - empty results may be
-                            // intermediate signals (context summarization, state transitions)
-                            // rather than true session completion
-                            let result_str =
-                                value.get("result").and_then(|r| r.as_str()).unwrap_or("");
-                            let has_result = !result_str.is_empty();
-
                             tracing::info!(
                                 result_value = ?value,
-                                has_result = has_result,
                                 "Claude protocol: Received Result message"
                             );
+                            // Log the result but don't break - wait for process to exit (EOF)
                             client.on_non_control(line).await?;
-
-                            // Only break if result has content - empty results may be intermediate
-                            if has_result {
-                                tracing::info!("Result has content, breaking read loop");
-                                break;
-                            } else {
-                                tracing::warn!(
-                                    "Ignoring Result message with empty result string - \
-                                     may be intermediate context switch, continuing read loop"
-                                );
-                            }
                         }
                         _ => {
                             client.on_non_control(line).await?;
