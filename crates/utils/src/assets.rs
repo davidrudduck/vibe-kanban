@@ -24,16 +24,34 @@ pub fn asset_dir() -> std::path::PathBuf {
     // ✔ Windows → %APPDATA%\Example\MyApp
 }
 
+/// Get the configuration directory path.
+///
+/// Respects the `VK_CONFIG_DIR` environment variable for custom locations.
+/// Supports tilde expansion (e.g., `~/vibe-kanban/config`).
+///
+/// Default: `{asset_dir}`
+pub fn config_dir() -> std::path::PathBuf {
+    if let Ok(path) = std::env::var("VK_CONFIG_DIR") {
+        let expanded = crate::path::expand_tilde(&path);
+        // Ensure the directory exists
+        if !expanded.exists() {
+            std::fs::create_dir_all(&expanded).expect("Failed to create config directory");
+        }
+        return expanded;
+    }
+    asset_dir()
+}
+
 pub fn config_path() -> std::path::PathBuf {
-    asset_dir().join("config.json")
+    config_dir().join("config.json")
 }
 
 pub fn profiles_path() -> std::path::PathBuf {
-    asset_dir().join("profiles.json")
+    config_dir().join("profiles.json")
 }
 
 pub fn credentials_path() -> std::path::PathBuf {
-    asset_dir().join("credentials.json")
+    config_dir().join("credentials.json")
 }
 
 /// Get the database file path.
@@ -134,5 +152,59 @@ mod tests {
         unsafe { env::remove_var("VK_BACKUP_DIR") };
         assert!(!dir.to_string_lossy().contains('~'));
         assert!(dir.is_absolute());
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_dir_default() {
+        // SAFETY: Tests run serially via #[serial] attribute
+        unsafe { env::remove_var("VK_CONFIG_DIR") };
+        let dir = config_dir();
+        // Default should be asset_dir
+        assert_eq!(dir, asset_dir());
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_dir_env_override() {
+        let temp = tempfile::tempdir().unwrap();
+        let custom_path = temp.path().join("custom-config");
+        // SAFETY: Tests run serially via #[serial] attribute
+        unsafe { env::set_var("VK_CONFIG_DIR", custom_path.to_str().unwrap()) };
+        let dir = config_dir();
+        unsafe { env::remove_var("VK_CONFIG_DIR") };
+        assert_eq!(dir, custom_path);
+        // Directory should be created automatically
+        assert!(custom_path.exists());
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_dir_tilde_expansion() {
+        // SAFETY: Tests run serially via #[serial] attribute
+        unsafe { env::set_var("VK_CONFIG_DIR", "~/my-config") };
+        let dir = config_dir();
+        unsafe { env::remove_var("VK_CONFIG_DIR") };
+        assert!(!dir.to_string_lossy().contains('~'));
+        assert!(dir.is_absolute());
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_paths_use_config_dir() {
+        let temp = tempfile::tempdir().unwrap();
+        let custom_path = temp.path().join("custom-config");
+        // SAFETY: Tests run serially via #[serial] attribute
+        unsafe { env::set_var("VK_CONFIG_DIR", custom_path.to_str().unwrap()) };
+
+        let config = config_path();
+        let profiles = profiles_path();
+        let credentials = credentials_path();
+
+        unsafe { env::remove_var("VK_CONFIG_DIR") };
+
+        assert_eq!(config, custom_path.join("config.json"));
+        assert_eq!(profiles, custom_path.join("profiles.json"));
+        assert_eq!(credentials, custom_path.join("credentials.json"));
     }
 }
