@@ -152,9 +152,6 @@ impl StandardCodingAgentExecutor for Opencode {
         command.env_remove("npm_config_verify_deps_before_run");
         command.env_remove("npm_config_globalconfig");
 
-        // Subscribe BEFORE spawning to avoid race condition where early share events are lost
-        let rx = bridge.subscribe();
-
         let mut child = match command.group_spawn() {
             Ok(c) => c,
             Err(e) => {
@@ -171,8 +168,8 @@ impl StandardCodingAgentExecutor for Opencode {
         }
         // Transfer share events as lines for normalization through stdout
         let (mut dup_stream, appender) = stdout_dup::tee_stdout_with_appender(&mut child)?;
+        let mut rx = bridge.subscribe();
         tokio::spawn(async move {
-            let mut rx = rx;
             while let Ok(crate::executors::opencode::share_bridge::ShareEvent::Sync(mut req)) =
                 rx.recv().await
             {
@@ -226,9 +223,6 @@ impl StandardCodingAgentExecutor for Opencode {
         command.env_remove("npm_config_verify_deps_before_run");
         command.env_remove("npm_config_globalconfig");
 
-        // Subscribe BEFORE spawning to avoid race condition where early share events are lost
-        let rx = bridge.subscribe();
-
         let mut child = match command.group_spawn() {
             Ok(c) => c,
             Err(e) => {
@@ -244,8 +238,8 @@ impl StandardCodingAgentExecutor for Opencode {
         }
         // Transfer share events as lines for normalization through stdout
         let (mut dup_stream, appender) = stdout_dup::tee_stdout_with_appender(&mut child)?;
+        let mut rx = bridge.subscribe();
         tokio::spawn(async move {
-            let mut rx = rx;
             while let Ok(crate::executors::opencode::share_bridge::ShareEvent::Sync(mut req)) =
                 rx.recv().await
             {

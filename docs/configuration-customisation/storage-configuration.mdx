@@ -16,7 +16,6 @@ expands to `/home/username/vibe-kanban/db.sqlite`).
 
 | Category | Development | Production |
 |----------|-------------|------------|
-| **Config files** | `<project_root>/dev_assets/` | `~/.local/share/vibe-kanban/` |
 | **Database** | `<project_root>/dev_assets/db.sqlite` | `~/.local/share/vibe-kanban/db.sqlite` |
 | **Backups** | `<project_root>/dev_assets/backups/` | `~/.local/share/vibe-kanban/backups/` |
 | **Worktrees** | `/var/tmp/vibe-kanban-dev/worktrees/` | `/var/tmp/vibe-kanban/worktrees/` |
@@ -29,21 +28,6 @@ Production locations use platform-specific data directories. On macOS, this is
 </Note>
 
 ## Configuration Options
-
-### Configuration Directory
-
-<ParamField path="VK_CONFIG_DIR" type="string">
-  Directory for configuration files (config.json, profiles.json, credentials.json).
-  Parent directories are created automatically if they don't exist.
-</ParamField>
-
-```bash
-# Example: Store config files in a custom location
-VK_CONFIG_DIR=~/vibe-kanban/config
-
-# Example: Share config across multiple installations
-VK_CONFIG_DIR=/shared/vibe-kanban/config
-```
 
 ### Database Location
 

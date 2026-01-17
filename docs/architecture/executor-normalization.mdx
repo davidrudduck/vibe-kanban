@@ -64,40 +64,6 @@ The `NormalizedEntryType` enum captures all possible log entry kinds:
 | `NextAction` | Agent ready for next instruction |
 | `ExecutionStart` | Execution process started (injected by frontend) |
 | `ExecutionEnd` | Execution process completed (injected by frontend) |
-| `ResultMessage` | Session completion result with subtype, duration, and turn count |
-
-### Result Messages
-
-Result messages indicate session completion and provide metadata about the execution outcome. They are emitted by Claude Code when a session ends (successfully or with an error).
-
-```rust
-NormalizedEntryType::ResultMessage {
-    subtype: String,        // e.g., "success", "error_max_turns"
-    duration_ms: u64,       // Total session duration
-    num_turns: u64,         // Number of API round-trips
-    total_cost_usd: Option<f64>,  // Optional cost tracking
-    is_error: bool,         // Whether this is an error result
-}
-```
-
-#### Result Subtypes
-
-| Subtype | Description | Display |
-|---------|-------------|---------|
-| `success` | Task completed successfully | Green |
-| `error_max_turns` | Hit maximum turn limit | Red |
-| `error_during_execution` | Error occurred during execution | Red |
-| `error_max_budget_usd` | Hit budget limit | Amber |
-| `error_max_structured_output_retries` | Structured output validation failed | Amber |
-
-#### UI Rendering
-
-Result messages are displayed in the conversation view with colour-coded backgrounds:
-- **Success** (green): Task completed as expected
-- **Error** (red): Execution failed or hit limits
-- **Warning** (amber): Budget or retry limits reached
-
-The result card shows the summary content and can be expanded to reveal the full result text. Session metrics (turn count, duration) are displayed in the header.
 
 ## Tool Status Tracking
 

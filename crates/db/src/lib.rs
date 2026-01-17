@@ -126,8 +126,6 @@ async fn apply_performance_pragmas(conn: &mut SqliteConnection) -> Result<(), Er
 fn check_and_recover_from_migration_data_loss(db_path: &Path) -> Result<(), std::io::Error> {
     use rusqlite::Connection;
 
-    tracing::info!("Checking for migration data loss recovery...");
-
     // Check if database even exists
     if !db_path.exists() {
         return Ok(());
@@ -221,9 +219,6 @@ fn check_database_integrity(db_path: &Path) -> Result<(), String> {
         return Ok(()); // No database to check
     }
 
-    tracing::info!(db_path = %db_path.display(), "Running database integrity check...");
-    let start = std::time::Instant::now();
-
     let conn = Connection::open(db_path)
         .map_err(|e| format!("Failed to open database for integrity check: {}", e))?;
 
@@ -232,13 +227,11 @@ fn check_database_integrity(db_path: &Path) -> Result<(), String> {
         .query_row("PRAGMA quick_check", [], |row| row.get(0))
         .map_err(|e| format!("Failed to run integrity check: {}", e))?;
 
-    let elapsed = start.elapsed();
-    if result == "ok" {
-        tracing::info!(elapsed_ms = elapsed.as_millis(), "Database integrity check passed");
-        Ok(())
-    } else {
-        Err(format!("Database integrity check failed: {}", result))
+    if result != "ok" {
+        return Err(format!("Database integrity check failed: {}", result));
     }
+
+    Ok(())
 }
 
 /// Attempt to recover from database corruption by restoring from the most recent backup.
@@ -356,7 +349,9 @@ impl DBService {
 
         // Check database integrity BEFORE creating pool
         match check_database_integrity(&db_path) {
-            Ok(()) => {}
+            Ok(()) => {
+                info!("Database integrity check passed");
+            }
             Err(msg) => {
                 error!(error = %msg, "DATABASE CORRUPTION DETECTED");
 
@@ -487,7 +482,9 @@ impl DBService {
 
         // Check database integrity BEFORE creating pool
         match check_database_integrity(&db_path) {
-            Ok(()) => {}
+            Ok(()) => {
+                info!("Database integrity check passed");
+            }
             Err(msg) => {
                 error!(error = %msg, "DATABASE CORRUPTION DETECTED");
 

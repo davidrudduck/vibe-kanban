@@ -187,7 +187,7 @@ WHERE shared_task_id IS NOT NULL;
 **Related Code:**
 - Transaction implementation: `crates/server/src/routes/projects/handlers/swarm.rs:25-46`
 - Task cleanup function: `crates/db/src/models/task/sync.rs` (`clear_all_shared_task_ids_for_project_tx`)
-- TaskAttempt cleanup: `crates/db/src/models/task_attempt.rs` (`clear_hive_sync_for_project_tx`)
+- TaskAttempt cleanup: `crates/db/src/models/task_attempt/sync.rs` (`clear_hive_sync_for_project_tx`)
 - Project update: `crates/db/src/models/project/sync.rs` (`set_remote_project_id_tx`)
 - Index migration: `crates/db/migrations/20260116120000_add_tasks_project_shared_index.sql`
 

@@ -1151,12 +1151,45 @@ impl ClaudeLogProcessor {
                 }
                 ClaudeStreamEvent::Unknown => {}
             },
-            ClaudeJson::Result { .. } => {
-                // Don't create normalized entries for Result messages
-                // They are logged by protocol.rs but not displayed in UI
-                // This prevents "Session Result" cards from appearing mid-session
-                // when models like Ollama emit Result messages prematurely
-                tracing::debug!("Skipping Result message normalization");
+            ClaudeJson::Result {
+                subtype,
+                is_error,
+                duration_ms,
+                num_turns,
+                total_cost_usd,
+                result,
+                error,
+                ..
+            } => {
+                // Extract content from result or error field
+                let content = if let Some(err) = error {
+                    err.clone()
+                } else if let Some(res) = result {
+                    // Try to extract string from Value
+                    match res {
+                        serde_json::Value::String(s) => s.clone(),
+                        _ => serde_json::to_string(res).unwrap_or_default(),
+                    }
+                } else {
+                    "Session completed".to_string()
+                };
+
+                let entry = NormalizedEntry {
+                    timestamp: None,
+                    entry_type: NormalizedEntryType::ResultMessage {
+                        subtype: subtype.clone().unwrap_or_else(|| "unknown".to_string()),
+                        duration_ms: duration_ms.unwrap_or(0),
+                        num_turns: num_turns.map(|n| n as u64).unwrap_or(0),
+                        total_cost_usd: *total_cost_usd,
+                        is_error: is_error.unwrap_or(false),
+                    },
+                    content,
+                    metadata: Some(
+                        serde_json::to_value(claude_json).unwrap_or(serde_json::Value::Null),
+                    ),
+                };
+                let idx = entry_index_provider.next();
+                patches.push(ConversationPatch::add_normalized_entry(idx, entry));
             }
             ClaudeJson::ApprovalResponse {
                 call_id: _,
@@ -1970,6 +2003,33 @@ mod tests {
     }
 
     #[test]
+    fn test_result_message_success() {
+        let result_json = r#"{"type":"result","subtype":"success","isError":false,"durationMs":6059,"result":"Session completed successfully","numTurns":5}"#;
+        let parsed: ClaudeJson = serde_json::from_str(result_json).unwrap();
+
+        let entries = normalize(&parsed, "");
+        assert_eq!(entries.len(), 1);
+
+        match &entries[0].entry_type {
+            NormalizedEntryType::ResultMessage {
+                subtype,
+                duration_ms,
+                num_turns,
+                total_cost_usd,
+                is_error,
+            } => {
+                assert_eq!(subtype, "success");
+                assert_eq!(*duration_ms, 6059);
+                assert_eq!(*num_turns, 5);
+                assert_eq!(*total_cost_usd, None);
+                assert!(!is_error);
+            }
+            other => panic!("Expected ResultMessage, got {other:?}"),
+        }
+        assert_eq!(entries[0].content, "Session completed successfully");
+    }
+
+    #[test]
     fn test_thinking_content() {
         let thinking_json = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Let me think about this..."}]}}"#;
         let parsed: ClaudeJson = serde_json::from_str(thinking_json).unwrap();
@@ -2487,5 +2547,120 @@ mod tests {
             signature: "abc".into(),
         });
         assert_eq!(content.buffer, "test");
+    }
+
+    #[test]
+    fn test_parse_result_error_max_turns() {
+        let result_json = r#"{
+            "type":"result",
+            "subtype":"error_max_turns",
+            "isError":true,
+            "durationMs":120000,
+            "numTurns":50,
+            "error":"Maximum number of turns reached"
+        }"#;
+        let parsed: ClaudeJson = serde_json::from_str(result_json).unwrap();
+
+        let entries = normalize(&parsed, "");
+        assert_eq!(entries.len(), 1);
+
+        match &entries[0].entry_type {
+            NormalizedEntryType::ResultMessage {
+                subtype,
+                duration_ms,
+                num_turns,
+                is_error,
+                ..
+            } => {
+                assert_eq!(subtype, "error_max_turns");
+                assert_eq!(*duration_ms, 120000);
+                assert_eq!(*num_turns, 50);
+                assert!(is_error);
+            }
+            other => panic!("Expected ResultMessage, got {other:?}"),
+        }
+        assert_eq!(entries[0].content, "Maximum number of turns reached");
+    }
+
+    #[test]
+    fn test_parse_result_with_cost() {
+        let result_json = r#"{
+            "type":"result",
+            "subtype":"success",
+            "isError":false,
+            "durationMs":45000,
+            "numTurns":12,
+            "totalCostUsd":0.0342,
+            "result":"Task completed"
+        }"#;
+        let parsed: ClaudeJson = serde_json::from_str(result_json).unwrap();
+
+        let entries = normalize(&parsed, "");
+        assert_eq!(entries.len(), 1);
+
+        match &entries[0].entry_type {
+            NormalizedEntryType::ResultMessage { total_cost_usd, .. } => {
+                assert_eq!(*total_cost_usd, Some(0.0342));
+            }
+            other => panic!("Expected ResultMessage, got {other:?}"),
+        }
+        assert_eq!(entries[0].content, "Task completed");
+    }
+
+    #[test]
+    fn test_result_entry_serialization() {
+        let result_json = r#"{
+            "type":"result",
+            "subtype":"success",
+            "isError":false,
+            "durationMs":5000,
+            "numTurns":3,
+            "totalCostUsd":0.01,
+            "result":"Done"
+        }"#;
+        let parsed: ClaudeJson = serde_json::from_str(result_json).unwrap();
+
+        let entries = normalize(&parsed, "");
+        assert_eq!(entries.len(), 1);
+
+        // Verify the entry can be serialized to JSON
+        let json_str = serde_json::to_string(&entries[0]).unwrap();
+        let json_value: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+
+        // Check that entry_type has the correct structure
+        assert_eq!(json_value["entry_type"]["type"], "result_message");
+        assert_eq!(json_value["entry_type"]["subtype"], "success");
+        assert_eq!(json_value["entry_type"]["duration_ms"], 5000);
+        assert_eq!(json_value["entry_type"]["num_turns"], 3);
+        assert_eq!(json_value["entry_type"]["total_cost_usd"], 0.01);
+        assert_eq!(json_value["entry_type"]["is_error"], false);
+    }
+
+    #[test]
+    fn test_result_missing_fields() {
+        // Test that missing optional fields are handled gracefully
+        let result_json = r#"{"type":"result"}"#;
+        let parsed: ClaudeJson = serde_json::from_str(result_json).unwrap();
+
+        let entries = normalize(&parsed, "");
+        assert_eq!(entries.len(), 1);
+
+        match &entries[0].entry_type {
+            NormalizedEntryType::ResultMessage {
+                subtype,
+                duration_ms,
+                num_turns,
+                total_cost_usd,
+                is_error,
+            } => {
+                assert_eq!(subtype, "unknown"); // Default when missing
+                assert_eq!(*duration_ms, 0); // Default when missing
+                assert_eq!(*num_turns, 0); // Default when missing
+                assert_eq!(*total_cost_usd, None);
+                assert!(!is_error); // Default when missing
+            }
+            other => panic!("Expected ResultMessage, got {other:?}"),
+        }
+        assert_eq!(entries[0].content, "Session completed");
     }
 }

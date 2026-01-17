@@ -581,21 +581,8 @@ start-dev.js
 ```bash
 pnpm run prod                         # Full build + run production
 pnpm run prod:build                   # Build frontend + release binary
-pnpm run prod:run                     # Run production with env loading + port allocation
-pnpm run prod:run:direct              # Run production binary directly (advanced)
+pnpm run prod:run                     # Run production binary (after build)
 pnpm run prod:backend                 # Backend only (release mode, no frontend build)
-```
-
-**Production Environment Variables:**
-- `BACKEND_PORT`: Backend server port (auto-allocated if not set)
-- `HOST`: Bind address (default: `127.0.0.1`, use `0.0.0.0` for network access)
-- `MCP_PORT`: MCP HTTP server port (optional)
-
-**Production Instance Management:**
-Production instances register with the instance registry and can be managed with:
-```bash
-pnpm run stop --list                  # List all instances (dev + prod)
-pnpm run stop                         # Stop instance for current directory
 ```
 
 ### Validation
@@ -660,7 +647,6 @@ Network:
 - `MCP_PORT`: HTTP MCP server port. If set, spawns MCP at `http://{HOST}:{MCP_PORT}/mcp`
 
 Storage (see `docs/configuration-customisation/storage-configuration.mdx`):
-- `VK_CONFIG_DIR`: Override config directory for config.json, profiles.json, credentials.json (default: `{data_dir}`)
 - `VK_DATABASE_PATH`: Override database file location (supports tilde expansion)
 - `VK_BACKUP_DIR`: Override backup directory (default: `{data_dir}/backups`)
 - `VK_WORKTREE_DIR`: Override worktree directory (default: `/var/tmp/vibe-kanban/worktrees`)
