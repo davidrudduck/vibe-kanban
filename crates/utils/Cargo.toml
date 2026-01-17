@@ -43,7 +43,7 @@ sqlx = { version = "0.8.6", default-features = false, features = ["postgres", "u
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
-windows-sys = { version = "0.61", features = ["Win32_System_Environment"] }
+windows-sys = { version = "0.61", features = ["Win32_System_Environment", "Win32_System_Threading", "Win32_Foundation"] }
 
 [dev-dependencies]
 serial_test = "3.0"
