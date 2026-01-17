@@ -47,7 +47,7 @@ tokio-stream = "0.1.17"
 strum_macros = "0.27.2"
 strum = "0.27.2"
 notify = "8.2.0"
-notify-debouncer-full = "0.5.0"
+notify-debouncer-full = "0.6"
 tokio-tungstenite = { version = "0.28.0", features = ["rustls-tls-webpki-roots"] }
 dunce = "1.0"
 dashmap = "6.1"
@@ -57,9 +57,9 @@ fst = "0.4"
 secrecy = "0.10.3"
 moka = { version = "0.12", features = ["future"] }
 hostname = "0.4"
-sysinfo = "0.33"
+sysinfo = "0.37"
 urlencoding = "2.1"
-portable-pty = "0.8"
+portable-pty = "0.9"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "2"

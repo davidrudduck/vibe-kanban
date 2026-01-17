@@ -314,11 +314,6 @@ impl FilesystemService {
             let path = entry.path();
             let metadata = entry.metadata().ok();
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                // Skip hidden files/directories
-                if name.starts_with('.') && name != ".." {
-                    continue;
-                }
-
                 let is_directory = metadata.is_some_and(|m| m.is_dir());
                 let is_git_repo = if is_directory {
                     path.join(".git").exists()
@@ -379,11 +374,6 @@ impl FilesystemService {
             let entry_path = entry.path();
             let metadata = entry.metadata().ok();
             if let Some(name) = entry_path.file_name().and_then(|n| n.to_str()) {
-                // Skip hidden files/directories (except .gitignore, etc.)
-                if name.starts_with('.') && name != ".." {
-                    continue;
-                }
-
                 let is_directory = metadata.as_ref().is_some_and(|m| m.is_dir());
                 let is_git_repo = if is_directory {
                     entry_path.join(".git").exists()
