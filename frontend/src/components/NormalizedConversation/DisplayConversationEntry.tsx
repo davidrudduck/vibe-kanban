@@ -11,7 +11,6 @@ import {
 } from 'shared/types.ts';
 import type { ProcessStartPayload } from '@/types/logs';
 import FileChangeRenderer from './FileChangeRenderer';
-import ResultMessageCard from './ResultMessageCard';
 import { useExpandable } from '@/stores/useExpandableStore';
 import {
   AlertCircle,
@@ -1037,22 +1036,6 @@ function DisplayConversationEntry({
         durationSeconds={Number(endEntry.duration_seconds)}
         status={endEntry.status}
       />
-    );
-  }
-
-  if (entry.entry_type.type === 'result_message') {
-    const resultEntry = entry.entry_type;
-    return (
-      <div className="px-4 py-2">
-        <ResultMessageCard
-          subtype={resultEntry.subtype}
-          content={entry.content}
-          durationMs={Number(resultEntry.duration_ms)}
-          numTurns={Number(resultEntry.num_turns)}
-          isError={resultEntry.is_error}
-          expansionKey={expansionKey}
-        />
-      </div>
     );
   }
 
