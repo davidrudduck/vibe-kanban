@@ -220,18 +220,6 @@ pub trait ContainerService {
     async fn cleanup_orphan_executions(&self) -> Result<(), ContainerError> {
         let running_processes = ExecutionProcess::find_running(&self.db().pool).await?;
         for process in running_processes {
-            // Check if process is actually orphaned by verifying PID liveness
-            if let Some(pid) = process.pid
-                && utils::process::is_process_alive(pid)
-            {
-                tracing::info!(
-                    exec_id = %process.id,
-                    pid = pid,
-                    "Skipping orphan cleanup - process still running"
-                );
-                continue; // Skip - process is still alive
-            }
-
             tracing::info!(
                 "Found orphaned execution process {} for task attempt {}",
                 process.id,

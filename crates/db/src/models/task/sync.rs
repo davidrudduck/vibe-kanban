@@ -174,8 +174,7 @@ impl Task {
     /// This is a transaction-safe variant of `clear_all_shared_task_ids_for_project`
     /// that accepts an executor trait, enabling it to participate in database transactions.
     ///
-    /// Sets `shared_task_id = NULL`, `remote_version = 0`, and `remote_last_synced_at = NULL`
-    /// for all tasks in the project that have a shared_task_id.
+    /// Sets `shared_task_id = NULL` for all tasks in the project that have a shared_task_id.
     ///
     /// Returns the number of tasks that were updated.
     pub async fn clear_all_shared_task_ids_for_project_tx<'e, E>(
@@ -187,10 +186,7 @@ impl Task {
     {
         let result = sqlx::query!(
             r#"UPDATE tasks
-               SET shared_task_id = NULL,
-                   remote_version = 0,
-                   remote_last_synced_at = NULL,
-                   updated_at = CURRENT_TIMESTAMP
+               SET shared_task_id = NULL
                WHERE project_id = $1
                  AND shared_task_id IS NOT NULL"#,
             project_id

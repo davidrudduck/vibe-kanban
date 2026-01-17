@@ -14,7 +14,6 @@ pub mod log_msg;
 pub mod msg_store;
 pub mod path;
 pub mod port_file;
-pub mod process;
 pub mod response;
 pub mod shell;
 pub mod stream_lines;

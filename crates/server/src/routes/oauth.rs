@@ -6,7 +6,7 @@ use axum::{
     routing::{get, post},
 };
 use deployment::Deployment;
-use rand::{Rng, distr::Alphanumeric};
+use rand::{Rng, distributions::Alphanumeric};
 use serde::{Deserialize, Serialize};
 use services::services::oauth_credentials::Credentials;
 use sha2::{Digest, Sha256};
@@ -210,7 +210,7 @@ async fn status(
 }
 
 fn generate_secret() -> String {
-    rand::rng()
+    rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(64)
         .map(char::from)

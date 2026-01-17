@@ -31,7 +31,7 @@ tracing-error = "0.2"
 thiserror = { workspace = true }
 utils = { path = "../utils" }
 uuid = { version = "1", features = ["serde", "v4"] }
-jsonwebtoken = "10.2"
+jsonwebtoken = "9"
 rand = "0.9"
 sha2 = "0.10"
 hex = "0.4"
