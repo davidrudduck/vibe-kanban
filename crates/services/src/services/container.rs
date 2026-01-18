@@ -99,6 +99,10 @@ pub trait ContainerService {
     /// Used to await normalization completion before signaling finished.
     async fn take_normalization_handle(&self, exec_id: &Uuid) -> Option<JoinHandle<()>>;
 
+    /// Get the server instance ID. Used to tag execution processes for
+    /// instance-scoped cleanup on shutdown.
+    fn instance_id(&self) -> &str;
+
     fn task_attempt_to_current_dir(&self, task_attempt: &TaskAttempt) -> PathBuf;
 
     async fn create(&self, task_attempt: &TaskAttempt) -> Result<ContainerRef, ContainerError>;
@@ -216,10 +220,35 @@ pub trait ContainerService {
         NotificationService::notify_execution_halted(notify_cfg, ctx).await;
     }
 
-    /// Cleanup executions marked as running in the db, call at startup
+    /// Cleanup executions marked as running in the db, call at startup.
+    /// With instance-scoped process tracking, this marks as failed any processes
+    /// that don't belong to the current instance (orphans from crashed/restarted servers).
     async fn cleanup_orphan_executions(&self) -> Result<(), ContainerError> {
+        let instance_id = self.instance_id();
+        tracing::info!(
+            instance_id = %instance_id,
+            "Cleaning up orphaned execution processes"
+        );
+
+        // First, batch-mark orphaned processes (those with different or NULL instance_id)
+        let orphaned_count =
+            ExecutionProcess::mark_orphaned_as_failed(&self.db().pool, instance_id).await?;
+
+        if orphaned_count > 0 {
+            tracing::info!(
+                instance_id = %instance_id,
+                orphaned_count = orphaned_count,
+                "Marked {} orphaned processes as failed",
+                orphaned_count
+            );
+        }
+
+        // Now process them one by one for after-head commit and task status updates
+        // Get all recently-failed processes that were orphaned (don't have our instance_id)
         let running_processes = ExecutionProcess::find_running(&self.db().pool).await?;
         for process in running_processes {
+            // This shouldn't find any now since we just marked them all failed,
+            // but handle any edge cases
             tracing::info!(
                 "Found orphaned execution process {} for task attempt {}",
                 process.id,
@@ -1025,6 +1054,7 @@ pub trait ContainerService {
             &create_execution_process,
             Uuid::new_v4(),
             before_head_commit.as_deref(),
+            Some(self.instance_id()),
         )
         .await?;
 

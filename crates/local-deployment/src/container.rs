@@ -103,6 +103,9 @@ pub struct LocalContainerService {
     normalization_handles: Arc<RwLock<HashMap<Uuid, JoinHandle<()>>>>,
     /// Metrics for tracking normalization completion times and timeouts.
     normalization_metrics: NormalizationMetrics,
+    /// Unique ID for this server instance. Used for instance-scoped process cleanup
+    /// on shutdown (so cargo watch restarts don't kill other instances' processes).
+    instance_id: String,
 }
 
 impl LocalContainerService {
@@ -131,6 +134,11 @@ impl LocalContainerService {
         // Initialize normalization metrics collector
         let normalization_metrics = NormalizationMetrics::new();
 
+        // Generate unique instance ID for this server instance.
+        // Used to tag execution processes so shutdown only kills THIS instance's processes.
+        let instance_id = Uuid::new_v4().to_string();
+        tracing::info!(instance_id = %instance_id, "Generated server instance ID");
+
         let container = LocalContainerService {
             db,
             child_store,
@@ -146,6 +154,7 @@ impl LocalContainerService {
             message_queue,
             normalization_handles,
             normalization_metrics,
+            instance_id,
         };
 
         container.spawn_worktree_cleanup();
@@ -1301,6 +1310,10 @@ impl ContainerService for LocalContainerService {
         self.take_normalization_handle(exec_id).await
     }
 
+    fn instance_id(&self) -> &str {
+        &self.instance_id
+    }
+
     async fn git_branch_prefix(&self) -> String {
         self.config.read().await.git_branch_prefix.clone()
     }
@@ -1889,8 +1902,28 @@ impl ContainerService for LocalContainerService {
     }
 
     async fn kill_all_running_processes(&self) -> Result<(), ContainerError> {
-        tracing::info!("Killing all running processes");
-        let running_processes = ExecutionProcess::find_running(&self.db.pool).await?;
+        // Only kill processes that belong to THIS server instance.
+        // This prevents cargo watch restarts from killing processes started by other instances.
+        tracing::info!(
+            instance_id = %self.instance_id,
+            "Killing running processes for this instance"
+        );
+        let running_processes =
+            ExecutionProcess::find_running_by_instance(&self.db.pool, &self.instance_id).await?;
+
+        if running_processes.is_empty() {
+            tracing::info!(
+                instance_id = %self.instance_id,
+                "No running processes to kill for this instance"
+            );
+        } else {
+            tracing::info!(
+                instance_id = %self.instance_id,
+                count = running_processes.len(),
+                "Found {} running processes to kill for this instance",
+                running_processes.len()
+            );
+        }
 
         for process in running_processes {
             if let Err(error) = self
