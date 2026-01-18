@@ -100,14 +100,6 @@ impl ProtocolPeer {
                                 .await;
                         }
                         Ok(CLIMessage::ControlResponse { .. }) => {}
-                        Ok(CLIMessage::Result(value)) => {
-                            tracing::info!(
-                                result_value = ?value,
-                                "Claude protocol: Received Result message"
-                            );
-                            // Log the result but don't break - wait for process to exit (EOF)
-                            client.on_non_control(line).await?;
-                        }
                         _ => {
                             client.on_non_control(line).await?;
                         }
