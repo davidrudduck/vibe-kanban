@@ -17,7 +17,7 @@ impl ExecutionProcess {
             ExecutionProcess,
             r#"SELECT id as "id!: Uuid", task_attempt_id as "task_attempt_id!: Uuid", run_reason as "run_reason!: ExecutionProcessRunReason", executor_action as "executor_action!: sqlx::types::Json<ExecutorActionField>", before_head_commit,
                       after_head_commit, status as "status!: ExecutionProcessStatus", exit_code, dropped, pid, started_at as "started_at!: DateTime<Utc>", completed_at as "completed_at?: DateTime<Utc>",
-                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>"
+                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", server_instance_id
                FROM execution_processes WHERE id = ?"#,
             id
         )
@@ -31,7 +31,7 @@ impl ExecutionProcess {
             ExecutionProcess,
             r#"SELECT id as "id!: Uuid", task_attempt_id as "task_attempt_id!: Uuid", run_reason as "run_reason!: ExecutionProcessRunReason", executor_action as "executor_action!: sqlx::types::Json<ExecutorActionField>", before_head_commit,
                       after_head_commit, status as "status!: ExecutionProcessStatus", exit_code, dropped, pid, started_at as "started_at!: DateTime<Utc>", completed_at as "completed_at?: DateTime<Utc>",
-                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>"
+                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", server_instance_id
                FROM execution_processes WHERE rowid = ?"#,
             rowid
         )
@@ -61,7 +61,8 @@ impl ExecutionProcess {
                       completed_at    as "completed_at?: DateTime<Utc>",
                       created_at      as "created_at!: DateTime<Utc>",
                       updated_at      as "updated_at!: DateTime<Utc>",
-                      hive_synced_at  as "hive_synced_at: DateTime<Utc>"
+                      hive_synced_at  as "hive_synced_at: DateTime<Utc>",
+                      server_instance_id
                FROM execution_processes
                WHERE task_attempt_id = ?
                  AND (? OR dropped = FALSE)
@@ -79,11 +80,50 @@ impl ExecutionProcess {
             ExecutionProcess,
             r#"SELECT id as "id!: Uuid", task_attempt_id as "task_attempt_id!: Uuid", run_reason as "run_reason!: ExecutionProcessRunReason", executor_action as "executor_action!: sqlx::types::Json<ExecutorActionField>", before_head_commit,
                       after_head_commit, status as "status!: ExecutionProcessStatus", exit_code, dropped, pid, started_at as "started_at!: DateTime<Utc>", completed_at as "completed_at?: DateTime<Utc>",
-                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>"
+                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", server_instance_id
                FROM execution_processes WHERE status = 'running' ORDER BY created_at ASC"#,
         )
         .fetch_all(pool)
         .await
+    }
+
+    /// Find running execution processes for a specific server instance
+    /// Used to only kill processes belonging to THIS server instance on shutdown
+    pub async fn find_running_by_instance(
+        pool: &SqlitePool,
+        instance_id: &str,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            ExecutionProcess,
+            r#"SELECT id as "id!: Uuid", task_attempt_id as "task_attempt_id!: Uuid", run_reason as "run_reason!: ExecutionProcessRunReason", executor_action as "executor_action!: sqlx::types::Json<ExecutorActionField>", before_head_commit,
+                      after_head_commit, status as "status!: ExecutionProcessStatus", exit_code, dropped, pid, started_at as "started_at!: DateTime<Utc>", completed_at as "completed_at?: DateTime<Utc>",
+                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", server_instance_id
+               FROM execution_processes WHERE status = 'running' AND server_instance_id = ? ORDER BY created_at ASC"#,
+            instance_id
+        )
+        .fetch_all(pool)
+        .await
+    }
+
+    /// Mark orphaned running processes as failed on startup.
+    /// A process is orphaned if it has status = 'running' but its server_instance_id
+    /// is not in the list of currently active instances (or has no instance ID at all).
+    /// Returns the number of processes marked as failed.
+    pub async fn mark_orphaned_as_failed(
+        pool: &SqlitePool,
+        current_instance_id: &str,
+    ) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"UPDATE execution_processes
+               SET status = 'failed', updated_at = datetime('now')
+               WHERE status = 'running'
+                 AND (server_instance_id IS NULL OR server_instance_id != ?)"#,
+            current_instance_id
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(result.rows_affected())
     }
 
     /// Find running dev servers for a specific project
@@ -95,7 +135,7 @@ impl ExecutionProcess {
             ExecutionProcess,
             r#"SELECT ep.id as "id!: Uuid", ep.task_attempt_id as "task_attempt_id!: Uuid", ep.run_reason as "run_reason!: ExecutionProcessRunReason", ep.executor_action as "executor_action!: sqlx::types::Json<ExecutorActionField>",
                       ep.before_head_commit, ep.after_head_commit, ep.status as "status!: ExecutionProcessStatus", ep.exit_code,
-                      ep.dropped, ep.pid, ep.started_at as "started_at!: DateTime<Utc>", ep.completed_at as "completed_at?: DateTime<Utc>", ep.created_at as "created_at!: DateTime<Utc>", ep.updated_at as "updated_at!: DateTime<Utc>", ep.hive_synced_at as "hive_synced_at: DateTime<Utc>"
+                      ep.dropped, ep.pid, ep.started_at as "started_at!: DateTime<Utc>", ep.completed_at as "completed_at?: DateTime<Utc>", ep.created_at as "created_at!: DateTime<Utc>", ep.updated_at as "updated_at!: DateTime<Utc>", ep.hive_synced_at as "hive_synced_at: DateTime<Utc>", ep.server_instance_id
                FROM execution_processes ep
                JOIN task_attempts ta ON ep.task_attempt_id = ta.id
                JOIN tasks t ON ta.task_id = t.id
@@ -130,7 +170,8 @@ impl ExecutionProcess {
             completed_at as "completed_at?: DateTime<Utc>",
             created_at as "created_at!: DateTime<Utc>",
             updated_at as "updated_at!: DateTime<Utc>",
-            hive_synced_at as "hive_synced_at: DateTime<Utc>"
+            hive_synced_at as "hive_synced_at: DateTime<Utc>",
+            server_instance_id
         FROM execution_processes
         WHERE status = 'running'
           AND run_reason = 'devserver'
@@ -149,7 +190,7 @@ impl ExecutionProcess {
             ExecutionProcess,
             r#"SELECT id as "id!: Uuid", task_attempt_id as "task_attempt_id!: Uuid", run_reason as "run_reason!: ExecutionProcessRunReason", executor_action as "executor_action!: sqlx::types::Json<ExecutorActionField>", before_head_commit,
                       after_head_commit, status as "status!: ExecutionProcessStatus", exit_code, dropped, pid, started_at as "started_at!: DateTime<Utc>", completed_at as "completed_at?: DateTime<Utc>",
-                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>"
+                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", server_instance_id
                FROM execution_processes WHERE status = 'running' AND pid IS NOT NULL ORDER BY created_at ASC"#,
         )
         .fetch_all(pool)
@@ -221,7 +262,7 @@ impl ExecutionProcess {
             ExecutionProcess,
             r#"SELECT id as "id!: Uuid", task_attempt_id as "task_attempt_id!: Uuid", run_reason as "run_reason!: ExecutionProcessRunReason", executor_action as "executor_action!: sqlx::types::Json<ExecutorActionField>", before_head_commit,
                       after_head_commit, status as "status!: ExecutionProcessStatus", exit_code, dropped, pid, started_at as "started_at!: DateTime<Utc>", completed_at as "completed_at?: DateTime<Utc>",
-                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>"
+                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", server_instance_id
                FROM execution_processes
                WHERE task_attempt_id = ? AND run_reason = ? AND dropped = FALSE
                ORDER BY created_at DESC LIMIT 1"#,
@@ -242,7 +283,7 @@ impl ExecutionProcess {
             ExecutionProcess,
             r#"SELECT id as "id!: Uuid", task_attempt_id as "task_attempt_id!: Uuid", run_reason as "run_reason!: ExecutionProcessRunReason", executor_action as "executor_action!: sqlx::types::Json<ExecutorActionField>", before_head_commit,
                       after_head_commit, status as "status!: ExecutionProcessStatus", exit_code, dropped, pid, started_at as "started_at!: DateTime<Utc>", completed_at as "completed_at?: DateTime<Utc>",
-                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>"
+                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", server_instance_id
                FROM execution_processes
                WHERE task_attempt_id = ? AND dropped = FALSE
                ORDER BY created_at DESC LIMIT 1"#,
@@ -258,6 +299,7 @@ impl ExecutionProcess {
         data: &CreateExecutionProcess,
         process_id: Uuid,
         before_head_commit: Option<&str>,
+        server_instance_id: Option<&str>,
     ) -> Result<Self, sqlx::Error> {
         let now = Utc::now();
         let executor_action_json = sqlx::types::Json(&data.executor_action);
@@ -266,10 +308,10 @@ impl ExecutionProcess {
             ExecutionProcess,
             r#"INSERT INTO execution_processes (
                     id, task_attempt_id, run_reason, executor_action, before_head_commit,
-                    after_head_commit, status, exit_code, pid, started_at, completed_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, ?, ?) RETURNING
+                    after_head_commit, status, exit_code, pid, started_at, completed_at, created_at, updated_at, server_instance_id
+                ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, ?, ?, ?) RETURNING
                     id as "id!: Uuid", task_attempt_id as "task_attempt_id!: Uuid", run_reason as "run_reason!: ExecutionProcessRunReason", executor_action as "executor_action!: sqlx::types::Json<ExecutorActionField>", before_head_commit,
-                    after_head_commit, status as "status!: ExecutionProcessStatus", exit_code, dropped, pid, started_at as "started_at!: DateTime<Utc>", completed_at as "completed_at?: DateTime<Utc>", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>""#,
+                    after_head_commit, status as "status!: ExecutionProcessStatus", exit_code, dropped, pid, started_at as "started_at!: DateTime<Utc>", completed_at as "completed_at?: DateTime<Utc>", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", server_instance_id"#,
             process_id,
             data.task_attempt_id,
             data.run_reason,
@@ -280,7 +322,8 @@ impl ExecutionProcess {
             now,
             None::<DateTime<Utc>>,
             now,
-            now
+            now,
+            server_instance_id
         )
         .fetch_one(pool)
         .await

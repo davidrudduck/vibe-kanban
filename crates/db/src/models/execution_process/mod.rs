@@ -85,6 +85,10 @@ pub struct ExecutionProcess {
     /// When this execution process was last synced to the Hive. NULL means not yet synced.
     #[ts(optional)]
     pub hive_synced_at: Option<DateTime<Utc>>,
+    /// The server instance that spawned this process. Used for instance-scoped
+    /// process cleanup on shutdown (so cargo watch restarts don't kill other instances' processes).
+    #[ts(optional)]
+    pub server_instance_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, TS)]
