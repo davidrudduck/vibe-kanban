@@ -37,6 +37,7 @@ pub mod droid;
 pub mod gemini;
 pub mod opencode;
 pub mod qwen;
+pub mod session_index;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
