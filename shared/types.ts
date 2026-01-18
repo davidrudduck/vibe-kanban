@@ -831,7 +831,12 @@ pid: bigint | null, started_at: string, completed_at: string | null, created_at:
 /**
  * When this execution process was last synced to the Hive. NULL means not yet synced.
  */
-hive_synced_at?: string, };
+hive_synced_at?: string, 
+/**
+ * The server instance that spawned this process. Used for instance-scoped
+ * process cleanup on shutdown (so cargo watch restarts don't kill other instances' processes).
+ */
+server_instance_id?: string, };
 
 export enum ExecutionProcessStatus { running = "running", completed = "completed", failed = "failed", killed = "killed" }
 
