@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE tasks\n               SET shared_task_id = NULL\n               WHERE project_id = $1\n                 AND shared_task_id IS NOT NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "037d3ca80d45b9d60ed180f987baf75c52484a69e6418dfa00204d2f5999ae41"
+}
