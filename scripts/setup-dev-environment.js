@@ -293,24 +293,54 @@ if (require.main === module) {
       break;
 
     case "env":
-      // Output env vars for backend dev server, respecting .env first
-      // loadEnvFile() already called at top of script
-      // Default DISABLE_WORKTREE_ORPHAN_CLEANUP to "0" (enabled) for dev if not set
-      // Set to "1" or "true" in .env to disable cleanup
+      // Output env vars for backend dev server
+      // Unsets production-specific vars and sets dev-safe defaults
       {
-        const disableCleanup = process.env.DISABLE_WORKTREE_ORPHAN_CLEANUP ?? "0";
         const rustLog = process.env.RUST_LOG ?? "debug";
         // SQLX_OFFLINE=true uses cached .sqlx folders instead of live database queries
         // This is required because the workspace has both SQLite (db crate) and PostgreSQL (remote crate)
         // and a single DATABASE_URL cannot satisfy both during compile-time checking
         // Output in format suitable for shell eval
-        console.log(`export DISABLE_WORKTREE_ORPHAN_CLEANUP=${disableCleanup}`);
         console.log(`export RUST_LOG=${rustLog}`);
         console.log(`export SQLX_OFFLINE=true`);
 
-        // Pass through all VK_* environment variables from .env
+        // CRITICAL: Unset production-specific env vars for dev mode
+        // When executors spawn worktree dev servers, they inherit production env vars.
+        // Dev servers should use their local dev_assets/ paths and NOT connect to hive/shared services.
+        // These vars are inherited from parent processes and must be explicitly unset.
+        const productionOnlyVars = [
+          // Storage paths - dev uses local dev_assets/
+          'VK_DATABASE_PATH',
+          'VK_LOG_DIR',
+          'VK_BACKUP_DIR',
+          'VK_WORKTREE_DIR',
+          // Hive/node identity - dev shouldn't connect to hive or identify as a node
+          'VK_HIVE_URL',
+          'VK_NODE_API_KEY',
+          'VK_NODE_NAME',
+          'VK_NODE_PUBLIC_URL',
+          'VK_CONNECTION_TOKEN_SECRET',
+          // Shared API - dev shouldn't use shared services
+          'VK_SHARED_API_BASE',
+          // Process kill setting - dev has its own default (disabled)
+          'VK_DISABLE_PROCESS_KILL_ON_SHUTDOWN',
+          // Worktree cleanup - dev shouldn't clean up worktrees (production's job)
+          'DISABLE_WORKTREE_ORPHAN_CLEANUP',
+          'DISABLE_WORKTREE_EXPIRED_CLEANUP',
+        ];
+        for (const varName of productionOnlyVars) {
+          console.log(`unset ${varName}`);
+        }
+
+        // Now set dev mode defaults (after unsetting inherited values)
+        console.log(`export VK_DISABLE_PROCESS_KILL_ON_SHUTDOWN=1`);
+        console.log(`export DISABLE_WORKTREE_ORPHAN_CLEANUP=1`);
+        console.log(`export DISABLE_WORKTREE_EXPIRED_CLEANUP=1`);
+
+        // Pass through all OTHER VK_* environment variables from .env
+        // (config/tuning vars like VK_SQLITE_MAX_CONNECTIONS are safe to inherit)
         for (const [key, value] of Object.entries(process.env)) {
-          if (key.startsWith('VK_')) {
+          if (key.startsWith('VK_') && !productionOnlyVars.includes(key)) {
             // Escape value for shell safety (handle quotes and special chars)
             const escapedValue = value.replace(/'/g, "'\\''");
             console.log(`export ${key}='${escapedValue}'`);
