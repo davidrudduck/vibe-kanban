@@ -99,7 +99,13 @@
         "purgeArchivedSuccess": "Deleted {{count}} archived tasks.",
         "purgeArchivedError": "Failed to purge archived tasks.",
         "purgeLogsSuccess": "Deleted {{count}} log entries.",
-        "purgeLogsError": "Failed to purge log entries."
+        "purgeLogsError": "Failed to purge log entries.",
+        "confirmPurgeTitle": "Confirm Purge",
+        "confirmDelete": "Delete",
+        "confirmCancel": "Cancel",
+        "confirmVacuumTitle": "Optimize Database?",
+        "confirmVacuumMessage": "This will run VACUUM and ANALYZE to reclaim disk space and optimize query performance. The database will be briefly locked during this operation.",
+        "vacuumCooldownTooltip": "Please wait {{remaining}} before running VACUUM again"
       }
     },
     "general": {

@@ -107,15 +107,40 @@ async fn get_stats(
 ///
 /// Runs VACUUM on the database to reclaim space from deleted records.
 /// Returns the bytes freed by the operation.
+///
+/// Rate limited to once per 5 minutes to prevent accidental repeated calls
+/// that could lock the database.
 async fn vacuum(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<VacuumResult>>, ApiError> {
+    const VACUUM_COOLDOWN_SECS: u64 = 300; // 5 minutes
+
+    // Check cooldown
+    {
+        let last_time = deployment.last_vacuum_time().read().await;
+        if let Some(time) = *last_time
+            && time.elapsed() < std::time::Duration::from_secs(VACUUM_COOLDOWN_SECS)
+        {
+            let remaining = VACUUM_COOLDOWN_SECS - time.elapsed().as_secs();
+            return Err(ApiError::TooManyRequests(format!(
+                "Please wait {} seconds before running VACUUM again",
+                remaining
+            )));
+        }
+    }
+
     let db_path = database_path();
     let pool = &deployment.db().pool;
 
     let result = vacuum_database(pool, &db_path)
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    // Update cooldown timestamp
+    {
+        let mut last_time = deployment.last_vacuum_time().write().await;
+        *last_time = Some(std::time::Instant::now());
+    }
 
     Ok(ResponseJson(ApiResponse::success(result)))
 }

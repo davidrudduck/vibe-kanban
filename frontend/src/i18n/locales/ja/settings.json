@@ -64,7 +64,13 @@
         "purgeArchivedSuccess": "{{count}}件のアーカイブ済みタスクを削除しました。",
         "purgeArchivedError": "アーカイブ済みタスクの削除に失敗しました。",
         "purgeLogsSuccess": "{{count}}件のログエントリを削除しました。",
-        "purgeLogsError": "ログエントリの削除に失敗しました。"
+        "purgeLogsError": "ログエントリの削除に失敗しました。",
+        "confirmPurgeTitle": "削除の確認",
+        "confirmDelete": "削除",
+        "confirmCancel": "キャンセル",
+        "confirmVacuumTitle": "データベースを最適化しますか？",
+        "confirmVacuumMessage": "VACUUMとANALYZEを実行してディスク容量を回収し、クエリのパフォーマンスを最適化します。この操作中、データベースは一時的にロックされます。",
+        "vacuumCooldownTooltip": "VACUUMを再度実行するまで{{remaining}}お待ちください"
       }
     },
     "general": {

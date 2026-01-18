@@ -9,6 +9,14 @@ use std::time::Duration as StdDuration;
 
 use super::DbLogEntry;
 
+/// Maximum number of rows to delete in a single batch.
+/// Prevents long database locks on large purge operations.
+const BATCH_SIZE: i64 = 10_000;
+
+/// Milliseconds to wait between batches.
+/// Allows other database operations to proceed during large purges.
+const YIELD_DURATION_MS: u64 = 10;
+
 impl DbLogEntry {
     /// Count log entries older than the specified number of days.
     /// Returns the count of log entries that would be purged.
@@ -32,9 +40,6 @@ impl DbLogEntry {
     /// Returns the total number of log entries deleted.
     pub async fn delete_older_than(pool: &SqlitePool, days: i64) -> Result<i64, sqlx::Error> {
         let cutoff = Utc::now() - Duration::days(days);
-        const BATCH_SIZE: i64 = 10_000;
-        const YIELD_DURATION_MS: u64 = 10;
-
         let mut total_deleted: i64 = 0;
 
         loop {
@@ -152,5 +157,101 @@ mod tests {
             .await
             .expect("Query failed");
         assert!(entries.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_delete_older_than_empty_database() {
+        let (pool, _temp_dir) = setup_test_pool().await;
+
+        // Don't create any entries - database should be empty
+
+        // Delete with 0 days cutoff on empty database
+        let deleted = DbLogEntry::delete_older_than(&pool, 0)
+            .await
+            .expect("Failed to delete");
+
+        // Should return 0 for empty database
+        assert_eq!(deleted, 0);
+    }
+
+    #[tokio::test]
+    async fn test_delete_older_than_exact_batch_size() {
+        let (pool, _temp_dir) = setup_test_pool().await;
+        let execution_id = create_test_execution(&pool).await;
+
+        // Create exactly BATCH_SIZE (10,000) entries
+        for i in 0..BATCH_SIZE {
+            DbLogEntry::create(
+                &pool,
+                CreateLogEntry {
+                    execution_id,
+                    output_type: "stdout".into(),
+                    content: format!("Test log {}", i),
+                },
+            )
+            .await
+            .expect("Failed to create log entry");
+        }
+
+        // Verify count
+        let count = DbLogEntry::count_older_than(&pool, 0)
+            .await
+            .expect("Failed to count");
+        assert_eq!(count, BATCH_SIZE);
+
+        // Delete with 0 days cutoff
+        let deleted = DbLogEntry::delete_older_than(&pool, 0)
+            .await
+            .expect("Failed to delete");
+
+        // Should delete all 10,000 entries
+        assert_eq!(deleted, BATCH_SIZE);
+
+        // Verify all entries are gone
+        let count_after = DbLogEntry::count_older_than(&pool, 0)
+            .await
+            .expect("Failed to count");
+        assert_eq!(count_after, 0);
+    }
+
+    #[tokio::test]
+    async fn test_delete_older_than_multiple_batches() {
+        let (pool, _temp_dir) = setup_test_pool().await;
+        let execution_id = create_test_execution(&pool).await;
+
+        // Create 25,000 entries (2.5 batches)
+        const ENTRY_COUNT: i64 = 25_000;
+        for i in 0..ENTRY_COUNT {
+            DbLogEntry::create(
+                &pool,
+                CreateLogEntry {
+                    execution_id,
+                    output_type: "stdout".into(),
+                    content: format!("Test log {}", i),
+                },
+            )
+            .await
+            .expect("Failed to create log entry");
+        }
+
+        // Verify count
+        let count = DbLogEntry::count_older_than(&pool, 0)
+            .await
+            .expect("Failed to count");
+        assert_eq!(count, ENTRY_COUNT);
+
+        // Delete with 0 days cutoff
+        let deleted = DbLogEntry::delete_older_than(&pool, 0)
+            .await
+            .expect("Failed to delete");
+
+        // Should delete all 25,000 entries across multiple batches
+        assert_eq!(deleted, ENTRY_COUNT);
+
+        // Verify all entries are gone
+        let count_after = DbLogEntry::count_older_than(&pool, 0)
+            .await
+            .expect("Failed to count");
+        assert_eq!(count_after, 0);
     }
 }
