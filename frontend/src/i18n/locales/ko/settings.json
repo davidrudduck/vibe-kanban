@@ -64,7 +64,13 @@
         "purgeArchivedSuccess": "{{count}}개의 아카이브된 작업을 삭제했습니다.",
         "purgeArchivedError": "아카이브된 작업 삭제에 실패했습니다.",
         "purgeLogsSuccess": "{{count}}개의 로그 항목을 삭제했습니다.",
-        "purgeLogsError": "로그 항목 삭제에 실패했습니다."
+        "purgeLogsError": "로그 항목 삭제에 실패했습니다.",
+        "confirmPurgeTitle": "삭제 확인",
+        "confirmDelete": "삭제",
+        "confirmCancel": "취소",
+        "confirmVacuumTitle": "데이터베이스 최적화?",
+        "confirmVacuumMessage": "VACUUM과 ANALYZE를 실행하여 디스크 공간을 회수하고 쿼리 성능을 최적화합니다. 이 작업 중에 데이터베이스가 잠시 잠깁니다.",
+        "vacuumCooldownTooltip": "VACUUM을 다시 실행하기 전에 {{remaining}} 기다려 주세요"
       }
     },
     "general": {

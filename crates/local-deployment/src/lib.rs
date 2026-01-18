@@ -63,6 +63,8 @@ pub struct LocalDeployment {
     node_proxy_client: NodeProxyClient,
     /// Whether the node cache sync has been started
     node_cache_sync_started: Arc<Mutex<bool>>,
+    /// Timestamp of the last VACUUM operation (for rate limiting)
+    last_vacuum_time: Arc<RwLock<Option<std::time::Instant>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -298,6 +300,7 @@ impl Deployment for LocalDeployment {
             connection_token_validator: Arc::new(connection_token_validator),
             node_proxy_client,
             node_cache_sync_started: Arc::new(Mutex::new(false)),
+            last_vacuum_time: Arc::new(RwLock::new(None)),
         };
 
         // Log startup config summary for debugging connection issues
@@ -492,6 +495,11 @@ impl LocalDeployment {
     /// methods like `message_queue()`.
     pub fn local_container(&self) -> &LocalContainerService {
         &self.container
+    }
+
+    /// Get the last VACUUM time (for rate limiting).
+    pub fn last_vacuum_time(&self) -> &Arc<RwLock<Option<std::time::Instant>>> {
+        &self.last_vacuum_time
     }
 
     /// Start the background node cache sync if the user is logged in.
