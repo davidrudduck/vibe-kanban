@@ -4,7 +4,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { I18nextProvider } from 'react-i18next';
 import i18n from '@/i18n';
 import { SystemSettings } from '../SystemSettings';
-import type { DatabaseStats } from 'shared/types';
+import type {
+  DatabaseStats,
+  VacuumResult,
+  ArchivedPurgeResult,
+  LogPurgeResult,
+} from 'shared/types';
+import type { UseQueryResult, UseMutationResult } from '@tanstack/react-query';
 
 // Mock the hooks
 vi.mock('@/hooks/useDatabaseStats');
@@ -59,6 +65,62 @@ function renderWithProviders(ui: React.ReactElement) {
   );
 }
 
+// Helper to create a minimal UseQueryResult mock
+function createQueryMock<T>(data: T): UseQueryResult<T, Error> {
+  return {
+    data,
+    isLoading: false,
+    isError: false,
+    error: null,
+    refetch: vi.fn(),
+    isPending: false,
+    isSuccess: true,
+    isFetching: false,
+    isRefetching: false,
+    status: 'success',
+    fetchStatus: 'idle',
+    dataUpdatedAt: Date.now(),
+    errorUpdatedAt: 0,
+    failureCount: 0,
+    failureReason: null,
+    errorUpdateCount: 0,
+    isFetched: true,
+    isFetchedAfterMount: true,
+    isInitialLoading: false,
+    isLoadingError: false,
+    isPaused: false,
+    isPlaceholderData: false,
+    isRefetchError: false,
+    isStale: false,
+    promise: Promise.resolve(data),
+    isEnabled: true,
+  } as unknown as UseQueryResult<T, Error>;
+}
+
+// Helper to create a minimal UseMutationResult mock
+function createMutationMock<TData, TVariables = void>(
+  mutateAsync = vi.fn().mockResolvedValue({})
+): UseMutationResult<TData, Error, TVariables, unknown> {
+  return {
+    mutate: vi.fn(),
+    mutateAsync,
+    isPending: false,
+    isError: false,
+    isIdle: true,
+    isSuccess: false,
+    status: 'idle',
+    data: undefined,
+    error: null,
+    variables: undefined,
+    reset: vi.fn(),
+    context: undefined,
+    failureCount: 0,
+    failureReason: null,
+    isPaused: false,
+    submittedAt: 0,
+  } as unknown as UseMutationResult<TData, Error, TVariables, unknown>;
+}
+
 describe('SystemSettings', () => {
   const mockStats: DatabaseStats = {
     database_size_bytes: BigInt(1024 * 1024), // 1 MB
@@ -81,13 +143,7 @@ describe('SystemSettings', () => {
 
     // Mock useDatabaseStats to return success state
     const { useDatabaseStats } = await import('@/hooks/useDatabaseStats');
-    vi.mocked(useDatabaseStats).mockReturnValue({
-      data: mockStats,
-      isLoading: false,
-      error: null,
-      // @ts-expect-error - minimal mock
-      refetch: vi.fn(),
-    });
+    vi.mocked(useDatabaseStats).mockReturnValue(createQueryMock(mockStats));
 
     // Mock useDatabaseMaintenance to return mutation functions
     const { useDatabaseMaintenance } = await import(
@@ -95,43 +151,29 @@ describe('SystemSettings', () => {
     );
     vi.mocked(useDatabaseMaintenance).mockReturnValue({
       vacuum: {
+        ...createMutationMock<VacuumResult>(),
         mutate: mockVacuumMutate,
-        mutateAsync: vi.fn(),
-        isPending: false,
-        // @ts-expect-error - minimal mock
-        isError: false,
       },
-      analyze: {
-        mutate: mockAnalyzeMutate,
-        mutateAsync: vi.fn(),
-        isPending: false,
-        // @ts-expect-error - minimal mock
-        isError: false,
-      },
+      analyze: { ...createMutationMock<void>(), mutate: mockAnalyzeMutate },
       purgeArchived: {
+        ...createMutationMock<ArchivedPurgeResult, number | undefined>(),
         mutate: mockPurgeArchivedMutate,
-        mutateAsync: vi.fn(),
-        isPending: false,
-        // @ts-expect-error - minimal mock
-        isError: false,
       },
       purgeLogs: {
+        ...createMutationMock<LogPurgeResult, number | undefined>(),
         mutate: mockPurgeLogsMutate,
-        mutateAsync: vi.fn(),
-        isPending: false,
-        // @ts-expect-error - minimal mock
-        isError: false,
       },
     });
 
     // Mock useFeedback
     const { useFeedback } = await import('@/hooks/useFeedback');
     vi.mocked(useFeedback).mockReturnValue({
-      success: null,
+      success: false,
       error: null,
       showSuccess: vi.fn(),
       showError: vi.fn(),
-      clearFeedback: vi.fn(),
+      clearError: vi.fn(),
+      clearSuccess: vi.fn(),
     });
   });
 
@@ -207,32 +249,20 @@ describe('SystemSettings', () => {
 
     vi.mocked(useDatabaseMaintenance).mockReturnValue({
       vacuum: {
+        ...createMutationMock<VacuumResult>(mockVacuumAsync),
         mutate: mockVacuumMutate,
-        mutateAsync: mockVacuumAsync,
-        isPending: false,
-        // @ts-expect-error - minimal mock
-        isError: false,
       },
       analyze: {
+        ...createMutationMock<void>(mockAnalyzeAsync),
         mutate: mockAnalyzeMutate,
-        mutateAsync: mockAnalyzeAsync,
-        isPending: false,
-        // @ts-expect-error - minimal mock
-        isError: false,
       },
       purgeArchived: {
+        ...createMutationMock<ArchivedPurgeResult, number | undefined>(),
         mutate: mockPurgeArchivedMutate,
-        mutateAsync: vi.fn(),
-        isPending: false,
-        // @ts-expect-error - minimal mock
-        isError: false,
       },
       purgeLogs: {
+        ...createMutationMock<LogPurgeResult, number | undefined>(),
         mutate: mockPurgeLogsMutate,
-        mutateAsync: vi.fn(),
-        isPending: false,
-        // @ts-expect-error - minimal mock
-        isError: false,
       },
     });
 
