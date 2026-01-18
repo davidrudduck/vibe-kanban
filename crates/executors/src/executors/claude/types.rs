@@ -16,7 +16,6 @@ pub enum CLIMessage {
     ControlResponse {
         response: ControlResponseType,
     },
-    Result(serde_json::Value),
     #[serde(untagged)]
     Other(serde_json::Value),
 }
