@@ -64,7 +64,13 @@
         "purgeArchivedSuccess": "Se eliminaron {{count}} tareas archivadas.",
         "purgeArchivedError": "Error al purgar las tareas archivadas.",
         "purgeLogsSuccess": "Se eliminaron {{count}} entradas de registro.",
-        "purgeLogsError": "Error al purgar las entradas de registro."
+        "purgeLogsError": "Error al purgar las entradas de registro.",
+        "confirmPurgeTitle": "Confirmar Purga",
+        "confirmDelete": "Eliminar",
+        "confirmCancel": "Cancelar",
+        "confirmVacuumTitle": "¿Optimizar Base de Datos?",
+        "confirmVacuumMessage": "Esto ejecutará VACUUM y ANALYZE para recuperar espacio en disco y optimizar el rendimiento de las consultas. La base de datos se bloqueará brevemente durante esta operación.",
+        "vacuumCooldownTooltip": "Por favor espere {{remaining}} antes de ejecutar VACUUM nuevamente"
       }
     },
     "general": {

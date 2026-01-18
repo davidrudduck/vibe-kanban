@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -19,6 +19,12 @@ import {
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  TooltipProvider,
+} from '@/components/ui/tooltip';
 import {
   AlertTriangle,
   Database,
@@ -73,6 +79,32 @@ export function SystemSettings() {
   const [lastVacuumTime, setLastVacuumTime] = useState<number | null>(null);
   const canVacuum =
     lastVacuumTime === null || Date.now() - lastVacuumTime > 5 * 60 * 1000;
+
+  // Cooldown countdown state
+  const [cooldownRemaining, setCooldownRemaining] = useState<number>(0);
+
+  useEffect(() => {
+    if (lastVacuumTime === null) {
+      setCooldownRemaining(0);
+      return;
+    }
+
+    const updateRemaining = () => {
+      const elapsed = Date.now() - lastVacuumTime;
+      const remaining = Math.max(0, 5 * 60 * 1000 - elapsed);
+      setCooldownRemaining(remaining);
+    };
+
+    updateRemaining();
+    const interval = setInterval(updateRemaining, 1000);
+    return () => clearInterval(interval);
+  }, [lastVacuumTime]);
+
+  const formatCooldown = (ms: number): string => {
+    const minutes = Math.floor(ms / 60000);
+    const seconds = Math.floor((ms % 60000) / 1000);
+    return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+  };
 
   // Database stats
   const {
@@ -177,7 +209,24 @@ export function SystemSettings() {
   });
 
   const handleOptimize = async () => {
-    // Run vacuum and analyze sequentially
+    const result = await ConfirmDialog.show({
+      title: t('settings.system.cleanup.confirmVacuumTitle', {
+        defaultValue: 'Confirm Database Optimisation',
+      }),
+      message: t('settings.system.cleanup.confirmVacuumMessage', {
+        defaultValue:
+          'This will run VACUUM and ANALYSE on the database. The database may be briefly locked during this operation.',
+      }),
+      confirmText: t('settings.system.database.optimize', {
+        defaultValue: 'Optimise Database',
+      }),
+      cancelText: t('settings.system.cleanup.confirmCancel', {
+        defaultValue: 'Cancel',
+      }),
+      variant: 'info',
+    });
+    if (result !== 'confirmed') return;
+
     try {
       await vacuum.mutateAsync();
       await analyze.mutateAsync();
@@ -189,10 +238,16 @@ export function SystemSettings() {
   const handlePurgeArchived = async () => {
     const count = Number(archivedStats?.count ?? 0);
     const result = await ConfirmDialog.show({
-      title: 'Confirm Purge',
-      message: `Are you sure you want to permanently delete ${count} archived tasks? This cannot be undone.`,
-      confirmText: 'Delete',
-      cancelText: 'Cancel',
+      title: t('settings.system.cleanup.confirmPurgeTitle', {
+        defaultValue: 'Confirm Purge',
+      }),
+      message: t('settings.system.cleanup.confirmPurgeArchived', { count }),
+      confirmText: t('settings.system.cleanup.confirmDelete', {
+        defaultValue: 'Delete',
+      }),
+      cancelText: t('settings.system.cleanup.confirmCancel', {
+        defaultValue: 'Cancel',
+      }),
       variant: 'destructive',
     });
     if (result !== 'confirmed') return;
@@ -202,10 +257,16 @@ export function SystemSettings() {
   const handlePurgeLogs = async () => {
     const count = Number(logStats?.count ?? 0);
     const result = await ConfirmDialog.show({
-      title: 'Confirm Purge',
-      message: `Are you sure you want to permanently delete ${count} log entries? This cannot be undone.`,
-      confirmText: 'Delete',
-      cancelText: 'Cancel',
+      title: t('settings.system.cleanup.confirmPurgeTitle', {
+        defaultValue: 'Confirm Purge',
+      }),
+      message: t('settings.system.cleanup.confirmPurgeLogs', { count }),
+      confirmText: t('settings.system.cleanup.confirmDelete', {
+        defaultValue: 'Delete',
+      }),
+      cancelText: t('settings.system.cleanup.confirmCancel', {
+        defaultValue: 'Cancel',
+      }),
       variant: 'destructive',
     });
     if (result !== 'confirmed') return;
@@ -382,20 +443,35 @@ export function SystemSettings() {
                       'Run VACUUM and ANALYZE to reclaim space and optimize queries.',
                   })}
                 </div>
-                <Button
-                  onClick={handleOptimize}
-                  disabled={isOptimizing || !canVacuum}
-                  variant="outline"
-                >
-                  {isOptimizing ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Settings2 className="mr-2 h-4 w-4" />
-                  )}
-                  {t('settings.system.database.optimize', {
-                    defaultValue: 'Optimize Database',
-                  })}
-                </Button>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <Button
+                          onClick={handleOptimize}
+                          disabled={isOptimizing || !canVacuum}
+                          variant="outline"
+                        >
+                          {isOptimizing ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <Settings2 className="mr-2 h-4 w-4" />
+                          )}
+                          {t('settings.system.database.optimize', {
+                            defaultValue: 'Optimize Database',
+                          })}
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    {!canVacuum && cooldownRemaining > 0 && (
+                      <TooltipContent>
+                        {t('settings.system.cleanup.vacuumCooldownTooltip', {
+                          remaining: formatCooldown(cooldownRemaining),
+                        })}
+                      </TooltipContent>
+                    )}
+                  </Tooltip>
+                </TooltipProvider>
               </div>
             </div>
           ) : null}

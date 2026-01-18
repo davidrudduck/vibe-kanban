@@ -80,6 +80,8 @@ pub enum ApiError {
     BadGateway(String),
     #[error("Gateway timeout")]
     GatewayTimeout,
+    #[error("Too many requests: {0}")]
+    TooManyRequests(String),
     #[error(transparent)]
     NodeProxy(#[from] NodeProxyError),
     #[error(transparent)]
@@ -199,6 +201,7 @@ impl IntoResponse for ApiError {
             ApiError::Forbidden(_) => (StatusCode::FORBIDDEN, "ForbiddenError"),
             ApiError::BadGateway(_) => (StatusCode::BAD_GATEWAY, "BadGateway"),
             ApiError::GatewayTimeout => (StatusCode::GATEWAY_TIMEOUT, "GatewayTimeout"),
+            ApiError::TooManyRequests(_) => (StatusCode::TOO_MANY_REQUESTS, "TooManyRequests"),
             ApiError::NodeProxy(err) => match err {
                 NodeProxyError::NodeOffline => (StatusCode::BAD_GATEWAY, "NodeProxyError"),
                 NodeProxyError::NoNodeUrl => (StatusCode::BAD_REQUEST, "NodeProxyError"),
@@ -308,6 +311,7 @@ impl IntoResponse for ApiError {
             ApiError::Forbidden(msg) => msg.clone(),
             ApiError::BadGateway(msg) => msg.clone(),
             ApiError::GatewayTimeout => "Remote node did not respond in time. Please try again.".to_string(),
+            ApiError::TooManyRequests(msg) => msg.clone(),
             ApiError::NodeProxy(err) => match err {
                 NodeProxyError::NodeOffline => "Remote node is offline. Please try again later.".to_string(),
                 NodeProxyError::NoNodeUrl => "Remote node URL not configured.".to_string(),
