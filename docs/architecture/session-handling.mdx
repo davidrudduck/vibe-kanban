@@ -1,0 +1,283 @@
+---
+title: "Claude Code Session Handling"
+description: "How Vibe Kanban manages Claude Code sessions and works around the sessions-index.json corruption bug"
+sidebarTitle: "Session Handling"
+---
+
+## Overview
+
+Vibe Kanban uses Claude Code's session resumption feature to maintain context across multiple follow-up interactions. When a user sends follow-up messages or retries from a previous execution point, Claude Code should resume from the specified session ID to preserve conversation history. However, a bug in Claude Code causes session resumption to fail silently, resulting in lost context.
+
+## How Sessions Work
+
+### Session Files
+
+Claude Code stores each coding session in `.jsonl` files located in:
+
+```text
+~/.claude/projects/<escaped-project-path>/<session-id>.jsonl
+```
+
+Each line in the file is a JSON object representing a message, tool call, or event in the conversation.
+
+### Session Index
+
+Claude Code maintains a `sessions-index.json` file in the same directory to track all active sessions:
+
+```json
+{
+  "version": 1,
+  "entries": [
+    {
+      "sessionId": "abc-123-def",
+      "fullPath": "/home/user/.claude/projects/...",
+      "fileMtime": 1705502400000,
+      "firstPrompt": "Fix the authentication bug",
+      "messageCount": 42,
+      "created": "2026-01-18T10:00:00Z",
+      "modified": "2026-01-18T13:30:00Z",
+      "gitBranch": "bugfix-auth",
+      "projectPath": "/var/tmp/vkswarm/my-project",
+      "isSidechain": false
+    }
+  ]
+}
+```
+
+### Session Resumption
+
+When resuming a session, Claude Code is invoked with:
+
+```bash
+claude --fork-session --resume <session-id>
+```
+
+Claude Code looks up the session ID in the index to locate the session file. If found, it loads the full conversation history and continues from that point.
+
+## The Sessions Index Bug
+
+### Problem
+
+**Issue**: Claude Code's `sessions-index.json` stops being updated, causing session resumption to fail silently.
+
+**Evidence**: In task attempt `c0cb46e0-40bd-442b-b9e7-a73b0496fff8`:
+- 18 session `.jsonl` files existed in the project directory
+- Only 11 sessions were present in `sessions-index.json`
+- Session `be4a60c2-9a17-4d9f-a192-245f2e4c11c3` was missing from the index
+- Index last modified: 10:45 AM, but sessions created after were not added
+
+**Impact**: When Vibe Kanban passes `--fork-session --resume <session-id>` with a valid session ID that's missing from the index, Claude Code can't find the session and starts fresh, losing all prior context.
+
+**Root Cause**: Unknown Claude Code CLI bug. The index stops being updated after a certain point, but session files continue to be created normally.
+
+**Reported**: This bug should be reported to the Claude Code team via GitHub issue (task 001 dependency).
+
+### Symptom Detection
+
+You may have the sessions index bug if:
+
+- Follow-up messages start fresh instead of continuing context
+- Retry operations lose all prior conversation history
+- Session files exist in `~/.claude/projects/<project>/` but aren't in the index
+- The index `modified` timestamp is older than recent session files
+
+## Automatic Repair Workaround
+
+Vibe Kanban implements an automatic repair system that rebuilds the sessions index before every session resumption.
+
+### Architecture
+
+```text
+┌──────────────────────┐
+│  spawn_follow_up()   │
+│  (ClaudeExecutor)    │
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────────────┐
+│ repair_sessions_index()      │
+│ • Scan for session files     │
+│ • Compare with index         │
+│ • Rebuild if missing         │
+└──────────┬───────────────────┘
+           │
+           ▼
+┌──────────────────────────────┐
+│ claude --fork-session        │
+│        --resume <session-id> │
+└──────────────────────────────┘
+```
+
+### Implementation
+
+Location: `crates/executors/src/executors/session_index.rs`
+
+The repair function:
+
+1. **Locates Claude project directory** from the worktree path
+   - Path formula: `~/.claude/projects/<escaped-path>`
+   - Escaping: Replace `/` with `-`, strip leading `-`
+   - Example: `/var/tmp/vkswarm/my-project` → `var-tmp-vkswarm-my-project`
+
+2. **Reads existing index** (if present)
+   - Parses `sessions-index.json`
+   - Extracts set of tracked session IDs
+
+3. **Scans for session files**
+   - Finds all `.jsonl` files in the project directory
+   - Excludes `agent-*.jsonl` (agent-specific files)
+   - Excludes `sessions-index.jsonl` (the index itself)
+
+4. **Extracts metadata** from each session file
+   - Reads first line of `.jsonl` file
+   - Extracts `sessionId`, `created`, `gitBranch`, etc.
+   - Counts total messages (lines) in file
+   - Gets file modification time
+
+5. **Compares with index**
+   - Identifies sessions missing from index
+   - Logs each missing session with `tracing::info`
+
+6. **Rebuilds index** (only if sessions are missing)
+   - Sorts entries by session ID for consistency
+   - Writes updated `sessions-index.json`
+   - Logs repair action with count of added sessions
+
+### Integration
+
+The repair is called in `ClaudeExecutor::spawn_follow_up()` before session resumption:
+
+```rust
+async fn spawn_follow_up(
+    &self,
+    current_dir: &Path,
+    prompt: &str,
+    session_id: &str,
+) -> Result<SpawnedChild, ExecutorError> {
+    // Repair sessions-index.json if needed
+    if let Err(e) = session_index::repair_sessions_index(current_dir).await {
+        tracing::warn!(error = %e, "Failed to repair sessions index, continuing");
+    }
+
+    // ... existing session resumption code ...
+}
+```
+
+**Error handling**: Repair errors are logged but don't block execution. If repair fails, session resumption is still attempted (though it may fail due to the corrupt index).
+
+## Retry Session Context Preservation
+
+When a user retries from a previous execution point, Vibe Kanban now ensures context is preserved by:
+
+1. **Finding the session before the process** being retried
+   - Query: `find_session_id_before_process()` in `execution_process` model
+   - Returns the session ID from the execution immediately before the retry point
+
+2. **Repairing the index** before resumption
+   - Ensures the discovered session ID is in the index
+
+3. **Resuming from that session** instead of starting fresh
+   - Passes `--fork-session --resume <session-before-retry>`
+   - Claude Code loads all prior context up to the retry point
+
+This was implemented in task 009-011 to fix issue where retries would lose all conversation history.
+
+## Troubleshooting
+
+### Session Resumption Still Fails
+
+**Symptom**: Even with repair, Claude starts fresh.
+
+**Possible causes**:
+
+1. **Session file corrupted/malformed**
+   - Check logs for warnings about malformed JSON
+   - Repair skips invalid files but logs the error
+   - Solution: Check Claude project directory for problematic `.jsonl` files
+
+2. **Worktree path mismatch**
+   - Repair looks up Claude project directory based on worktree path
+   - If path escaping doesn't match Claude's formula, wrong directory
+   - Solution: Verify `~/.claude/projects/<escaped-path>` exists
+
+3. **Home directory resolution fails**
+   - Repair uses `dirs::home_dir()` to locate `~/.claude`
+   - If HOME not set or incorrect, repair won't find project
+   - Solution: Ensure `HOME` environment variable is set correctly
+
+### Index Keeps Getting Corrupted
+
+**Symptom**: Repair works once, but index becomes stale again after a few sessions.
+
+**Explanation**: This is the upstream Claude Code bug. The index stops being updated.
+
+**Workaround**: Vibe Kanban repairs automatically before every resumption, so this should be transparent. However, if Claude Code is used outside of Vibe Kanban, the index may become stale again.
+
+**Long-term fix**: Report the bug to Anthropic's Claude Code team so they can fix the root cause.
+
+### Repair Logging
+
+To see repair activity, set log level to `info` or `debug`:
+
+```bash
+RUST_LOG=info pnpm run dev
+```
+
+Look for log entries:
+
+```text
+INFO repair_sessions_index: Found session missing from index
+   session_id="abc-123-def"
+   file="/home/user/.claude/projects/.../abc-123-def.jsonl"
+
+INFO repair_sessions_index: Successfully repaired sessions-index.json
+   missing_count=7
+   total_sessions=18
+```
+
+## Testing
+
+The repair system includes comprehensive test coverage:
+
+| Test | Purpose |
+|------|---------|
+| `test_repair_adds_missing_sessions` | Verifies repair adds missing sessions to index |
+| `test_repair_no_op_when_complete` | Ensures repair doesn't modify complete index |
+| `test_repair_creates_new_index` | Tests creating index from scratch |
+| `test_repair_handles_malformed_files` | Verifies graceful handling of corrupt session files |
+| `test_repair_handles_nonexistent_project_directory` | Tests behaviour when Claude project directory doesn't exist |
+| `test_extract_session_metadata` | Tests metadata extraction from session files |
+| `test_scan_session_files` | Tests session file scanning and filtering |
+
+Run tests:
+
+```bash
+cargo test session_index
+```
+
+## Future Improvements
+
+### Short-term
+
+- [ ] File GitHub issue with Claude Code team (task 001)
+- [ ] Monitor for upstream fix and remove workaround when available
+
+### Long-term
+
+- [ ] Detect sidechain sessions (currently hardcoded to `false`)
+- [ ] Add periodic background repair (currently only on-demand)
+- [ ] Add metrics for repair frequency and success rate
+- [ ] Consider caching parsed index to reduce file I/O
+
+## Related Documentation
+
+- [Executor Architecture](./executors.mdx) - Overview of executor system
+- [Executor Log Normalisation](./executor-normalization.mdx) - How logs are processed
+- [Process Management](./process-management.mdx) - How executor processes are spawned
+
+## References
+
+- Issue: GitHub issue for Claude Code bug (pending, see task 001)
+- Code: `crates/executors/src/executors/session_index.rs`
+- Tests: `crates/executors/src/executors/session_index.rs` (test module)
+- Integration: `crates/executors/src/executors/claude.rs` (spawn_follow_up method)
