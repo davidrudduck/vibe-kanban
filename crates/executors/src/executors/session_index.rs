@@ -102,6 +102,10 @@ pub struct SessionLogEntry {
 #[allow(dead_code)]
 fn get_claude_project_dir(worktree_path: &Path) -> PathBuf {
     let home = dirs::home_dir().expect("home directory");
+    get_claude_project_dir_with_home(worktree_path, home)
+}
+
+fn get_claude_project_dir_with_home(worktree_path: &Path, home: PathBuf) -> PathBuf {
     let escaped = worktree_path
         .to_string_lossy()
         .replace('/', "-")
@@ -171,11 +175,9 @@ fn extract_session_metadata(
     let reader = BufReader::new(file);
     let mut lines = reader.lines();
 
-    let first_line = lines
-        .next()
-        .ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, "Session file is empty")
-        })??;
+    let first_line = lines.next().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, "Session file is empty")
+    })??;
 
     // Parse the first line as JSON
     let log_entry: SessionLogEntry = serde_json::from_str(&first_line).map_err(|e| {
@@ -259,12 +261,29 @@ fn extract_session_metadata(
 /// - Logs actions with tracing::info and tracing::warn
 /// - Writes index in sorted order by session ID for consistency
 pub async fn repair_sessions_index(worktree_path: &Path) -> Result<(), std::io::Error> {
+    repair_sessions_index_impl(worktree_path, None).await
+}
+
+pub(crate) async fn repair_sessions_index_with_home(
+    worktree_path: &Path,
+    home: PathBuf,
+) -> Result<(), std::io::Error> {
+    repair_sessions_index_impl(worktree_path, Some(home)).await
+}
+
+async fn repair_sessions_index_impl(
+    worktree_path: &Path,
+    home_override: Option<PathBuf>,
+) -> Result<(), std::io::Error> {
     use std::collections::HashSet;
     use std::fs;
     use tracing::{info, warn};
 
     // Get Claude project directory
-    let project_dir = get_claude_project_dir(worktree_path);
+    let project_dir = match home_override {
+        Some(home) => get_claude_project_dir_with_home(worktree_path, home),
+        None => get_claude_project_dir(worktree_path),
+    };
     let index_path = project_dir.join("sessions-index.json");
 
     // If project directory doesn't exist, nothing to repair
@@ -332,12 +351,7 @@ pub async fn repair_sessions_index(worktree_path: &Path) -> Result<(), std::io::
     // Build set of session IDs from existing index
     let existing_session_ids: HashSet<String> = existing_index
         .as_ref()
-        .map(|idx| {
-            idx.entries
-                .iter()
-                .map(|e| e.session_id.clone())
-                .collect()
-        })
+        .map(|idx| idx.entries.iter().map(|e| e.session_id.clone()).collect())
         .unwrap_or_default();
 
     // Extract metadata from all session files
@@ -512,6 +526,17 @@ mod tests {
     }
 
     #[test]
+    fn test_get_claude_project_dir_with_home_override() {
+        let custom_home = PathBuf::from("/custom/home");
+        let worktree = Path::new("/var/tmp/my-project");
+        let result = get_claude_project_dir_with_home(worktree, custom_home.clone());
+        assert_eq!(
+            result,
+            custom_home.join(".claude/projects/var-tmp-my-project")
+        );
+    }
+
+    #[test]
     fn test_scan_session_files() {
         use std::fs;
         use tempfile::TempDir;
@@ -617,8 +642,7 @@ mod tests {
 
         // Test with message field instead of content
         let session_file = temp_dir.path().join("test-session-2.jsonl");
-        let session_content =
-            r#"{"sessionId":"xyz-789","created":"2026-01-17T15:30:00.000Z","message":"First user message","role":"user"}
+        let session_content = r#"{"sessionId":"xyz-789","created":"2026-01-17T15:30:00.000Z","message":"First user message","role":"user"}
 {"message":"Assistant response"}"#;
 
         fs::write(&session_file, session_content).unwrap();
@@ -677,10 +701,7 @@ mod tests {
         // Should return an error for empty file
         let result = extract_session_metadata(&session_file, project_path);
         assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().kind(),
-            std::io::ErrorKind::InvalidData
-        );
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
     }
 
     #[test]
@@ -699,10 +720,7 @@ mod tests {
         // Should return an error for malformed JSON
         let result = extract_session_metadata(&session_file, project_path);
         assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().kind(),
-            std::io::ErrorKind::InvalidData
-        );
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
     }
 
     #[test]
@@ -725,10 +743,7 @@ mod tests {
         // Should return an error for missing sessionId
         let result = extract_session_metadata(&session_file, project_path);
         assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().kind(),
-            std::io::ErrorKind::InvalidData
-        );
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
 
         // Create a session file missing created timestamp
         let session_file2 = temp_dir.path().join("missing-created.jsonl");
@@ -741,10 +756,7 @@ mod tests {
         // Should return an error for missing created timestamp
         let result2 = extract_session_metadata(&session_file2, project_path);
         assert!(result2.is_err());
-        assert_eq!(
-            result2.unwrap_err().kind(),
-            std::io::ErrorKind::InvalidData
-        );
+        assert_eq!(result2.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
     }
 
     #[tokio::test]
@@ -756,9 +768,12 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let home_dir = temp_dir.path().join("home");
         let worktree_path = temp_dir.path().join("worktree");
-        let project_dir = home_dir
-            .join(".claude/projects")
-            .join(worktree_path.to_string_lossy().replace('/', "-").trim_start_matches('-'));
+        let project_dir = home_dir.join(".claude/projects").join(
+            worktree_path
+                .to_string_lossy()
+                .replace('/', "-")
+                .trim_start_matches('-'),
+        );
 
         fs::create_dir_all(&project_dir).unwrap();
         fs::create_dir_all(&worktree_path).unwrap();
@@ -795,13 +810,8 @@ mod tests {
         let index_json = serde_json::to_string_pretty(&incomplete_index).unwrap();
         fs::write(project_dir.join("sessions-index.json"), index_json).unwrap();
 
-        // Temporarily override home directory for test
-        unsafe {
-            std::env::set_var("HOME", home_dir.to_string_lossy().to_string());
-        }
-
-        // Run repair
-        let result = repair_sessions_index(&worktree_path).await;
+        // Run repair with explicit home directory
+        let result = repair_sessions_index_with_home(&worktree_path, home_dir.clone()).await;
         assert!(result.is_ok(), "Repair should succeed");
 
         // Read the updated index
@@ -811,14 +821,18 @@ mod tests {
 
         // Verify both sessions are now in the index
         assert_eq!(updated_index.entries.len(), 2);
-        assert!(updated_index
-            .entries
-            .iter()
-            .any(|e| e.session_id == "session-001"));
-        assert!(updated_index
-            .entries
-            .iter()
-            .any(|e| e.session_id == "session-002"));
+        assert!(
+            updated_index
+                .entries
+                .iter()
+                .any(|e| e.session_id == "session-001")
+        );
+        assert!(
+            updated_index
+                .entries
+                .iter()
+                .any(|e| e.session_id == "session-002")
+        );
 
         // Verify entries are sorted by session ID
         assert_eq!(updated_index.entries[0].session_id, "session-001");
@@ -834,9 +848,12 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let home_dir = temp_dir.path().join("home");
         let worktree_path = temp_dir.path().join("worktree");
-        let project_dir = home_dir
-            .join(".claude/projects")
-            .join(worktree_path.to_string_lossy().replace('/', "-").trim_start_matches('-'));
+        let project_dir = home_dir.join(".claude/projects").join(
+            worktree_path
+                .to_string_lossy()
+                .replace('/', "-")
+                .trim_start_matches('-'),
+        );
 
         fs::create_dir_all(&project_dir).unwrap();
         fs::create_dir_all(&worktree_path).unwrap();
@@ -869,13 +886,8 @@ mod tests {
         let original_json = serde_json::to_string_pretty(&complete_index).unwrap();
         fs::write(project_dir.join("sessions-index.json"), &original_json).unwrap();
 
-        // Temporarily override home directory for test
-        unsafe {
-            std::env::set_var("HOME", home_dir.to_string_lossy().to_string());
-        }
-
-        // Run repair
-        let result = repair_sessions_index(&worktree_path).await;
+        // Run repair with explicit home directory
+        let result = repair_sessions_index_with_home(&worktree_path, home_dir.clone()).await;
         assert!(result.is_ok(), "Repair should succeed");
 
         // Read the index after repair
@@ -885,10 +897,7 @@ mod tests {
         // Index should remain unchanged (no missing sessions)
         let after_repair_index: SessionIndex = serde_json::from_str(&after_repair_json).unwrap();
         assert_eq!(after_repair_index.entries.len(), 1);
-        assert_eq!(
-            after_repair_index.entries[0].session_id,
-            "session-complete"
-        );
+        assert_eq!(after_repair_index.entries[0].session_id, "session-complete");
     }
 
     #[tokio::test]
@@ -897,15 +906,11 @@ mod tests {
 
         // Create a worktree path that has no corresponding Claude project directory
         let temp_dir = TempDir::new().unwrap();
+        let home_dir = temp_dir.path().to_path_buf();
         let worktree_path = temp_dir.path().join("nonexistent-worktree");
 
-        // Override HOME to ensure no existing Claude directory
-        unsafe {
-            std::env::set_var("HOME", temp_dir.path().to_string_lossy().to_string());
-        }
-
-        // Run repair - should succeed with no action
-        let result = repair_sessions_index(&worktree_path).await;
+        // Run repair with explicit home directory - should succeed with no action
+        let result = repair_sessions_index_with_home(&worktree_path, home_dir).await;
         assert!(
             result.is_ok(),
             "Repair should succeed when project directory doesn't exist"
@@ -921,9 +926,12 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let home_dir = temp_dir.path().join("home");
         let worktree_path = temp_dir.path().join("worktree");
-        let project_dir = home_dir
-            .join(".claude/projects")
-            .join(worktree_path.to_string_lossy().replace('/', "-").trim_start_matches('-'));
+        let project_dir = home_dir.join(".claude/projects").join(
+            worktree_path
+                .to_string_lossy()
+                .replace('/', "-")
+                .trim_start_matches('-'),
+        );
 
         fs::create_dir_all(&project_dir).unwrap();
         fs::create_dir_all(&worktree_path).unwrap();
@@ -933,13 +941,8 @@ mod tests {
 {"type":"message","role":"assistant","content":"Response"}"#;
         fs::write(project_dir.join("new-session.jsonl"), session_content).unwrap();
 
-        // Temporarily override home directory for test
-        unsafe {
-            std::env::set_var("HOME", home_dir.to_string_lossy().to_string());
-        }
-
-        // Run repair - should create new index
-        let result = repair_sessions_index(&worktree_path).await;
+        // Run repair with explicit home directory - should create new index
+        let result = repair_sessions_index_with_home(&worktree_path, home_dir.clone()).await;
         assert!(result.is_ok(), "Repair should succeed");
 
         // Verify index was created
@@ -962,20 +965,18 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let home_dir = temp_dir.path().join("home");
         let worktree_path = temp_dir.path().join("worktree");
-        let project_dir = home_dir
-            .join(".claude/projects")
-            .join(worktree_path.to_string_lossy().replace('/', "-").trim_start_matches('-'));
+        let project_dir = home_dir.join(".claude/projects").join(
+            worktree_path
+                .to_string_lossy()
+                .replace('/', "-")
+                .trim_start_matches('-'),
+        );
 
         fs::create_dir_all(&project_dir).unwrap();
         fs::create_dir_all(&worktree_path).unwrap();
 
-        // Temporarily override home directory for test
-        unsafe {
-            std::env::set_var("HOME", home_dir.to_string_lossy().to_string());
-        }
-
-        // Run repair - should succeed with no action
-        let result = repair_sessions_index(&worktree_path).await;
+        // Run repair with explicit home directory - should succeed with no action
+        let result = repair_sessions_index_with_home(&worktree_path, home_dir.clone()).await;
         assert!(
             result.is_ok(),
             "Repair should succeed when no session files exist"
@@ -998,9 +999,12 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let home_dir = temp_dir.path().join("home");
         let worktree_path = temp_dir.path().join("worktree");
-        let project_dir = home_dir
-            .join(".claude/projects")
-            .join(worktree_path.to_string_lossy().replace('/', "-").trim_start_matches('-'));
+        let project_dir = home_dir.join(".claude/projects").join(
+            worktree_path
+                .to_string_lossy()
+                .replace('/', "-")
+                .trim_start_matches('-'),
+        );
 
         fs::create_dir_all(&project_dir).unwrap();
         fs::create_dir_all(&worktree_path).unwrap();
@@ -1024,14 +1028,12 @@ mod tests {
         )
         .unwrap();
 
-        // Temporarily override home directory for test
-        unsafe {
-            std::env::set_var("HOME", home_dir.to_string_lossy().to_string());
-        }
-
-        // Run repair - should succeed and skip malformed files
-        let result = repair_sessions_index(&worktree_path).await;
-        assert!(result.is_ok(), "Repair should succeed despite malformed files");
+        // Run repair with explicit home directory - should succeed and skip malformed files
+        let result = repair_sessions_index_with_home(&worktree_path, home_dir.clone()).await;
+        assert!(
+            result.is_ok(),
+            "Repair should succeed despite malformed files"
+        );
 
         // Verify index was created with only the valid session
         let index_path = project_dir.join("sessions-index.json");
@@ -1047,5 +1049,86 @@ mod tests {
             "Index should contain only the valid session"
         );
         assert_eq!(index.entries[0].session_id, "valid-session");
+    }
+
+    #[tokio::test]
+    async fn test_integration_repair_then_lookup() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        // Setup: Create worktree and Claude project directory
+        let temp_dir = TempDir::new().unwrap();
+        let home_dir = temp_dir.path().join("home");
+        let worktree_path = temp_dir.path().join("worktree");
+        let project_dir = home_dir.join(".claude/projects").join(
+            worktree_path
+                .to_string_lossy()
+                .replace('/', "-")
+                .trim_start_matches('-'),
+        );
+
+        fs::create_dir_all(&project_dir).unwrap();
+        fs::create_dir_all(&worktree_path).unwrap();
+
+        // Create 3 session files
+        for i in 1..=3 {
+            let content = format!(
+                r#"{{"sessionId":"session-{i}","created":"2026-01-18T{i:02}:00:00.000Z","content":"Session {i}"}}
+{{"type":"message","role":"assistant","content":"Response {i}"}}"#
+            );
+            fs::write(project_dir.join(format!("session-{i}.jsonl")), content).unwrap();
+        }
+
+        // Create incomplete index (only session-1)
+        let incomplete_index = SessionIndex {
+            version: 1,
+            entries: vec![SessionIndexEntry {
+                session_id: "session-1".to_string(),
+                full_path: project_dir
+                    .join("session-1.jsonl")
+                    .to_string_lossy()
+                    .to_string(),
+                file_mtime: 1234567890,
+                first_prompt: "Session 1".to_string(),
+                message_count: 2,
+                created: "2026-01-18T01:00:00.000Z".to_string(),
+                modified: "2026-01-18T01:00:00.000Z".to_string(),
+                git_branch: None,
+                project_path: worktree_path.to_string_lossy().to_string(),
+                is_sidechain: false,
+            }],
+        };
+        fs::write(
+            project_dir.join("sessions-index.json"),
+            serde_json::to_string_pretty(&incomplete_index).unwrap(),
+        )
+        .unwrap();
+
+        // Run repair
+        let result = repair_sessions_index_with_home(&worktree_path, home_dir.clone()).await;
+        assert!(result.is_ok());
+
+        // Verify: All 3 sessions now in index
+        let updated_content = fs::read_to_string(project_dir.join("sessions-index.json")).unwrap();
+        let updated_index: SessionIndex = serde_json::from_str(&updated_content).unwrap();
+
+        assert_eq!(updated_index.entries.len(), 3);
+        for i in 1..=3 {
+            assert!(
+                updated_index
+                    .entries
+                    .iter()
+                    .any(|e| e.session_id == format!("session-{i}")),
+                "Missing session-{i}"
+            );
+        }
+
+        // Verify: Can look up any session by ID
+        let session_2 = updated_index
+            .entries
+            .iter()
+            .find(|e| e.session_id == "session-2");
+        assert!(session_2.is_some());
+        assert!(session_2.unwrap().full_path.ends_with("session-2.jsonl"));
     }
 }

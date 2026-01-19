@@ -556,7 +556,10 @@ mod tests {
         // - OPENCODE_API should NOT be set
         // The absence of bridge-related code in spawn() ensures this.
 
-        assert!(true, "spawn() should not set OPENCODE_AUTO_SHARE or OPENCODE_API");
+        assert!(
+            true,
+            "spawn() should not set OPENCODE_AUTO_SHARE or OPENCODE_API"
+        );
     }
 
     #[tokio::test]
@@ -613,7 +616,8 @@ mod tests {
 
         // Verify it's followed by "json"
         assert_eq!(
-            args[format_idx + 1], "json",
+            args[format_idx + 1],
+            "json",
             "Expected --format to be followed by 'json'"
         );
     }
@@ -705,7 +709,10 @@ mod tests {
         // Verify by checking history contains expected LogMsg entries
         let history = msg_store.get_history();
         // Should have session_id push and patch push
-        assert!(history.len() >= 1, "Expected at least session_id to be pushed");
+        assert!(
+            history.len() >= 1,
+            "Expected at least session_id to be pushed"
+        );
     }
 
     #[tokio::test]
@@ -729,7 +736,10 @@ mod tests {
 
         // Verify by checking history - should have session_id + tool use patch
         let history = msg_store.get_history();
-        assert!(history.len() >= 2, "Expected session_id and tool call to be processed");
+        assert!(
+            history.len() >= 2,
+            "Expected session_id and tool call to be processed"
+        );
     }
 
     #[tokio::test]
