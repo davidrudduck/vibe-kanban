@@ -14,7 +14,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncWriteExt, process::Command};
 use ts_rs::TS;
-use workspace_utils::{msg_store::MsgStore, path::make_path_relative};
+use workspace_utils::msg_store::MsgStore;
 
 use crate::{
     command::{CmdOverrides, CommandBuilder, apply_overrides},
@@ -22,74 +22,11 @@ use crate::{
         AppendPrompt, AvailabilityInfo, ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
     },
     logs::{
-        ActionType, FileChange, NormalizedEntry, NormalizedEntryError, NormalizedEntryType,
-        TodoItem, ToolStatus, utils::EntryIndexProvider,
+        ActionType, NormalizedEntry, NormalizedEntryError, NormalizedEntryType, ToolStatus,
+        utils::EntryIndexProvider,
     },
     stdout_dup,
 };
-
-// Typed structures for oc-share tool state
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct OcToolInput {
-    #[serde(rename = "filePath", default)]
-    file_path: Option<String>,
-    #[serde(default)]
-    path: Option<String>,
-    #[serde(default)]
-    include: Option<String>,
-    #[serde(default)]
-    pattern: Option<String>,
-    #[serde(default)]
-    command: Option<String>,
-    #[serde(default)]
-    description: Option<String>,
-    #[serde(default)]
-    url: Option<String>,
-    #[serde(default)]
-    format: Option<String>,
-    #[serde(default)]
-    timeout: Option<u64>,
-    #[serde(rename = "oldString", default)]
-    old_string: Option<String>,
-    #[serde(rename = "newString", default)]
-    new_string: Option<String>,
-    #[serde(rename = "replaceAll", default)]
-    replace_all: Option<bool>,
-    #[serde(default)]
-    content: Option<String>,
-    #[serde(default)]
-    todos: Option<Vec<TodoInfo>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct OcToolMetadata {
-    #[serde(default)]
-    description: Option<String>,
-    #[serde(default)]
-    exit: Option<i32>,
-    #[serde(default)]
-    diff: Option<String>,
-    #[serde(default)]
-    count: Option<u64>,
-    #[serde(default)]
-    truncated: Option<bool>,
-    #[serde(default)]
-    preview: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct OcToolState {
-    #[serde(default)]
-    input: Option<OcToolInput>,
-    #[serde(default)]
-    metadata: Option<OcToolMetadata>,
-    #[serde(default)]
-    output: Option<String>,
-    #[serde(default)]
-    status: Option<String>,
-    #[serde(default)]
-    title: Option<String>,
-}
 
 // JSON event structures for --format json output
 /// OpenCode JSON event format (--format json)
@@ -121,6 +58,7 @@ struct OcToolState {
 /// # References
 ///
 /// OpenCode documentation: https://github.com/opencodeco/opencode
+#[allow(dead_code)] // Fields used by serde deserialization
 #[derive(Debug, Clone, Deserialize)]
 struct JsonEvent {
     #[serde(rename = "type")]
@@ -149,6 +87,7 @@ struct JsonEvent {
 /// - JSON-formatted tool calls: `{"name":"Read","input":{"filePath":"test.txt"}}`
 ///
 /// Tool calls are detected by checking if text starts with `{` and contains `"name"`.
+#[allow(dead_code)] // Fields used by serde deserialization
 #[derive(Debug, Clone, Deserialize)]
 struct JsonPart {
     id: String,
@@ -173,6 +112,7 @@ struct JsonPart {
 /// ```json
 /// "tokens": {"input": 100, "output": 50}
 /// ```
+#[allow(dead_code)] // Fields used by serde deserialization
 #[derive(Debug, Clone, Deserialize)]
 struct JsonTokens {
     input: u64,
@@ -382,7 +322,6 @@ impl StandardCodingAgentExecutor for Opencode {
     }
 }
 impl Opencode {
-    const SHARE_PREFIX: &'static str = "[oc-share] ";
     async fn process_opencode_log_lines(
         mut log_lines: BoxStream<'_, String>,
         msg_store: Arc<MsgStore>,
@@ -546,132 +485,6 @@ impl Opencode {
                 }
                 _ => {}
             }
-        }
-    }
-
-    /// Map tool name and state to a rich ActionType used by frontend renderers.
-    fn derive_action_type(
-        tool_name: &str,
-        state: &OcToolState,
-        worktree_path: &Path,
-    ) -> Option<ActionType> {
-        // Deserialize "tool" + typed input into a tagged enum to avoid stringly logic
-        #[derive(Deserialize)]
-        #[serde(tag = "tool", rename_all = "lowercase")]
-        #[allow(dead_code)]
-        enum ActionTool {
-            Read {
-                input: OcToolInput,
-            },
-            Write {
-                input: OcToolInput,
-            },
-            Edit {
-                input: OcToolInput,
-            },
-            Bash {
-                input: OcToolInput,
-            },
-            Grep {
-                input: OcToolInput,
-            },
-            Glob {
-                input: OcToolInput,
-            },
-            Webfetch {
-                input: OcToolInput,
-            },
-            Task {
-                input: OcToolInput,
-            },
-            Todowrite {
-                input: OcToolInput,
-            },
-            Todoread,
-            List {
-                input: OcToolInput,
-            },
-            #[serde(other)]
-            Other,
-        }
-
-        let input_json = serde_json::to_value(state.input.clone().unwrap_or_default())
-            .unwrap_or(serde_json::Value::Null);
-        let v = serde_json::json!({ "tool": tool_name, "input": input_json });
-        let parsed: ActionTool = serde_json::from_value(v).unwrap_or(ActionTool::Other);
-        match parsed {
-            ActionTool::Read { input } => {
-                let path = input.file_path.as_deref().unwrap_or("");
-                Some(ActionType::FileRead {
-                    path: make_path_relative(path, &worktree_path.to_string_lossy()),
-                })
-            }
-            ActionTool::Write { input } => {
-                let path = input.file_path.as_deref().unwrap_or("");
-                let content = input.content.unwrap_or_default();
-                Some(ActionType::FileEdit {
-                    path: make_path_relative(path, &worktree_path.to_string_lossy()),
-                    changes: vec![FileChange::Write { content }],
-                })
-            }
-            ActionTool::Edit { input } => {
-                let path = input.file_path.as_deref().unwrap_or("");
-                let diff = state
-                    .metadata
-                    .as_ref()
-                    .and_then(|m| m.diff.as_deref())
-                    .unwrap_or("");
-                if diff.is_empty() {
-                    return None;
-                }
-                Some(ActionType::FileEdit {
-                    path: make_path_relative(path, &worktree_path.to_string_lossy()),
-                    changes: vec![FileChange::Edit {
-                        unified_diff: diff.to_string(),
-                        has_line_numbers: false,
-                    }],
-                })
-            }
-            ActionTool::Bash { input } => {
-                let command = input.command.unwrap_or_default();
-                Some(ActionType::CommandRun {
-                    command,
-                    result: None,
-                })
-            }
-            ActionTool::Grep { input } => {
-                let query = input.pattern.unwrap_or_default();
-                Some(ActionType::Search { query })
-            }
-            ActionTool::Glob { input } => {
-                let query = input.pattern.unwrap_or_default();
-                Some(ActionType::Search { query })
-            }
-            ActionTool::Webfetch { input } => {
-                let url = input.url.unwrap_or_default();
-                Some(ActionType::WebFetch { url })
-            }
-            ActionTool::Todowrite { input } => {
-                let todos = input
-                    .todos
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|t| TodoItem {
-                        content: t.content,
-                        status: t.status,
-                        priority: t.priority,
-                    })
-                    .collect::<Vec<_>>();
-                Some(ActionType::TodoManagement {
-                    todos,
-                    operation: "write".into(),
-                })
-            }
-            ActionTool::Todoread => Some(ActionType::TodoManagement {
-                todos: vec![],
-                operation: "read".into(),
-            }),
-            ActionTool::List { .. } | ActionTool::Task { .. } | ActionTool::Other => None,
         }
     }
 }
