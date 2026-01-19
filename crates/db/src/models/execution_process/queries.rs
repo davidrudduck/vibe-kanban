@@ -455,4 +455,40 @@ impl ExecutionProcess {
             task,
         })
     }
+
+    /// Find the session ID from the process immediately before a target process.
+    ///
+    /// This query finds the most recent execution process that:
+    /// - Belongs to the same task attempt
+    /// - Has run_reason = 'codingagent'
+    /// - Is not dropped
+    /// - Has an associated session ID
+    /// - Was created before the target process
+    ///
+    /// Used for resuming Claude Code sessions when retrying a failed process.
+    pub async fn find_session_id_before_process(
+        pool: &SqlitePool,
+        task_attempt_id: Uuid,
+        process_id: Uuid,
+    ) -> Result<Option<String>, sqlx::Error> {
+        let result = sqlx::query_scalar!(
+            r#"SELECT es.session_id
+               FROM execution_processes ep
+               JOIN executor_sessions es ON ep.id = es.execution_process_id
+               WHERE ep.task_attempt_id = ?
+                 AND ep.run_reason = 'codingagent'
+                 AND ep.dropped = FALSE
+                 AND es.session_id IS NOT NULL
+                 AND ep.created_at < (SELECT created_at FROM execution_processes WHERE id = ?)
+               ORDER BY ep.created_at DESC
+               LIMIT 1"#,
+            task_attempt_id,
+            process_id
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        // Flatten Option<Option<String>> to Option<String>
+        Ok(result.flatten())
+    }
 }
