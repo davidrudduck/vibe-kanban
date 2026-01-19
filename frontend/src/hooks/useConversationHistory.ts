@@ -397,11 +397,13 @@ export const useConversationHistory = ({
             );
             entries.push(userPatchTypeWithKey);
 
-            // Remove all coding agent added user messages, replace with our custom one
+            // Remove non-injected user messages from coding agent, replace with our custom one
+            // Keep injected messages (they have metadata.injected === true)
             const entriesExcludingUser = p.entries.filter(
               (e) =>
                 e.type !== 'NORMALIZED_ENTRY' ||
-                e.content.entry_type.type !== 'user_message'
+                e.content.entry_type.type !== 'user_message' ||
+                e.content.metadata?.injected === true
             );
 
             const hasPendingApprovalEntry = entriesExcludingUser.some(
