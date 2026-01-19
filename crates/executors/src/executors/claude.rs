@@ -27,8 +27,7 @@ use crate::{
     command::{CmdOverrides, CommandBuilder, CommandParts, apply_overrides},
     executors::{
         AppendPrompt, AvailabilityInfo, ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
-        codex::client::LogWriter,
-        session_index,
+        codex::client::LogWriter, session_index,
     },
     logs::{
         ActionType, FileChange, NormalizedEntry, NormalizedEntryError, NormalizedEntryType,

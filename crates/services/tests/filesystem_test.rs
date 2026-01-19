@@ -24,10 +24,7 @@ async fn test_list_directory_includes_dot_files() {
     // Verify dot files are included
     let names: Vec<&str> = result.entries.iter().map(|e| e.name.as_str()).collect();
 
-    assert!(
-        names.contains(&".hidden_dir"),
-        "Should include .hidden_dir"
-    );
+    assert!(names.contains(&".hidden_dir"), "Should include .hidden_dir");
     assert!(names.contains(&".env"), "Should include .env");
     assert!(names.contains(&".gitignore"), "Should include .gitignore");
     assert!(names.contains(&"visible.txt"), "Should include visible.txt");
@@ -73,10 +70,7 @@ async fn test_list_directory_within_includes_dot_files() {
         .map(|e| e.name.as_str())
         .collect();
     assert!(claude_names.contains(&"plan.md"), "Should show plan.md");
-    assert!(
-        claude_names.contains(&"notes.txt"),
-        "Should show notes.txt"
-    );
+    assert!(claude_names.contains(&"notes.txt"), "Should show notes.txt");
 }
 
 #[tokio::test]
