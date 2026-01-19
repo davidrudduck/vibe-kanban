@@ -426,7 +426,7 @@ export function AgentSettings() {
                       />
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.keys(localParsedProfiles.executors).map(
+                      {Object.keys(localParsedProfiles.executors).sort().map(
                         (type) => (
                           <SelectItem key={type} value={type}>
                             {type}
@@ -466,7 +466,7 @@ export function AgentSettings() {
                         {Object.keys(
                           localParsedProfiles.executors[selectedExecutorType] ||
                             {}
-                        ).map((configuration) => (
+                        ).sort().map((configuration) => (
                           <SelectItem key={configuration} value={configuration}>
                             {configuration}
                           </SelectItem>

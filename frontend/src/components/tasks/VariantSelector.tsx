@@ -72,7 +72,9 @@ const VariantSelectorInner = forwardRef<HTMLButtonElement, Props>(
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent>
-          {Object.entries(currentProfile).map(([variantLabel]) => (
+          {Object.entries(currentProfile)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([variantLabel]) => (
             <DropdownMenuItem
               key={variantLabel}
               onClick={() => onChange(variantLabel)}
