@@ -28,6 +28,7 @@ use crate::{
     executors::{
         AppendPrompt, AvailabilityInfo, ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
         codex::client::LogWriter,
+        session_index,
     },
     logs::{
         ActionType, FileChange, NormalizedEntry, NormalizedEntryError, NormalizedEntryType,
@@ -182,6 +183,11 @@ impl StandardCodingAgentExecutor for ClaudeCode {
         prompt: &str,
         session_id: &str,
     ) -> Result<SpawnedChild, ExecutorError> {
+        // Repair sessions-index.json if needed
+        if let Err(e) = session_index::repair_sessions_index(current_dir).await {
+            tracing::warn!(error = %e, "Failed to repair sessions index, continuing");
+        }
+
         let command_builder = self.build_command_builder().await;
         let command_parts = command_builder.build_follow_up(&[
             "--fork-session".to_string(),

@@ -107,6 +107,23 @@ pub async fn follow_up(
         .await?
         .ok_or(SqlxError::RowNotFound)?;
 
+    // Check if the selected executor profile has no_context enabled (needed before retry logic)
+    let executor_configs = ExecutorConfigs::get_cached();
+    let coding_agent = executor_configs.get_coding_agent_or_default(&executor_profile_id);
+    let skip_context = coding_agent.no_context();
+
+    // For retries, get session ID BEFORE dropping processes to preserve context
+    let pre_retry_session_id = if payload.retry_process_id.is_some() && !skip_context {
+        ExecutionProcess::find_session_id_before_process(
+            &deployment.db().pool,
+            task_attempt.id,
+            payload.retry_process_id.unwrap(),
+        )
+        .await?
+    } else {
+        None
+    };
+
     // If retry settings provided, perform replace-logic before proceeding
     if let Some(proc_id) = payload.retry_process_id {
         let pool = &deployment.db().pool;
@@ -195,14 +212,14 @@ pub async fn follow_up(
         let _ = Draft::clear_after_send(pool, task_attempt.id, DraftType::Retry).await;
     }
 
-    // Check if the selected executor profile has no_context enabled
-    let executor_configs = ExecutorConfigs::get_cached();
-    let coding_agent = executor_configs.get_coding_agent_or_default(&executor_profile_id);
-    let skip_context = coding_agent.no_context();
-
-    // If no_context is enabled, skip session lookup and start fresh
+    // Determine session ID to use:
+    // 1. If skip_context is enabled, start fresh (None)
+    // 2. If we have a pre_retry_session_id from before dropping, use it
+    // 3. Otherwise, find the latest session ID from remaining processes
     let latest_session_id = if skip_context {
         None
+    } else if let Some(session_id) = pre_retry_session_id {
+        Some(session_id)
     } else {
         ExecutionProcess::find_latest_session_id_by_task_attempt(
             &deployment.db().pool,

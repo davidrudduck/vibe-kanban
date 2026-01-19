@@ -262,7 +262,9 @@ pub async fn perform_cleanup_actions(deployment: &DeploymentImpl) {
     // Skip if VK_DISABLE_PROCESS_KILL_ON_SHUTDOWN is set - useful for worktree dev servers
     // that shouldn't be managing executor processes (the production server manages them)
     if std::env::var("VK_DISABLE_PROCESS_KILL_ON_SHUTDOWN").is_ok() {
-        tracing::info!("Skipping process kill on shutdown (VK_DISABLE_PROCESS_KILL_ON_SHUTDOWN is set)");
+        tracing::info!(
+            "Skipping process kill on shutdown (VK_DISABLE_PROCESS_KILL_ON_SHUTDOWN is set)"
+        );
     } else if let Err(e) = deployment.container().kill_all_running_processes().await {
         tracing::error!("Failed to cleanly kill running execution processes: {}", e);
     }
