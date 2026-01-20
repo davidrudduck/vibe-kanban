@@ -58,7 +58,10 @@
     "injectedTooltip": "This message was injected into the running process",
     "userMessage": {
       "showMore": "Show more",
-      "showLess": "Show less"
+      "showLess": "Show less",
+      "expandMessage": "Expand message",
+      "collapseMessage": "Collapse message",
+      "editMessage": "Edit message"
     }
   },
   "branchSelector": {

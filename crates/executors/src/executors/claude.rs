@@ -2130,7 +2130,7 @@ mod tests {
         msg_store.push_finished();
 
         // Start normalization (this spawns async task)
-        executor.normalize_logs(msg_store.clone(), &current_dir);
+        executor.normalize_logs(msg_store.clone(), &current_dir, EntryIndexProvider::start_from(&msg_store));
 
         // Give some time for async processing
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;

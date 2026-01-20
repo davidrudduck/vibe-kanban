@@ -59,7 +59,10 @@
     "injectedTooltip": "このメッセージは実行中のプロセスに注入されました",
     "userMessage": {
       "showMore": "もっと見る",
-      "showLess": "少なく表示"
+      "showLess": "少なく表示",
+      "expandMessage": "メッセージを展開",
+      "collapseMessage": "メッセージを折りたたむ",
+      "editMessage": "メッセージを編集"
     }
   },
   "language": {
