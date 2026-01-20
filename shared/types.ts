@@ -836,7 +836,15 @@ hive_synced_at?: string,
  * The server instance that spawned this process. Used for instance-scoped
  * process cleanup on shutdown (so cargo watch restarts don't kill other instances' processes).
  */
-server_instance_id?: string, };
+server_instance_id?: string, 
+/**
+ * Why the session completed: "result_success", "result_error", "eof", "killed", "error"
+ */
+completion_reason?: string, 
+/**
+ * Additional details about completion (e.g., error message)
+ */
+completion_message?: string, };
 
 export enum ExecutionProcessStatus { running = "running", completed = "completed", failed = "failed", killed = "killed" }
 

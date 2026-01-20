@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "INSERT INTO execution_processes (\n                    id, task_attempt_id, run_reason, executor_action, before_head_commit,\n                    after_head_commit, status, exit_code, pid, started_at, completed_at, created_at, updated_at, server_instance_id\n                ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, ?, ?, ?) RETURNING\n                    id as \"id!: Uuid\", task_attempt_id as \"task_attempt_id!: Uuid\", run_reason as \"run_reason!: ExecutionProcessRunReason\", executor_action as \"executor_action!: sqlx::types::Json<ExecutorActionField>\", before_head_commit,\n                    after_head_commit, status as \"status!: ExecutionProcessStatus\", exit_code, dropped, pid, started_at as \"started_at!: DateTime<Utc>\", completed_at as \"completed_at?: DateTime<Utc>\", created_at as \"created_at!: DateTime<Utc>\", updated_at as \"updated_at!: DateTime<Utc>\", hive_synced_at as \"hive_synced_at: DateTime<Utc>\", server_instance_id",
+  "query": "SELECT id as \"id!: Uuid\", task_attempt_id as \"task_attempt_id!: Uuid\", run_reason as \"run_reason!: ExecutionProcessRunReason\", executor_action as \"executor_action!: sqlx::types::Json<ExecutorActionField>\", before_head_commit,\n                      after_head_commit, status as \"status!: ExecutionProcessStatus\", exit_code, dropped, pid, started_at as \"started_at!: DateTime<Utc>\", completed_at as \"completed_at?: DateTime<Utc>\",\n                      created_at as \"created_at!: DateTime<Utc>\", updated_at as \"updated_at!: DateTime<Utc>\", hive_synced_at as \"hive_synced_at: DateTime<Utc>\", server_instance_id, completion_reason, completion_message\n               FROM execution_processes\n               WHERE task_attempt_id = ? AND run_reason = ? AND dropped = FALSE\n               ORDER BY created_at DESC LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -82,10 +82,20 @@
         "name": "server_instance_id",
         "ordinal": 15,
         "type_info": "Text"
+      },
+      {
+        "name": "completion_reason",
+        "ordinal": 16,
+        "type_info": "Text"
+      },
+      {
+        "name": "completion_message",
+        "ordinal": 17,
+        "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 12
+      "Right": 2
     },
     "nullable": [
       true,
@@ -103,8 +113,10 @@
       false,
       false,
       true,
+      true,
+      true,
       true
     ]
   },
-  "hash": "e538c648a0db3884b4f95b55225dc19f57118e48c1403e96d999703ae8d77f8b"
+  "hash": "9f4c3afae1663784d059e786b8a42a11bb36bdcf53fe4aec432021b0b62349b2"
 }

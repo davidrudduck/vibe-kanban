@@ -89,6 +89,12 @@ pub struct ExecutionProcess {
     /// process cleanup on shutdown (so cargo watch restarts don't kill other instances' processes).
     #[ts(optional)]
     pub server_instance_id: Option<String>,
+    /// Why the session completed: "result_success", "result_error", "eof", "killed", "error"
+    #[ts(optional)]
+    pub completion_reason: Option<String>,
+    /// Additional details about completion (e.g., error message)
+    #[ts(optional)]
+    pub completion_message: Option<String>,
 }
 
 #[derive(Debug, Deserialize, TS)]

@@ -140,6 +140,13 @@
     "exit": "Exit: {{code}}",
     "started": "Started: {{date}}",
     "completed": "Completed: {{date}}",
+    "completionReason": {
+      "result_success": "Completed",
+      "result_error": "Completed with error",
+      "eof": "Connection lost",
+      "killed": "Stopped",
+      "error": "Error"
+    },
     "detailsTitle": "Process Details",
     "backToList": "Back to list",
     "loadingDetails": "Loading process details...",

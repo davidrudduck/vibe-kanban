@@ -334,7 +334,14 @@
     "processId": "Process ID: {{id}}",
     "reconnecting": "Reconnecting...",
     "selectAttempt": "Select an attempt to view execution processes.",
-    "started": "Started: {{date}}"
+    "started": "Started: {{date}}",
+    "completionReason": {
+      "result_success": "完了",
+      "result_error": "エラーで完了",
+      "eof": "接続が切断されました",
+      "killed": "停止",
+      "error": "エラー"
+    }
   },
   "rebase": {
     "common": {
