@@ -1334,6 +1334,14 @@ impl ContainerService for LocalContainerService {
         self.take_normalization_handle(exec_id).await
     }
 
+    async fn get_entry_index_provider(&self, exec_id: &Uuid) -> Option<EntryIndexProvider> {
+        self.get_entry_index_provider(exec_id).await
+    }
+
+    async fn store_entry_index_provider(&self, exec_id: Uuid, provider: EntryIndexProvider) {
+        self.store_entry_index_provider(exec_id, provider).await
+    }
+
     fn instance_id(&self) -> &str {
         &self.instance_id
     }
