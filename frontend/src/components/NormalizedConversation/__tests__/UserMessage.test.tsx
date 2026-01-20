@@ -1,21 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import UserMessage from '../UserMessage';
+import { TaskAttempt } from 'shared/types';
 
 // Mock dependencies
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (key: string) => {
-      const translations: Record<string, string> = {
-        'conversation.injectedLabel': '(injected)',
-        'conversation.injectedTooltip':
-          'This message was injected into the running process',
-      };
-      return translations[key] || key;
-    },
-  }),
-}));
-
 vi.mock('@/hooks/useProcessRetry', () => ({
   useProcessRetry: () => null,
 }));
@@ -36,44 +24,24 @@ vi.mock('@/contexts/RetryUiContext', () => ({
 }));
 
 describe('UserMessage', () => {
-  describe('injected indicator', () => {
-    it('renders injected indicator when metadata.injected is true', () => {
-      render(
-        <UserMessage content="Test message" metadata={{ injected: true }} />
-      );
-      expect(screen.getByText('(injected)')).toBeInTheDocument();
-    });
-
-    it('does not render injected indicator when metadata is null', () => {
-      render(<UserMessage content="Test message" metadata={null} />);
-      expect(screen.queryByText('(injected)')).not.toBeInTheDocument();
-    });
-
-    it('does not render injected indicator when metadata is undefined', () => {
-      render(<UserMessage content="Test message" />);
-      expect(screen.queryByText('(injected)')).not.toBeInTheDocument();
-    });
-
-    it('does not render injected indicator when metadata.injected is false', () => {
-      render(
-        <UserMessage content="Test message" metadata={{ injected: false }} />
-      );
-      expect(screen.queryByText('(injected)')).not.toBeInTheDocument();
-    });
-
-    it('has aria-label for accessibility', () => {
-      render(
-        <UserMessage content="Test message" metadata={{ injected: true }} />
-      );
-      const indicator = screen.getByText('(injected)');
-      expect(indicator).toHaveAttribute('aria-label', '(injected)');
-    });
-  });
-
   describe('content rendering', () => {
     it('renders message content', () => {
-      render(<UserMessage content="Hello world" metadata={null} />);
+      render(<UserMessage content="Hello world" />);
       expect(screen.getByText('Hello world')).toBeInTheDocument();
+    });
+
+    it('renders executor name when taskAttempt is provided', () => {
+      const mockTaskAttempt: Partial<TaskAttempt> = {
+        id: 'test-id',
+        executor: 'CLAUDE_CODE',
+      };
+      render(
+        <UserMessage
+          content="Test message"
+          taskAttempt={mockTaskAttempt as TaskAttempt}
+        />
+      );
+      expect(screen.getByText('CLAUDE_CODE')).toBeInTheDocument();
     });
   });
 });
