@@ -137,7 +137,6 @@ impl StandardCodingAgentExecutor for CursorAgent {
         worktree_path: &Path,
         entry_index_provider: EntryIndexProvider,
     ) -> tokio::task::JoinHandle<()> {
-
         // Custom stderr processor for Cursor that detects login errors
         // Process stderr with automatic error classification
         let msg_store_stderr = msg_store.clone();
