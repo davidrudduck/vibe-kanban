@@ -264,6 +264,7 @@ pub async fn repair_sessions_index(worktree_path: &Path) -> Result<(), std::io::
     repair_sessions_index_impl(worktree_path, None).await
 }
 
+#[allow(dead_code)] // Used in tests for isolation with custom home directory
 pub(crate) async fn repair_sessions_index_with_home(
     worktree_path: &Path,
     home: PathBuf,
