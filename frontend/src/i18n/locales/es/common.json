@@ -56,7 +56,11 @@
       "entries500": "500 entradas"
     },
     "injectedLabel": "(inyectado)",
-    "injectedTooltip": "Este mensaje fue inyectado en el proceso en ejecución"
+    "injectedTooltip": "Este mensaje fue inyectado en el proceso en ejecución",
+    "userMessage": {
+      "showMore": "Mostrar más",
+      "showLess": "Mostrar menos"
+    }
   },
   "language": {
     "browserDefault": "Predeterminado del navegador"

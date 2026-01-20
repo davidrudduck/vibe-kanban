@@ -56,7 +56,11 @@
       "entries500": "500개 항목"
     },
     "injectedLabel": "(주입됨)",
-    "injectedTooltip": "이 메시지는 실행 중인 프로세스에 주입되었습니다"
+    "injectedTooltip": "이 메시지는 실행 중인 프로세스에 주입되었습니다",
+    "userMessage": {
+      "showMore": "더 보기",
+      "showLess": "간략히"
+    }
   },
   "language": {
     "browserDefault": "브라우저 기본값"

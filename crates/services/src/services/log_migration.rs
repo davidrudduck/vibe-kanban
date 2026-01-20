@@ -328,7 +328,9 @@ pub async fn migrate_execution_logs_with_options(
         // The path is only used for making file paths relative in tool output
         let worktree_path = PathBuf::from("/");
 
-        executor.normalize_logs(msg_store.clone(), &worktree_path);
+        let entry_index_provider =
+            executors::logs::utils::EntryIndexProvider::start_from(&msg_store);
+        executor.normalize_logs(msg_store.clone(), &worktree_path, entry_index_provider);
 
         // Wait for normalization to complete by polling until no new patches appear
         // The normalizer processes stdout_lines_stream and pushes JsonPatch entries to the store

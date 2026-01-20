@@ -529,11 +529,14 @@ impl LocalContainerService {
             };
 
             // Extract completion_reason and completion_message for database storage
-            let (reason_str, message_str): (Option<&str>, Option<String>) = match &completion_reason {
+            let (reason_str, message_str): (Option<&str>, Option<String>) = match &completion_reason
+            {
                 Some(reason) => {
                     let reason_str = reason.as_str();
                     let message = match reason {
-                        executors::executors::SessionCompletionReason::Error { message } => Some(message.clone()),
+                        executors::executors::SessionCompletionReason::Error { message } => {
+                            Some(message.clone())
+                        }
                         _ => None,
                     };
                     (Some(reason_str), message)
@@ -1334,6 +1337,14 @@ impl ContainerService for LocalContainerService {
         self.take_normalization_handle(exec_id).await
     }
 
+    async fn get_entry_index_provider(&self, exec_id: &Uuid) -> Option<EntryIndexProvider> {
+        self.get_entry_index_provider(exec_id).await
+    }
+
+    async fn store_entry_index_provider(&self, exec_id: Uuid, provider: EntryIndexProvider) {
+        self.store_entry_index_provider(exec_id, provider).await
+    }
+
     fn instance_id(&self) -> &str {
         &self.instance_id
     }
@@ -1899,17 +1910,16 @@ impl ContainerService for LocalContainerService {
                 && let Some(msg_store) = msg_stores.get(&execution_process_id)
             {
                 // Get or create entry index provider for this execution
-                let index_provider =
-                    match self.get_entry_index_provider(&execution_process_id).await {
-                        Some(provider) => provider,
-                        None => {
-                            // Create new provider by scanning current history
-                            let provider = EntryIndexProvider::start_from(msg_store);
-                            self.store_entry_index_provider(execution_process_id, provider.clone())
-                                .await;
-                            provider
-                        }
-                    };
+                let index_provider = self
+                    .get_entry_index_provider(&execution_process_id)
+                    .await
+                    .unwrap_or_else(|| {
+                        tracing::warn!(
+                            execution_process_id = %execution_process_id,
+                            "Entry index provider not found, creating fallback"
+                        );
+                        EntryIndexProvider::start_from(msg_store)
+                    });
 
                 let entry = NormalizedEntry {
                     timestamp: Some(Utc::now().to_rfc3339()),

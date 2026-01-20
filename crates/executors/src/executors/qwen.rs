@@ -12,6 +12,7 @@ use crate::{
         AppendPrompt, AvailabilityInfo, ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
         gemini::AcpAgentHarness,
     },
+    logs::utils::EntryIndexProvider,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, JsonSchema)]
@@ -67,8 +68,9 @@ impl StandardCodingAgentExecutor for QwenCode {
         &self,
         msg_store: Arc<MsgStore>,
         worktree_path: &Path,
+        entry_index_provider: EntryIndexProvider,
     ) -> tokio::task::JoinHandle<()> {
-        crate::executors::acp::normalize_logs(msg_store, worktree_path)
+        crate::executors::acp::normalize_logs(msg_store, worktree_path, entry_index_provider)
     }
 
     // MCP configuration methods

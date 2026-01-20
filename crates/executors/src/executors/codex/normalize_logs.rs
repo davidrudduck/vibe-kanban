@@ -1129,9 +1129,9 @@ fn format_todo_status(status: &StepStatus) -> String {
 pub fn normalize_logs(
     msg_store: Arc<MsgStore>,
     worktree_path: &Path,
+    entry_index: EntryIndexProvider,
 ) -> tokio::task::JoinHandle<()> {
     // stderr normalization
-    let entry_index = EntryIndexProvider::start_from(&msg_store);
     let stderr_handle = normalize_stderr_logs(msg_store.clone(), entry_index.clone());
 
     // stdout normalization using the shared driver
