@@ -273,7 +273,9 @@ impl SessionCompletionReason {
     pub fn as_str(&self) -> &'static str {
         match self {
             SessionCompletionReason::ResultMessage { is_error: true, .. } => "result_error",
-            SessionCompletionReason::ResultMessage { is_error: false, .. } => "result_success",
+            SessionCompletionReason::ResultMessage {
+                is_error: false, ..
+            } => "result_success",
             SessionCompletionReason::EofWithoutResult => "eof",
             SessionCompletionReason::Killed => "killed",
             SessionCompletionReason::Error { .. } => "error",
@@ -285,13 +287,9 @@ impl SessionCompletionReason {
 #[derive(Debug, Clone)]
 pub enum ExecutorExitResult {
     /// Process completed successfully (exit code 0)
-    Success {
-        reason: SessionCompletionReason,
-    },
+    Success { reason: SessionCompletionReason },
     /// Process should be marked as failed (non-zero exit)
-    Failure {
-        reason: SessionCompletionReason,
-    },
+    Failure { reason: SessionCompletionReason },
 }
 
 impl ExecutorExitResult {

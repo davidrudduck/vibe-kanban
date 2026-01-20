@@ -247,7 +247,6 @@ impl StandardCodingAgentExecutor for Opencode {
         worktree_path: &Path,
         entry_index_counter: EntryIndexProvider,
     ) -> tokio::task::JoinHandle<()> {
-
         let stderr_lines = msg_store
             .stderr_lines_stream()
             .filter_map(|res| ready(res.ok()))
