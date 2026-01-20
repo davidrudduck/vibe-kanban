@@ -218,7 +218,7 @@ impl<'a> NodeTaskAttemptRepository<'a> {
             FROM node_task_attempts nta
             INNER JOIN nodes n ON nta.node_id = n.id
             WHERE nta.sync_state != 'complete'
-              AND n.last_seen_at > NOW() - INTERVAL '5 minutes'
+              AND n.last_heartbeat_at > NOW() - INTERVAL '5 minutes'
             ORDER BY nta.created_at DESC
             LIMIT $1 OFFSET $2
             "#,
