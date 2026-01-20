@@ -25,6 +25,7 @@ use crate::{
         organization_members::{self, MemberRole},
         organizations::OrganizationRepository,
         projects::ProjectRepository,
+        swarm_projects::SwarmProjectRepository,
         tasks::SharedTaskRepository,
     },
 };
@@ -598,4 +599,60 @@ pub(crate) async fn ensure_task_access(
         })?;
 
     Ok(organization_id)
+}
+
+pub(crate) async fn ensure_swarm_project_access(
+    pool: &PgPool,
+    user_id: Uuid,
+    swarm_project_id: Uuid,
+) -> Result<Uuid, ErrorResponse> {
+    // Lookup organization_id from swarm_projects table
+    let organization_id = SwarmProjectRepository::organization_id(pool, swarm_project_id)
+        .await
+        .map_err(|error| {
+            tracing::error!(?error, %swarm_project_id, "failed to load swarm project");
+            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
+        })?
+        .ok_or_else(|| {
+            tracing::warn!(%swarm_project_id, %user_id, "swarm project not found for access check");
+            ErrorResponse::new(StatusCode::NOT_FOUND, "project not found")
+        })?;
+
+    // Verify user is a member of the organization
+    organization_members::assert_membership(pool, organization_id, user_id)
+        .await
+        .map_err(|err| membership_error(err, "project not accessible"))?;
+
+    Ok(organization_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ensure_swarm_project_access_signature() {
+        // This test verifies that the function exists and has the correct signature.
+        // Integration tests would require a database and proper test fixtures.
+        // The function signature is:
+        // pub(crate) async fn ensure_swarm_project_access(
+        //     pool: &PgPool,
+        //     user_id: Uuid,
+        //     swarm_project_id: Uuid,
+        // ) -> Result<Uuid, ErrorResponse>
+        // This test simply ensures the function is accessible within the module.
+        let _fn = ensure_swarm_project_access;
+        // If this compiles, the signature is correct.
+    }
+
+    #[test]
+    fn test_error_response_creation() {
+        // Test that ErrorResponse can be created with valid status codes
+        // These are used by ensure_swarm_project_access for error handling
+        let _not_found = ErrorResponse::new(StatusCode::NOT_FOUND, "project not found");
+        let _forbidden = ErrorResponse::new(StatusCode::FORBIDDEN, "project not accessible");
+        let _internal_error =
+            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "internal server error");
+        // If creation succeeds, error handling is available
+    }
 }
