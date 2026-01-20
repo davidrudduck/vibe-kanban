@@ -334,7 +334,14 @@
     "processId": "Process ID: {{id}}",
     "reconnecting": "Reconnecting...",
     "selectAttempt": "Select an attempt to view execution processes.",
-    "started": "Started: {{date}}"
+    "started": "Started: {{date}}",
+    "completionReason": {
+      "result_success": "완료됨",
+      "result_error": "오류로 완료됨",
+      "eof": "연결 끊김",
+      "killed": "중지됨",
+      "error": "오류"
+    }
   },
   "rebase": {
     "common": {

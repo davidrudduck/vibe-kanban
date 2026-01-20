@@ -156,7 +156,9 @@ impl JsonRpcPeer {
                 }
             }
 
-            exit_tx.send_exit_signal(ExecutorExitResult::Success).await;
+            exit_tx
+                .send_exit_signal(ExecutorExitResult::success_default())
+                .await;
             let _ = reader_peer.shutdown().await;
         });
 

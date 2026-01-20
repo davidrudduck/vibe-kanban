@@ -399,7 +399,7 @@ impl AcpAgentHarness {
                         }
                         // Notify container of completion
                         if let Some(tx) = exit_signal_tx.take() {
-                            let _ = tx.send(ExecutorExitResult::Success);
+                            let _ = tx.send(ExecutorExitResult::success_default());
                         }
 
                         // Cancel session work
