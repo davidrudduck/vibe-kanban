@@ -1,6 +1,6 @@
 import MarkdownRenderer from '@/components/ui/markdown-renderer';
 import { Button } from '@/components/ui/button';
-import { Pencil } from 'lucide-react';
+import { Pencil, ChevronDown } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useProcessRetry } from '@/hooks/useProcessRetry';
 import { TaskAttempt, BaseAgentCapability } from 'shared/types';
@@ -8,33 +8,42 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import { useDraftStream } from '@/hooks/follow-up/useDraftStream';
 import { RetryEditorInline } from './RetryEditorInline';
 import { useRetryUi } from '@/contexts/RetryUiContext';
-import { useTranslation } from 'react-i18next';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
+import { useExpandable } from '@/stores/useExpandableStore';
+
+const USER_MESSAGE_APPEARANCE = {
+  border: 'border-green-400/40',
+  headerBg: 'bg-green-50 dark:bg-green-950/20',
+  headerText: 'text-green-700 dark:text-green-300',
+  contentBg: 'bg-green-50 dark:bg-green-950/10',
+  contentText: 'text-green-700 dark:text-green-300',
+};
+
+const LINE_LIMIT = 5;
 
 const UserMessage = ({
   content,
   executionProcessId,
   taskAttempt,
-  metadata,
 }: {
   content: string;
   executionProcessId?: string;
   taskAttempt?: TaskAttempt;
-  metadata?: Record<string, unknown> | null;
 }) => {
-  const isInjected = metadata?.injected === true;
-  const { t } = useTranslation('common');
   const [isEditing, setIsEditing] = useState(false);
   const retryHook = useProcessRetry(taskAttempt);
   const { capabilities } = useUserSystem();
   const attemptId = taskAttempt?.id;
   const { retryDraft } = useDraftStream(attemptId);
   const { activeRetryProcessId, isProcessGreyed } = useRetryUi();
+
+  // Line counting and expand/collapse logic
+  const lineCount = content.split('\n').length;
+  const needsCollapse = lineCount > LINE_LIMIT;
+  const [expanded, toggle] = useExpandable(
+    `user-message:${executionProcessId || 'no-id'}`,
+    !needsCollapse // Default: expanded if short, collapsed if long
+  );
 
   const canFork = !!(
     taskAttempt?.executor &&
@@ -85,27 +94,61 @@ const UserMessage = ({
   const reason = retryState?.reason ?? undefined;
   const editTitle = disabled && reason ? reason : 'Edit message';
 
+  const executor = taskAttempt?.executor;
+  // Note: variant information is in ExecutorAction, not TaskAttempt
+  // For now, just show executor name
+  const variant = null;
+
+  // Content truncation for collapsed state
+  const displayContent = needsCollapse && !expanded
+    ? content.split('\n').slice(0, LINE_LIMIT).join('\n') + '...'
+    : content;
+
   return (
-    <div className={`py-2 ${greyed ? 'opacity-50 pointer-events-none' : ''}`}>
-      <div className="group bg-background px-4 py-2 text-sm flex gap-2">
-        <div className="flex-1 py-3">
-          {isInjected && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span
-                    className="text-xs text-muted-foreground mb-1 block border-l-2 border-muted-foreground/30 pl-2"
-                    aria-label={t('conversation.injectedLabel')}
-                  >
-                    {t('conversation.injectedLabel')}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  {t('conversation.injectedTooltip')}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
+    <div className={`inline-block w-full py-2 ${greyed ? 'opacity-50 pointer-events-none' : ''}`}>
+      <div className={cn('border w-full overflow-hidden rounded-sm', USER_MESSAGE_APPEARANCE.border)}>
+        {/* Header with executor/variant */}
+        <div className={cn(
+          'w-full px-2 py-1.5 flex items-center gap-1.5 text-xs font-medium',
+          USER_MESSAGE_APPEARANCE.headerBg,
+          USER_MESSAGE_APPEARANCE.headerText
+        )}>
+          <span>{executor}{variant && ` / ${variant}`}</span>
+          <div className="ml-auto flex items-center gap-1">
+            {needsCollapse && (
+              <button
+                onClick={(e) => { e.preventDefault(); toggle(); }}
+                className="p-1 hover:bg-green-100 dark:hover:bg-green-900/30 rounded"
+                aria-label={expanded ? 'Collapse message' : 'Expand message'}
+              >
+                <ChevronDown
+                  className={cn(
+                    'w-4 h-4 transition-transform',
+                    expanded && 'rotate-180'
+                  )}
+                />
+              </button>
+            )}
+            {executionProcessId && canFork && !showRetryEditor && (
+              <div className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150">
+                <Button
+                  onClick={startRetry}
+                  variant="ghost"
+                  className="p-1 h-auto"
+                  disabled={disabled}
+                  title={editTitle}
+                  aria-label="Edit message"
+                  aria-disabled={disabled}
+                >
+                  <Pencil className="w-3 h-3" />
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Content area */}
+        <div className={cn('px-3 py-2 group', USER_MESSAGE_APPEARANCE.contentBg)}>
           {showRetryEditor ? (
             <RetryEditorInline
               attempt={taskAttempt as TaskAttempt}
@@ -117,26 +160,11 @@ const UserMessage = ({
             />
           ) : (
             <MarkdownRenderer
-              content={content}
+              content={displayContent}
               className="whitespace-pre-wrap break-words flex flex-col gap-1 font-light"
             />
           )}
         </div>
-        {executionProcessId && canFork && !showRetryEditor && (
-          <div className="flex flex-col opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150 pointer-events-none group-hover:pointer-events-auto">
-            <Button
-              onClick={startRetry}
-              variant="ghost"
-              className="p-2"
-              disabled={disabled}
-              title={editTitle}
-              aria-label="Edit message"
-              aria-disabled={disabled}
-            >
-              <Pencil className="w-3 h-3" />
-            </Button>
-          </div>
-        )}
       </div>
     </div>
   );

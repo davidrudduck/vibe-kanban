@@ -15,6 +15,7 @@ use ts_rs::TS;
 use workspace_utils::msg_store::MsgStore;
 
 use crate::executors::claude::protocol::ProtocolPeer;
+use crate::logs::utils::EntryIndexProvider;
 
 use crate::{
     actions::ExecutorAction,
@@ -224,6 +225,7 @@ pub trait StandardCodingAgentExecutor {
         &self,
         _raw_logs_event_store: Arc<MsgStore>,
         _worktree_path: &Path,
+        _entry_index_provider: EntryIndexProvider,
     ) -> JoinHandle<()>;
 
     // MCP configuration methods
@@ -271,7 +273,9 @@ impl SessionCompletionReason {
     pub fn as_str(&self) -> &'static str {
         match self {
             SessionCompletionReason::ResultMessage { is_error: true, .. } => "result_error",
-            SessionCompletionReason::ResultMessage { is_error: false, .. } => "result_success",
+            SessionCompletionReason::ResultMessage {
+                is_error: false, ..
+            } => "result_success",
             SessionCompletionReason::EofWithoutResult => "eof",
             SessionCompletionReason::Killed => "killed",
             SessionCompletionReason::Error { .. } => "error",
@@ -283,13 +287,9 @@ impl SessionCompletionReason {
 #[derive(Debug, Clone)]
 pub enum ExecutorExitResult {
     /// Process completed successfully (exit code 0)
-    Success {
-        reason: SessionCompletionReason,
-    },
+    Success { reason: SessionCompletionReason },
     /// Process should be marked as failed (non-zero exit)
-    Failure {
-        reason: SessionCompletionReason,
-    },
+    Failure { reason: SessionCompletionReason },
 }
 
 impl ExecutorExitResult {

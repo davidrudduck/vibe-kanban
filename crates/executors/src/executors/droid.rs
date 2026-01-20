@@ -165,12 +165,9 @@ impl StandardCodingAgentExecutor for Droid {
         &self,
         msg_store: Arc<MsgStore>,
         current_dir: &Path,
+        entry_index_provider: EntryIndexProvider,
     ) -> tokio::task::JoinHandle<()> {
-        normalize_logs(
-            msg_store.clone(),
-            current_dir,
-            EntryIndexProvider::start_from(&msg_store),
-        )
+        normalize_logs(msg_store.clone(), current_dir, entry_index_provider)
     }
 
     fn default_mcp_config_path(&self) -> Option<std::path::PathBuf> {
