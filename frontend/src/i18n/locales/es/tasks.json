@@ -334,7 +334,14 @@
     "processId": "Process ID: {{id}}",
     "reconnecting": "Reconnecting...",
     "selectAttempt": "Select an attempt to view execution processes.",
-    "started": "Started: {{date}}"
+    "started": "Started: {{date}}",
+    "completionReason": {
+      "result_success": "Completado",
+      "result_error": "Completado con error",
+      "eof": "Conexión perdida",
+      "killed": "Detenido",
+      "error": "Error"
+    }
   },
   "rebase": {
     "common": {

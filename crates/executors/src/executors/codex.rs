@@ -365,7 +365,11 @@ impl Codex {
                             .ok();
                         // Send failure signal so the process is marked as failed
                         exit_signal_tx
-                            .send_exit_signal(ExecutorExitResult::Failure)
+                            .send_exit_signal(ExecutorExitResult::failure(
+                                crate::executors::SessionCompletionReason::Error {
+                                    message: message.clone(),
+                                },
+                            ))
                             .await;
                         return;
                     }
@@ -379,7 +383,11 @@ impl Codex {
                 }
                 // For other errors, also send failure signal
                 exit_signal_tx
-                    .send_exit_signal(ExecutorExitResult::Failure)
+                    .send_exit_signal(ExecutorExitResult::failure(
+                        crate::executors::SessionCompletionReason::Error {
+                            message: err.to_string(),
+                        },
+                    ))
                     .await;
             }
         });

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id as \"id!: Uuid\", task_attempt_id as \"task_attempt_id!: Uuid\", run_reason as \"run_reason!: ExecutionProcessRunReason\", executor_action as \"executor_action!: sqlx::types::Json<ExecutorActionField>\", before_head_commit,\n                      after_head_commit, status as \"status!: ExecutionProcessStatus\", exit_code, dropped, pid, started_at as \"started_at!: DateTime<Utc>\", completed_at as \"completed_at?: DateTime<Utc>\",\n                      created_at as \"created_at!: DateTime<Utc>\", updated_at as \"updated_at!: DateTime<Utc>\", hive_synced_at as \"hive_synced_at: DateTime<Utc>\", server_instance_id\n               FROM execution_processes WHERE status = 'running' ORDER BY created_at ASC",
+  "query": "SELECT id as \"id!: Uuid\", task_attempt_id as \"task_attempt_id!: Uuid\", run_reason as \"run_reason!: ExecutionProcessRunReason\", executor_action as \"executor_action!: sqlx::types::Json<ExecutorActionField>\", before_head_commit,\n                      after_head_commit, status as \"status!: ExecutionProcessStatus\", exit_code, dropped, pid, started_at as \"started_at!: DateTime<Utc>\", completed_at as \"completed_at?: DateTime<Utc>\",\n                      created_at as \"created_at!: DateTime<Utc>\", updated_at as \"updated_at!: DateTime<Utc>\", hive_synced_at as \"hive_synced_at: DateTime<Utc>\", server_instance_id, completion_reason, completion_message\n               FROM execution_processes WHERE id = ?",
   "describe": {
     "columns": [
       {
@@ -82,10 +82,20 @@
         "name": "server_instance_id",
         "ordinal": 15,
         "type_info": "Text"
+      },
+      {
+        "name": "completion_reason",
+        "ordinal": 16,
+        "type_info": "Text"
+      },
+      {
+        "name": "completion_message",
+        "ordinal": 17,
+        "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 0
+      "Right": 1
     },
     "nullable": [
       true,
@@ -103,8 +113,10 @@
       false,
       false,
       true,
+      true,
+      true,
       true
     ]
   },
-  "hash": "707113afb300097734d83388b08bd22d2212c5a8c84fdad58dee3ff130088ed5"
+  "hash": "6d9cfdb63239ee9c39ed67d41d71389f12b60b09ed740b718a3136d026506394"
 }

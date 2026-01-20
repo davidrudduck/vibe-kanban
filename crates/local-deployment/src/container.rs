@@ -468,6 +468,9 @@ impl LocalContainerService {
 
             let status_result: std::io::Result<std::process::ExitStatus>;
 
+            // Track completion reason from executor exit signal
+            let mut completion_reason: Option<executors::executors::SessionCompletionReason> = None;
+
             // Wait for process to exit, or exit signal from executor
             tokio::select! {
                 // Exit signal with result.
@@ -493,10 +496,16 @@ impl LocalContainerService {
                         }
                     }
 
-                    // Map the exit result to appropriate exit status
-                    status_result = match exit_result {
-                        Ok(ExecutorExitResult::Success) => Ok(success_exit_status()),
-                        Ok(ExecutorExitResult::Failure) => Ok(failure_exit_status()),
+                    // Map the exit result to appropriate exit status and capture completion reason
+                    status_result = match &exit_result {
+                        Ok(ExecutorExitResult::Success { reason }) => {
+                            completion_reason = Some(reason.clone());
+                            Ok(success_exit_status())
+                        }
+                        Ok(ExecutorExitResult::Failure { reason }) => {
+                            completion_reason = Some(reason.clone());
+                            Ok(failure_exit_status())
+                        }
                         Err(_) => Ok(success_exit_status()), // Channel closed, assume success
                     };
                 }
@@ -519,12 +528,27 @@ impl LocalContainerService {
                 Err(_) => (None, ExecutionProcessStatus::Failed),
             };
 
+            // Extract completion_reason and completion_message for database storage
+            let (reason_str, message_str): (Option<&str>, Option<String>) = match &completion_reason {
+                Some(reason) => {
+                    let reason_str = reason.as_str();
+                    let message = match reason {
+                        executors::executors::SessionCompletionReason::Error { message } => Some(message.clone()),
+                        _ => None,
+                    };
+                    (Some(reason_str), message)
+                }
+                None => (None, None),
+            };
+
             if !ExecutionProcess::was_stopped(&db.pool, exec_id).await
                 && let Err(e) = ExecutionProcess::update_completion(
                     &db.pool,
                     exec_id,
                     status.clone(),
                     exit_code,
+                    reason_str,
+                    message_str.as_deref(),
                 )
                 .await
             {
@@ -1550,8 +1574,22 @@ impl ContainerService for LocalContainerService {
             None
         };
 
-        ExecutionProcess::update_completion(&self.db.pool, execution_process.id, status, exit_code)
-            .await?;
+        // User manually stopped the execution
+        let completion_reason = if status == ExecutionProcessStatus::Killed {
+            Some("killed")
+        } else {
+            None
+        };
+
+        ExecutionProcess::update_completion(
+            &self.db.pool,
+            execution_process.id,
+            status,
+            exit_code,
+            completion_reason,
+            None, // No completion message for manual stops
+        )
+        .await?;
 
         // Kill the child process and remove from the store
         const LOCK_TIMEOUT: Duration = Duration::from_secs(5);

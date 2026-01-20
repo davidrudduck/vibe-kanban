@@ -11,12 +11,28 @@ use super::types::{
     SDKControlRequestMessage,
 };
 use crate::executors::{
-    ExecutorError, ExecutorExitResult,
+    ExecutorError, ExecutorExitResult, SessionCompletionReason,
     claude::{
         client::ClaudeAgentClient,
         types::{PermissionMode, SDKControlRequestType},
     },
 };
+
+/// Minimal struct to detect Result messages in the output stream.
+/// We only need the fields required for SessionCompletionReason.
+#[derive(serde::Deserialize)]
+struct ResultMessage {
+    #[serde(rename = "type")]
+    message_type: String,
+    #[serde(default)]
+    subtype: Option<String>,
+    #[serde(default, alias = "isError")]
+    is_error: Option<bool>,
+    #[serde(default)]
+    duration_ms: Option<u64>,
+    #[serde(default)]
+    num_turns: Option<u32>,
+}
 use workspace_utils::approvals::Question;
 
 /// Clone-able wrapper for exit signal sender.
@@ -60,14 +76,19 @@ impl ProtocolPeer {
 
         let reader_peer = peer.clone();
         tokio::spawn(async move {
-            if let Err(e) = reader_peer.read_loop(stdout, client).await {
-                tracing::error!("Protocol reader loop error: {}", e);
-            }
-            // Send exit signal when read loop completes (regardless of success/error)
+            let completion_reason = match reader_peer.read_loop(stdout, client).await {
+                Ok(reason) => reason,
+                Err(e) => {
+                    tracing::error!("Protocol reader loop error: {}", e);
+                    SessionCompletionReason::Error {
+                        message: e.to_string(),
+                    }
+                }
+            };
+            // Send exit signal with the detected completion reason
             // This triggers the exit monitor to kill the process group
-            exit_signal
-                .send_exit_signal(ExecutorExitResult::Success)
-                .await;
+            let exit_result = ExecutorExitResult::success(completion_reason);
+            exit_signal.send_exit_signal(exit_result).await;
         });
 
         peer
@@ -77,9 +98,10 @@ impl ProtocolPeer {
         &self,
         stdout: ChildStdout,
         client: Arc<ClaudeAgentClient>,
-    ) -> Result<(), ExecutorError> {
+    ) -> Result<SessionCompletionReason, ExecutorError> {
         let mut reader = BufReader::new(stdout);
         let mut buffer = String::new();
+        let mut completion_reason: Option<SessionCompletionReason> = None;
 
         loop {
             buffer.clear();
@@ -90,7 +112,30 @@ impl ProtocolPeer {
                     if line.is_empty() {
                         continue;
                     }
-                    // Parse message using typed enum
+
+                    // Check for Result message (session completion marker)
+                    // This is a top-level {"type":"result",...} message, NOT a tool_result
+                    if completion_reason.is_none() {
+                        if let Ok(msg) = serde_json::from_str::<ResultMessage>(line) {
+                            if msg.message_type == "result" {
+                                tracing::info!(
+                                    subtype = ?msg.subtype,
+                                    is_error = ?msg.is_error,
+                                    duration_ms = ?msg.duration_ms,
+                                    num_turns = ?msg.num_turns,
+                                    "Claude Code session completed via Result message"
+                                );
+                                completion_reason = Some(SessionCompletionReason::ResultMessage {
+                                    is_error: msg.is_error.unwrap_or(false),
+                                    subtype: msg.subtype,
+                                    duration_ms: msg.duration_ms,
+                                    num_turns: msg.num_turns,
+                                });
+                            }
+                        }
+                    }
+
+                    // Parse message using typed enum for control protocol
                     match serde_json::from_str::<CLIMessage>(line) {
                         Ok(CLIMessage::ControlRequest {
                             request_id,
@@ -107,11 +152,19 @@ impl ProtocolPeer {
                 }
                 Err(e) => {
                     tracing::error!("Error reading stdout: {}", e);
-                    break;
+                    return Err(ExecutorError::Io(e));
                 }
             }
         }
-        Ok(())
+
+        // Return the completion reason, defaulting to EofWithoutResult if no Result message was seen
+        match completion_reason {
+            Some(reason) => Ok(reason),
+            None => {
+                tracing::warn!("Claude Code session ended with EOF (no Result message)");
+                Ok(SessionCompletionReason::EofWithoutResult)
+            }
+        }
     }
 
     async fn handle_control_request(
@@ -318,10 +371,12 @@ mod tests {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let sender = ExitSignalSender::new(tx);
 
-        sender.send_exit_signal(ExecutorExitResult::Success).await;
+        sender
+            .send_exit_signal(ExecutorExitResult::success_default())
+            .await;
 
         let result = rx.await;
-        assert!(matches!(result, Ok(ExecutorExitResult::Success)));
+        assert!(matches!(result, Ok(ExecutorExitResult::Success { .. })));
     }
 
     #[tokio::test]
@@ -329,10 +384,14 @@ mod tests {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let sender = ExitSignalSender::new(tx);
 
-        sender.send_exit_signal(ExecutorExitResult::Success).await;
-        sender.send_exit_signal(ExecutorExitResult::Failure).await; // Should be no-op
+        sender
+            .send_exit_signal(ExecutorExitResult::success_default())
+            .await;
+        sender
+            .send_exit_signal(ExecutorExitResult::failure_default())
+            .await; // Should be no-op
 
         let result = rx.await;
-        assert!(matches!(result, Ok(ExecutorExitResult::Success)));
+        assert!(matches!(result, Ok(ExecutorExitResult::Success { .. })));
     }
 }

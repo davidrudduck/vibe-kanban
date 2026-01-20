@@ -247,13 +247,89 @@ pub trait StandardCodingAgentExecutor {
     }
 }
 
+/// Reason why an executor session completed
+#[derive(Debug, Clone, Default)]
+pub enum SessionCompletionReason {
+    /// Session ended with a Result message (normal completion)
+    ResultMessage {
+        is_error: bool,
+        subtype: Option<String>,
+        duration_ms: Option<u64>,
+        num_turns: Option<u32>,
+    },
+    /// Session ended with EOF without a Result message (abnormal)
+    #[default]
+    EofWithoutResult,
+    /// Session was killed by user
+    Killed,
+    /// Session ended due to an error
+    Error { message: String },
+}
+
+impl SessionCompletionReason {
+    /// Returns a short string identifier for the completion reason
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SessionCompletionReason::ResultMessage { is_error: true, .. } => "result_error",
+            SessionCompletionReason::ResultMessage { is_error: false, .. } => "result_success",
+            SessionCompletionReason::EofWithoutResult => "eof",
+            SessionCompletionReason::Killed => "killed",
+            SessionCompletionReason::Error { .. } => "error",
+        }
+    }
+}
+
 /// Result communicated through the exit signal
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum ExecutorExitResult {
     /// Process completed successfully (exit code 0)
-    Success,
+    Success {
+        reason: SessionCompletionReason,
+    },
     /// Process should be marked as failed (non-zero exit)
-    Failure,
+    Failure {
+        reason: SessionCompletionReason,
+    },
+}
+
+impl ExecutorExitResult {
+    /// Create a success result with the given completion reason
+    pub fn success(reason: SessionCompletionReason) -> Self {
+        ExecutorExitResult::Success { reason }
+    }
+
+    /// Create a success result with default reason (EOF)
+    pub fn success_default() -> Self {
+        ExecutorExitResult::Success {
+            reason: SessionCompletionReason::EofWithoutResult,
+        }
+    }
+
+    /// Create a failure result with the given completion reason
+    pub fn failure(reason: SessionCompletionReason) -> Self {
+        ExecutorExitResult::Failure { reason }
+    }
+
+    /// Create a failure result with default reason (EOF)
+    pub fn failure_default() -> Self {
+        ExecutorExitResult::Failure {
+            reason: SessionCompletionReason::EofWithoutResult,
+        }
+    }
+
+    /// Get the completion reason
+    pub fn reason(&self) -> &SessionCompletionReason {
+        match self {
+            ExecutorExitResult::Success { reason } | ExecutorExitResult::Failure { reason } => {
+                reason
+            }
+        }
+    }
+
+    /// Check if this is a success result
+    pub fn is_success(&self) -> bool {
+        matches!(self, ExecutorExitResult::Success { .. })
+    }
 }
 
 /// Optional exit notification from an executor.

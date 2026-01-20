@@ -259,7 +259,9 @@ pub trait ContainerService {
                 &self.db().pool,
                 process.id,
                 ExecutionProcessStatus::Failed,
-                None, // No exit code for orphaned processes
+                None,            // No exit code for orphaned processes
+                Some("eof"),     // Orphaned processes ended without proper completion
+                None,            // No message
             )
             .await
             {
@@ -1093,6 +1095,8 @@ pub trait ContainerService {
                 execution_process.id,
                 ExecutionProcessStatus::Failed,
                 None,
+                Some("error"),               // Execution failed to start
+                Some(&start_error.to_string()), // Include error message
             )
             .await
             {
