@@ -79,9 +79,8 @@ async fn get_activity_stream(
     // Query activity using the appropriate method based on parameter type
     let repo = ActivityRepository::new(state.pool());
 
-    let events = if params.swarm_project_id.is_some() {
-        // Use swarm_project_id query method
-        let swarm_id = params.swarm_project_id.unwrap();
+    let events = if let Some(swarm_id) = params.swarm_project_id {
+        // Use swarm_project_id query method (canonical)
         match repo
             .fetch_since_by_swarm_project(swarm_id, after, limit)
             .await
@@ -96,9 +95,8 @@ async fn get_activity_stream(
                 .into_response();
             }
         }
-    } else {
+    } else if let Some(project_id) = params.project_id {
         // Use legacy project_id query method
-        let project_id = params.project_id.unwrap();
         match repo.fetch_since(project_id, after, limit).await {
             Ok(events) => events,
             Err(error) => {
@@ -110,6 +108,10 @@ async fn get_activity_stream(
                 .into_response();
             }
         }
+    } else {
+        // This branch should be unreachable because the access control section above
+        // already validates that at least one parameter is provided
+        unreachable!("parameter validation handled in access control section")
     };
 
     (StatusCode::OK, Json(ActivityResponse { data: events })).into_response()
