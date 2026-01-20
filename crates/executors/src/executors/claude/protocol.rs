@@ -131,6 +131,10 @@ impl ProtocolPeer {
                                     duration_ms: msg.duration_ms,
                                     num_turns: msg.num_turns,
                                 });
+                                // Break immediately to trigger exit signal.
+                                // The Result message indicates session completion - Claude Code
+                                // will wait for user input indefinitely after this point.
+                                break;
                             }
                         }
                     }
