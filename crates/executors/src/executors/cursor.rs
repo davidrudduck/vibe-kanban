@@ -135,8 +135,8 @@ impl StandardCodingAgentExecutor for CursorAgent {
         &self,
         msg_store: Arc<MsgStore>,
         worktree_path: &Path,
+        entry_index_provider: EntryIndexProvider,
     ) -> tokio::task::JoinHandle<()> {
-        let entry_index_provider = EntryIndexProvider::start_from(&msg_store);
 
         // Custom stderr processor for Cursor that detects login errors
         // Process stderr with automatic error classification

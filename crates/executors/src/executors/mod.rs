@@ -15,6 +15,7 @@ use ts_rs::TS;
 use workspace_utils::msg_store::MsgStore;
 
 use crate::executors::claude::protocol::ProtocolPeer;
+use crate::logs::utils::EntryIndexProvider;
 
 use crate::{
     actions::ExecutorAction,
@@ -224,6 +225,7 @@ pub trait StandardCodingAgentExecutor {
         &self,
         _raw_logs_event_store: Arc<MsgStore>,
         _worktree_path: &Path,
+        _entry_index_provider: EntryIndexProvider,
     ) -> JoinHandle<()>;
 
     // MCP configuration methods

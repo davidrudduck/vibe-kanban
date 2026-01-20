@@ -245,8 +245,8 @@ impl StandardCodingAgentExecutor for Opencode {
         &self,
         msg_store: Arc<MsgStore>,
         worktree_path: &Path,
+        entry_index_counter: EntryIndexProvider,
     ) -> tokio::task::JoinHandle<()> {
-        let entry_index_counter = EntryIndexProvider::start_from(&msg_store);
 
         let stderr_lines = msg_store
             .stderr_lines_stream()

@@ -1900,16 +1900,15 @@ impl ContainerService for LocalContainerService {
             {
                 // Get or create entry index provider for this execution
                 let index_provider =
-                    match self.get_entry_index_provider(&execution_process_id).await {
-                        Some(provider) => provider,
-                        None => {
-                            // Create new provider by scanning current history
-                            let provider = EntryIndexProvider::start_from(msg_store);
-                            self.store_entry_index_provider(execution_process_id, provider.clone())
-                                .await;
-                            provider
-                        }
-                    };
+                    self.get_entry_index_provider(&execution_process_id)
+                        .await
+                        .unwrap_or_else(|| {
+                            tracing::warn!(
+                                execution_process_id = %execution_process_id,
+                                "Entry index provider not found, creating fallback"
+                            );
+                            EntryIndexProvider::start_from(msg_store)
+                        });
 
                 let entry = NormalizedEntry {
                     timestamp: Some(Utc::now().to_rfc3339()),

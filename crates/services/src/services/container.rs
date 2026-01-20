@@ -99,6 +99,19 @@ pub trait ContainerService {
     /// Used to await normalization completion before signaling finished.
     async fn take_normalization_handle(&self, exec_id: &Uuid) -> Option<JoinHandle<()>>;
 
+    /// Get an entry index provider for log message injection.
+    async fn get_entry_index_provider(
+        &self,
+        exec_id: &Uuid,
+    ) -> Option<executors::logs::utils::EntryIndexProvider>;
+
+    /// Store an entry index provider for log message injection.
+    async fn store_entry_index_provider(
+        &self,
+        exec_id: Uuid,
+        provider: executors::logs::utils::EntryIndexProvider,
+    );
+
     /// Get the server instance ID. Used to tag execution processes for
     /// instance-scoped cleanup on shutdown.
     fn instance_id(&self) -> &str;
@@ -664,12 +677,16 @@ pub trait ContainerService {
                 ExecutorActionType::CodingAgentInitialRequest(request) => {
                     let executor = ExecutorConfigs::get_cached()
                         .get_coding_agent_or_default(&request.executor_profile_id);
-                    executor.normalize_logs(temp_store.clone(), &current_dir);
+                    let entry_index_provider =
+                        executors::logs::utils::EntryIndexProvider::start_from(&temp_store);
+                    executor.normalize_logs(temp_store.clone(), &current_dir, entry_index_provider);
                 }
                 ExecutorActionType::CodingAgentFollowUpRequest(request) => {
                     let executor = ExecutorConfigs::get_cached()
                         .get_coding_agent_or_default(&request.executor_profile_id);
-                    executor.normalize_logs(temp_store.clone(), &current_dir);
+                    let entry_index_provider =
+                        executors::logs::utils::EntryIndexProvider::start_from(&temp_store);
+                    executor.normalize_logs(temp_store.clone(), &current_dir, entry_index_provider);
                 }
                 _ => {
                     tracing::debug!(
@@ -1160,8 +1177,18 @@ pub trait ContainerService {
             if let Some(executor) =
                 ExecutorConfigs::get_cached().get_coding_agent(executor_profile_id)
             {
-                let handle = executor
-                    .normalize_logs(msg_store, &self.task_attempt_to_current_dir(task_attempt));
+                // Create and store the provider FIRST
+                let entry_index_provider =
+                    executors::logs::utils::EntryIndexProvider::start_from(&msg_store);
+                self.store_entry_index_provider(execution_process.id, entry_index_provider.clone())
+                    .await;
+
+                // Pass the same provider to normalize_logs
+                let handle = executor.normalize_logs(
+                    msg_store,
+                    &self.task_attempt_to_current_dir(task_attempt),
+                    entry_index_provider,
+                );
                 self.store_normalization_handle(execution_process.id, handle)
                     .await;
             } else {

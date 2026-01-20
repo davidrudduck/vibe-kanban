@@ -12,6 +12,7 @@ use crate::{
     executors::{
         AppendPrompt, AvailabilityInfo, ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
     },
+    logs::utils::EntryIndexProvider,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, JsonSchema)]
@@ -76,8 +77,9 @@ impl StandardCodingAgentExecutor for Gemini {
         &self,
         msg_store: Arc<MsgStore>,
         worktree_path: &Path,
+        entry_index_provider: EntryIndexProvider,
     ) -> tokio::task::JoinHandle<()> {
-        super::acp::normalize_logs(msg_store, worktree_path)
+        super::acp::normalize_logs(msg_store, worktree_path, entry_index_provider)
     }
 
     fn default_mcp_config_path(&self) -> Option<std::path::PathBuf> {
