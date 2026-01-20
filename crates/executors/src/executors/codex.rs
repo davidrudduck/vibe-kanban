@@ -37,6 +37,7 @@ use crate::{
         StandardCodingAgentExecutor,
         codex::{jsonrpc::ExitSignalSender, normalize_logs::Error},
     },
+    logs::utils::EntryIndexProvider,
     stdout_dup::create_stdout_pipe_writer,
 };
 
@@ -169,8 +170,9 @@ impl StandardCodingAgentExecutor for Codex {
         &self,
         msg_store: Arc<MsgStore>,
         worktree_path: &Path,
+        entry_index_provider: EntryIndexProvider,
     ) -> tokio::task::JoinHandle<()> {
-        normalize_logs(msg_store, worktree_path)
+        normalize_logs(msg_store, worktree_path, entry_index_provider)
     }
 
     fn default_mcp_config_path(&self) -> Option<PathBuf> {

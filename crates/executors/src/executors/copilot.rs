@@ -192,8 +192,8 @@ impl StandardCodingAgentExecutor for Copilot {
         &self,
         msg_store: Arc<MsgStore>,
         worktree_path: &Path,
+        entry_index_counter: EntryIndexProvider,
     ) -> tokio::task::JoinHandle<()> {
-        let entry_index_counter = EntryIndexProvider::start_from(&msg_store);
         let stderr_handle = normalize_stderr_logs(msg_store.clone(), entry_index_counter.clone());
 
         let worktree_path = worktree_path.to_path_buf();

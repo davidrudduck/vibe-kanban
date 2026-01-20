@@ -201,9 +201,8 @@ impl StandardCodingAgentExecutor for ClaudeCode {
         &self,
         msg_store: Arc<MsgStore>,
         current_dir: &Path,
+        entry_index_provider: EntryIndexProvider,
     ) -> tokio::task::JoinHandle<()> {
-        let entry_index_provider = EntryIndexProvider::start_from(&msg_store);
-
         // Process stdout logs (Claude's JSON output)
         let stdout_handle = ClaudeLogProcessor::process_logs(
             msg_store.clone(),
