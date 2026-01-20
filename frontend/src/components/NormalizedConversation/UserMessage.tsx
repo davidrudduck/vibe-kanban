@@ -1,6 +1,6 @@
 import MarkdownRenderer from '@/components/ui/markdown-renderer';
 import { Button } from '@/components/ui/button';
-import { Pencil } from 'lucide-react';
+import { Pencil, ChevronDown } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useProcessRetry } from '@/hooks/useProcessRetry';
 import { TaskAttempt, BaseAgentCapability } from 'shared/types';
@@ -9,6 +9,7 @@ import { useDraftStream } from '@/hooks/follow-up/useDraftStream';
 import { RetryEditorInline } from './RetryEditorInline';
 import { useRetryUi } from '@/contexts/RetryUiContext';
 import { cn } from '@/lib/utils';
+import { useExpandable } from '@/stores/useExpandableStore';
 
 const USER_MESSAGE_APPEARANCE = {
   border: 'border-green-400/40',
@@ -17,6 +18,8 @@ const USER_MESSAGE_APPEARANCE = {
   contentBg: 'bg-green-50 dark:bg-green-950/10',
   contentText: 'text-green-700 dark:text-green-300',
 };
+
+const LINE_LIMIT = 5;
 
 const UserMessage = ({
   content,
@@ -33,6 +36,14 @@ const UserMessage = ({
   const attemptId = taskAttempt?.id;
   const { retryDraft } = useDraftStream(attemptId);
   const { activeRetryProcessId, isProcessGreyed } = useRetryUi();
+
+  // Line counting and expand/collapse logic
+  const lineCount = content.split('\n').length;
+  const needsCollapse = lineCount > LINE_LIMIT;
+  const [expanded, toggle] = useExpandable(
+    `user-message:${executionProcessId || 'no-id'}`,
+    !needsCollapse // Default: expanded if short, collapsed if long
+  );
 
   const canFork = !!(
     taskAttempt?.executor &&
@@ -88,6 +99,11 @@ const UserMessage = ({
   // For now, just show executor name
   const variant = null;
 
+  // Content truncation for collapsed state
+  const displayContent = needsCollapse && !expanded
+    ? content.split('\n').slice(0, LINE_LIMIT).join('\n') + '...'
+    : content;
+
   return (
     <div className={`inline-block w-full py-2 ${greyed ? 'opacity-50 pointer-events-none' : ''}`}>
       <div className={cn('border w-full overflow-hidden rounded-sm', USER_MESSAGE_APPEARANCE.border)}>
@@ -98,21 +114,37 @@ const UserMessage = ({
           USER_MESSAGE_APPEARANCE.headerText
         )}>
           <span>{executor}{variant && ` / ${variant}`}</span>
-          {executionProcessId && canFork && !showRetryEditor && (
-            <div className="ml-auto opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150">
-              <Button
-                onClick={startRetry}
-                variant="ghost"
-                className="p-1 h-auto"
-                disabled={disabled}
-                title={editTitle}
-                aria-label="Edit message"
-                aria-disabled={disabled}
+          <div className="ml-auto flex items-center gap-1">
+            {needsCollapse && (
+              <button
+                onClick={(e) => { e.preventDefault(); toggle(); }}
+                className="p-1 hover:bg-green-100 dark:hover:bg-green-900/30 rounded"
+                aria-label={expanded ? 'Collapse message' : 'Expand message'}
               >
-                <Pencil className="w-3 h-3" />
-              </Button>
-            </div>
-          )}
+                <ChevronDown
+                  className={cn(
+                    'w-4 h-4 transition-transform',
+                    expanded && 'rotate-180'
+                  )}
+                />
+              </button>
+            )}
+            {executionProcessId && canFork && !showRetryEditor && (
+              <div className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150">
+                <Button
+                  onClick={startRetry}
+                  variant="ghost"
+                  className="p-1 h-auto"
+                  disabled={disabled}
+                  title={editTitle}
+                  aria-label="Edit message"
+                  aria-disabled={disabled}
+                >
+                  <Pencil className="w-3 h-3" />
+                </Button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Content area */}
@@ -128,7 +160,7 @@ const UserMessage = ({
             />
           ) : (
             <MarkdownRenderer
-              content={content}
+              content={displayContent}
               className="whitespace-pre-wrap break-words flex flex-col gap-1 font-light"
             />
           )}
