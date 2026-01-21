@@ -155,3 +155,216 @@ mod tests {
         assert_eq!(event.event_type, "test_event");
     }
 }
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+
+    /// Helper to get database URL from environment.
+    fn database_url() -> Option<String> {
+        std::env::var("SERVER_DATABASE_URL")
+            .ok()
+            .or_else(|| std::env::var("DATABASE_URL").ok())
+    }
+
+    /// Skip test if database is not available.
+    macro_rules! skip_without_db {
+        () => {
+            if database_url().is_none() {
+                eprintln!("Skipping test: DATABASE_URL or SERVER_DATABASE_URL not set");
+                return;
+            }
+        };
+    }
+
+    /// Create a test database connection pool.
+    async fn create_pool() -> PgPool {
+        let url = database_url().expect("DATABASE_URL must be set");
+        PgPool::connect(&url)
+            .await
+            .expect("Failed to connect to database")
+    }
+
+    /// Helper to insert test activity event
+    async fn insert_test_activity(
+        pool: &PgPool,
+        swarm_project_id: Uuid,
+        seq: i64,
+        event_type: &str,
+    ) -> Uuid {
+        let event_id = Uuid::new_v4();
+        let now = Utc::now();
+
+        sqlx::query(
+            r#"
+            INSERT INTO activity (event_id, swarm_project_id, seq, event_type, created_at, payload)
+            VALUES ($1, $2, $3, $4, $5, '{}'::jsonb)
+            "#,
+        )
+        .bind(event_id)
+        .bind(swarm_project_id)
+        .bind(seq)
+        .bind(event_type)
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("Failed to insert test activity event");
+
+        event_id
+    }
+
+    /// Cleanup helper - remove test activity events for a swarm project
+    async fn cleanup_activity(pool: &PgPool, swarm_project_id: Uuid) {
+        let _ = sqlx::query(
+            r#"
+            DELETE FROM activity
+            WHERE swarm_project_id = $1
+            "#,
+        )
+        .bind(swarm_project_id)
+        .execute(pool)
+        .await;
+    }
+
+    /// Test: fetch_since_by_swarm_project returns events in seq ASC order
+    #[tokio::test]
+    async fn test_fetch_since_by_swarm_project_returns_events() {
+        skip_without_db!();
+
+        let pool = create_pool().await;
+        let swarm_project_id = Uuid::new_v4();
+
+        // Insert test activity events
+        insert_test_activity(&pool, swarm_project_id, 1, "task_created").await;
+        insert_test_activity(&pool, swarm_project_id, 2, "task_updated").await;
+        insert_test_activity(&pool, swarm_project_id, 3, "task_completed").await;
+
+        // Create repository and fetch events
+        let repo = ActivityRepository::new(&pool);
+        let events = repo
+            .fetch_since_by_swarm_project(swarm_project_id, None, 10)
+            .await
+            .expect("Failed to fetch events");
+
+        // Assert: Returns events in seq ASC order
+        assert_eq!(
+            events.len(),
+            3,
+            "Should return all 3 events for the swarm project"
+        );
+        assert_eq!(events[0].seq, 1, "First event should have seq 1");
+        assert_eq!(events[1].seq, 2, "Second event should have seq 2");
+        assert_eq!(events[2].seq, 3, "Third event should have seq 3");
+        assert_eq!(
+            events[0].event_type, "task_created",
+            "First event type should be task_created"
+        );
+        assert_eq!(
+            events[1].event_type, "task_updated",
+            "Second event type should be task_updated"
+        );
+        assert_eq!(
+            events[2].event_type, "task_completed",
+            "Third event type should be task_completed"
+        );
+
+        // Cleanup
+        cleanup_activity(&pool, swarm_project_id).await;
+    }
+
+    /// Test: fetch_since_by_swarm_project pagination with after_seq parameter
+    #[tokio::test]
+    async fn test_fetch_since_by_swarm_project_pagination() {
+        skip_without_db!();
+
+        let pool = create_pool().await;
+        let swarm_project_id = Uuid::new_v4();
+
+        // Insert 5 events
+        for i in 1..=5 {
+            insert_test_activity(&pool, swarm_project_id, i, "test_event").await;
+        }
+
+        // Create repository
+        let repo = ActivityRepository::new(&pool);
+
+        // Fetch after seq 2 (should return events 3, 4, 5)
+        let events = repo
+            .fetch_since_by_swarm_project(swarm_project_id, Some(2), 10)
+            .await
+            .expect("Failed to fetch events");
+
+        // Assert: Only returns events with seq > 2
+        assert_eq!(
+            events.len(),
+            3,
+            "Should return exactly 3 events after seq 2"
+        );
+        assert_eq!(events[0].seq, 3, "First event should have seq 3");
+        assert_eq!(events[1].seq, 4, "Second event should have seq 4");
+        assert_eq!(events[2].seq, 5, "Third event should have seq 5");
+
+        // Cleanup
+        cleanup_activity(&pool, swarm_project_id).await;
+    }
+
+    /// Test: fetch_since_by_swarm_project respects limit parameter
+    #[tokio::test]
+    async fn test_fetch_since_by_swarm_project_limit() {
+        skip_without_db!();
+
+        let pool = create_pool().await;
+        let swarm_project_id = Uuid::new_v4();
+
+        // Insert 10 events
+        for i in 1..=10 {
+            insert_test_activity(&pool, swarm_project_id, i, "test_event").await;
+        }
+
+        // Create repository
+        let repo = ActivityRepository::new(&pool);
+
+        // Fetch with limit 5
+        let events = repo
+            .fetch_since_by_swarm_project(swarm_project_id, None, 5)
+            .await
+            .expect("Failed to fetch events");
+
+        // Assert: Only returns first 5 events
+        assert_eq!(
+            events.len(),
+            5,
+            "Should return exactly 5 events when limit is 5"
+        );
+        assert_eq!(events[0].seq, 1, "First event should have seq 1");
+        assert_eq!(events[4].seq, 5, "Fifth event should have seq 5");
+
+        // Cleanup
+        cleanup_activity(&pool, swarm_project_id).await;
+    }
+
+    /// Test: fetch_since_by_swarm_project returns empty result when no events exist
+    #[tokio::test]
+    async fn test_fetch_since_by_swarm_project_empty_result() {
+        skip_without_db!();
+
+        let pool = create_pool().await;
+        let swarm_project_id = Uuid::new_v4();
+
+        // Create repository with no inserted events
+        let repo = ActivityRepository::new(&pool);
+        let events = repo
+            .fetch_since_by_swarm_project(swarm_project_id, None, 10)
+            .await
+            .expect("Failed to fetch events");
+
+        // Assert: Returns empty result
+        assert_eq!(
+            events.len(),
+            0,
+            "Should return no events when none exist for swarm project"
+        );
+
+        // Cleanup (no events to clean up)
+    }
+}

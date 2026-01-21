@@ -20,6 +20,11 @@ impl ErrorResponse {
             message: message.into(),
         }
     }
+
+    #[allow(dead_code)]
+    pub fn status(&self) -> StatusCode {
+        self.status
+    }
 }
 
 impl IntoResponse for ErrorResponse {
