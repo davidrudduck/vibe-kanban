@@ -1,0 +1,100 @@
+# InputActionBar Component
+
+## Purpose
+
+The `InputActionBar` component provides a unified, consistent layout for action buttons across all text input dialogues in the application. This ensures users always find controls in predictable positions regardless of the context (follow-up input, retry editor, question form, or denial form).
+
+## Reference Layout
+
+```text
+[Image] [Template]  ←spacer→  [Variant?] [Cancel?] [Submit/Send]
+└─ Left group ─┘   └─flex-1─┘  └────── Right group ──────┘
+```
+
+## Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `showImageButton` | `boolean` | - | Show the image upload button |
+| `imageActive` | `boolean` | - | Highlight the image button (when images attached) |
+| `onImageClick` | `() => void` | - | Handler for image button click |
+| `imageDisabled` | `boolean` | - | Disable the image button |
+| `showTemplateButton` | `boolean` | - | Show the template picker button |
+| `onTemplateClick` | `() => void` | - | Handler for template button click |
+| `templateDisabled` | `boolean` | - | Disable the template button |
+| `showVariantSelector` | `boolean` | - | Show the variant/model selector |
+| `variant` | `string \| null` | - | Currently selected variant |
+| `onVariantChange` | `(variant: string \| null) => void` | - | Handler for variant change |
+| `variantProfile` | `ExecutorProfile \| null` | - | Profile for variant options |
+| `variantDisabled` | `boolean` | - | Disable the variant selector |
+| `showCancel` | `boolean` | - | Show the cancel button |
+| `onCancel` | `() => void` | - | Handler for cancel button click |
+| `cancelDisabled` | `boolean` | - | Disable the cancel button |
+| `cancelLabel` | `string` | `'Cancel'` | Label for cancel button |
+| `primaryLabel` | `string` | **required** | Label for primary action button |
+| `onPrimary` | `() => void` | **required** | Handler for primary button click |
+| `primaryDisabled` | `boolean` | - | Disable the primary button |
+| `primaryIcon` | `ReactNode` | `<Send />` | Icon for primary button |
+| `primaryVariant` | `'default' \| 'destructive'` | `'default'` | Button variant |
+| `className` | `string` | - | Additional CSS classes |
+
+## Usage Examples
+
+### Retry Editor
+
+```tsx
+<InputActionBar
+  showImageButton
+  imageActive={images.length > 0}
+  onImageClick={() => setShowImageUpload(!showImageUpload)}
+  showTemplateButton
+  onTemplateClick={() => setShowTemplatePicker(true)}
+  showVariantSelector
+  variant={selectedVariant}
+  onVariantChange={setSelectedVariant}
+  variantProfile={profiles?.[attempt.executor]}
+  showCancel
+  onCancel={handleCancel}
+  primaryLabel="Send"
+  onPrimary={handleSend}
+  primaryDisabled={!canSend}
+/>
+```
+
+### Question Form
+
+```tsx
+<InputActionBar
+  showImageButton
+  imageDisabled
+  showTemplateButton
+  onTemplateClick={() => setShowTemplatePicker(true)}
+  showCancel
+  onCancel={handleCancel}
+  primaryLabel="Submit"
+  onPrimary={handleSubmit}
+  primaryDisabled={isResponding}
+/>
+```
+
+### Denial Form
+
+```tsx
+<InputActionBar
+  showImageButton
+  imageDisabled
+  showTemplateButton
+  onTemplateClick={() => setShowTemplatePicker(true)}
+  showCancel
+  onCancel={handleCancel}
+  primaryLabel="Deny"
+  onPrimary={handleDeny}
+  primaryDisabled={isResponding}
+/>
+```
+
+## Import
+
+```tsx
+import { InputActionBar } from '@/components/ui/input-action-bar';
+```

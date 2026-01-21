@@ -24,6 +24,9 @@ const AutoExpandingTextarea = React.forwardRef<
         .current;
       if (!textarea) return;
 
+      // Save scroll position before resize
+      const scrollY = window.scrollY;
+
       // Reset height to auto to get the natural height
       textarea.style.height = 'auto';
 
@@ -44,6 +47,13 @@ const AutoExpandingTextarea = React.forwardRef<
         const newHeight = Math.min(textarea.scrollHeight, maxHeight);
         textarea.style.height = `${newHeight}px`;
       }
+
+      // Restore scroll position to prevent viewport jump
+      requestAnimationFrame(() => {
+        if (window.scrollY !== scrollY) {
+          window.scrollTo({ top: scrollY, behavior: 'instant' });
+        }
+      });
     }, [maxRows, disableInternalScroll, textareaRef]);
 
     // Adjust height on mount and when content changes
