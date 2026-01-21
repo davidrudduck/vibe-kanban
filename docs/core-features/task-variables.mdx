@@ -23,6 +23,50 @@ Variables use shell-style syntax with two forms:
 Variables are expanded at **execution time**, not when the task is saved. This means you can update a variable's value and all tasks using it will automatically get the new value on their next execution.
 </Note>
 
+## System Variables
+
+Vibe Kanban automatically provides 8 system variables for every task. These variables are computed at runtime and are always available without needing to be declared.
+
+### Available System Variables
+
+| Variable | Description | Example Value |
+|----------|-------------|---------------|
+| `TASK_ID` | The UUID of the current task | `f2442014-f865-41a0-8376-7117bc5f009c` |
+| `PARENT_TASK_ID` | UUID of parent task (empty if no parent) | `a1b2c3d4-...` or `` |
+| `TASK_TITLE` | The title of the task | `Implement user authentication` |
+| `TASK_DESCRIPTION` | The task description (empty if none) | `Add JWT-based auth...` |
+| `TASK_LABEL` | The first label name (empty if none) | `bug` or `feature` |
+| `PROJECT_ID` | The UUID of the project | `12345678-1234-...` |
+| `PROJECT_TITLE` | The name of the project | `My Project` |
+| `IS_SUBTASK` | `"true"` if task has a parent, `"false"` otherwise | `true` or `false` |
+
+### Key Behaviors
+
+- **Automatically Available**: System variables are computed at runtime and don't need to be created or declared
+- **Override User Variables**: If you create a user-defined variable with the same name (e.g., `TASK_ID`), the system value will always be used
+- **Always Current**: System variables reflect the current state of the task, project, and labels
+
+### Usage Examples
+
+System variables can be used anywhere variable expansion is supported:
+
+```bash
+# In task descriptions
+This task is part of project: $PROJECT_TITLE
+Task ID for reference: $TASK_ID
+
+# In executor prompts
+Current task: ${TASK_TITLE}
+Is this a subtask? ${IS_SUBTASK}
+
+# Conditional logic based on system variables
+Parent task ID: ${PARENT_TASK_ID}
+```
+
+### Why System Variables?
+
+System variables eliminate the need for executors to call `get_context`, `get_task_id`, or `get_project_id` MCP tools to access basic task metadata. They're computed on-demand and always reflect the current state of your task.
+
 ## Adding Variables
 
 <Steps>
