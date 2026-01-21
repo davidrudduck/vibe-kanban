@@ -215,9 +215,14 @@ export function TemplatePicker({
 
   const handleSelect = useCallback(
     (template: Template) => {
-      onSelect(template);
+      // Close modal first to let animation complete
       onOpenChange(false);
       setSearchQuery('');
+
+      // Defer content insertion to avoid concurrent animations
+      requestAnimationFrame(() => {
+        onSelect(template);
+      });
     },
     [onSelect, onOpenChange]
   );
