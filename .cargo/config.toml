@@ -1,11 +1,8 @@
 # Build configuration
 [build]
-# Share build cache across all vibe-kanban worktrees to save disk space
-# All cargo commands (build, test, run) will use this shared directory
-target-dir = "/home/david/Code/.vibe-kanban-target"
 incremental = true
-# NOTE: Shared Cargo target directory is set via CARGO_TARGET_DIR environment variable
-# in scripts/setup-dev-environment.js (uses $HOME for portability).
+# NOTE: Shared Cargo target directory for dev builds is set via CARGO_TARGET_DIR
+# environment variable in scripts/setup-dev-environment.js (uses $HOME for portability).
 # Production builds use the default ./target/ directory.
 
 # Set macOS deployment target to avoid linker warnings
