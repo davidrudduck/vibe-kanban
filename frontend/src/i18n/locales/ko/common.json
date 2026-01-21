@@ -59,7 +59,10 @@
     "injectedTooltip": "이 메시지는 실행 중인 프로세스에 주입되었습니다",
     "userMessage": {
       "showMore": "더 보기",
-      "showLess": "간략히"
+      "showLess": "간략히",
+      "expandMessage": "메시지 펼치기",
+      "collapseMessage": "메시지 접기",
+      "editMessage": "메시지 편집"
     }
   },
   "language": {

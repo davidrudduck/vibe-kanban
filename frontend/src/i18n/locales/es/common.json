@@ -59,7 +59,10 @@
     "injectedTooltip": "Este mensaje fue inyectado en el proceso en ejecución",
     "userMessage": {
       "showMore": "Mostrar más",
-      "showLess": "Mostrar menos"
+      "showLess": "Mostrar menos",
+      "expandMessage": "Expandir mensaje",
+      "collapseMessage": "Contraer mensaje",
+      "editMessage": "Editar mensaje"
     }
   },
   "language": {

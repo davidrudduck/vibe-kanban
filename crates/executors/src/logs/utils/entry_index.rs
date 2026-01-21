@@ -110,4 +110,18 @@ mod tests {
         provider.next();
         assert_eq!(provider.current(), 2);
     }
+
+    #[test]
+    fn test_reset() {
+        let provider = EntryIndexProvider::test_new();
+        // Advance the counter
+        assert_eq!(provider.next(), 0);
+        assert_eq!(provider.next(), 1);
+        assert_eq!(provider.current(), 2);
+
+        // Reset should return to 0
+        provider.reset();
+        assert_eq!(provider.current(), 0);
+        assert_eq!(provider.next(), 0);
+    }
 }

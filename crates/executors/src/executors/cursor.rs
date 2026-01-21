@@ -1242,7 +1242,7 @@ mod tests {
         ));
         msg_store.push_finished();
 
-        executor.normalize_logs(msg_store.clone(), &current_dir);
+        executor.normalize_logs(msg_store.clone(), &current_dir, EntryIndexProvider::start_from(&msg_store));
 
         tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
 

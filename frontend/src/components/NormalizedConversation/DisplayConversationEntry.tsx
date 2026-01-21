@@ -8,6 +8,7 @@ import {
   type NormalizedEntryType,
   type TaskWithAttemptStatus,
   type JsonValue,
+  type ExecutionProcess,
 } from 'shared/types.ts';
 import type { ProcessStartPayload } from '@/types/logs';
 import FileChangeRenderer from './FileChangeRenderer';
@@ -38,6 +39,7 @@ import PendingQuestionEntry from './PendingQuestionEntry';
 import { NextActionCard } from './NextActionCard';
 import { cn } from '@/lib/utils';
 import { useRetryUi } from '@/contexts/RetryUiContext';
+import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesContext';
 import {
   Tooltip,
   TooltipContent,
@@ -57,6 +59,22 @@ type Props = {
 };
 
 type FileEditAction = Extract<ActionType, { action: 'file_edit' }>;
+
+/**
+ * Extract executor variant from execution process data.
+ * Only CodingAgentInitialRequest and CodingAgentFollowUpRequest types have variants.
+ * Returns null if no variant is present.
+ *
+ * Currently used for displaying executor variant in UserMessage headers when available.
+ */
+const getExecutorVariant = (execProcess?: ExecutionProcess): string | null => {
+  if (!execProcess?.executor_action?.typ) return null;
+  const typ = execProcess.executor_action.typ;
+  if (typ.type === 'CodingAgentInitialRequest' || typ.type === 'CodingAgentFollowUpRequest') {
+    return typ.executor_profile_id?.variant ?? null;
+  }
+  return null;
+};
 
 const renderJson = (v: JsonValue) => (
   <pre className="whitespace-pre-wrap">{JSON.stringify(v, null, 2)}</pre>
@@ -781,6 +799,7 @@ function DisplayConversationEntry({
   task,
 }: Props) {
   const { t } = useTranslation('common');
+  const { executionProcessesByIdAll } = useExecutionProcessesContext();
   const isNormalizedEntry = (
     entry: NormalizedEntry | ProcessStartPayload
   ): entry is NormalizedEntry => 'entry_type' in entry;
@@ -821,6 +840,9 @@ function DisplayConversationEntry({
         content={entry.content}
         executionProcessId={executionProcessId}
         taskAttempt={taskAttempt}
+        executorVariant={getExecutorVariant(
+          executionProcessId ? executionProcessesByIdAll[executionProcessId] : undefined
+        )}
       />
     );
   }
