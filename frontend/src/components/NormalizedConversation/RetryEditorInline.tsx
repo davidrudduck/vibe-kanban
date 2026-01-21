@@ -7,7 +7,9 @@ import { cn } from '@/lib/utils';
 import { VariantSelector } from '@/components/tasks/VariantSelector';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertCircle, Image as ImageIcon, Send, X } from 'lucide-react';
+import { AlertCircle, Image as ImageIcon, Send, X, FileText } from 'lucide-react';
+import { TemplatePicker, type Template as PickerTemplate } from '@/components/tasks/TemplatePicker';
+import { templatesApi } from '@/lib/api';
 import { useDraftEditor } from '@/hooks/follow-up/useDraftEditor';
 import { useDraftStream } from '@/hooks/follow-up/useDraftStream';
 import { useDraftAutosave } from '@/hooks/follow-up/useDraftAutosave';
@@ -77,6 +79,11 @@ export function RetryEditorInline({
   // Presentation-only: show/hide image upload panel
   const [showImageUpload, setShowImageUpload] = useState(false);
 
+  // Template picker state
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [customTemplates, setCustomTemplates] = useState<PickerTemplate[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+
   // Track insert position for pasted images (sequential insertion)
   const insertPositionRef = useRef<number>(0);
 
@@ -93,6 +100,38 @@ export function RetryEditorInline({
   const handleSelectionChange = useCallback((cursorPosition: number) => {
     insertPositionRef.current = cursorPosition;
   }, []);
+
+  // Fetch custom templates when picker opens
+  useEffect(() => {
+    if (!showTemplatePicker) return;
+    let cancelled = false;
+    setLoadingTemplates(true);
+    templatesApi
+      .list()
+      .then((templates) => {
+        if (cancelled) return;
+        setCustomTemplates(
+          templates.map((tmpl) => ({
+            id: tmpl.id,
+            name: tmpl.template_name,
+            description: `@${tmpl.template_name}`,
+            content: tmpl.content,
+          }))
+        );
+      })
+      .finally(() => !cancelled && setLoadingTemplates(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [showTemplatePicker]);
+
+  // Handle template selection
+  const handleTemplateSelect = useCallback(
+    (template: PickerTemplate) => {
+      setMessage((prev) => prev + template.content);
+    },
+    [setMessage]
+  );
 
   // Variant selection: start with initialVariant or draft.variant
   const [selectedVariant, setSelectedVariant] = useState<string | null>(
@@ -301,43 +340,62 @@ export function RetryEditorInline({
       />
 
       <div className="flex items-center gap-2">
-        {/* Image button */}
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => setShowImageUpload((prev) => !prev)}
-          disabled={isSending || !!isFinalizing}
-        >
-          <ImageIcon
-            className={cn(
-              'h-4 w-4',
-              (images.length > 0 || showImageUpload) && 'text-primary'
-            )}
+        {/* Left: Image + Template */}
+        <div className="flex gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setShowImageUpload((prev) => !prev)}
+            disabled={isSending || !!isFinalizing}
+          >
+            <ImageIcon
+              className={cn(
+                'h-4 w-4',
+                (images.length > 0 || showImageUpload) && 'text-primary'
+              )}
+            />
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setShowTemplatePicker(true)}
+            disabled={isSending || !!isFinalizing}
+          >
+            <FileText className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div className="flex-1" />
+
+        {/* Right: Variant + Cancel + Send */}
+        <div className="flex items-center gap-2">
+          <VariantSelector
+            selectedVariant={selectedVariant}
+            onChange={setSelectedVariant}
+            currentProfile={profiles?.[attempt.executor] ?? null}
           />
-        </Button>
-        <VariantSelector
-          selectedVariant={selectedVariant}
-          onChange={setSelectedVariant}
-          currentProfile={profiles?.[attempt.executor] ?? null}
-        />
-        <div className="ml-auto flex items-center gap-2">
           <Button
             variant="outline"
             onClick={onCancel}
             disabled={isSending || !!isFinalizing}
           >
-            <X className="h-3 w-3 mr-1" />{' '}
-            {t('buttons.cancel', { ns: 'common' })}
+            <X className="h-3 w-3 mr-1" /> {t('buttons.cancel', { ns: 'common' })}
           </Button>
-          <Button
-            onClick={onSend}
-            disabled={!canSend || isSending || !!isFinalizing}
-          >
-            <Send className="h-3 w-3 mr-1" />{' '}
-            {t('buttons.send', { ns: 'common', defaultValue: 'Send' })}
+          <Button onClick={onSend} disabled={!canSend || isSending || !!isFinalizing}>
+            <Send className="h-3 w-3 mr-1" /> {t('buttons.send', { ns: 'common', defaultValue: 'Send' })}
           </Button>
         </div>
       </div>
+
+      {/* Template Picker */}
+      <TemplatePicker
+        open={showTemplatePicker}
+        onOpenChange={setShowTemplatePicker}
+        onSelect={handleTemplateSelect}
+        customTemplates={customTemplates}
+        showDefaults={true}
+        loading={loadingTemplates}
+      />
 
       {showImageUpload && (
         <div className="mb-2">
