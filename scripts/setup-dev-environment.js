@@ -8,25 +8,6 @@ const PORTS_FILE = path.join(__dirname, "..", ".dev-ports.json");
 const DEV_ASSETS_SEED = path.join(__dirname, "..", "dev_assets_seed");
 const DEV_ASSETS = path.join(__dirname, "..", "dev_assets");
 const ENV_FILE = path.join(__dirname, "..", ".env");
-const SHARED_CARGO_TARGET = "/home/david/Code/.vibe-kanban-target";
-
-/**
- * Check if we're running in a git worktree (not the main repo)
- * Worktrees have a .git file (not directory) pointing to the actual git dir
- */
-function isWorktree() {
-  try {
-    const gitPath = path.join(__dirname, "..", ".git");
-    const stats = fs.statSync(gitPath);
-    if (stats.isFile()) {
-      const content = fs.readFileSync(gitPath, "utf8");
-      return content.includes("gitdir:") && content.includes(".git/worktrees/");
-    }
-    return false;
-  } catch (e) {
-    return false;
-  }
-}
 
 /**
  * Load environment variables from .env file
@@ -356,11 +337,8 @@ if (require.main === module) {
         console.log(`export DISABLE_WORKTREE_ORPHAN_CLEANUP=1`);
         console.log(`export DISABLE_WORKTREE_EXPIRED_CLEANUP=1`);
 
-        // Share Cargo build cache across worktrees to save disk space
-        // Only for worktrees - the main repo keeps its own target/
-        if (isWorktree()) {
-          console.log(`export CARGO_TARGET_DIR='${SHARED_CARGO_TARGET}'`);
-        }
+        // NOTE: CARGO_TARGET_DIR is now set in .cargo/config.toml for ALL cargo commands
+        // (not just pnpm run dev). This ensures direct cargo invocations also use the shared cache.
 
         // Pass through all OTHER VK_* environment variables from .env
         // (config/tuning vars like VK_SQLITE_MAX_CONNECTIONS are safe to inherit)
