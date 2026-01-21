@@ -337,8 +337,9 @@ if (require.main === module) {
         console.log(`export DISABLE_WORKTREE_ORPHAN_CLEANUP=1`);
         console.log(`export DISABLE_WORKTREE_EXPIRED_CLEANUP=1`);
 
-        // NOTE: CARGO_TARGET_DIR is now set in .cargo/config.toml for ALL cargo commands
-        // (not just pnpm run dev). This ensures direct cargo invocations also use the shared cache.
+        // Share Cargo build cache across dev instances to save disk space
+        // Uses $HOME for portability (shell expands it). Production builds use ./target/
+        console.log(`export CARGO_TARGET_DIR="\${HOME}/Code/.vibe-kanban-target"`);
 
         // Pass through all OTHER VK_* environment variables from .env
         // (config/tuning vars like VK_SQLITE_MAX_CONNECTIONS are safe to inherit)
