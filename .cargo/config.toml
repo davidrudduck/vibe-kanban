@@ -1,5 +1,8 @@
 # Build configuration
 [build]
+# Share build cache across all vibe-kanban worktrees to save disk space
+# All cargo commands (build, test, run) will use this shared directory
+target-dir = "/home/david/Code/.vibe-kanban-target"
 incremental = true
 
 # Set macOS deployment target to avoid linker warnings
