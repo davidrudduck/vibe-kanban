@@ -36,8 +36,10 @@ function toTimestamp(value: string | Date | null | undefined): number {
  * - **Todo**: Use `created_at` (FIFO queue - oldest first). This is the key bug fix -
  *   previously used `activity_at ?? created_at` which caused incorrect ordering.
  * - **In Progress**: Use `latest_execution_started_at` to show longest-running tasks first.
- * - **In Review/Done/Cancelled**: Use `latest_execution_completed_at` to show oldest
- *   completed tasks first for review or archive purposes.
+ * - **In Review**: Use `activity_at` (when status changed to in-review) to show tasks
+ *   in the order they became ready for review. Falls back to `created_at`.
+ * - **Done/Cancelled**: Use `latest_execution_completed_at` to show when execution
+ *   finished. Falls back to `activity_at`, then `created_at` for tasks without completion.
  *
  * All statuses fall back to `created_at` when the preferred timestamp is null.
  *
@@ -58,10 +60,13 @@ export function getSortTimestamp(task: SortableTask): number {
       return toTimestamp(task.latest_execution_started_at) || createdAt;
 
     case 'inreview':
+      // In-review tasks: use activity_at (when status changed to inreview)
+      return toTimestamp(task.activity_at) || createdAt;
+
     case 'done':
     case 'cancelled':
-      // Completed/review tasks: use execution completion time, fall back to created_at
-      return toTimestamp(task.latest_execution_completed_at) || createdAt;
+      // Completed tasks: use execution completion time, fall back to activity_at, then created_at
+      return toTimestamp(task.latest_execution_completed_at) || toTimestamp(task.activity_at) || createdAt;
 
     default:
       // Unknown status: use created_at
