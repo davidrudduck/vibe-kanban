@@ -194,6 +194,8 @@ export function AllProjectsTasks() {
       columns={kanbanColumns}
       onViewTaskDetails={handleViewTaskDetails}
       className="h-full"
+      sortDirections={sortDirections}
+      onSortToggle={toggleDirection}
     />
   );
 

@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo } from 'react';
 import { useSwipe } from '@/hooks/useSwipe';
 import { cn } from '@/lib/utils';
 import type { TaskStatus, TaskWithAttemptStatus } from 'shared/types';
+import type { SortDirection } from '@/lib/taskSorting';
 import { statusBoardColors, statusLabels } from '@/utils/statusLabels';
 import type { KanbanColumns } from './TaskKanbanBoard';
 import MobileColumnHeader from './MobileColumnHeader';
@@ -30,6 +31,10 @@ interface MobileKanbanBoardProps {
   selectedTaskId?: string;
   projectId: string;
   className?: string;
+  /** Optional sort directions per status */
+  sortDirections?: Record<TaskStatus, SortDirection>;
+  /** Optional callback when sort is toggled for a status */
+  onSortToggle?: (status: TaskStatus) => void;
 }
 
 /**
@@ -42,6 +47,8 @@ function MobileKanbanBoard({
   selectedTaskId,
   projectId,
   className,
+  sortDirections,
+  onSortToggle,
 }: MobileKanbanBoardProps) {
   const [currentColumnIndex, setCurrentColumnIndex] = useState(0);
   const taskOptimisticContext = useTaskOptimistic();
@@ -120,6 +127,8 @@ function MobileKanbanBoard({
         onNext={goToNextColumn}
         currentIndex={currentColumnIndex}
         totalColumns={COLUMN_ORDER.length}
+        sortDirection={sortDirections?.[currentStatus]}
+        onSortToggle={onSortToggle ? () => onSortToggle(currentStatus) : undefined}
       />
 
       <div
