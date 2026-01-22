@@ -726,6 +726,8 @@ export function ProjectTasks() {
         selectedTaskId={selectedTask?.id}
         projectId={projectId!}
         className="h-full"
+        sortDirections={sortDirections}
+        onSortToggle={toggleDirection}
       />
     ) : (
       <div className="w-full h-full overflow-x-auto overflow-y-auto overscroll-x-contain">

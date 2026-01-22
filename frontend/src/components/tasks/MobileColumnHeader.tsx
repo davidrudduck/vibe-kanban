@@ -1,5 +1,6 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowUp, ArrowDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import type { SortDirection } from '@/lib/taskSorting';
 import { cn } from '@/lib/utils';
 
 interface MobileColumnHeaderProps {
@@ -22,6 +23,10 @@ interface MobileColumnHeaderProps {
   /** Total number of columns */
   totalColumns: number;
   className?: string;
+  /** Current sort direction for this column */
+  sortDirection?: SortDirection;
+  /** Callback when user taps to toggle sort direction */
+  onSortToggle?: () => void;
 }
 
 /**
@@ -39,6 +44,8 @@ function MobileColumnHeader({
   currentIndex,
   totalColumns,
   className,
+  sortDirection,
+  onSortToggle,
 }: MobileColumnHeaderProps) {
   return (
     <div
@@ -72,7 +79,27 @@ function MobileColumnHeader({
             style={{ backgroundColor: `hsl(var(${color}))` }}
             aria-hidden="true"
           />
-          <span className="text-base font-medium">{name}</span>
+          <span
+            className={cn(
+              'text-base font-medium flex items-center gap-1',
+              onSortToggle && 'cursor-pointer active:opacity-70'
+            )}
+            onClick={onSortToggle}
+            role={onSortToggle ? 'button' : undefined}
+            aria-label={
+              onSortToggle
+                ? `Sort ${name}, currently ${sortDirection === 'desc' ? 'newest first' : 'oldest first'}`
+                : undefined
+            }
+          >
+            {name}
+            {onSortToggle &&
+              (sortDirection === 'desc' ? (
+                <ArrowDown className="h-3.5 w-3.5 text-foreground/60" />
+              ) : (
+                <ArrowUp className="h-3.5 w-3.5 text-foreground/60" />
+              ))}
+          </span>
           <span className="text-sm text-muted-foreground">({count})</span>
         </div>
 
