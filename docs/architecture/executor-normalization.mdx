@@ -64,6 +64,40 @@ The `NormalizedEntryType` enum captures all possible log entry kinds:
 | `NextAction` | Agent ready for next instruction |
 | `ExecutionStart` | Execution process started (injected by frontend) |
 | `ExecutionEnd` | Execution process completed (injected by frontend) |
+| `ResultMessage` | Session completion result with metadata (duration, turns, cost) |
+
+### ResultMessage Entry Type
+
+The `ResultMessage` entry type represents session completion from AI coding executors (e.g., Claude Code). It is distinct from regular `AssistantMessage` entries because it signals the end of a session with structured metadata about the execution.
+
+**Fields:**
+- `subtype`: Session subtype identifier (e.g., "success", "error")
+- `duration_ms`: Total session duration in milliseconds
+- `num_turns`: Number of conversation turns/interactions
+- `total_cost_usd`: Optional cost in USD (nullable if not available)
+- `is_error`: Boolean indicating if the session completed with an error
+
+**When created:**
+When an executor emits a final Result JSON message (e.g., Claude Code sends a `result` event), the log normalizer creates a `ResultMessage` entry instead of an `AssistantMessage`. This prevents duplicate messages in the log output, since the result content was already streamed during the session via `ContentBlockDelta` or similar events.
+
+**Frontend rendering:**
+The frontend displays `ResultMessage` entries using the `ResultMessageCard` component with:
+- Colored left border: green for success, red for error
+- Subtle background tint matching the border color
+- Content rendered as markdown (same as assistant messages)
+- Metadata footer showing: session status, duration, number of turns, and cost (if available)
+
+**Example:**
+```json
+{
+  "type": "result_message",
+  "subtype": "success",
+  "duration_ms": 45000,
+  "num_turns": 12,
+  "total_cost_usd": 0.15,
+  "is_error": false
+}
+```
 
 ## Tool Status Tracking
 
