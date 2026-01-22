@@ -6,7 +6,6 @@ use axum::{
     routing::{get, post},
 };
 use deployment::Deployment;
-use rand::{Rng, distributions::Alphanumeric};
 use serde::{Deserialize, Serialize};
 use services::services::oauth_credentials::Credentials;
 use sha2::{Digest, Sha256};
@@ -210,10 +209,14 @@ async fn status(
 }
 
 fn generate_secret() -> String {
-    rand::thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(64)
-        .map(char::from)
+    use rand::Rng as RngTrait;
+    let mut rng = rand::rng();
+    (0..64)
+        .map(|_| {
+            let idx = rng.random_range(0..62);
+            const CHARS: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+            CHARS[idx] as char
+        })
         .collect()
 }
 
