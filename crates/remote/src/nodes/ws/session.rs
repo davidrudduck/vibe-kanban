@@ -743,10 +743,34 @@ async fn handle_task_progress(
     Ok(())
 }
 
-/// Handle a project link message from a node.
+/// Create a link between a node and a project, persist the link, and broadcast a ProjectSync
+/// message to all other nodes in the organization.
 ///
-/// This creates an entry in the node_projects table linking the remote project
-/// to this node's local project, then broadcasts the new link to all other nodes.
+/// The broadcast excludes the originating node. The project name included in the broadcast is
+/// derived from the provided `git_repo_path`. Returns an error if the database operation or the
+/// broadcast fails.
+///
+/// # Examples
+///
+/// ```
+/// # async fn _example() -> Result<(), Box<dyn std::error::Error>> {
+/// use uuid::Uuid;
+/// # use crates_remote::nodes::ws::session::handle_link_project;
+/// # use crates_remote::nodes::messages::LinkProjectMessage;
+/// # let pool = /* PgPool */ todo!();
+/// # let connections = /* ConnectionManager */ todo!();
+/// let node_id = Uuid::new_v4();
+/// let org_id = Uuid::new_v4();
+/// let link = LinkProjectMessage {
+///     project_id: Uuid::new_v4(),
+///     local_project_id: Uuid::new_v4(),
+///     git_repo_path: "example-org/example-repo".to_string(),
+///     default_branch: Some("main".to_string()),
+/// };
+///
+/// handle_link_project(node_id, org_id, &link, &pool, &connections).await?;
+/// # Ok(()) }
+/// ```
 async fn handle_link_project(
     node_id: Uuid,
     organization_id: Uuid,
@@ -822,10 +846,26 @@ async fn handle_link_project(
     Ok(())
 }
 
-/// Handle a project unlink message from a node.
+/// Unlinks a project from the given node and broadcasts the removal to the other nodes in the organization.
 ///
-/// This removes the entry from the node_projects table and broadcasts the
-/// removal to other nodes.
+/// This removes the node-project link from the database and, if the link existed, constructs and broadcasts a `ProjectSync` removal message to all other nodes in the same organization. The broadcasted `project_name` is derived from the link's `git_repo_path`.
+///
+/// # Returns
+///
+/// `Ok(())` on success, `Err(HandleError)` if a database or send error occurs.
+///
+/// # Examples
+///
+/// ```
+/// use uuid::Uuid;
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let node_id = Uuid::new_v4();
+/// let org_id = Uuid::new_v4();
+/// let unlink = UnlinkProjectMessage { project_id: Uuid::new_v4() };
+/// // `pool` and `connections` would be provided by the runtime/test harness.
+/// handle_unlink_project(node_id, org_id, &unlink, &pool, &connections).await?;
+/// # Ok(()) }
+/// ```
 async fn handle_unlink_project(
     node_id: Uuid,
     organization_id: Uuid,
@@ -998,10 +1038,39 @@ async fn send_message(
     }
 }
 
-/// Handle an attempt sync message from a node.
+/// Upserts a node task attempt and, when the attempt has no `assignment_id`, attempts to create a synthetic assignment for locally-started tasks.
 ///
-/// Upserts the task attempt into node_task_attempts.
-/// For locally-started tasks (without assignment_id), creates a synthetic assignment.
+/// If `attempt.assignment_id` is provided, that value is used. If it is `None`, the function tries to locate the shared task and, if the shared task has a `project_id` and a corresponding `node_project` link for the node, creates or finds a synthetic assignment and uses its ID. Failures to create or find a synthetic assignment are logged and do not prevent the attempt from being upserted; the attempt will be stored without an `assignment_id` in that case.
+///
+/// The upsert writes the attempt data into the `node_task_attempts` table.
+///
+/// # Examples
+///
+/// ```
+/// # async fn example(pool: &sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+/// use uuid::Uuid;
+/// use crate::nodes::ws::messages::AttemptSyncMessage;
+///
+/// let node_id = Uuid::new_v4();
+/// let attempt = AttemptSyncMessage {
+///     attempt_id: Uuid::new_v4(),
+///     shared_task_id: Uuid::new_v4(),
+///     assignment_id: None,
+///     executor: None,
+///     executor_variant: None,
+///     branch: None,
+///     target_branch: None,
+///     container_ref: None,
+///     worktree_deleted: false,
+///     setup_completed_at: None,
+///     created_at: chrono::Utc::now(),
+///     updated_at: chrono::Utc::now(),
+/// };
+///
+/// crate::nodes::ws::session::handle_attempt_sync(node_id, &attempt, pool).await?;
+/// # Ok(())
+/// # }
+/// ```
 async fn handle_attempt_sync(
     node_id: Uuid,
     attempt: &AttemptSyncMessage,
