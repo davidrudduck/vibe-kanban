@@ -240,7 +240,7 @@ pub async fn follow_up(
 
     // Expand task variables ($VAR and ${VAR} syntax) in follow-up prompt
     let prompt = {
-        let variables = TaskVariable::get_variable_map(&deployment.db().pool, task.id)
+        let variables = TaskVariable::get_variable_map_with_system(&deployment.db().pool, task.id)
             .await
             .unwrap_or_else(|e| {
                 tracing::warn!(task_id = %task.id, error = ?e, "Failed to fetch task variables for follow-up");
