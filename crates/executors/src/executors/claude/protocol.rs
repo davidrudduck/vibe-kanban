@@ -115,28 +115,27 @@ impl ProtocolPeer {
 
                     // Check for Result message (session completion marker)
                     // This is a top-level {"type":"result",...} message, NOT a tool_result
-                    if completion_reason.is_none() {
-                        if let Ok(msg) = serde_json::from_str::<ResultMessage>(line) {
-                            if msg.message_type == "result" {
-                                tracing::info!(
-                                    subtype = ?msg.subtype,
-                                    is_error = ?msg.is_error,
-                                    duration_ms = ?msg.duration_ms,
-                                    num_turns = ?msg.num_turns,
-                                    "Claude Code session completed via Result message"
-                                );
-                                completion_reason = Some(SessionCompletionReason::ResultMessage {
-                                    is_error: msg.is_error.unwrap_or(false),
-                                    subtype: msg.subtype,
-                                    duration_ms: msg.duration_ms,
-                                    num_turns: msg.num_turns,
-                                });
-                                // Break immediately to trigger exit signal.
-                                // The Result message indicates session completion - Claude Code
-                                // will wait for user input indefinitely after this point.
-                                break;
-                            }
-                        }
+                    if completion_reason.is_none()
+                        && let Ok(msg) = serde_json::from_str::<ResultMessage>(line)
+                        && msg.message_type == "result"
+                    {
+                        tracing::info!(
+                            subtype = ?msg.subtype,
+                            is_error = ?msg.is_error,
+                            duration_ms = ?msg.duration_ms,
+                            num_turns = ?msg.num_turns,
+                            "Claude Code session completed via Result message"
+                        );
+                        completion_reason = Some(SessionCompletionReason::ResultMessage {
+                            is_error: msg.is_error.unwrap_or(false),
+                            subtype: msg.subtype,
+                            duration_ms: msg.duration_ms,
+                            num_turns: msg.num_turns,
+                        });
+                        // Break immediately to trigger exit signal.
+                        // The Result message indicates session completion - Claude Code
+                        // will wait for user input indefinitely after this point.
+                        break;
                     }
 
                     // Parse message using typed enum for control protocol

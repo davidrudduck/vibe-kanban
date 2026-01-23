@@ -126,7 +126,7 @@ describe('UserMessage', () => {
       const { rerender } = render(<UserMessage content={longContent} />);
       // Initial state should be collapsed
       const button = screen.getByRole('button', {
-        name: 'conversation.userMessage.expandMessage',
+        name: 'conversation.userMessage.expandMessage'
       });
       expect(button).toBeInTheDocument();
 
