@@ -78,7 +78,7 @@ export function useSwarmHealthActions(options?: UseSwarmHealthActionsOptions) {
     } finally {
       setIsFixing(false);
     }
-  }, [options, unlinkFromSwarm.mutateAsync]);
+  }, [options, unlinkFromSwarm]);
 
   return {
     fixAllIssues,
