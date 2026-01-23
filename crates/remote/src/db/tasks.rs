@@ -898,6 +898,19 @@ async fn do_insert_activity(
     event_type: &str,
     payload: serde_json::Value,
 ) -> Result<(), sqlx::Error> {
+    // Use project_id if available, otherwise fall back to swarm_project_id
+    // Skip activity insertion if neither is available (shouldn't happen in practice)
+    let activity_project_id = match task.project_id.or(task.swarm_project_id) {
+        Some(id) => id,
+        None => {
+            tracing::warn!(
+                task_id = %task.id,
+                "skipping activity insertion: task has no project_id or swarm_project_id"
+            );
+            return Ok(());
+        }
+    };
+
     sqlx::query!(
         r#"
         WITH next AS (
@@ -917,7 +930,7 @@ async fn do_insert_activity(
         SELECT $1, next.last_seq, $2, $3, $4
         FROM next
         "#,
-        task.project_id,
+        activity_project_id,
         task.assignee_user_id,
         event_type,
         payload
