@@ -706,4 +706,16 @@ impl TaskAttempt {
         .await?;
         Ok(result.rows_affected())
     }
+
+    /// Delete a task attempt by ID.
+    ///
+    /// This is used to clean up broken task attempts that failed during creation
+    /// (e.g., when worktree creation fails).
+    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<(), sqlx::Error> {
+        sqlx::query("DELETE FROM task_attempts WHERE id = $1")
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
 }

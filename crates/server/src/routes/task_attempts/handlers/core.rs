@@ -370,6 +370,14 @@ pub async fn create_task_attempt(
         .await
     {
         tracing::error!("Failed to start task attempt: {}", err);
+
+        // Clean up the broken task attempt
+        if let Err(delete_err) = TaskAttempt::delete(pool, task_attempt.id).await {
+            tracing::error!("Failed to clean up broken task attempt: {}", delete_err);
+        }
+
+        // Return error to client
+        return Err(ApiError::Container(err));
     }
     tracing::info!("Created attempt for task {}", task.id);
 
@@ -473,6 +481,14 @@ pub async fn create_task_attempt_by_task_id(
         .await
     {
         tracing::error!("Failed to start task attempt: {}", err);
+
+        // Clean up the broken task attempt
+        if let Err(delete_err) = TaskAttempt::delete(pool, task_attempt.id).await {
+            tracing::error!("Failed to clean up broken task attempt: {}", delete_err);
+        }
+
+        // Return error to client
+        return Err(ApiError::Container(err));
     }
     tracing::info!(
         task_id = %task.id,
