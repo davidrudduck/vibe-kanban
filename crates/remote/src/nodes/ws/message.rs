@@ -609,14 +609,17 @@ pub struct LabelSyncBroadcastMessage {
 ///
 /// Sent by nodes to create or update a shared task on the hive.
 /// This allows locally-started tasks to be visible across the swarm.
+///
+/// The hive uses `local_project_id` to look up the swarm project via
+/// `node_local_projects` → `swarm_project_nodes` → `swarm_projects`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskSyncMessage {
     /// The local task ID on the node
     pub local_task_id: Uuid,
     /// The shared task ID on the Hive (None for new tasks)
     pub shared_task_id: Option<Uuid>,
-    /// The remote project ID (required for task creation)
-    pub remote_project_id: Uuid,
+    /// The local project ID on the node (hive looks up swarm_project_id via node_local_projects)
+    pub local_project_id: Uuid,
     /// Task title
     pub title: String,
     /// Task description
@@ -627,6 +630,10 @@ pub struct TaskSyncMessage {
     pub version: i64,
     /// Whether this is an update to an existing task (vs new task)
     pub is_update: bool,
+    /// Node currently owning/working on this task
+    pub owner_node_id: Option<Uuid>,
+    /// Name of the owner node
+    pub owner_name: Option<String>,
     /// When the task was created locally
     pub created_at: DateTime<Utc>,
     /// When the task was last updated locally

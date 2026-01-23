@@ -1,19 +1,19 @@
 {
-  "db_name": "SQLite",
+  "db_name": "PostgreSQL",
   "query": "SELECT COUNT(*) as \"count!: i64\" FROM projects",
   "describe": {
     "columns": [
       {
-        "name": "count!: i64",
         "ordinal": 0,
-        "type_info": "Integer"
+        "name": "count!: i64",
+        "type_info": "Int8"
       }
     ],
     "parameters": {
-      "Right": 0
+      "Left": []
     },
     "nullable": [
-      false
+      null
     ]
   },
   "hash": "eed92030636e8c992067e3cf899b01f06849a71230a0d2a58963dc0d2930244f"
