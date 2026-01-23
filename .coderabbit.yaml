@@ -19,7 +19,6 @@ reviews:
   path_filters:
     - "!**/*.lock"
     - "!**/package-lock.json"
-    - "!**/Cargo.lock"
     - "!frontend/src/shared/types.ts"
     - "!**/dist/**"
     - "!**/*.min.js"
