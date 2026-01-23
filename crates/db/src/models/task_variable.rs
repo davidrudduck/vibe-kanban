@@ -4,6 +4,91 @@ use sqlx::{FromRow, SqlitePool};
 use ts_rs::TS;
 use uuid::Uuid;
 
+/// Names of system-provided variables that are automatically available
+pub const SYSTEM_VARIABLE_NAMES: &[&str] = &[
+    "TASK_ID",
+    "PARENT_TASK_ID",
+    "TASK_TITLE",
+    "TASK_DESCRIPTION",
+    "TASK_LABEL",
+    "PROJECT_ID",
+    "PROJECT_TITLE",
+    "IS_SUBTASK",
+];
+
+/// Generate system variables for a task.
+/// These are computed at runtime and not stored in the database.
+pub async fn get_system_variables(
+    pool: &SqlitePool,
+    task_id: Uuid,
+) -> Result<Vec<ResolvedVariable>, sqlx::Error> {
+    use crate::models::label::Label;
+    use crate::models::project::Project;
+    use crate::models::task::Task;
+
+    let task = Task::find_by_id(pool, task_id)
+        .await?
+        .ok_or(sqlx::Error::RowNotFound)?;
+
+    let project = Project::find_by_id(pool, task.project_id)
+        .await?
+        .ok_or(sqlx::Error::RowNotFound)?;
+
+    let labels = Label::find_by_task_id(pool, task_id).await?;
+    let label_name = labels.first().map(|l| l.name.clone()).unwrap_or_default();
+
+    Ok(vec![
+        ResolvedVariable {
+            name: "TASK_ID".to_string(),
+            value: task.id.to_string(),
+            source_task_id: task_id,
+            inherited: false,
+        },
+        ResolvedVariable {
+            name: "PARENT_TASK_ID".to_string(),
+            value: task.parent_task_id.map(|id| id.to_string()).unwrap_or_default(),
+            source_task_id: task_id,
+            inherited: false,
+        },
+        ResolvedVariable {
+            name: "TASK_TITLE".to_string(),
+            value: task.title.clone(),
+            source_task_id: task_id,
+            inherited: false,
+        },
+        ResolvedVariable {
+            name: "TASK_DESCRIPTION".to_string(),
+            value: task.description.clone().unwrap_or_default(),
+            source_task_id: task_id,
+            inherited: false,
+        },
+        ResolvedVariable {
+            name: "TASK_LABEL".to_string(),
+            value: label_name,
+            source_task_id: task_id,
+            inherited: false,
+        },
+        ResolvedVariable {
+            name: "PROJECT_ID".to_string(),
+            value: project.id.to_string(),
+            source_task_id: task_id,
+            inherited: false,
+        },
+        ResolvedVariable {
+            name: "PROJECT_TITLE".to_string(),
+            value: project.name.clone(),
+            source_task_id: task_id,
+            inherited: false,
+        },
+        ResolvedVariable {
+            name: "IS_SUBTASK".to_string(),
+            value: if task.parent_task_id.is_some() { "true" } else { "false" }.to_string(),
+            source_task_id: task_id,
+            inherited: false,
+        },
+    ])
+}
+
 /// A variable defined on a task, used for $VAR expansion in task descriptions
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
 pub struct TaskVariable {
@@ -226,6 +311,42 @@ impl TaskVariable {
         task_id: Uuid,
     ) -> Result<std::collections::HashMap<String, (String, Uuid)>, sqlx::Error> {
         let resolved = Self::find_inherited(pool, task_id).await?;
+        Ok(resolved
+            .into_iter()
+            .map(|rv| (rv.name, (rv.value, rv.source_task_id)))
+            .collect())
+    }
+
+    /// Find all variables for a task including inherited ones AND system variables.
+    /// System variables override user-defined variables with the same name.
+    pub async fn find_inherited_with_system(
+        pool: &SqlitePool,
+        task_id: Uuid,
+    ) -> Result<Vec<ResolvedVariable>, sqlx::Error> {
+        let user_vars = Self::find_inherited(pool, task_id).await?;
+        let system_vars = get_system_variables(pool, task_id).await?;
+
+        let system_names: std::collections::HashSet<&str> =
+            system_vars.iter().map(|v| v.name.as_str()).collect();
+
+        let mut result: Vec<ResolvedVariable> = user_vars
+            .into_iter()
+            .filter(|v| !system_names.contains(v.name.as_str()))
+            .collect();
+
+        result.extend(system_vars);
+        result.sort_by(|a, b| a.name.cmp(&b.name));
+
+        Ok(result)
+    }
+
+    /// Get resolved variables including system variables as a HashMap
+    /// suitable for variable expansion.
+    pub async fn get_variable_map_with_system(
+        pool: &SqlitePool,
+        task_id: Uuid,
+    ) -> Result<std::collections::HashMap<String, (String, Uuid)>, sqlx::Error> {
+        let resolved = Self::find_inherited_with_system(pool, task_id).await?;
         Ok(resolved
             .into_iter()
             .map(|rv| (rv.name, (rv.value, rv.source_task_id)))
