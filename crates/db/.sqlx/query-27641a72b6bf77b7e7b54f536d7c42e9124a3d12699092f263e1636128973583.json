@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id as \"id!: Uuid\", task_attempt_id as \"task_attempt_id!: Uuid\", run_reason as \"run_reason!: ExecutionProcessRunReason\", executor_action as \"executor_action!: sqlx::types::Json<ExecutorActionField>\", before_head_commit,\n                      after_head_commit, status as \"status!: ExecutionProcessStatus\", exit_code, dropped, pid, started_at as \"started_at!: DateTime<Utc>\", completed_at as \"completed_at?: DateTime<Utc>\",\n                      created_at as \"created_at!: DateTime<Utc>\", updated_at as \"updated_at!: DateTime<Utc>\", hive_synced_at as \"hive_synced_at: DateTime<Utc>\", server_instance_id\n               FROM execution_processes WHERE rowid = ?",
+  "query": "SELECT id as \"id!: Uuid\", task_attempt_id as \"task_attempt_id!: Uuid\", run_reason as \"run_reason!: ExecutionProcessRunReason\", executor_action as \"executor_action!: sqlx::types::Json<ExecutorActionField>\", before_head_commit,\n                      after_head_commit, status as \"status!: ExecutionProcessStatus\", exit_code, dropped, pid, started_at as \"started_at!: DateTime<Utc>\", completed_at as \"completed_at?: DateTime<Utc>\",\n                      created_at as \"created_at!: DateTime<Utc>\", updated_at as \"updated_at!: DateTime<Utc>\", hive_synced_at as \"hive_synced_at: DateTime<Utc>\", server_instance_id, completion_reason, completion_message\n               FROM execution_processes WHERE rowid = ?",
   "describe": {
     "columns": [
       {
@@ -82,6 +82,16 @@
         "name": "server_instance_id",
         "ordinal": 15,
         "type_info": "Text"
+      },
+      {
+        "name": "completion_reason",
+        "ordinal": 16,
+        "type_info": "Text"
+      },
+      {
+        "name": "completion_message",
+        "ordinal": 17,
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -103,8 +113,10 @@
       false,
       false,
       true,
+      true,
+      true,
       true
     ]
   },
-  "hash": "344c9421a0da6cd11d56ee0e924d5d8524b838e841b372cdd119e9587520e3b5"
+  "hash": "27641a72b6bf77b7e7b54f536d7c42e9124a3d12699092f263e1636128973583"
 }
