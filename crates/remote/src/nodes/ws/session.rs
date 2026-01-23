@@ -754,26 +754,8 @@ async fn handle_link_project(
     pool: &PgPool,
     connections: &ConnectionManager,
 ) -> Result<(), HandleError> {
-    use crate::db::projects::ProjectRepository;
     use crate::nodes::domain::LinkProjectData;
 
-    // Validate that the project exists in the hive before attempting to link.
-    // This prevents foreign key constraint violations on node_projects.project_id.
-    let project = ProjectRepository::fetch_by_id(pool, link.project_id)
-        .await
-        .map_err(|e| HandleError::Database(e.to_string()))?;
-
-    if project.is_none() {
-        tracing::warn!(
-            node_id = %node_id,
-            project_id = %link.project_id,
-            local_project_id = %link.local_project_id,
-            "node tried to link non-existent project - project must be synced to hive first"
-        );
-        return Err(HandleError::InvalidProject(link.project_id));
-    }
-
-    let project = project.unwrap();
     let service = NodeServiceImpl::new(pool.clone());
 
     let link_data = LinkProjectData {
@@ -797,13 +779,18 @@ async fn handle_link_project(
     );
 
     // Broadcast the new project link to other nodes
-    // Get node info for the broadcast (project already fetched above)
     let node = service
         .get_node(node_id)
         .await
         .map_err(|e| HandleError::Database(e.to_string()))?;
 
-    let project_name = project.name;
+    // Extract project name from git_repo_path (legacy projects table removed)
+    let project_name = link
+        .git_repo_path
+        .rsplit('/')
+        .next()
+        .unwrap_or(&link.git_repo_path)
+        .to_string();
 
     let sync_msg = HiveMessage::ProjectSync(ProjectSyncMessage {
         message_id: Uuid::new_v4(),
@@ -846,8 +833,6 @@ async fn handle_unlink_project(
     pool: &PgPool,
     connections: &ConnectionManager,
 ) -> Result<(), HandleError> {
-    use crate::db::projects::ProjectRepository;
-
     let service = NodeServiceImpl::new(pool.clone());
 
     // Get node info before unlink for the broadcast
@@ -879,15 +864,13 @@ async fn handle_unlink_project(
 
     // Broadcast the unlink to other nodes (only if we found the link info)
     if let Some(link) = link_info {
-        let project_name = match ProjectRepository::fetch_by_id(pool, unlink.project_id).await {
-            Ok(Some(project)) => project.name,
-            _ => link
-                .git_repo_path
-                .rsplit('/')
-                .next()
-                .unwrap_or(&link.git_repo_path)
-                .to_string(),
-        };
+        // Extract project name from git_repo_path (legacy projects table removed)
+        let project_name = link
+            .git_repo_path
+            .rsplit('/')
+            .next()
+            .unwrap_or(&link.git_repo_path)
+            .to_string();
 
         let sync_msg = HiveMessage::ProjectSync(ProjectSyncMessage {
             message_id: Uuid::new_v4(),
@@ -981,8 +964,6 @@ enum HandleError {
     Database(String),
     #[error("failed to send message")]
     Send,
-    #[error("project {0} not found in hive")]
-    InvalidProject(Uuid),
 }
 
 /// Sanitize a string by removing null bytes (0x00).
@@ -1045,43 +1026,53 @@ async fn handle_attempt_sync(
 
             if let Some(task) = shared_task {
                 // Find the node_project link for this project and node
-                let node_project_repo = NodeProjectRepository::new(pool);
-                let node_project = node_project_repo
-                    .find_by_node_and_project(node_id, task.project_id)
-                    .await
-                    .map_err(|e| HandleError::Database(e.to_string()))?;
-
-                if let Some(np) = node_project {
-                    // Create or find a synthetic assignment
-                    let assignment_repo = TaskAssignmentRepository::new(pool);
-                    match assignment_repo
-                        .create_or_find_synthetic(attempt.shared_task_id, node_id, np.id)
+                // project_id is optional after migration - only attempt if present
+                if let Some(project_id) = task.project_id {
+                    let node_project_repo = NodeProjectRepository::new(pool);
+                    let node_project = node_project_repo
+                        .find_by_node_and_project(node_id, project_id)
                         .await
-                    {
-                        Ok(assignment) => {
-                            tracing::info!(
-                                node_id = %node_id,
-                                attempt_id = %attempt.attempt_id,
-                                assignment_id = %assignment.id,
-                                "created synthetic assignment for locally-started task"
-                            );
-                            Some(assignment.id)
+                        .map_err(|e| HandleError::Database(e.to_string()))?;
+
+                    if let Some(np) = node_project {
+                        // Create or find a synthetic assignment
+                        let assignment_repo = TaskAssignmentRepository::new(pool);
+                        match assignment_repo
+                            .create_or_find_synthetic(attempt.shared_task_id, node_id, np.id)
+                            .await
+                        {
+                            Ok(assignment) => {
+                                tracing::info!(
+                                    node_id = %node_id,
+                                    attempt_id = %attempt.attempt_id,
+                                    assignment_id = %assignment.id,
+                                    "created synthetic assignment for locally-started task"
+                                );
+                                Some(assignment.id)
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    node_id = %node_id,
+                                    attempt_id = %attempt.attempt_id,
+                                    error = %e,
+                                    "failed to create synthetic assignment, proceeding without"
+                                );
+                                None
+                            }
                         }
-                        Err(e) => {
-                            tracing::warn!(
-                                node_id = %node_id,
-                                attempt_id = %attempt.attempt_id,
-                                error = %e,
-                                "failed to create synthetic assignment, proceeding without"
-                            );
-                            None
-                        }
+                    } else {
+                        tracing::debug!(
+                            node_id = %node_id,
+                            project_id = %project_id,
+                            "no node_project link found for synthetic assignment"
+                        );
+                        None
                     }
                 } else {
                     tracing::debug!(
                         node_id = %node_id,
-                        project_id = %task.project_id,
-                        "no node_project link found for synthetic assignment"
+                        shared_task_id = %attempt.shared_task_id,
+                        "task has no project_id, skipping synthetic assignment"
                     );
                     None
                 }

@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                st.id                     AS \"id!: Uuid\",\n                st.organization_id        AS \"organization_id!: Uuid\",\n                st.project_id             AS \"project_id!: Uuid\",\n                st.swarm_project_id       AS \"swarm_project_id?: Uuid\",\n                st.creator_user_id        AS \"creator_user_id?: Uuid\",\n                st.assignee_user_id       AS \"assignee_user_id?: Uuid\",\n                st.deleted_by_user_id     AS \"deleted_by_user_id?: Uuid\",\n                st.executing_node_id      AS \"executing_node_id?: Uuid\",\n                st.owner_node_id          AS \"owner_node_id?: Uuid\",\n                st.owner_name             AS \"owner_name?\",\n                st.source_task_id         AS \"source_task_id?: Uuid\",\n                st.source_node_id         AS \"source_node_id?: Uuid\",\n                st.title                  AS \"title!\",\n                st.description            AS \"description?\",\n                st.status                 AS \"status!: TaskStatus\",\n                st.version                AS \"version!\",\n                st.deleted_at             AS \"deleted_at?\",\n                st.shared_at              AS \"shared_at?\",\n                st.archived_at            AS \"archived_at?\",\n                st.created_at             AS \"created_at!\",\n                st.updated_at             AS \"updated_at!\",\n                u.id                      AS \"user_id?: Uuid\",\n                u.first_name              AS \"user_first_name?\",\n                u.last_name               AS \"user_last_name?\",\n                u.username                AS \"user_username?\"\n            FROM shared_tasks st\n            LEFT JOIN users u ON st.assignee_user_id = u.id\n            WHERE st.project_id = $1\n              AND st.deleted_at IS NULL\n            ORDER BY st.updated_at DESC\n            ",
+  "query": "\n            UPDATE shared_tasks AS t\n            SET status = $2,\n                version = t.version + 1,\n                updated_at = NOW()\n            WHERE t.id = $1\n              AND t.deleted_at IS NULL\n            RETURNING\n                t.id                AS \"id!\",\n                t.organization_id   AS \"organization_id!: Uuid\",\n                t.project_id        AS \"project_id?: Uuid\",\n                t.swarm_project_id  AS \"swarm_project_id?: Uuid\",\n                t.creator_user_id   AS \"creator_user_id?: Uuid\",\n                t.assignee_user_id  AS \"assignee_user_id?: Uuid\",\n                t.deleted_by_user_id AS \"deleted_by_user_id?: Uuid\",\n                t.executing_node_id AS \"executing_node_id?: Uuid\",\n                t.owner_node_id     AS \"owner_node_id?: Uuid\",\n                t.owner_name        AS \"owner_name?\",\n                t.source_task_id    AS \"source_task_id?: Uuid\",\n                t.source_node_id    AS \"source_node_id?: Uuid\",\n                t.title             AS \"title!\",\n                t.description       AS \"description?\",\n                t.status            AS \"status!: TaskStatus\",\n                t.version           AS \"version!\",\n                t.deleted_at        AS \"deleted_at?\",\n                t.shared_at         AS \"shared_at?\",\n                t.archived_at       AS \"archived_at?\",\n                t.created_at        AS \"created_at!\",\n                t.updated_at        AS \"updated_at!\"\n            ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id!: Uuid",
+        "name": "id!",
         "type_info": "Uuid"
       },
       {
@@ -15,7 +15,7 @@
       },
       {
         "ordinal": 2,
-        "name": "project_id!: Uuid",
+        "name": "project_id?: Uuid",
         "type_info": "Uuid"
       },
       {
@@ -120,31 +120,25 @@
         "ordinal": 20,
         "name": "updated_at!",
         "type_info": "Timestamptz"
-      },
-      {
-        "ordinal": 21,
-        "name": "user_id?: Uuid",
-        "type_info": "Uuid"
-      },
-      {
-        "ordinal": 22,
-        "name": "user_first_name?",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 23,
-        "name": "user_last_name?",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 24,
-        "name": "user_username?",
-        "type_info": "Text"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        {
+          "Custom": {
+            "name": "task_status",
+            "kind": {
+              "Enum": [
+                "todo",
+                "in-progress",
+                "in-review",
+                "done",
+                "cancelled"
+              ]
+            }
+          }
+        }
       ]
     },
     "nullable": [
@@ -168,12 +162,8 @@
       true,
       true,
       false,
-      false,
-      false,
-      true,
-      true,
-      true
+      false
     ]
   },
-  "hash": "40c7ddec00f3b5e54cc0c7b3ce7badd6d080aca9e256cf477dd6dc435f346fba"
+  "hash": "1ad411161078537c7cdc5335272fb4f1b968e4283f7828a1f9adb9d5120554ae"
 }

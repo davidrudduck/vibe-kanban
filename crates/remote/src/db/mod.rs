@@ -15,7 +15,6 @@ pub mod oauth;
 pub mod oauth_accounts;
 pub mod organization_members;
 pub mod organizations;
-pub mod projects;
 pub mod swarm_projects;
 pub mod swarm_templates;
 pub mod task_assignments;

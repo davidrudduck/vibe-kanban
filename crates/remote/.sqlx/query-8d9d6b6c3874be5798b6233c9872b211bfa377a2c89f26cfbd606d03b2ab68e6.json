@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO shared_tasks (\n                organization_id,\n                project_id,\n                creator_user_id,\n                assignee_user_id,\n                title,\n                description,\n                status,\n                shared_at\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, 'todo'::task_status), NOW())\n            RETURNING id                 AS \"id!\",\n                      organization_id    AS \"organization_id!: Uuid\",\n                      project_id         AS \"project_id!\",\n                      swarm_project_id   AS \"swarm_project_id?: Uuid\",\n                      creator_user_id    AS \"creator_user_id?: Uuid\",\n                      assignee_user_id   AS \"assignee_user_id?: Uuid\",\n                      deleted_by_user_id AS \"deleted_by_user_id?: Uuid\",\n                      executing_node_id  AS \"executing_node_id?: Uuid\",\n                      owner_node_id      AS \"owner_node_id?: Uuid\",\n                      owner_name         AS \"owner_name?\",\n                      source_task_id     AS \"source_task_id?: Uuid\",\n                      source_node_id     AS \"source_node_id?: Uuid\",\n                      title              AS \"title!\",\n                      description        AS \"description?\",\n                      status             AS \"status!: TaskStatus\",\n                      version            AS \"version!\",\n                      deleted_at         AS \"deleted_at?\",\n                      shared_at          AS \"shared_at?\",\n                      archived_at        AS \"archived_at?\",\n                      created_at         AS \"created_at!\",\n                      updated_at         AS \"updated_at!\"\n            ",
+  "query": "\n        UPDATE shared_tasks AS t\n        SET assignee_user_id = $2,\n            version = t.version + 1\n        WHERE t.id = $1\n          AND t.version = COALESCE($4, t.version)\n          AND ($3::uuid IS NULL OR t.assignee_user_id = $3::uuid)\n          AND t.deleted_at IS NULL\n        RETURNING\n            t.id                AS \"id!\",\n            t.organization_id   AS \"organization_id!: Uuid\",\n            t.project_id        AS \"project_id?: Uuid\",\n            t.swarm_project_id  AS \"swarm_project_id?: Uuid\",\n            t.creator_user_id   AS \"creator_user_id?: Uuid\",\n            t.assignee_user_id  AS \"assignee_user_id?: Uuid\",\n            t.deleted_by_user_id AS \"deleted_by_user_id?: Uuid\",\n            t.executing_node_id AS \"executing_node_id?: Uuid\",\n            t.owner_node_id     AS \"owner_node_id?: Uuid\",\n            t.owner_name        AS \"owner_name?\",\n            t.source_task_id    AS \"source_task_id?: Uuid\",\n            t.source_node_id    AS \"source_node_id?: Uuid\",\n            t.title             AS \"title!\",\n            t.description       AS \"description?\",\n            t.status            AS \"status!: TaskStatus\",\n            t.version           AS \"version!\",\n            t.deleted_at        AS \"deleted_at?\",\n            t.shared_at         AS \"shared_at?\",\n            t.archived_at       AS \"archived_at?\",\n            t.created_at        AS \"created_at!\",\n            t.updated_at        AS \"updated_at!\"\n        ",
   "describe": {
     "columns": [
       {
@@ -15,7 +15,7 @@
       },
       {
         "ordinal": 2,
-        "name": "project_id!",
+        "name": "project_id?: Uuid",
         "type_info": "Uuid"
       },
       {
@@ -127,23 +127,7 @@
         "Uuid",
         "Uuid",
         "Uuid",
-        "Uuid",
-        "Text",
-        "Text",
-        {
-          "Custom": {
-            "name": "task_status",
-            "kind": {
-              "Enum": [
-                "todo",
-                "in-progress",
-                "in-review",
-                "done",
-                "cancelled"
-              ]
-            }
-          }
-        }
+        "Int8"
       ]
     },
     "nullable": [
@@ -170,5 +154,5 @@
       false
     ]
   },
-  "hash": "f6a7cf81678eb1387623b041c323af9fb086c1fdfa741fe21182daf11f19148e"
+  "hash": "8d9d6b6c3874be5798b6233c9872b211bfa377a2c89f26cfbd606d03b2ab68e6"
 }

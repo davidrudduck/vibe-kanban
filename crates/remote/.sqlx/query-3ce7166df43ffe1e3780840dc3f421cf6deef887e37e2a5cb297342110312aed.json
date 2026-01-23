@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        UPDATE shared_tasks AS t\n        SET deleted_at = NOW(),\n            deleted_by_user_id = $3,\n            version = t.version + 1\n        WHERE t.id = $1\n          AND t.version = COALESCE($2, t.version)\n          AND t.deleted_at IS NULL\n        RETURNING\n            t.id                AS \"id!\",\n            t.organization_id   AS \"organization_id!: Uuid\",\n            t.project_id        AS \"project_id!\",\n            t.swarm_project_id  AS \"swarm_project_id?: Uuid\",\n            t.creator_user_id   AS \"creator_user_id?: Uuid\",\n            t.assignee_user_id  AS \"assignee_user_id?: Uuid\",\n            t.deleted_by_user_id AS \"deleted_by_user_id?: Uuid\",\n            t.executing_node_id AS \"executing_node_id?: Uuid\",\n            t.owner_node_id     AS \"owner_node_id?: Uuid\",\n            t.owner_name        AS \"owner_name?\",\n            t.source_task_id    AS \"source_task_id?: Uuid\",\n            t.source_node_id    AS \"source_node_id?: Uuid\",\n            t.title             AS \"title!\",\n            t.description       AS \"description?\",\n            t.status            AS \"status!: TaskStatus\",\n            t.version           AS \"version!\",\n            t.deleted_at        AS \"deleted_at?\",\n            t.shared_at         AS \"shared_at?\",\n            t.archived_at       AS \"archived_at?\",\n            t.created_at        AS \"created_at!\",\n            t.updated_at        AS \"updated_at!\"\n        ",
+  "query": "\n            SELECT\n                id                  AS \"id!\",\n                organization_id     AS \"organization_id!: Uuid\",\n                project_id          AS \"project_id?: Uuid\",\n                swarm_project_id    AS \"swarm_project_id?: Uuid\",\n                creator_user_id     AS \"creator_user_id?: Uuid\",\n                assignee_user_id    AS \"assignee_user_id?: Uuid\",\n                deleted_by_user_id  AS \"deleted_by_user_id?: Uuid\",\n                executing_node_id   AS \"executing_node_id?: Uuid\",\n                owner_node_id       AS \"owner_node_id?: Uuid\",\n                owner_name          AS \"owner_name?\",\n                source_task_id      AS \"source_task_id?: Uuid\",\n                source_node_id      AS \"source_node_id?: Uuid\",\n                title               AS \"title!\",\n                description         AS \"description?\",\n                status              AS \"status!: TaskStatus\",\n                version             AS \"version!\",\n                deleted_at          AS \"deleted_at?\",\n                shared_at           AS \"shared_at?\",\n                archived_at         AS \"archived_at?\",\n                created_at          AS \"created_at!\",\n                updated_at          AS \"updated_at!\"\n            FROM shared_tasks\n            WHERE id = $1\n              AND deleted_at IS NULL\n            ",
   "describe": {
     "columns": [
       {
@@ -15,7 +15,7 @@
       },
       {
         "ordinal": 2,
-        "name": "project_id!",
+        "name": "project_id?: Uuid",
         "type_info": "Uuid"
       },
       {
@@ -124,8 +124,6 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Int8",
         "Uuid"
       ]
     },
@@ -153,5 +151,5 @@
       false
     ]
   },
-  "hash": "465ec26fd370f60601895730a2d4d18c0751973838dea03a099fd144ba224f17"
+  "hash": "3ce7166df43ffe1e3780840dc3f421cf6deef887e37e2a5cb297342110312aed"
 }

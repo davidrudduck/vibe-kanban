@@ -22,9 +22,9 @@ use crate::{
     db::{
         identity_errors::IdentityError,
         invitations::{Invitation, InvitationRepository},
+        node_projects::NodeProjectRepository,
         organization_members::{self, MemberRole},
         organizations::OrganizationRepository,
-        projects::ProjectRepository,
         swarm_projects::SwarmProjectRepository,
         tasks::SharedTaskRepository,
     },
@@ -516,7 +516,8 @@ pub(crate) async fn ensure_project_access(
     user_id: Uuid,
     project_id: Uuid,
 ) -> Result<Uuid, ErrorResponse> {
-    let organization_id = ProjectRepository::organization_id(pool, project_id)
+    // Look up organization_id via node_projects table (legacy projects table removed)
+    let organization_id = NodeProjectRepository::organization_id(pool, project_id)
         .await
         .map_err(|error| {
             tracing::error!(?error, %project_id, "failed to load project");
