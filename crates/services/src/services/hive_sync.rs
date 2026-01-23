@@ -170,9 +170,10 @@ impl HiveSyncService {
     /// This finds tasks that:
     /// 1. Have unsynced attempts (attempts without hive_synced_at)
     /// 2. Don't have a shared_task_id
-    /// 3. Belong to projects with a remote_project_id
+    /// 3. Belong to projects with a remote_project_id (linked to swarm)
     ///
-    /// For each such task, we send a TaskSync message to the Hive.
+    /// For each such task, we send a TaskSync message to the Hive with the
+    /// local_project_id. The Hive looks up the swarm_project_id via node_local_projects.
     /// The Hive will respond with a TaskSyncResponse containing the shared_task_id.
     async fn sync_tasks(&self) -> Result<usize, HiveSyncError> {
         // Find tasks that need syncing: have unsynced attempts but no shared_task_id
@@ -185,7 +186,7 @@ impl HiveSyncService {
         let mut synced_count = 0;
 
         for task in &tasks {
-            // Look up the project to get remote_project_id
+            // Look up the project to check if it's linked to swarm
             let project = match Project::find_by_id(&self.pool, task.project_id).await? {
                 Some(p) => p,
                 None => {
@@ -198,18 +199,15 @@ impl HiveSyncService {
                 }
             };
 
-            // Skip if project isn't linked to hive
-            let remote_project_id = match project.remote_project_id {
-                Some(id) => id,
-                None => {
-                    debug!(
-                        task_id = %task.id,
-                        project_id = %task.project_id,
-                        "Skipping task sync - project not linked to Hive"
-                    );
-                    continue;
-                }
-            };
+            // Skip if project isn't linked to swarm (remote_project_id is set when linked)
+            if project.remote_project_id.is_none() {
+                debug!(
+                    task_id = %task.id,
+                    project_id = %task.project_id,
+                    "Skipping task sync - project not linked to swarm"
+                );
+                continue;
+            }
 
             // Serialize status to string
             let status = serde_json::to_value(&task.status)
@@ -217,15 +215,20 @@ impl HiveSyncService {
                 .and_then(|v| v.as_str().map(|s| s.to_string()))
                 .unwrap_or_else(|| "todo".to_string());
 
+            // Send local_project_id - the hive looks up swarm_project_id via node_local_projects
             let message = TaskSyncMessage {
                 local_task_id: task.id,
                 shared_task_id: task.shared_task_id,
-                remote_project_id,
+                local_project_id: task.project_id,  // Send LOCAL project ID, not remote
                 title: task.title.clone(),
                 description: task.description.clone(),
                 status,
                 version: 1, // Initial version for new sync
                 is_update: task.shared_task_id.is_some(),
+                // Owner fields are set by the hive based on which node is executing
+                // TODO: Add owner_node_id and owner_name to local Task model
+                owner_node_id: None,
+                owner_name: None,
                 created_at: task.created_at,
                 updated_at: task.updated_at,
             };
@@ -240,7 +243,7 @@ impl HiveSyncService {
             info!(
                 task_id = %task.id,
                 title = %task.title,
-                remote_project_id = %remote_project_id,
+                local_project_id = %task.project_id,
                 "Sent task sync to Hive"
             );
         }

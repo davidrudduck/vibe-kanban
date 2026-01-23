@@ -48,10 +48,16 @@ pub struct SharedTask {
     pub id: Uuid,
     pub organization_id: Uuid,
     pub project_id: Uuid,
+    /// Swarm project ID for tasks synced via swarm (may be NULL for legacy tasks)
+    pub swarm_project_id: Option<Uuid>,
     pub creator_user_id: Option<Uuid>,
     pub assignee_user_id: Option<Uuid>,
     pub deleted_by_user_id: Option<Uuid>,
     pub executing_node_id: Option<Uuid>,
+    /// Node currently owning/working on this task
+    pub owner_node_id: Option<Uuid>,
+    /// Name of the owner node (denormalized for display)
+    pub owner_name: Option<String>,
     /// Original local task ID from source node, used for re-sync duplicate detection
     pub source_task_id: Option<Uuid>,
     /// Node that originally created this task, used with source_task_id for uniqueness
@@ -111,12 +117,16 @@ pub struct DeleteTaskData {
 /// Unlike `CreateSharedTaskData`, this doesn't require a user ID.
 #[derive(Debug, Clone)]
 pub struct UpsertTaskFromNodeData {
-    /// Remote project ID
+    /// Swarm project ID (the new single source of truth)
+    pub swarm_project_id: Uuid,
+    /// Legacy project ID (for backwards compatibility, same as swarm_project_id for new tasks)
     pub project_id: Uuid,
     /// Organization ID (from the project)
     pub organization_id: Uuid,
     /// Node that owns this task
     pub origin_node_id: Uuid,
+    /// Local task ID on the source node
+    pub local_task_id: Uuid,
     /// Title of the task
     pub title: String,
     /// Description of the task
@@ -125,8 +135,10 @@ pub struct UpsertTaskFromNodeData {
     pub status: TaskStatus,
     /// Version for conflict resolution
     pub version: i64,
-    /// Original local task ID from source node, used for re-sync duplicate detection
-    pub source_task_id: Option<Uuid>,
+    /// Node currently owning/working on this task
+    pub owner_node_id: Option<Uuid>,
+    /// Name of the owner node
+    pub owner_name: Option<String>,
 }
 
 #[derive(Debug, Error)]
@@ -166,10 +178,13 @@ impl<'a> SharedTaskRepository<'a> {
                 id                  AS "id!",
                 organization_id     AS "organization_id!: Uuid",
                 project_id          AS "project_id!",
+                swarm_project_id    AS "swarm_project_id?: Uuid",
                 creator_user_id     AS "creator_user_id?: Uuid",
                 assignee_user_id    AS "assignee_user_id?: Uuid",
                 deleted_by_user_id  AS "deleted_by_user_id?: Uuid",
                 executing_node_id   AS "executing_node_id?: Uuid",
+                owner_node_id       AS "owner_node_id?: Uuid",
+                owner_name          AS "owner_name?",
                 source_task_id      AS "source_task_id?: Uuid",
                 source_node_id      AS "source_node_id?: Uuid",
                 title               AS "title!",
@@ -197,9 +212,9 @@ impl<'a> SharedTaskRepository<'a> {
     ///
     /// This is used for duplicate detection during task re-sync.
     /// Returns the existing task if one was already created from the same source.
+    /// Note: Uses the unique constraint on (source_node_id, source_task_id).
     pub async fn find_by_source_task_id(
         &self,
-        project_id: Uuid,
         source_node_id: Uuid,
         source_task_id: Uuid,
     ) -> Result<Option<SharedTask>, SharedTaskError> {
@@ -210,10 +225,13 @@ impl<'a> SharedTaskRepository<'a> {
                 id                  AS "id!",
                 organization_id     AS "organization_id!: Uuid",
                 project_id          AS "project_id!",
+                swarm_project_id    AS "swarm_project_id?: Uuid",
                 creator_user_id     AS "creator_user_id?: Uuid",
                 assignee_user_id    AS "assignee_user_id?: Uuid",
                 deleted_by_user_id  AS "deleted_by_user_id?: Uuid",
                 executing_node_id   AS "executing_node_id?: Uuid",
+                owner_node_id       AS "owner_node_id?: Uuid",
+                owner_name          AS "owner_name?",
                 source_task_id      AS "source_task_id?: Uuid",
                 source_node_id      AS "source_node_id?: Uuid",
                 title               AS "title!",
@@ -226,12 +244,10 @@ impl<'a> SharedTaskRepository<'a> {
                 created_at          AS "created_at!",
                 updated_at          AS "updated_at!"
             FROM shared_tasks
-            WHERE project_id = $1
-              AND source_node_id = $2
-              AND source_task_id = $3
+            WHERE source_node_id = $1
+              AND source_task_id = $2
               AND deleted_at IS NULL
             "#,
-            project_id,
             source_node_id,
             source_task_id
         )
@@ -309,10 +325,13 @@ impl<'a> SharedTaskRepository<'a> {
             RETURNING id                 AS "id!",
                       organization_id    AS "organization_id!: Uuid",
                       project_id         AS "project_id!",
+                      swarm_project_id   AS "swarm_project_id?: Uuid",
                       creator_user_id    AS "creator_user_id?: Uuid",
                       assignee_user_id   AS "assignee_user_id?: Uuid",
                       deleted_by_user_id AS "deleted_by_user_id?: Uuid",
                       executing_node_id  AS "executing_node_id?: Uuid",
+                      owner_node_id      AS "owner_node_id?: Uuid",
+                      owner_name         AS "owner_name?",
                       source_task_id     AS "source_task_id?: Uuid",
                       source_node_id     AS "source_node_id?: Uuid",
                       title              AS "title!",
@@ -346,23 +365,28 @@ impl<'a> SharedTaskRepository<'a> {
         Ok(SharedTaskWithUser::new(task, user))
     }
 
-    /// Create a shared task from a node.
+    /// Create or update a shared task from a node.
     ///
     /// Unlike `create()`, this method doesn't require a user ID.
-    /// Returns the created task.
+    /// Uses ON CONFLICT to handle duplicate syncs gracefully.
+    /// Returns the task and a boolean indicating if it was newly created.
     pub async fn upsert_from_node(
         &self,
         data: UpsertTaskFromNodeData,
     ) -> Result<(SharedTask, bool), SharedTaskError> {
         ensure_text_size(&data.title, data.description.as_deref())?;
 
-        // Use runtime query to avoid sqlx cache issues
+        // Use ON CONFLICT to handle duplicate syncs (same source_node_id + source_task_id)
+        // The unique constraint idx_shared_tasks_source_unique ensures idempotency
         let task: SharedTask = sqlx::query_as(
             r#"
             INSERT INTO shared_tasks (
                 organization_id,
                 project_id,
+                swarm_project_id,
                 executing_node_id,
+                owner_node_id,
+                owner_name,
                 source_task_id,
                 source_node_id,
                 title,
@@ -371,14 +395,27 @@ impl<'a> SharedTaskRepository<'a> {
                 version,
                 shared_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8::task_status, $9, NOW())
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::task_status, $12, NOW())
+            ON CONFLICT (source_node_id, source_task_id)
+                WHERE source_node_id IS NOT NULL AND source_task_id IS NOT NULL AND deleted_at IS NULL
+            DO UPDATE SET
+                title = EXCLUDED.title,
+                description = EXCLUDED.description,
+                status = EXCLUDED.status,
+                owner_node_id = EXCLUDED.owner_node_id,
+                owner_name = EXCLUDED.owner_name,
+                version = shared_tasks.version + 1,
+                updated_at = NOW()
             RETURNING id,
                       organization_id,
                       project_id,
+                      swarm_project_id,
                       creator_user_id,
                       assignee_user_id,
                       deleted_by_user_id,
                       executing_node_id,
+                      owner_node_id,
+                      owner_name,
                       source_task_id,
                       source_node_id,
                       title,
@@ -394,25 +431,34 @@ impl<'a> SharedTaskRepository<'a> {
         )
         .bind(data.organization_id)
         .bind(data.project_id)
-        .bind(data.origin_node_id)
-        .bind(data.source_task_id)
+        .bind(data.swarm_project_id)
+        .bind(data.origin_node_id) // executing_node_id
+        .bind(data.owner_node_id)
+        .bind(&data.owner_name)
+        .bind(data.local_task_id) // source_task_id = local_task_id
         .bind(data.origin_node_id) // source_node_id = origin_node_id
-        .bind(data.title)
-        .bind(data.description)
+        .bind(&data.title)
+        .bind(&data.description)
         .bind(data.status)
         .bind(data.version)
         .fetch_one(self.pool)
         .await?;
 
+        // Determine if this was a new insert or an update
+        // A new insert will have version == data.version, an update will have version > data.version
+        let was_created = task.version == data.version;
+
         tracing::debug!(
             task_id = %task.id,
+            swarm_project_id = ?task.swarm_project_id,
             project_id = %task.project_id,
             version = %task.version,
             source_task_id = ?task.source_task_id,
-            "created shared task from node"
+            was_created = was_created,
+            "upserted shared task from node"
         );
 
-        Ok((task, true))
+        Ok((task, was_created))
     }
 
     pub async fn bulk_fetch(&self, project_id: Uuid) -> Result<BulkFetchResult, SharedTaskError> {
@@ -427,10 +473,13 @@ impl<'a> SharedTaskRepository<'a> {
                 st.id                     AS "id!: Uuid",
                 st.organization_id        AS "organization_id!: Uuid",
                 st.project_id             AS "project_id!: Uuid",
+                st.swarm_project_id       AS "swarm_project_id?: Uuid",
                 st.creator_user_id        AS "creator_user_id?: Uuid",
                 st.assignee_user_id       AS "assignee_user_id?: Uuid",
                 st.deleted_by_user_id     AS "deleted_by_user_id?: Uuid",
                 st.executing_node_id      AS "executing_node_id?: Uuid",
+                st.owner_node_id          AS "owner_node_id?: Uuid",
+                st.owner_name             AS "owner_name?",
                 st.source_task_id         AS "source_task_id?: Uuid",
                 st.source_node_id         AS "source_node_id?: Uuid",
                 st.title                  AS "title!",
@@ -464,10 +513,13 @@ impl<'a> SharedTaskRepository<'a> {
                     id: row.id,
                     organization_id: row.organization_id,
                     project_id: row.project_id,
+                    swarm_project_id: row.swarm_project_id,
                     creator_user_id: row.creator_user_id,
                     assignee_user_id: row.assignee_user_id,
                     deleted_by_user_id: row.deleted_by_user_id,
                     executing_node_id: row.executing_node_id,
+                    owner_node_id: row.owner_node_id,
+                    owner_name: row.owner_name,
                     source_task_id: row.source_task_id,
                     source_node_id: row.source_node_id,
                     title: row.title,
@@ -559,10 +611,13 @@ impl<'a> SharedTaskRepository<'a> {
             t.id                AS "id!",
             t.organization_id   AS "organization_id!: Uuid",
             t.project_id        AS "project_id!",
+            t.swarm_project_id  AS "swarm_project_id?: Uuid",
             t.creator_user_id   AS "creator_user_id?: Uuid",
             t.assignee_user_id  AS "assignee_user_id?: Uuid",
             t.deleted_by_user_id AS "deleted_by_user_id?: Uuid",
             t.executing_node_id AS "executing_node_id?: Uuid",
+            t.owner_node_id     AS "owner_node_id?: Uuid",
+            t.owner_name        AS "owner_name?",
             t.source_task_id    AS "source_task_id?: Uuid",
             t.source_node_id    AS "source_node_id?: Uuid",
             t.title             AS "title!",
@@ -624,10 +679,13 @@ impl<'a> SharedTaskRepository<'a> {
             t.id                AS "id!",
             t.organization_id   AS "organization_id!: Uuid",
             t.project_id        AS "project_id!",
+            t.swarm_project_id  AS "swarm_project_id?: Uuid",
             t.creator_user_id   AS "creator_user_id?: Uuid",
             t.assignee_user_id  AS "assignee_user_id?: Uuid",
             t.deleted_by_user_id AS "deleted_by_user_id?: Uuid",
             t.executing_node_id AS "executing_node_id?: Uuid",
+            t.owner_node_id     AS "owner_node_id?: Uuid",
+            t.owner_name        AS "owner_name?",
             t.source_task_id    AS "source_task_id?: Uuid",
             t.source_node_id    AS "source_node_id?: Uuid",
             t.title             AS "title!",
@@ -683,10 +741,13 @@ impl<'a> SharedTaskRepository<'a> {
                 t.id                AS "id!",
                 t.organization_id   AS "organization_id!: Uuid",
                 t.project_id        AS "project_id!",
+                t.swarm_project_id  AS "swarm_project_id?: Uuid",
                 t.creator_user_id   AS "creator_user_id?: Uuid",
                 t.assignee_user_id  AS "assignee_user_id?: Uuid",
                 t.deleted_by_user_id AS "deleted_by_user_id?: Uuid",
                 t.executing_node_id AS "executing_node_id?: Uuid",
+                t.owner_node_id     AS "owner_node_id?: Uuid",
+                t.owner_name        AS "owner_name?",
                 t.source_task_id    AS "source_task_id?: Uuid",
                 t.source_node_id    AS "source_node_id?: Uuid",
                 t.title             AS "title!",
@@ -754,10 +815,13 @@ impl<'a> SharedTaskRepository<'a> {
             t.id                AS "id!",
             t.organization_id   AS "organization_id!: Uuid",
             t.project_id        AS "project_id!",
+            t.swarm_project_id  AS "swarm_project_id?: Uuid",
             t.creator_user_id   AS "creator_user_id?: Uuid",
             t.assignee_user_id  AS "assignee_user_id?: Uuid",
             t.deleted_by_user_id AS "deleted_by_user_id?: Uuid",
             t.executing_node_id AS "executing_node_id?: Uuid",
+            t.owner_node_id     AS "owner_node_id?: Uuid",
+            t.owner_name        AS "owner_name?",
             t.source_task_id    AS "source_task_id?: Uuid",
             t.source_node_id    AS "source_node_id?: Uuid",
             t.title             AS "title!",

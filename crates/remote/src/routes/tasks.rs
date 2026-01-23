@@ -125,7 +125,7 @@ pub async fn find_by_source_task_id(
 
     let repo = SharedTaskRepository::new(pool);
     match repo
-        .find_by_source_task_id(query.project_id, query.source_node_id, query.source_task_id)
+        .find_by_source_task_id(query.source_node_id, query.source_task_id)
         .await
     {
         Ok(Some(task)) => (
@@ -181,7 +181,7 @@ pub async fn create_shared_task(
     // If source_task_id is provided, check for an existing task first (duplicate detection)
     if let (Some(src_task_id), Some(src_node_id)) = (source_task_id, source_node_id) {
         match repo
-            .find_by_source_task_id(project_id, src_node_id, src_task_id)
+            .find_by_source_task_id(src_node_id, src_task_id)
             .await
         {
             Ok(Some(existing)) => {
