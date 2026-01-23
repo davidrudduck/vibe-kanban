@@ -679,14 +679,26 @@ impl TaskAttempt {
         Ok(result.rows_affected())
     }
 
-    /// Clear hive_synced_at for all task attempts in a project (transaction-safe).
+    /// Clears the stored Hive sync timestamp for all task attempts belonging to a project.
     ///
-    /// Transaction-safe variant that accepts an executor trait, enabling it to participate
-    /// in database transactions.
+    /// Sets `hive_synced_at` to `NULL` for every `task_attempts` row whose parent `task` references the provided `project_id`.
     ///
-    /// Sets `hive_synced_at = NULL` for all task attempts belonging to tasks in the project.
+    /// # Returns
     ///
-    /// Returns the number of task attempts that were updated.
+    /// The number of task attempt rows that were updated.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use sqlx::SqlitePool;
+    /// # use uuid::Uuid;
+    /// # async fn example(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    /// let project_id = Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap();
+    /// let updated = crate::models::task_attempt::TaskAttempt::clear_hive_sync_for_project_tx(pool, project_id).await?;
+    /// println!("Updated {} rows", updated);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn clear_hive_sync_for_project_tx<'e, E>(
         executor: E,
         project_id: Uuid,
@@ -707,10 +719,18 @@ impl TaskAttempt {
         Ok(result.rows_affected())
     }
 
-    /// Delete a task attempt by ID.
+    /// Remove the task attempt record with the given ID from the database.
     ///
-    /// This is used to clean up broken task attempts that failed during creation
-    /// (e.g., when worktree creation fails).
+    /// This is intended for cleanup of failed or partially created attempts (for example, when worktree creation fails).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # async fn example(pool: &sqlx::SqlitePool, id: uuid::Uuid) -> Result<(), sqlx::Error> {
+    /// TaskAttempt::delete(pool, id).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM task_attempts WHERE id = $1")
             .bind(id)

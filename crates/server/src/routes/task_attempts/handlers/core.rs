@@ -169,6 +169,38 @@ pub async fn get_task_attempt(
 // Create
 // ============================================================================
 
+/// Create a new task attempt either locally or by proxying the request to a remote node.
+///
+/// If `payload.target_node_id` is present the request is proxied to the specified node using
+/// the task's `shared_task_id`; the handler then attempts to set the executing node in Hive
+/// (errors from that step are logged and ignored). If no target node is provided the handler:
+/// - auto-unarchives the task if it was archived (and asynchronously syncs the unarchive to Hive if shared),
+/// - optionally uses the parent task's worktree (when `use_parent_worktree` is true) after validating the parent and its worktree,
+/// - creates a local TaskAttempt record,
+/// - starts the attempt via the container backend (creating a worktree when needed).
+///
+/// If starting the attempt fails the partial TaskAttempt is deleted and the original container error is returned.
+///
+/// # Returns
+///
+/// On success returns an `ApiResponse` containing the created `TaskAttempt` (for proxied requests the remote node's response is returned). On failure returns an `ApiError`.
+///
+/// # Examples
+///
+/// ```no_run
+/// use axum::Json;
+/// use uuid::Uuid;
+///
+/// // Illustrative example — wiring the handler into an application and calling it requires
+/// // constructing `DeploymentImpl` and `CreateTaskAttemptBody` which are omitted here.
+/// #[tokio::main]
+/// async fn main() {
+///     // let deployment = ...;
+///     // let payload = CreateTaskAttemptBody { task_id: Uuid::new_v4(), ..Default::default() };
+///     // let resp = create_task_attempt(State(deployment), Json(payload)).await;
+///     // assert!(resp.is_ok());
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn create_task_attempt(
     State(deployment): State<DeploymentImpl>,
@@ -389,9 +421,29 @@ pub async fn create_task_attempt(
     Ok(ResponseJson(ApiResponse::success(task_attempt)))
 }
 
-/// Create a task attempt via by-task-id route (used for cross-node proxying).
-/// The task is loaded by shared_task_id from the URL path parameter.
-#[axum::debug_handler]
+/// Create a new TaskAttempt for a task identified by shared_task_id (used for cross-node proxying).
+///
+/// This handler creates a TaskAttempt for the provided task (loaded from the path by shared_task_id),
+/// optionally reusing the parent task's worktree when `use_parent_worktree` is set. If a parent
+/// worktree is requested, the parent attempt must exist, have a non-deleted worktree, and its
+/// container reference will be reused. The handler starts the attempt; if starting the attempt
+/// fails, the partially created TaskAttempt is removed and the original container error is returned.
+///
+/// # Returns
+///
+/// An `ApiResponse` containing the created `TaskAttempt` on success.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// // Typical invocation is via an HTTP route. This sketch demonstrates the handler signature:
+/// // let response = create_task_attempt_by_task_id(
+/// //     Extension(task),
+/// //     State(deployment),
+/// //     Json(payload)
+/// // ).await;
+/// // assert!(response.is_ok());
+/// ```
 pub async fn create_task_attempt_by_task_id(
     Extension(task): Extension<Task>,
     State(deployment): State<DeploymentImpl>,
