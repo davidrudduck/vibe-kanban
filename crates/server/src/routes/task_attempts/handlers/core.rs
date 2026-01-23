@@ -369,9 +369,27 @@ pub async fn create_task_attempt(
         )
         .await
     {
-        tracing::error!("Failed to start task attempt: {}", err);
+        tracing::error!(
+            task_id = %task.id,
+            attempt_id = %task_attempt.id,
+            error = %err,
+            "Failed to start task attempt"
+        );
+
+        // Clean up the broken task attempt
+        if let Err(delete_err) = TaskAttempt::delete(pool, task_attempt.id).await {
+            tracing::error!(
+                task_id = %task.id,
+                attempt_id = %task_attempt.id,
+                error = %delete_err,
+                "Failed to clean up broken task attempt"
+            );
+        }
+
+        // Return error to client
+        return Err(ApiError::Container(err));
     }
-    tracing::info!("Created attempt for task {}", task.id);
+    tracing::info!(task_id = %task.id, attempt_id = %task_attempt.id, "Created task attempt");
 
     // Refetch to get the final state
     let task_attempt = TaskAttempt::find_by_id(pool, task_attempt.id)
@@ -472,7 +490,25 @@ pub async fn create_task_attempt_by_task_id(
         )
         .await
     {
-        tracing::error!("Failed to start task attempt: {}", err);
+        tracing::error!(
+            task_id = %task.id,
+            attempt_id = %task_attempt.id,
+            error = %err,
+            "Failed to start task attempt"
+        );
+
+        // Clean up the broken task attempt
+        if let Err(delete_err) = TaskAttempt::delete(pool, task_attempt.id).await {
+            tracing::error!(
+                task_id = %task.id,
+                attempt_id = %task_attempt.id,
+                error = %delete_err,
+                "Failed to clean up broken task attempt"
+            );
+        }
+
+        // Return error to client
+        return Err(ApiError::Container(err));
     }
     tracing::info!(
         task_id = %task.id,
