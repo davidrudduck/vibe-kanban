@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 # CodeRabbit Configuration
 # https://docs.coderabbit.ai/guides/configure-coderabbit
 
@@ -6,12 +7,24 @@ language: en-US
 reviews:
   # Enable high-level summary of changes
   high_level_summary: true
+  # Disable changed files summary in walkthrough
+  changed_files_summary: false
   # Generate poem in review (disable for serious projects)
   poem: false
   # Review status for new PRs
   review_status: true
   # Collapse walkthrough for large PRs
   collapse_walkthrough: true
+  # Files to ignore in reviews
+  path_filters:
+    - "!**/*.lock"
+    - "!**/package-lock.json"
+    - "!**/Cargo.lock"
+    - "!frontend/src/shared/types.ts"
+    - "!**/dist/**"
+    - "!**/*.min.js"
+    - "!**/*.min.css"
+    - "!**/migrations/*.sql"
   # Auto-review on PR open and updates
   auto_review:
     enabled: true
@@ -73,17 +86,6 @@ reviews:
       instructions: |
         Tests should use db::test_utils::create_test_pool() for database tests.
         This provides fast, isolated test databases via template copying.
-
-# Files to ignore in reviews
-path_filters:
-  - "!**/*.lock"
-  - "!**/package-lock.json"
-  - "!**/Cargo.lock"
-  - "!frontend/src/shared/types.ts"  # Auto-generated from Rust
-  - "!**/dist/**"
-  - "!**/*.min.js"
-  - "!**/*.min.css"
-  - "!**/migrations/*.sql"  # Review migrations manually
 
 chat:
   auto_reply: true
