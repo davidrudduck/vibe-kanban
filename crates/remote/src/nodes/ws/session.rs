@@ -47,13 +47,18 @@ const OUTGOING_BUFFER_SIZE: usize = 64;
 /// Extract project name from a git repository path.
 ///
 /// Returns the last path component, or the full path if no separator is found.
-/// Handles trailing slashes gracefully.
+/// Handles trailing slashes gracefully and supports both Unix and Windows separators.
 fn extract_project_name(git_repo_path: &str) -> String {
-    git_repo_path
-        .trim_end_matches('/')
-        .rsplit('/')
+    let trimmed = git_repo_path.trim_end_matches(|c| c == '/' || c == '\\');
+    let candidate = if trimmed.is_empty() {
+        git_repo_path
+    } else {
+        trimmed
+    };
+    candidate
+        .rsplit(|c: char| c == '/' || c == '\\')
         .next()
-        .unwrap_or(git_repo_path)
+        .unwrap_or(candidate)
         .to_string()
 }
 
