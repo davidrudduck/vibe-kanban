@@ -44,6 +44,19 @@ const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(90);
 /// Channel buffer size for outgoing messages.
 const OUTGOING_BUFFER_SIZE: usize = 64;
 
+/// Extract project name from a git repository path.
+///
+/// Returns the last path component, or the full path if no separator is found.
+/// Handles trailing slashes gracefully.
+fn extract_project_name(git_repo_path: &str) -> String {
+    git_repo_path
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or(git_repo_path)
+        .to_string()
+}
+
 /// Handle a new node WebSocket connection.
 #[instrument(
     name = "node_ws.session",
@@ -784,13 +797,7 @@ async fn handle_link_project(
         .await
         .map_err(|e| HandleError::Database(e.to_string()))?;
 
-    // Extract project name from git_repo_path (legacy projects table removed)
-    let project_name = link
-        .git_repo_path
-        .rsplit('/')
-        .next()
-        .unwrap_or(&link.git_repo_path)
-        .to_string();
+    let project_name = extract_project_name(&link.git_repo_path);
 
     let sync_msg = HiveMessage::ProjectSync(ProjectSyncMessage {
         message_id: Uuid::new_v4(),
@@ -864,13 +871,7 @@ async fn handle_unlink_project(
 
     // Broadcast the unlink to other nodes (only if we found the link info)
     if let Some(link) = link_info {
-        // Extract project name from git_repo_path (legacy projects table removed)
-        let project_name = link
-            .git_repo_path
-            .rsplit('/')
-            .next()
-            .unwrap_or(&link.git_repo_path)
-            .to_string();
+        let project_name = extract_project_name(&link.git_repo_path);
 
         let sync_msg = HiveMessage::ProjectSync(ProjectSyncMessage {
             message_id: Uuid::new_v4(),
