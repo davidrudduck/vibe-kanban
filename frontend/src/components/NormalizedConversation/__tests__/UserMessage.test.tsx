@@ -112,7 +112,7 @@ describe('UserMessage', () => {
       const longContent = 'Line 1\nLine 2\nLine 3\nLine 4\nLine 5\nLine 6\nLine 7';
       const { rerender } = render(<UserMessage content={longContent} />);
       // Initial state should be collapsed
-      let button = screen.getByRole('button', {
+      const button = screen.getByRole('button', {
         name: 'conversation.userMessage.expandMessage'
       });
       expect(button).toBeInTheDocument();

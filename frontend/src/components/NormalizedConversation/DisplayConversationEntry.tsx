@@ -37,6 +37,7 @@ import UserMessage from './UserMessage';
 import PendingApprovalEntry from './PendingApprovalEntry';
 import PendingQuestionEntry from './PendingQuestionEntry';
 import { NextActionCard } from './NextActionCard';
+import { ResultMessageCard } from './ResultMessageCard';
 import { cn } from '@/lib/utils';
 import { useRetryUi } from '@/contexts/RetryUiContext';
 import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesContext';
@@ -1057,6 +1058,21 @@ function DisplayConversationEntry({
         durationSeconds={Number(endEntry.duration_seconds)}
         status={endEntry.status}
       />
+    );
+  }
+
+  if (entry.entry_type.type === 'result_message') {
+    return (
+      <div className="px-4 py-2 text-sm">
+        <ResultMessageCard
+          content={entry.content}
+          isError={entry.entry_type.is_error}
+          subtype={entry.entry_type.subtype}
+          durationMs={Number(entry.entry_type.duration_ms)}
+          numTurns={Number(entry.entry_type.num_turns)}
+          totalCostUsd={entry.entry_type.total_cost_usd ?? undefined}
+        />
+      </div>
     );
   }
 

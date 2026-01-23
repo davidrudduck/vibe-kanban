@@ -554,11 +554,7 @@ mod tests {
         // - OPENCODE_AUTO_SHARE should NOT be set
         // - OPENCODE_API should NOT be set
         // The absence of bridge-related code in spawn() ensures this.
-
-        assert!(
-            true,
-            "spawn() should not set OPENCODE_AUTO_SHARE or OPENCODE_API"
-        );
+        // No assertion needed - the absence of bridge-related code in spawn() ensures this.
     }
 
     #[tokio::test]
@@ -590,7 +586,7 @@ mod tests {
         );
 
         // Clean up
-        let _ = child.kill();
+        drop(child.kill());
     }
 
     #[tokio::test]
@@ -709,7 +705,7 @@ mod tests {
         let history = msg_store.get_history();
         // Should have session_id push and patch push
         assert!(
-            history.len() >= 1,
+            !history.is_empty(),
             "Expected at least session_id to be pushed"
         );
     }
@@ -763,6 +759,6 @@ mod tests {
         // Verify session ID was pushed to msg_store
         let history = msg_store.get_history();
         // First message should be SessionId
-        assert!(history.len() >= 1, "Expected session_id to be pushed");
+        assert!(!history.is_empty(), "Expected session_id to be pushed");
     }
 }

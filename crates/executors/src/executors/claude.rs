@@ -1156,12 +1156,16 @@ impl ClaudeLogProcessor {
                 ClaudeStreamEvent::Unknown => {}
             },
             ClaudeJson::Result {
+                subtype,
                 is_error,
+                duration_ms,
+                num_turns,
+                total_cost_usd,
                 result,
                 error,
                 ..
             } => {
-                // Extract content from result or error field and display as a normal message
+                // Extract content from result or error field
                 let content = if let Some(err) = error {
                     err.clone()
                 } else if let Some(res) = result {
@@ -1173,25 +1177,23 @@ impl ClaudeLogProcessor {
                     String::new()
                 };
 
-                // Only create an entry if there's actual content to show
-                if !content.is_empty() {
-                    let entry_type = if is_error.unwrap_or(false) {
-                        NormalizedEntryType::ErrorMessage {
-                            error_type: NormalizedEntryError::Other,
-                        }
-                    } else {
-                        NormalizedEntryType::AssistantMessage
-                    };
-
-                    let entry = NormalizedEntry {
-                        timestamp: None,
-                        entry_type,
-                        content,
-                        metadata: None,
-                    };
-                    let idx = entry_index_provider.next();
-                    patches.push(ConversationPatch::add_normalized_entry(idx, entry));
-                }
+                // Create ResultMessage entry (distinct from AssistantMessage)
+                let entry = NormalizedEntry {
+                    timestamp: None,
+                    entry_type: NormalizedEntryType::ResultMessage {
+                        subtype: subtype.clone().unwrap_or_else(|| "unknown".to_string()),
+                        duration_ms: duration_ms.unwrap_or(0),
+                        num_turns: num_turns.map(|n| n as u64).unwrap_or(0),
+                        total_cost_usd: *total_cost_usd,
+                        is_error: is_error.unwrap_or(false),
+                    },
+                    content,
+                    metadata: Some(
+                        serde_json::to_value(claude_json).unwrap_or(serde_json::Value::Null),
+                    ),
+                };
+                let idx = entry_index_provider.next();
+                patches.push(ConversationPatch::add_normalized_entry(idx, entry));
             }
             ClaudeJson::ApprovalResponse {
                 call_id: _,
@@ -1596,6 +1598,12 @@ pub enum ClaudeJson {
         error: Option<String>,
         #[serde(default, alias = "sessionId")]
         session_id: Option<String>,
+        #[serde(default, alias = "durationMs")]
+        duration_ms: Option<u64>,
+        #[serde(default, alias = "numTurns")]
+        num_turns: Option<u32>,
+        #[serde(default, alias = "totalCostUsd")]
+        total_cost_usd: Option<f64>,
     },
     #[serde(rename = "approval_response")]
     ApprovalResponse {
