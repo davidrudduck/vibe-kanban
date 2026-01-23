@@ -71,7 +71,10 @@ type FileEditAction = Extract<ActionType, { action: 'file_edit' }>;
 const getExecutorVariant = (execProcess?: ExecutionProcess): string | null => {
   if (!execProcess?.executor_action?.typ) return null;
   const typ = execProcess.executor_action.typ;
-  if (typ.type === 'CodingAgentInitialRequest' || typ.type === 'CodingAgentFollowUpRequest') {
+  if (
+    typ.type === 'CodingAgentInitialRequest' ||
+    typ.type === 'CodingAgentFollowUpRequest'
+  ) {
     return typ.executor_profile_id?.variant ?? null;
   }
   return null;
@@ -842,7 +845,9 @@ function DisplayConversationEntry({
         executionProcessId={executionProcessId}
         taskAttempt={taskAttempt}
         executorVariant={getExecutorVariant(
-          executionProcessId ? executionProcessesByIdAll[executionProcessId] : undefined
+          executionProcessId
+            ? executionProcessesByIdAll[executionProcessId]
+            : undefined
         )}
       />
     );
