@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE shared_tasks\n            SET source_node_id = $2, source_task_id = $3\n            WHERE id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3fcde4cd4edb78e202836c7aae4ab9e53560ec6cbb13ec5dcb3638f059214b89"
+}

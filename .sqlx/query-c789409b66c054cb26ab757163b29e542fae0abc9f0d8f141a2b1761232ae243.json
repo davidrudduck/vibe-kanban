@@ -1,0 +1,86 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE labels AS l\n            SET name       = COALESCE($2, l.name),\n                icon       = COALESCE($3, l.icon),\n                color      = COALESCE($4, l.color),\n                version    = l.version + 1,\n                updated_at = NOW()\n            WHERE l.id = $1\n              AND l.version = COALESCE($5, l.version)\n              AND l.deleted_at IS NULL\n            RETURNING\n                l.id              AS \"id!\",\n                l.organization_id AS \"organization_id!\",\n                l.project_id      AS \"project_id?\",\n                l.origin_node_id  AS \"origin_node_id?\",\n                l.name            AS \"name!\",\n                l.icon            AS \"icon!\",\n                l.color           AS \"color!\",\n                l.version         AS \"version!\",\n                l.deleted_at      AS \"deleted_at?\",\n                l.created_at      AS \"created_at!\",\n                l.updated_at      AS \"updated_at!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "organization_id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "project_id?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "origin_node_id?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "icon!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "color!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "version!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "deleted_at?",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "updated_at!",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "c789409b66c054cb26ab757163b29e542fae0abc9f0d8f141a2b1761232ae243"
+}

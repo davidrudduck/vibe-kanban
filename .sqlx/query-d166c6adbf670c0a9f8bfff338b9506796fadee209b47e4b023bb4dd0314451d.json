@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "DELETE FROM labels WHERE id = $1",
+  "query": "DELETE FROM shared_task_labels WHERE shared_task_id = $1",
   "describe": {
     "columns": [],
     "parameters": {
@@ -10,5 +10,5 @@
     },
     "nullable": []
   },
-  "hash": "69a251804865460f8917d16a690dbcfde188ba8a27688fa9f7e16ce256ca414c"
+  "hash": "d166c6adbf670c0a9f8bfff338b9506796fadee209b47e4b023bb4dd0314451d"
 }

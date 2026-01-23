@@ -1255,6 +1255,9 @@ async fn handle_logs_batch(
 // NodeMessage::LabelSync is ignored (see route_message above).
 
 /// Handle a task sync message from a node.
+///
+/// The new flow looks up the swarm project via node_local_projects → swarm_project_nodes,
+/// using the node's local_project_id to find the linked swarm_project_id.
 async fn handle_task_sync(
     node_id: Uuid,
     organization_id: Uuid,
@@ -1262,7 +1265,6 @@ async fn handle_task_sync(
     pool: &PgPool,
     ws_sender: &mut futures::stream::SplitSink<WebSocket, Message>,
 ) -> Result<(), HandleError> {
-    use crate::db::projects::Project;
     use crate::db::tasks::{SharedTaskRepository, TaskStatus, UpsertTaskFromNodeData};
 
     let status = match task_sync.status.as_str() {
@@ -1274,22 +1276,61 @@ async fn handle_task_sync(
         _ => TaskStatus::Todo,
     };
 
-    // Use runtime query to avoid sqlx cache issues
-    let project_opt: Result<Option<Project>, sqlx::Error> = sqlx::query_as(
-        "SELECT id, organization_id, name, metadata, created_at FROM projects WHERE id = $1",
+    // Look up the swarm_project_id from node_local_projects → swarm_project_nodes
+    // This is the new flow: node sends local_project_id, we find the linked swarm project
+    let swarm_link: Option<SwarmProjectLink> = sqlx::query_as(
+        r#"
+        SELECT
+            nlp.swarm_project_id,
+            sp.organization_id
+        FROM node_local_projects nlp
+        JOIN swarm_project_nodes spn ON nlp.swarm_project_id = spn.swarm_project_id
+            AND nlp.node_id = spn.node_id
+            AND nlp.local_project_id = spn.local_project_id
+        JOIN swarm_projects sp ON nlp.swarm_project_id = sp.id
+        WHERE nlp.node_id = $1
+          AND nlp.local_project_id = $2
+          AND nlp.swarm_project_id IS NOT NULL
+          AND sp.organization_id = $3
+        "#,
     )
-    .bind(task_sync.remote_project_id)
+    .bind(node_id)
+    .bind(task_sync.local_project_id)
+    .bind(organization_id)
     .fetch_optional(pool)
-    .await;
+    .await
+    .map_err(|e| HandleError::Database(e.to_string()))?;
 
-    let project = match project_opt {
-        Ok(Some(p)) if p.organization_id == organization_id => p,
-        _ => {
+    let (swarm_project_id, org_id) = match swarm_link {
+        Some(link) => match link.swarm_project_id {
+            Some(id) => (id, link.organization_id),
+            None => {
+                tracing::warn!(
+                    node_id = %node_id,
+                    local_project_id = %task_sync.local_project_id,
+                    "task sync failed: project not linked to swarm"
+                );
+                let r = TaskSyncResponseMessage {
+                    local_task_id: task_sync.local_task_id,
+                    shared_task_id: Uuid::nil(),
+                    success: false,
+                    error: Some("Project not linked to swarm".to_string()),
+                };
+                let _ = send_message(ws_sender, &HiveMessage::TaskSyncResponse(r)).await;
+                return Ok(());
+            }
+        },
+        None => {
+            tracing::warn!(
+                node_id = %node_id,
+                local_project_id = %task_sync.local_project_id,
+                "task sync failed: project not found or not linked to swarm"
+            );
             let r = TaskSyncResponseMessage {
                 local_task_id: task_sync.local_task_id,
                 shared_task_id: Uuid::nil(),
                 success: false,
-                error: Some("Project not found".to_string()),
+                error: Some("Project not found or not linked to swarm".to_string()),
             };
             let _ = send_message(ws_sender, &HiveMessage::TaskSyncResponse(r)).await;
             return Ok(());
@@ -1303,19 +1344,28 @@ async fn handle_task_sync(
     let repo = SharedTaskRepository::new(pool);
     match repo
         .upsert_from_node(UpsertTaskFromNodeData {
-            project_id: task_sync.remote_project_id,
-            organization_id: project.organization_id,
+            swarm_project_id,
+            project_id: swarm_project_id, // Use swarm_project_id for both (backwards compat)
+            organization_id: org_id,
             origin_node_id: node_id,
+            local_task_id: task_sync.local_task_id,
             title: sanitized_title,
             description: sanitized_description,
             status,
             version: task_sync.version,
-            source_task_id: None, // Not a re-sync operation
+            owner_node_id: task_sync.owner_node_id,
+            owner_name: task_sync.owner_name.clone(),
         })
         .await
     {
-        Ok((task, _)) => {
-            tracing::info!(node_id = %node_id, shared_task_id = %task.id, "synced task");
+        Ok((task, was_created)) => {
+            tracing::info!(
+                node_id = %node_id,
+                shared_task_id = %task.id,
+                swarm_project_id = %swarm_project_id,
+                was_created = was_created,
+                "synced task from node"
+            );
             let r = TaskSyncResponseMessage {
                 local_task_id: task_sync.local_task_id,
                 shared_task_id: task.id,
@@ -1336,6 +1386,13 @@ async fn handle_task_sync(
         }
     }
     Ok(())
+}
+
+/// Helper struct for swarm project link lookup
+#[derive(sqlx::FromRow)]
+struct SwarmProjectLink {
+    swarm_project_id: Option<Uuid>,
+    organization_id: Uuid,
 }
 
 /// Handle a projects sync message from a node.
