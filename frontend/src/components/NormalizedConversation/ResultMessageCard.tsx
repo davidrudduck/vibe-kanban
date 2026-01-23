@@ -26,19 +26,11 @@ export function ResultMessageCard({
     const seconds = Math.floor(ms / 1000);
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
-    return minutes > 0
-      ? `${minutes}m ${remainingSeconds}s`
-      : `${seconds}s`;
+    return minutes > 0 ? `${minutes}m ${remainingSeconds}s` : `${seconds}s`;
   };
 
   return (
-    <div
-      className={cn(
-        'border-l-4 rounded-r-lg p-4',
-        borderColor,
-        bgColor
-      )}
-    >
+    <div className={cn('border-l-4 rounded-r-lg p-4', borderColor, bgColor)}>
       <div className="prose prose-sm dark:prose-invert max-w-none">
         <MarkdownRenderer content={content} />
       </div>
@@ -46,9 +38,7 @@ export function ResultMessageCard({
         <span>Session {isError ? 'failed' : 'completed'}</span>
         <span>{formatDuration(durationMs)}</span>
         <span>{numTurns} turns</span>
-        {totalCostUsd != null && (
-          <span>${totalCostUsd.toFixed(2)} USD</span>
-        )}
+        {totalCostUsd != null && <span>${totalCostUsd.toFixed(2)} USD</span>}
       </div>
     </div>
   );

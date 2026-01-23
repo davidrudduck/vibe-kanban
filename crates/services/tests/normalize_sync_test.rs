@@ -392,8 +392,11 @@ async fn test_normalization_empty_input() {
 
     // Start normalization
     let worktree_path = PathBuf::from("/");
-    let entry_index = EntryIndexProvider::start_from(&msg_store);
-    executor.normalize_logs(msg_store.clone(), &worktree_path, entry_index);
+    executor.normalize_logs(
+        msg_store.clone(),
+        &worktree_path,
+        EntryIndexProvider::start_from(&msg_store),
+    );
 
     // No stdout pushed - just finish
     msg_store.push_finished();
