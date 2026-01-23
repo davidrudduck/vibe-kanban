@@ -550,15 +550,9 @@ mod tests {
         // Since we can't directly inspect Command's env, we verify by checking
         // that the spawn implementation doesn't set these variables.
 
-        // This test primarily documents the expected behavior:
-        // - OPENCODE_AUTO_SHARE should NOT be set
-        // - OPENCODE_API should NOT be set
-        // The absence of bridge-related code in spawn() ensures this.
-
-        assert!(
-            true,
-            "spawn() should not set OPENCODE_AUTO_SHARE or OPENCODE_API"
-        );
+        // NOTE: spawn() should not set OPENCODE_AUTO_SHARE or OPENCODE_API.
+        // This test documents the expected behavior - the absence of
+        // bridge-related code in spawn() ensures these env vars are not set.
     }
 
     #[tokio::test]
@@ -590,7 +584,7 @@ mod tests {
         );
 
         // Clean up
-        let _ = child.kill();
+        let _ = child.kill().await;
     }
 
     #[tokio::test]
@@ -709,7 +703,7 @@ mod tests {
         let history = msg_store.get_history();
         // Should have session_id push and patch push
         assert!(
-            history.len() >= 1,
+            !history.is_empty(),
             "Expected at least session_id to be pushed"
         );
     }
@@ -763,6 +757,6 @@ mod tests {
         // Verify session ID was pushed to msg_store
         let history = msg_store.get_history();
         // First message should be SessionId
-        assert!(history.len() >= 1, "Expected session_id to be pushed");
+        assert!(!history.is_empty(), "Expected session_id to be pushed");
     }
 }

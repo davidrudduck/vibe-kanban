@@ -134,13 +134,17 @@ pub async fn follow_up(
     let skip_context = coding_agent.no_context();
 
     // For retries, get session ID BEFORE dropping processes to preserve context
-    let pre_retry_session_id = if payload.retry_process_id.is_some() && !skip_context {
-        ExecutionProcess::find_session_id_before_process(
-            &deployment.db().pool,
-            task_attempt.id,
-            payload.retry_process_id.unwrap(),
-        )
-        .await?
+    let pre_retry_session_id = if let Some(proc_id) = payload.retry_process_id {
+        if !skip_context {
+            ExecutionProcess::find_session_id_before_process(
+                &deployment.db().pool,
+                task_attempt.id,
+                proc_id,
+            )
+            .await?
+        } else {
+            None
+        }
     } else {
         None
     };

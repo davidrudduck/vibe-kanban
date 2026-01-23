@@ -37,6 +37,7 @@ import UserMessage from './UserMessage';
 import PendingApprovalEntry from './PendingApprovalEntry';
 import PendingQuestionEntry from './PendingQuestionEntry';
 import { NextActionCard } from './NextActionCard';
+import { ResultMessageCard } from './ResultMessageCard';
 import { cn } from '@/lib/utils';
 import { useRetryUi } from '@/contexts/RetryUiContext';
 import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesContext';
@@ -70,7 +71,10 @@ type FileEditAction = Extract<ActionType, { action: 'file_edit' }>;
 const getExecutorVariant = (execProcess?: ExecutionProcess): string | null => {
   if (!execProcess?.executor_action?.typ) return null;
   const typ = execProcess.executor_action.typ;
-  if (typ.type === 'CodingAgentInitialRequest' || typ.type === 'CodingAgentFollowUpRequest') {
+  if (
+    typ.type === 'CodingAgentInitialRequest' ||
+    typ.type === 'CodingAgentFollowUpRequest'
+  ) {
     return typ.executor_profile_id?.variant ?? null;
   }
   return null;
@@ -841,7 +845,9 @@ function DisplayConversationEntry({
         executionProcessId={executionProcessId}
         taskAttempt={taskAttempt}
         executorVariant={getExecutorVariant(
-          executionProcessId ? executionProcessesByIdAll[executionProcessId] : undefined
+          executionProcessId
+            ? executionProcessesByIdAll[executionProcessId]
+            : undefined
         )}
       />
     );
@@ -1057,6 +1063,21 @@ function DisplayConversationEntry({
         durationSeconds={Number(endEntry.duration_seconds)}
         status={endEntry.status}
       />
+    );
+  }
+
+  if (entry.entry_type.type === 'result_message') {
+    return (
+      <div className="px-4 py-2 text-sm">
+        <ResultMessageCard
+          content={entry.content}
+          isError={entry.entry_type.is_error}
+          subtype={entry.entry_type.subtype}
+          durationMs={Number(entry.entry_type.duration_ms)}
+          numTurns={Number(entry.entry_type.num_turns)}
+          totalCostUsd={entry.entry_type.total_cost_usd ?? undefined}
+        />
+      </div>
     );
   }
 

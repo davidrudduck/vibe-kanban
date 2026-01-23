@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id              as \"id!: Uuid\",\n                      task_attempt_id as \"task_attempt_id!: Uuid\",\n                      run_reason      as \"run_reason!: ExecutionProcessRunReason\",\n                      executor_action as \"executor_action!: sqlx::types::Json<ExecutorActionField>\",\n                      before_head_commit,\n                      after_head_commit,\n                      status          as \"status!: ExecutionProcessStatus\",\n                      exit_code,\n                      dropped,\n                      pid,\n                      started_at      as \"started_at!: DateTime<Utc>\",\n                      completed_at    as \"completed_at?: DateTime<Utc>\",\n                      created_at      as \"created_at!: DateTime<Utc>\",\n                      updated_at      as \"updated_at!: DateTime<Utc>\",\n                      hive_synced_at  as \"hive_synced_at: DateTime<Utc>\",\n                      server_instance_id\n               FROM execution_processes\n               WHERE task_attempt_id = ?\n                 AND (? OR dropped = FALSE)\n               ORDER BY created_at ASC",
+  "query": "SELECT id as \"id!: Uuid\", task_attempt_id as \"task_attempt_id!: Uuid\", run_reason as \"run_reason!: ExecutionProcessRunReason\", executor_action as \"executor_action!: sqlx::types::Json<ExecutorActionField>\", before_head_commit,\n                      after_head_commit, status as \"status!: ExecutionProcessStatus\", exit_code, dropped, pid, started_at as \"started_at!: DateTime<Utc>\", completed_at as \"completed_at?: DateTime<Utc>\",\n                      created_at as \"created_at!: DateTime<Utc>\", updated_at as \"updated_at!: DateTime<Utc>\", hive_synced_at as \"hive_synced_at: DateTime<Utc>\", server_instance_id, completion_reason, completion_message\n               FROM execution_processes\n               WHERE task_attempt_id = ? AND dropped = FALSE\n               ORDER BY created_at DESC LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -82,10 +82,20 @@
         "name": "server_instance_id",
         "ordinal": 15,
         "type_info": "Text"
+      },
+      {
+        "name": "completion_reason",
+        "ordinal": 16,
+        "type_info": "Text"
+      },
+      {
+        "name": "completion_message",
+        "ordinal": 17,
+        "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 2
+      "Right": 1
     },
     "nullable": [
       true,
@@ -103,8 +113,10 @@
       false,
       false,
       true,
+      true,
+      true,
       true
     ]
   },
-  "hash": "c72c6a9e637a6f124c35603606c1e0b7c944edb1edf817550cb420c3a61c8390"
+  "hash": "df6bdf870b3a39fd949e3a606094a651dca6f7d281a89bdebc2006bf9f766cee"
 }

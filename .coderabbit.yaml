@@ -1,0 +1,93 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit Configuration
+# https://docs.coderabbit.ai/guides/configure-coderabbit
+
+language: en-US
+
+reviews:
+  # Enable high-level summary of changes
+  high_level_summary: true
+  # Disable changed files summary in walkthrough
+  changed_files_summary: false
+  # Generate poem in review (disable for serious projects)
+  poem: false
+  # Review status for new PRs
+  review_status: true
+  # Collapse walkthrough for large PRs
+  collapse_walkthrough: true
+  # Files to ignore in reviews
+  path_filters:
+    - "!**/*.lock"
+    - "!**/package-lock.json"
+    - "!frontend/src/shared/types.ts"
+    - "!**/dist/**"
+    - "!**/*.min.js"
+    - "!**/*.min.css"
+    - "!**/migrations/*.sql"
+  # Auto-review on PR open and updates
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+
+  # Path-specific review instructions
+  path_instructions:
+    - path: "crates/**/*.rs"
+      instructions: |
+        Review Rust code for:
+        - Use of `thiserror` with `#[from]` for error propagation
+        - Stateless service structs (should be Clone with no fields)
+        - SQLx query safety and proper type annotations
+        - Proper use of tracing macros (info!, warn!, error!, debug!)
+        - Clippy compliance
+
+    - path: "crates/db/src/models/**/*.rs"
+      instructions: |
+        Database models should:
+        - Use UUID v4 for primary keys
+        - Store timestamps as DateTime<Utc>
+        - Follow the directory module pattern for complex models
+        - Use sqlx::query_as! with proper type annotations
+
+    - path: "crates/server/src/routes/**/*.rs"
+      instructions: |
+        Route handlers should:
+        - Return Result<ResponseJson<ApiResponse<T>>, ApiError>
+        - Validate input before processing
+        - Use services for business logic, not inline
+        - Follow directory module pattern for complex domains
+
+    - path: "frontend/src/**/*.tsx"
+      instructions: |
+        React components should:
+        - Use PascalCase for component files and exports
+        - Define Props type at top of file
+        - Use existing hooks from frontend/src/hooks/ before creating new ones
+        - Follow shadcn/ui patterns for UI components
+        - Use React Query for data fetching
+
+    - path: "frontend/src/hooks/**/*.ts"
+      instructions: |
+        Custom hooks should:
+        - Use camelCase with 'use' prefix
+        - Use on{Action}, on{Action}Success, on{Action}Error for callbacks
+        - Leverage React Query's useMutation/useQuery patterns
+
+    - path: "frontend/src/lib/api/**/*.ts"
+      instructions: |
+        API client code should:
+        - Use namespace pattern (export const fooApi = { ... })
+        - Unwrap ApiResponse<T> and throw on !success
+        - Return typed data, not raw responses
+
+    - path: "crates/*/tests/**/*.rs"
+      instructions: |
+        Tests should use db::test_utils::create_test_pool() for database tests.
+        This provides fast, isolated test databases via template copying.
+
+chat:
+  auto_reply: true
+
+# Early access features
+early_access: false

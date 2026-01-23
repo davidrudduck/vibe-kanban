@@ -6,12 +6,12 @@ use axum::{
     routing::{get, post},
 };
 use deployment::Deployment;
-use rand::{Rng, distributions::Alphanumeric};
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use services::services::oauth_credentials::Credentials;
 use sha2::{Digest, Sha256};
 use utils::{
-    api::oauth::{HandoffInitRequest, HandoffRedeemRequest, StatusResponse},
+    api::oauth::{HandoffInitRequest, HandoffRedeemRequest, LoginStatus, StatusResponse},
     jwt::extract_expiration,
     response::ApiResponse,
 };
@@ -191,8 +191,6 @@ async fn logout(State(deployment): State<DeploymentImpl>) -> Result<StatusCode, 
 async fn status(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<StatusResponse>>, ApiError> {
-    use utils::api::oauth::LoginStatus;
-
     match deployment.get_login_status().await {
         LoginStatus::LoggedOut => Ok(ResponseJson(ApiResponse::success(StatusResponse {
             logged_in: false,
@@ -210,10 +208,13 @@ async fn status(
 }
 
 fn generate_secret() -> String {
-    rand::thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(64)
-        .map(char::from)
+    let mut rng = rand::rng();
+    (0..64)
+        .map(|_| {
+            let idx = rng.random_range(0..62);
+            const CHARS: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+            CHARS[idx] as char
+        })
         .collect()
 }
 
@@ -221,6 +222,7 @@ fn hash_sha256_hex(input: &str) -> String {
     let mut output = String::with_capacity(64);
     let digest = Sha256::digest(input.as_bytes());
     for byte in digest {
+        // Scoped import: `Write` trait name conflicts with std::io::Write
         use std::fmt::Write;
         let _ = write!(output, "{:02x}", byte);
     }

@@ -412,3 +412,369 @@ impl TaskVariable {
             .collect())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::label::{CreateLabel, Label};
+    use crate::models::project::{CreateProject, Project};
+    use crate::models::task::{CreateTask, Task, TaskStatus};
+    use crate::test_utils::create_test_pool;
+
+    /// Helper to create a test project
+    async fn create_test_project(pool: &SqlitePool, name: &str) -> Project {
+        let create_data = CreateProject {
+            name: name.to_string(),
+            git_repo_path: format!("/tmp/test-repo-{}", name),
+            use_existing_repo: true,
+            clone_url: None,
+            setup_script: None,
+            dev_script: None,
+            cleanup_script: None,
+            copy_files: None,
+        };
+        let project_id = Uuid::new_v4();
+        Project::create(pool, &create_data, project_id)
+            .await
+            .expect("Failed to create test project")
+    }
+
+    /// Helper to create a test task
+    async fn create_test_task(
+        pool: &SqlitePool,
+        project_id: Uuid,
+        title: &str,
+        description: Option<String>,
+        parent_task_id: Option<Uuid>,
+    ) -> Task {
+        let create_data = CreateTask {
+            project_id,
+            title: title.to_string(),
+            description,
+            status: Some(TaskStatus::Todo),
+            parent_task_id,
+            image_ids: None,
+            shared_task_id: None,
+        };
+        let task_id = Uuid::new_v4();
+        Task::create(pool, &create_data, task_id)
+            .await
+            .expect("Failed to create test task")
+    }
+
+    /// Helper to create a test label
+    async fn create_test_label(pool: &SqlitePool, name: &str, color: &str) -> Label {
+        let create_data = CreateLabel {
+            project_id: None, // Global label
+            name: name.to_string(),
+            icon: "tag".to_string(),
+            color: color.to_string(),
+        };
+        Label::create(pool, &create_data)
+            .await
+            .expect("Failed to create test label")
+    }
+
+    #[tokio::test]
+    async fn test_get_system_variables() {
+        let (pool, _temp_dir) = create_test_pool().await;
+
+        // Create a project
+        let project = create_test_project(&pool, "Test Project").await;
+
+        // Create a parent task
+        let parent_task =
+            create_test_task(&pool, project.id, "Parent Task", Some("Parent description".to_string()), None).await;
+
+        // Create a child task
+        let child_task = create_test_task(
+            &pool,
+            project.id,
+            "Child Task",
+            Some("Child description".to_string()),
+            Some(parent_task.id),
+        )
+        .await;
+
+        // Create a label and assign it to the child task
+        let label = create_test_label(&pool, "bug", "#ff0000").await;
+        Label::set_task_labels(&pool, child_task.id, &[label.id])
+            .await
+            .expect("Failed to set task labels");
+
+        // Get system variables for the child task
+        let system_vars = get_system_variables(&pool, child_task.id)
+            .await
+            .expect("Failed to get system variables");
+
+        // Verify all system variables are present
+        assert_eq!(system_vars.len(), SYSTEM_VARIABLE_NAMES.len());
+
+        // Build a map for easier verification
+        let var_map: std::collections::HashMap<String, ResolvedVariable> =
+            system_vars.into_iter().map(|v| (v.name.clone(), v)).collect();
+
+        // Verify TASK_ID
+        assert_eq!(var_map["TASK_ID"].value, child_task.id.to_string());
+        assert_eq!(var_map["TASK_ID"].source_task_id, child_task.id);
+        assert!(!var_map["TASK_ID"].inherited);
+
+        // Verify PARENT_TASK_ID
+        assert_eq!(var_map["PARENT_TASK_ID"].value, parent_task.id.to_string());
+        assert_eq!(var_map["PARENT_TASK_ID"].source_task_id, child_task.id);
+
+        // Verify TASK_TITLE
+        assert_eq!(var_map["TASK_TITLE"].value, "Child Task");
+
+        // Verify TASK_DESCRIPTION
+        assert_eq!(var_map["TASK_DESCRIPTION"].value, "Child description");
+
+        // Verify TASK_LABEL
+        assert_eq!(var_map["TASK_LABEL"].value, "bug");
+
+        // Verify PROJECT_ID
+        assert_eq!(var_map["PROJECT_ID"].value, project.id.to_string());
+
+        // Verify PROJECT_TITLE
+        assert_eq!(var_map["PROJECT_TITLE"].value, "Test Project");
+
+        // Verify IS_SUBTASK
+        assert_eq!(var_map["IS_SUBTASK"].value, "true");
+    }
+
+    #[tokio::test]
+    async fn test_get_system_variables_no_parent() {
+        let (pool, _temp_dir) = create_test_pool().await;
+
+        // Create a project and task without parent
+        let project = create_test_project(&pool, "Test Project").await;
+        let task = create_test_task(&pool, project.id, "Standalone Task", None, None).await;
+
+        let system_vars = get_system_variables(&pool, task.id)
+            .await
+            .expect("Failed to get system variables");
+
+        let var_map: std::collections::HashMap<String, ResolvedVariable> =
+            system_vars.into_iter().map(|v| (v.name.clone(), v)).collect();
+
+        // Verify PARENT_TASK_ID is empty
+        assert_eq!(var_map["PARENT_TASK_ID"].value, "");
+
+        // Verify IS_SUBTASK is false
+        assert_eq!(var_map["IS_SUBTASK"].value, "false");
+    }
+
+    #[tokio::test]
+    async fn test_find_inherited_with_system_overrides_user_variables() {
+        let (pool, _temp_dir) = create_test_pool().await;
+
+        // Create a project and task
+        let project = create_test_project(&pool, "Test Project").await;
+        let task = create_test_task(&pool, project.id, "Test Task", None, None).await;
+
+        // Create user variables with names that conflict with system variables
+        let create_data = CreateTaskVariable {
+            name: "TASK_ID".to_string(),
+            value: "user-defined-task-id".to_string(),
+        };
+        TaskVariable::create(&pool, task.id, &create_data)
+            .await
+            .expect("Failed to create user variable");
+
+        let create_data = CreateTaskVariable {
+            name: "PROJECT_TITLE".to_string(),
+            value: "User Project Title".to_string(),
+        };
+        TaskVariable::create(&pool, task.id, &create_data)
+            .await
+            .expect("Failed to create user variable");
+
+        // Create a non-conflicting user variable
+        let create_data = CreateTaskVariable {
+            name: "CUSTOM_VAR".to_string(),
+            value: "custom-value".to_string(),
+        };
+        TaskVariable::create(&pool, task.id, &create_data)
+            .await
+            .expect("Failed to create user variable");
+
+        // Get variables with system overrides
+        let resolved = TaskVariable::find_inherited_with_system(&pool, task.id)
+            .await
+            .expect("Failed to get variables");
+
+        let var_map: std::collections::HashMap<String, ResolvedVariable> =
+            resolved.into_iter().map(|v| (v.name.clone(), v)).collect();
+
+        // Verify system variables override user variables
+        assert_eq!(var_map["TASK_ID"].value, task.id.to_string());
+        assert_ne!(var_map["TASK_ID"].value, "user-defined-task-id");
+
+        assert_eq!(var_map["PROJECT_TITLE"].value, "Test Project");
+        assert_ne!(var_map["PROJECT_TITLE"].value, "User Project Title");
+
+        // Verify non-conflicting user variable is preserved
+        assert!(var_map.contains_key("CUSTOM_VAR"));
+        assert_eq!(var_map["CUSTOM_VAR"].value, "custom-value");
+        assert_eq!(var_map["CUSTOM_VAR"].source_task_id, task.id);
+    }
+
+    #[tokio::test]
+    async fn test_find_inherited_with_system_includes_inherited_variables() {
+        let (pool, _temp_dir) = create_test_pool().await;
+
+        // Create a project
+        let project = create_test_project(&pool, "Test Project").await;
+
+        // Create parent task with variables
+        let parent_task = create_test_task(&pool, project.id, "Parent Task", None, None).await;
+        let create_data = CreateTaskVariable {
+            name: "PARENT_VAR".to_string(),
+            value: "from-parent".to_string(),
+        };
+        TaskVariable::create(&pool, parent_task.id, &create_data)
+            .await
+            .expect("Failed to create parent variable");
+
+        // Create child task with its own variable and one that overrides parent
+        let child_task =
+            create_test_task(&pool, project.id, "Child Task", None, Some(parent_task.id)).await;
+        let create_data = CreateTaskVariable {
+            name: "CHILD_VAR".to_string(),
+            value: "from-child".to_string(),
+        };
+        TaskVariable::create(&pool, child_task.id, &create_data)
+            .await
+            .expect("Failed to create child variable");
+
+        let create_data = CreateTaskVariable {
+            name: "PARENT_VAR".to_string(),
+            value: "overridden-by-child".to_string(),
+        };
+        TaskVariable::create(&pool, child_task.id, &create_data)
+            .await
+            .expect("Failed to create overriding child variable");
+
+        // Get variables for child task
+        let resolved = TaskVariable::find_inherited_with_system(&pool, child_task.id)
+            .await
+            .expect("Failed to get variables");
+
+        let var_map: std::collections::HashMap<String, ResolvedVariable> =
+            resolved.into_iter().map(|v| (v.name.clone(), v)).collect();
+
+        // Verify child variable is present
+        assert_eq!(var_map["CHILD_VAR"].value, "from-child");
+        assert_eq!(var_map["CHILD_VAR"].source_task_id, child_task.id);
+        assert!(!var_map["CHILD_VAR"].inherited);
+
+        // Verify parent variable is overridden by child
+        assert_eq!(var_map["PARENT_VAR"].value, "overridden-by-child");
+        assert_eq!(var_map["PARENT_VAR"].source_task_id, child_task.id);
+        assert!(!var_map["PARENT_VAR"].inherited);
+
+        // Verify system variables are present
+        assert!(var_map.contains_key("TASK_ID"));
+        assert!(var_map.contains_key("PROJECT_ID"));
+        assert_eq!(var_map["IS_SUBTASK"].value, "true");
+    }
+
+    #[tokio::test]
+    async fn test_get_variable_map_with_system_returns_correct_format() {
+        let (pool, _temp_dir) = create_test_pool().await;
+
+        // Create a project and task
+        let project = create_test_project(&pool, "Test Project").await;
+        let task = create_test_task(&pool, project.id, "Test Task", Some("Test description".to_string()), None).await;
+
+        // Create a user variable
+        let create_data = CreateTaskVariable {
+            name: "MY_VAR".to_string(),
+            value: "my-value".to_string(),
+        };
+        TaskVariable::create(&pool, task.id, &create_data)
+            .await
+            .expect("Failed to create user variable");
+
+        // Get variable map
+        let var_map = TaskVariable::get_variable_map_with_system(&pool, task.id)
+            .await
+            .expect("Failed to get variable map");
+
+        // Verify HashMap structure: name -> (value, source_task_id)
+        assert!(var_map.contains_key("MY_VAR"));
+        let (value, source_task_id) = &var_map["MY_VAR"];
+        assert_eq!(value, "my-value");
+        assert_eq!(*source_task_id, task.id);
+
+        // Verify system variables are in the map
+        assert!(var_map.contains_key("TASK_ID"));
+        let (task_id_value, task_id_source) = &var_map["TASK_ID"];
+        assert_eq!(*task_id_value, task.id.to_string());
+        assert_eq!(*task_id_source, task.id);
+
+        assert!(var_map.contains_key("PROJECT_TITLE"));
+        let (project_title_value, _) = &var_map["PROJECT_TITLE"];
+        assert_eq!(*project_title_value, "Test Project");
+
+        // Verify all system variables are present
+        for system_var_name in SYSTEM_VARIABLE_NAMES {
+            assert!(
+                var_map.contains_key(*system_var_name),
+                "System variable {} should be in map",
+                system_var_name
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_inherited_variables_marked_correctly() {
+        let (pool, _temp_dir) = create_test_pool().await;
+
+        // Create project and parent task
+        let project = create_test_project(&pool, "Test Project").await;
+        let parent_task = create_test_task(&pool, project.id, "Parent Task", None, None).await;
+
+        // Add variable to parent
+        let create_data = CreateTaskVariable {
+            name: "INHERITED_VAR".to_string(),
+            value: "from-parent".to_string(),
+        };
+        TaskVariable::create(&pool, parent_task.id, &create_data)
+            .await
+            .expect("Failed to create parent variable");
+
+        // Create child task
+        let child_task =
+            create_test_task(&pool, project.id, "Child Task", None, Some(parent_task.id)).await;
+
+        // Get inherited variables (without system)
+        let resolved = TaskVariable::find_inherited(&pool, child_task.id)
+            .await
+            .expect("Failed to get inherited variables");
+
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].name, "INHERITED_VAR");
+        assert_eq!(resolved[0].value, "from-parent");
+        assert_eq!(resolved[0].source_task_id, parent_task.id);
+        assert!(resolved[0].inherited); // Should be marked as inherited
+
+        // Now get variables with system
+        let resolved_with_system = TaskVariable::find_inherited_with_system(&pool, child_task.id)
+            .await
+            .expect("Failed to get variables with system");
+
+        let var_map: std::collections::HashMap<String, ResolvedVariable> = resolved_with_system
+            .into_iter()
+            .map(|v| (v.name.clone(), v))
+            .collect();
+
+        // Verify inherited variable is still marked correctly
+        assert!(var_map["INHERITED_VAR"].inherited);
+        assert_eq!(var_map["INHERITED_VAR"].source_task_id, parent_task.id);
+
+        // Verify system variables are NOT marked as inherited (they come from the current task)
+        assert!(!var_map["TASK_ID"].inherited);
+        assert_eq!(var_map["TASK_ID"].source_task_id, child_task.id);
+    }
+}

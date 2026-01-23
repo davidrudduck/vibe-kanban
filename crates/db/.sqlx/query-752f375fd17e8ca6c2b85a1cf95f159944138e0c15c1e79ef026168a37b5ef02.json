@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id as \"id!: Uuid\", task_attempt_id as \"task_attempt_id!: Uuid\", run_reason as \"run_reason!: ExecutionProcessRunReason\", executor_action as \"executor_action!: sqlx::types::Json<ExecutorActionField>\", before_head_commit,\n                      after_head_commit, status as \"status!: ExecutionProcessStatus\", exit_code, dropped, pid, started_at as \"started_at!: DateTime<Utc>\", completed_at as \"completed_at?: DateTime<Utc>\",\n                      created_at as \"created_at!: DateTime<Utc>\", updated_at as \"updated_at!: DateTime<Utc>\", hive_synced_at as \"hive_synced_at: DateTime<Utc>\", server_instance_id\n               FROM execution_processes WHERE status = 'running' AND server_instance_id = ? ORDER BY created_at ASC",
+  "query": "SELECT ep.id as \"id!: Uuid\", ep.task_attempt_id as \"task_attempt_id!: Uuid\", ep.run_reason as \"run_reason!: ExecutionProcessRunReason\", ep.executor_action as \"executor_action!: sqlx::types::Json<ExecutorActionField>\",\n                      ep.before_head_commit, ep.after_head_commit, ep.status as \"status!: ExecutionProcessStatus\", ep.exit_code,\n                      ep.dropped, ep.pid, ep.started_at as \"started_at!: DateTime<Utc>\", ep.completed_at as \"completed_at?: DateTime<Utc>\", ep.created_at as \"created_at!: DateTime<Utc>\", ep.updated_at as \"updated_at!: DateTime<Utc>\", ep.hive_synced_at as \"hive_synced_at: DateTime<Utc>\", ep.server_instance_id, ep.completion_reason, ep.completion_message\n               FROM execution_processes ep\n               JOIN task_attempts ta ON ep.task_attempt_id = ta.id\n               JOIN tasks t ON ta.task_id = t.id\n               WHERE ep.status = 'running' AND ep.run_reason = 'devserver' AND t.project_id = ?\n               ORDER BY ep.created_at ASC",
   "describe": {
     "columns": [
       {
@@ -82,6 +82,16 @@
         "name": "server_instance_id",
         "ordinal": 15,
         "type_info": "Text"
+      },
+      {
+        "name": "completion_reason",
+        "ordinal": 16,
+        "type_info": "Text"
+      },
+      {
+        "name": "completion_message",
+        "ordinal": 17,
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -103,8 +113,10 @@
       false,
       false,
       true,
+      true,
+      true,
       true
     ]
   },
-  "hash": "e7f0df073f3ebcd11be21e2f52bf474450d6081d96c9eb883481c035657e75aa"
+  "hash": "752f375fd17e8ca6c2b85a1cf95f159944138e0c15c1e79ef026168a37b5ef02"
 }

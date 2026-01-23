@@ -3,6 +3,22 @@ import { render, screen, act } from '@testing-library/react';
 import UserMessage from '../UserMessage';
 import { TaskAttempt } from 'shared/types';
 
+function createMockTaskAttempt(overrides?: Partial<TaskAttempt>): TaskAttempt {
+  return {
+    id: 'test-id',
+    task_id: 'task-123',
+    container_ref: null,
+    branch: 'feature-branch',
+    target_branch: 'main',
+    executor: 'CLAUDE_CODE',
+    worktree_deleted: false,
+    setup_completed_at: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
 // Mock i18next
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -18,8 +34,8 @@ vi.mock('@/hooks/useProcessRetry', () => ({
 vi.mock('@/components/ConfigProvider', () => ({
   useUserSystem: () => ({
     capabilities: {
-      CLAUDE_CODE: ['session.fork']
-    }
+      CLAUDE_CODE: ['session.fork'],
+    },
   }),
 }));
 
@@ -42,15 +58,9 @@ describe('UserMessage', () => {
     });
 
     it('renders executor name when taskAttempt is provided', () => {
-      const mockTaskAttempt: Partial<TaskAttempt> = {
-        id: 'test-id',
-        executor: 'CLAUDE_CODE',
-      };
+      const mockTaskAttempt = createMockTaskAttempt();
       render(
-        <UserMessage
-          content="Test message"
-          taskAttempt={mockTaskAttempt as TaskAttempt}
-        />
+        <UserMessage content="Test message" taskAttempt={mockTaskAttempt} />
       );
       expect(screen.getByText('CLAUDE_CODE')).toBeInTheDocument();
     });
@@ -66,12 +76,12 @@ describe('UserMessage', () => {
 
   describe('edit button visibility', () => {
     it('has group class on outer container for hover effects', () => {
-      const mockTaskAttempt = { id: 'test', executor: 'CLAUDE_CODE' };
+      const mockTaskAttempt = createMockTaskAttempt();
       const { container } = render(
         <UserMessage
           content="Test"
           executionProcessId="exec-1"
-          taskAttempt={mockTaskAttempt as TaskAttempt}
+          taskAttempt={mockTaskAttempt}
         />
       );
       const outerContainer = container.querySelector('.group.border');
@@ -85,7 +95,7 @@ describe('UserMessage', () => {
       render(<UserMessage content={longContent} />);
       // Look for expand message aria-label using translation key
       const chevronButton = screen.getByRole('button', {
-        name: 'conversation.userMessage.expandMessage'
+        name: 'conversation.userMessage.expandMessage',
       });
       expect(chevronButton).toBeInTheDocument();
     });
@@ -93,7 +103,9 @@ describe('UserMessage', () => {
     it('does not render chevron when message is 5 lines or less', () => {
       const shortContent = 'Line 1\nLine 2\nLine 3\nLine 4\nLine 5';
       const { container } = render(<UserMessage content={shortContent} />);
-      const chevronButton = container.querySelector('button[aria-label*="conversation.userMessage.expand"]');
+      const chevronButton = container.querySelector(
+        'button[aria-label*="conversation.userMessage.expand"]'
+      );
       expect(chevronButton).not.toBeInTheDocument();
     });
   });
@@ -103,16 +115,17 @@ describe('UserMessage', () => {
       const longContent = 'Line 1\nLine 2\nLine 3\nLine 4\nLine 5\nLine 6';
       render(<UserMessage content={longContent} />);
       const expandButton = screen.getByRole('button', {
-        name: 'conversation.userMessage.expandMessage'
+        name: 'conversation.userMessage.expandMessage',
       });
       expect(expandButton).toBeInTheDocument();
     });
 
     it('uses translation key for collapse button aria-label when expanded', () => {
-      const longContent = 'Line 1\nLine 2\nLine 3\nLine 4\nLine 5\nLine 6\nLine 7';
+      const longContent =
+        'Line 1\nLine 2\nLine 3\nLine 4\nLine 5\nLine 6\nLine 7';
       const { rerender } = render(<UserMessage content={longContent} />);
       // Initial state should be collapsed
-      let button = screen.getByRole('button', {
+      const button = screen.getByRole('button', {
         name: 'conversation.userMessage.expandMessage'
       });
       expect(button).toBeInTheDocument();
@@ -125,7 +138,7 @@ describe('UserMessage', () => {
       // After click, should show collapse label
       rerender(<UserMessage content={longContent} />);
       const collapseButton = screen.queryByRole('button', {
-        name: 'conversation.userMessage.collapseMessage'
+        name: 'conversation.userMessage.collapseMessage',
       });
       // Button should exist with new label
       expect(collapseButton).toBeInTheDocument();
@@ -134,11 +147,11 @@ describe('UserMessage', () => {
 
   describe('executor variant display', () => {
     it('displays executor variant when provided', () => {
-      const mockTaskAttempt = { id: 'test', executor: 'CLAUDE_CODE' };
+      const mockTaskAttempt = createMockTaskAttempt();
       render(
         <UserMessage
           content="Test"
-          taskAttempt={mockTaskAttempt as TaskAttempt}
+          taskAttempt={mockTaskAttempt}
           executorVariant="PLAN"
         />
       );
@@ -146,16 +159,42 @@ describe('UserMessage', () => {
     });
 
     it('displays only executor when variant is null', () => {
-      const mockTaskAttempt = { id: 'test', executor: 'CLAUDE_CODE' };
+      const mockTaskAttempt = createMockTaskAttempt();
       render(
         <UserMessage
           content="Test"
-          taskAttempt={mockTaskAttempt as TaskAttempt}
+          taskAttempt={mockTaskAttempt}
           executorVariant={null}
         />
       );
       expect(screen.getByText('CLAUDE_CODE')).toBeInTheDocument();
       expect(screen.queryByText('/')).not.toBeInTheDocument();
+    });
+
+    it('handles undefined executorVariant', () => {
+      const mockTaskAttempt = createMockTaskAttempt();
+      render(
+        <UserMessage
+          content="Test"
+          taskAttempt={mockTaskAttempt}
+          // executorVariant not provided (undefined)
+        />
+      );
+      expect(screen.getByText('CLAUDE_CODE')).toBeInTheDocument();
+      expect(screen.queryByText('/')).not.toBeInTheDocument();
+    });
+
+    it('handles empty string variant', () => {
+      const mockTaskAttempt = createMockTaskAttempt();
+      render(
+        <UserMessage
+          content="Test"
+          taskAttempt={mockTaskAttempt}
+          executorVariant=""
+        />
+      );
+      // Empty string is falsy, should not show slash
+      expect(screen.getByText('CLAUDE_CODE')).toBeInTheDocument();
     });
   });
 });
