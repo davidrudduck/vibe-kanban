@@ -40,9 +40,9 @@ use crate::{
 
 fn base_command(claude_code_router: bool) -> &'static str {
     if claude_code_router {
-        "npx -y @musistudio/claude-code-router@2.0.0 code"
+        "npx -y @musistudio/claude-code-router@latest code"
     } else {
-        "npx -y @anthropic-ai/claude-code@2.0.74"
+        "npx -y @anthropic-ai/claude-code@latest"
     }
 }
 
