@@ -30,6 +30,27 @@ use crate::{
     proxy::check_remote_task_attempt_proxy,
 };
 
+/// Starts a follow-up CodingAgent execution for a task attempt, handling remote proxying, worktree preparation, retry/reset logic, prompt image handling, task-variable expansion, session selection, and execution start.
+///
+/// This function will:
+/// - Proxy the request to a remote node when the task attempt is remote.
+/// - Ensure the task attempt worktree exists (recreate for cold starts).
+/// - Resolve the executor profile and project, and auto-unarchive the task if needed.
+/// - For retry requests, validate the target process, optionally reset the worktree to a prior commit (best-effort with timeout), stop running processes, and drop later processes.
+/// - Determine the session to use (respecting executor profile `no_context`), process images referenced by the prompt, expand task and system variables in the prompt, and choose the appropriate follow-up vs initial CodingAgent action.
+/// - Start execution via the container and clear relevant drafts.
+///
+/// # Returns
+///
+/// An `ApiResponse` containing the started `ExecutionProcess` on success.
+///
+/// # Examples
+///
+/// ```
+/// // Example (illustrative; types and setup omitted):
+/// // let resp = follow_up(task_attempt_ext, remote_ctx_opt, State(deployment), Json(payload)).await?;
+/// // assert!(resp.is_success());
+/// ```
 pub async fn follow_up(
     Extension(task_attempt): Extension<TaskAttempt>,
     remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
