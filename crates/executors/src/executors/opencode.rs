@@ -550,11 +550,9 @@ mod tests {
         // Since we can't directly inspect Command's env, we verify by checking
         // that the spawn implementation doesn't set these variables.
 
-        // This test primarily documents the expected behavior:
-        // - OPENCODE_AUTO_SHARE should NOT be set
-        // - OPENCODE_API should NOT be set
-        // The absence of bridge-related code in spawn() ensures this.
-        // No assertion needed - the absence of bridge-related code in spawn() ensures this.
+        // NOTE: spawn() should not set OPENCODE_AUTO_SHARE or OPENCODE_API.
+        // This test documents the expected behavior - the absence of
+        // bridge-related code in spawn() ensures these env vars are not set.
     }
 
     #[tokio::test]
@@ -586,7 +584,7 @@ mod tests {
         );
 
         // Clean up
-        drop(child.kill());
+        let _ = child.kill().await;
     }
 
     #[tokio::test]

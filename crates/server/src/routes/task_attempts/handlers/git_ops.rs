@@ -502,6 +502,29 @@ pub async fn get_task_attempt_branch_status(
         return Ok(ResponseJson(response));
     }
 
+    // If no container/worktree exists, return a minimal status instead of failing
+    if task_attempt.container_ref.is_none() {
+        tracing::debug!(
+            task_attempt_id = %task_attempt.id,
+            "No container_ref for task attempt, returning minimal branch status"
+        );
+        return Ok(ResponseJson(ApiResponse::success(BranchStatus {
+            commits_ahead: None,
+            commits_behind: None,
+            has_uncommitted_changes: None,
+            head_oid: None,
+            uncommitted_count: None,
+            untracked_count: None,
+            remote_commits_ahead: None,
+            remote_commits_behind: None,
+            merges: vec![],
+            target_branch_name: task_attempt.target_branch.clone(),
+            is_rebase_in_progress: false,
+            conflict_op: None,
+            conflicted_files: vec![],
+        })));
+    }
+
     let pool = &deployment.db().pool;
 
     let task = task_attempt
