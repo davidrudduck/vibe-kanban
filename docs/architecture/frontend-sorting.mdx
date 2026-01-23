@@ -1,0 +1,214 @@
+---
+title: "Frontend Task Sorting Architecture"
+description: "Task sorting strategy by status column, implementation details, and state management"
+---
+
+# Frontend Task Sorting Architecture
+
+This document describes the task sorting implementation for Vibe Kanban's frontend kanban board. The sorting strategy varies by task status to optimize workflow visibility.
+
+## Overview
+
+Tasks are sorted differently depending on their status column, with each column using the most relevant timestamp for that workflow stage. Users can toggle between ascending (oldest first) and descending (newest first) order for each column independently. Sort preferences persist across sessions via localStorage.
+
+## Sorting Strategy by Status
+
+### Todo
+**Field Used:** `created_at`
+**Default Direction:** Ascending (oldest first)
+**Rationale:** FIFO queue behavior - work on older tasks first to prevent starvation.
+
+The Todo column intentionally uses **only** `created_at` and ignores `activity_at`. This fixes a previous bug where moving a task back to Todo would place it at the bottom of the queue based on its recent activity timestamp, rather than maintaining its original creation order.
+
+### In Progress
+**Field Used:** `latest_execution_started_at` (fallback: `created_at`)
+**Default Direction:** Ascending (oldest first)
+**Rationale:** Shows longest-running tasks first to identify potential blockers.
+
+The `latest_execution_started_at` timestamp indicates when the most recent execution attempt began. Sorting by this field highlights tasks that have been in progress the longest, which may need attention or intervention.
+
+### In Review
+**Field Used:** `latest_execution_completed_at` (fallback: `created_at`)
+**Default Direction:** Ascending (oldest first)
+**Rationale:** Process reviews in the order they were completed to maintain fairness.
+
+Tasks enter In Review when an execution completes successfully. The `latest_execution_completed_at` timestamp marks when the execution finished, enabling FIFO review processing.
+
+### Done
+**Field Used:** `latest_execution_completed_at` (fallback: `created_at`)
+**Default Direction:** Ascending (oldest first)
+**Rationale:** Shows oldest completed tasks first for archival purposes.
+
+Similar to In Review, Done tasks use completion time to display the oldest completed work at the top, useful for archival workflows.
+
+### Cancelled
+**Field Used:** `latest_execution_completed_at` (fallback: `created_at`)
+**Default Direction:** Ascending (oldest first)
+**Rationale:** Chronological order for audit and review purposes.
+
+Cancelled tasks may have a completion timestamp if they were cancelled during or after an execution. Otherwise, they fall back to creation time.
+
+## Implementation Details
+
+### Core Sorting Logic
+
+Located in `frontend/src/lib/taskSorting.ts`.
+
+#### Key Functions
+
+**`getSortTimestamp(task: SortableTask): number`**
+- Returns the appropriate Unix timestamp for a task based on its status
+- Implements the status-specific sorting strategy described above
+- All timestamps fallback to `created_at` when the preferred field is null
+
+**`sortTasksByStatus<T>(tasks: T[], direction: SortDirection): T[]`**
+- Sorts an array of tasks using their status-appropriate timestamp
+- Direction: `'asc'` (oldest first) or `'desc'` (newest first)
+- Returns a new sorted array (does not mutate the original)
+
+**`sortTaskGroups<T>(tasksByStatus, directions?): Record<TaskStatus, T[]>`**
+- Sorts all status columns with independent sort directions
+- Accepts optional per-status direction overrides
+- Returns a new object with sorted arrays
+
+#### Type Definitions
+
+```typescript
+// Sort direction
+type SortDirection = 'asc' | 'desc';
+
+// Minimum interface for sortable tasks
+interface SortableTask {
+  status: TaskStatus;
+  created_at: string | Date;
+  activity_at?: string | Date | null;
+  latest_execution_started_at?: string | Date | null;
+  latest_execution_completed_at?: string | Date | null;
+}
+```
+
+### State Management
+
+Located in `frontend/src/hooks/useColumnSortState.ts`.
+
+**Hook:** `useColumnSortState()`
+
+Returns:
+- `sortDirections`: Current sort direction for each status column
+- `toggleDirection(status)`: Toggle sort direction for a specific status
+- `resetDirections()`: Reset all directions to defaults (all ascending)
+
+**Persistence:**
+- Sort preferences stored in localStorage under key `kanban-sort-directions-v1`
+- Validated on load to ensure data integrity
+- Silently falls back to defaults if localStorage is unavailable or corrupted
+
+**Default Directions:**
+All columns default to `'asc'` (oldest first):
+```typescript
+{
+  todo: 'asc',
+  inprogress: 'asc',
+  inreview: 'asc',
+  done: 'asc',
+  cancelled: 'asc',
+}
+```
+
+### Mobile UI
+
+Located in `frontend/src/components/tasks/MobileColumnHeader.tsx`.
+
+Mobile views include sort toggle buttons in column headers with the following features:
+- **Visual indicators:** ↑ for ascending (oldest first), ↓ for descending (newest first)
+- **Touch-friendly interaction:** Large tap targets with visual feedback
+- **Shared state:** Mobile and desktop views use the same `useColumnSortState` hook
+- **Persistence:** Sort preferences apply across mobile and desktop layouts
+
+The mobile column header also includes:
+- Column navigation arrows (swipe between status columns)
+- Task count display
+- Indicator dots showing current column position
+- Status-specific color highlighting
+
+## Usage Examples
+
+### Basic Usage in a Component
+
+```typescript
+import { useColumnSortState } from '@/hooks/useColumnSortState';
+import { sortTaskGroups } from '@/lib/taskSorting';
+
+function KanbanBoard() {
+  const { sortDirections, toggleDirection } = useColumnSortState();
+  const tasks = useTasks(); // Fetch tasks from API
+
+  // Group tasks by status
+  const tasksByStatus = groupBy(tasks, 'status');
+
+  // Apply sorting with user preferences
+  const sortedTasks = sortTaskGroups(tasksByStatus, sortDirections);
+
+  return (
+    <div>
+      {/* Render sorted tasks */}
+      <Column tasks={sortedTasks.todo} onToggleSort={() => toggleDirection('todo')} />
+      <Column tasks={sortedTasks.inprogress} onToggleSort={() => toggleDirection('inprogress')} />
+      {/* ... */}
+    </div>
+  );
+}
+```
+
+### Sorting a Single Status
+
+```typescript
+import { sortTasksByStatus } from '@/lib/taskSorting';
+
+const todoTasks = tasks.filter(t => t.status === 'todo');
+const sortedTodos = sortTasksByStatus(todoTasks, 'asc'); // Oldest first
+```
+
+## Testing Considerations
+
+When testing sorting behavior:
+
+1. **Verify status-specific timestamps:** Each status should use the correct timestamp field
+2. **Test fallback behavior:** When preferred timestamps are null, ensure fallback to `created_at`
+3. **Validate direction toggle:** Ascending ↔ Descending should invert order
+4. **Check persistence:** Sort preferences should survive page reloads
+5. **Test invalid data:** Ensure graceful handling of missing/malformed localStorage data
+
+## Related Files
+
+| File | Purpose |
+|------|---------|
+| `frontend/src/lib/taskSorting.ts` | Core sorting logic and utilities |
+| `frontend/src/hooks/useColumnSortState.ts` | Sort state management and persistence |
+| `frontend/src/components/tasks/MobileColumnHeader.tsx` | Mobile sort UI implementation |
+| `frontend/src/components/tasks/KanbanColumn.tsx` | Desktop column with sort controls |
+
+## Migration Notes
+
+**Previous Bug (Fixed):** The Todo column previously used `activity_at ?? created_at` for sorting, which caused tasks moved back to Todo to appear at the bottom of the queue. The current implementation uses only `created_at` to maintain proper FIFO behavior regardless of activity history.
+
+If you need to modify the sorting strategy:
+1. Update `getSortTimestamp()` in `taskSorting.ts` to change which timestamps are used
+2. Update this documentation to reflect the new rationale
+3. Add tests to verify the new behavior
+4. Consider whether changes should reset user sort preferences (may require localStorage key version bump)
+
+## Future Enhancements
+
+Potential improvements to the sorting system:
+- **Custom sort orders:** Allow users to manually reorder tasks within columns
+- **Multi-field sorting:** Secondary sort criteria (e.g., priority, assignee)
+- **Sort presets:** Named sort configurations (e.g., "By Priority", "By Age")
+- **Visual sort indicators:** Show which field is being used for each column
+- **Keyboard shortcuts:** Quick toggle sort direction with keyboard commands
+
+## Questions?
+
+For implementation questions or to propose changes to the sorting strategy, see:
+- [CLAUDE.md](/CLAUDE.md) - Development conventions
+- [Frontend Architecture](./README.md) - General frontend patterns

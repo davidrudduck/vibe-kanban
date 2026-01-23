@@ -67,7 +67,7 @@ pub async fn get_resolved_variables(
     Extension(task): Extension<Task>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<Vec<ResolvedVariable>>>, ApiError> {
-    let variables = TaskVariable::find_inherited(&deployment.db().pool, task.id).await?;
+    let variables = TaskVariable::find_inherited_with_system(&deployment.db().pool, task.id).await?;
     Ok(ResponseJson(ApiResponse::success(variables)))
 }
 
@@ -154,7 +154,7 @@ pub async fn preview_expansion(
     Json(payload): Json<PreviewExpansionRequest>,
 ) -> Result<ResponseJson<ApiResponse<PreviewExpansionResponse>>, ApiError> {
     // Get all resolved variables for the task
-    let resolved = TaskVariable::find_inherited(&deployment.db().pool, task.id).await?;
+    let resolved = TaskVariable::find_inherited_with_system(&deployment.db().pool, task.id).await?;
 
     // Convert to the format expected by variable_expander
     let variables: HashMap<String, (String, Option<Uuid>)> = resolved

@@ -102,20 +102,33 @@ const UserMessage = ({
   const variant = executorVariant ?? null;
 
   // Content truncation for collapsed state
-  const displayContent = needsCollapse && !expanded
-    ? content.split('\n').slice(0, LINE_LIMIT).join('\n') + '...'
-    : content;
+  const displayContent =
+    needsCollapse && !expanded
+      ? content.split('\n').slice(0, LINE_LIMIT).join('\n') + '...'
+      : content;
 
   return (
-    <div className={`inline-block w-full py-2 ${greyed ? 'opacity-50 pointer-events-none' : ''}`}>
-      <div className={cn('border w-full overflow-hidden rounded-sm group', USER_MESSAGE_APPEARANCE.border)}>
+    <div
+      className={`inline-block w-full py-2 ${greyed ? 'opacity-50 pointer-events-none' : ''}`}
+    >
+      <div
+        className={cn(
+          'border w-full overflow-hidden rounded-sm group',
+          USER_MESSAGE_APPEARANCE.border
+        )}
+      >
         {/* Header with executor/variant */}
-        <div className={cn(
-          'w-full px-2 py-1.5 flex items-center gap-1.5 text-xs font-medium',
-          USER_MESSAGE_APPEARANCE.headerBg,
-          USER_MESSAGE_APPEARANCE.headerText
-        )}>
-          <span>{executor}{variant && ` / ${variant}`}</span>
+        <div
+          className={cn(
+            'w-full px-2 py-1.5 flex items-center gap-1.5 text-xs font-medium',
+            USER_MESSAGE_APPEARANCE.headerBg,
+            USER_MESSAGE_APPEARANCE.headerText
+          )}
+        >
+          <span>
+            {executor}
+            {variant && ` / ${variant}`}
+          </span>
           <div className="ml-auto flex items-center gap-1">
             {executionProcessId && canFork && !showRetryEditor && (
               <div className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150">
@@ -136,7 +149,9 @@ const UserMessage = ({
         </div>
 
         {/* Content area */}
-        <div className={cn('px-3 py-2 text-sm', USER_MESSAGE_APPEARANCE.contentBg)}>
+        <div
+          className={cn('px-3 py-2 text-sm', USER_MESSAGE_APPEARANCE.contentBg)}
+        >
           {showRetryEditor ? (
             <RetryEditorInline
               attempt={taskAttempt as TaskAttempt}
@@ -155,14 +170,19 @@ const UserMessage = ({
               {needsCollapse && (
                 // Full-width chevron button at bottom to expand/collapse long messages
                 <button
-                  onClick={(e) => { e.preventDefault(); toggle(); }}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    toggle();
+                  }}
                   className={cn(
                     'w-full flex justify-center pt-2 -mb-1',
                     'hover:bg-green-100 dark:hover:bg-green-900/30 rounded-b'
                   )}
-                  aria-label={expanded
-                    ? t('conversation.userMessage.collapseMessage')
-                    : t('conversation.userMessage.expandMessage')}
+                  aria-label={
+                    expanded
+                      ? t('conversation.userMessage.collapseMessage')
+                      : t('conversation.userMessage.expandMessage')
+                  }
                 >
                   <ChevronDown
                     className={cn(

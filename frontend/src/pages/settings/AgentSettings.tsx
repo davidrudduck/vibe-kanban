@@ -426,13 +426,13 @@ export function AgentSettings() {
                       />
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.keys(localParsedProfiles.executors).sort().map(
-                        (type) => (
+                      {Object.keys(localParsedProfiles.executors)
+                        .sort()
+                        .map((type) => (
                           <SelectItem key={type} value={type}>
                             {type}
                           </SelectItem>
-                        )
-                      )}
+                        ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -466,11 +466,16 @@ export function AgentSettings() {
                         {Object.keys(
                           localParsedProfiles.executors[selectedExecutorType] ||
                             {}
-                        ).sort().map((configuration) => (
-                          <SelectItem key={configuration} value={configuration}>
-                            {configuration}
-                          </SelectItem>
-                        ))}
+                        )
+                          .sort()
+                          .map((configuration) => (
+                            <SelectItem
+                              key={configuration}
+                              value={configuration}
+                            >
+                              {configuration}
+                            </SelectItem>
+                          ))}
                         <SelectItem value="__create__">
                           {t('settings.agents.editor.createNew')}
                         </SelectItem>

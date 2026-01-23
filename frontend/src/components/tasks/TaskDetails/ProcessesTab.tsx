@@ -274,7 +274,10 @@ function ProcessesTab({ attemptId }: ProcessesTabProps) {
                           title={process.completion_message || undefined}
                         >
                           {getCompletionReasonIcon(process.completion_reason)}
-                          {t(`processes.completionReason.${process.completion_reason}`, { defaultValue: process.completion_reason })}
+                          {t(
+                            `processes.completionReason.${process.completion_reason}`,
+                            { defaultValue: process.completion_reason }
+                          )}
                         </span>
                       )}
                     </div>
