@@ -16,8 +16,24 @@ pub const SYSTEM_VARIABLE_NAMES: &[&str] = &[
     "IS_SUBTASK",
 ];
 
-/// Generate system variables for a task.
-/// These are computed at runtime and not stored in the database.
+/// Generate the set of runtime system variables for a task.
+///
+/// The returned variables represent system-provided values (e.g., TASK_ID, PARENT_TASK_ID,
+/// TASK_TITLE, TASK_DESCRIPTION, TASK_LABEL, PROJECT_ID, PROJECT_TITLE, IS_SUBTASK) computed
+/// from the task, its project, and its labels. These variables are not persisted in the database.
+///
+/// # Returns
+///
+/// A vector of `ResolvedVariable` entries for the task's system variables; each entry's
+/// `source_task_id` is the provided `task_id` and `inherited` is always `false`.
+///
+/// # Examples
+///
+/// ```ignore
+/// // `pool` and `task_id` must refer to an existing task in the test database.
+/// let vars = get_system_variables(&pool, task_id).await.unwrap();
+/// assert!(vars.iter().any(|v| v.name == "TASK_ID"));
+/// ```
 pub async fn get_system_variables(
     pool: &SqlitePool,
     task_id: Uuid,
@@ -305,7 +321,23 @@ impl TaskVariable {
         Ok(result)
     }
 
-    /// Get resolved variables as a HashMap suitable for variable expansion
+    /// Produce a mapping of resolved variable names to their corresponding value and originating task ID.
+    ///
+    /// Returns a `HashMap` where each key is a variable name and each value is a tuple `(value, source_task_id)`.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use sqlx::SqlitePool;
+    /// # use uuid::Uuid;
+    /// # use crates::db::models::task_variable::TaskVariable;
+    /// # async fn example(pool: &SqlitePool, task_id: Uuid) {
+    /// let map = TaskVariable::get_variable_map(pool, task_id).await.unwrap();
+    /// if let Some((value, source)) = map.get("TASK_TITLE") {
+    ///     println!("TASK_TITLE = {} (from {})", value, source);
+    /// }
+    /// # }
+    /// ```
     pub async fn get_variable_map(
         pool: &SqlitePool,
         task_id: Uuid,
@@ -317,8 +349,21 @@ impl TaskVariable {
             .collect())
     }
 
-    /// Find all variables for a task including inherited ones AND system variables.
-    /// System variables override user-defined variables with the same name.
+    /// Collects resolved variables for a task, combining inherited user variables with runtime system variables.
+    ///
+    /// System-provided variables will replace any user-defined variables that share the same name. The returned
+    /// vector is sorted by variable name.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use uuid::Uuid;
+    /// // within an async context
+    /// let vars = TaskVariable::find_inherited_with_system(&pool, task_id).await?;
+    /// for v in vars {
+    ///     println!("{} = {}", v.name, v.value);
+    /// }
+    /// ```
     pub async fn find_inherited_with_system(
         pool: &SqlitePool,
         task_id: Uuid,
@@ -340,8 +385,22 @@ impl TaskVariable {
         Ok(result)
     }
 
-    /// Get resolved variables including system variables as a HashMap
-    /// suitable for variable expansion.
+    /// Return a map of resolved variables for a task, including system variables.
+    ///
+    /// The returned map maps variable name -> (value, source_task_id). System variables override
+    /// user-defined variables with the same name.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use sqlx::SqlitePool; use uuid::Uuid;
+    /// # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    /// let pool = SqlitePool::connect("sqlite::memory:").await?;
+    /// let task_id = Uuid::new_v4();
+    /// let vars = crate::models::task_variable::get_variable_map_with_system(&pool, task_id).await?;
+    /// // `vars` is a HashMap<String, (String, Uuid)> where keys are variable names.
+    /// # Ok(()) }
+    /// ```
     pub async fn get_variable_map_with_system(
         pool: &SqlitePool,
         task_id: Uuid,

@@ -863,6 +863,34 @@ pub trait ContainerService {
         })
     }
 
+    /// Starts a new execution attempt for a task attempt, creating the worktree unless skipped and wiring setup scripts, coding agent requests, and optional cleanup actions.
+    ///
+    /// The function ensures the container/worktree exists (unless `skip_worktree_creation` is true), resolves the latest task attempt, expands image paths and task variables in the prompt, and then starts one or more executions:
+    /// - If the project defines a setup script and it is configured to run in parallel, the setup script is started independently and the coding-agent initial request is started immediately.
+    /// - If the setup script is sequential, the setup script is started with the coding-agent initial request chained as the next action.
+    /// - If there is no setup script, the coding-agent initial request is started directly.
+    /// On success returns the started `ExecutionProcess`.
+    ///
+    /// # Parameters
+    ///
+    /// - `task_attempt`: The task attempt to run; the function will refresh this record from the database before starting.
+    /// - `executor_profile_id`: Identifier of the executor profile to use for the coding-agent initial request.
+    /// - `skip_worktree_creation`: When true, do not create the worktree/container (useful for shared or pre-created worktrees).
+    ///
+    /// # Returns
+    ///
+    /// `ExecutionProcess` representing the started execution on success.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # // Pseudocode example; replace `svc`, `task_attempt`, and `profile_id` with real values from your environment.
+    /// # async fn example(svc: &impl ContainerService, task_attempt: &TaskAttempt, profile_id: ExecutorProfileId) -> Result<(), ContainerError> {
+    /// let exec = svc.start_attempt(task_attempt, profile_id, false).await?;
+    /// assert_eq!(exec.task_attempt_id, task_attempt.id);
+    /// # Ok(())
+    /// # }
+    /// ```
     async fn start_attempt(
         &self,
         task_attempt: &TaskAttempt,
