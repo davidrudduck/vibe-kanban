@@ -903,7 +903,7 @@ pub trait ContainerService {
         // Expand task variables ($VAR and ${VAR} syntax) in the prompt
         let prompt = {
             // Get resolved variables for this task (including inherited from parent chain)
-            let variables = TaskVariable::get_variable_map(&self.db().pool, task.id)
+            let variables = TaskVariable::get_variable_map_with_system(&self.db().pool, task.id)
                 .await
                 .unwrap_or_else(|e| {
                     tracing::warn!(task_id = %task.id, error = ?e, "Failed to fetch task variables");
