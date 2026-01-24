@@ -60,7 +60,7 @@ impl SharePublisher {
         };
 
         let payload = CreateSharedTaskRequest {
-            project_id: remote_project_id,
+            swarm_project_id: remote_project_id,
             title: task.title.clone(),
             description: task.description.clone(),
             status: Some(status::to_remote(&task.status)),

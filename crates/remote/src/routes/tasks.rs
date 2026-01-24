@@ -159,7 +159,7 @@ pub async fn find_by_source_task_id(
 /// ```
 /// use uuid::Uuid;
 /// let req = CreateSharedTaskRequest {
-///     project_id: Uuid::new_v4(),
+///     swarm_project_id: Uuid::new_v4(), // Must be a valid swarm_projects.id
 ///     title: "Example task".to_string(),
 ///     description: None,
 ///     status: None,
@@ -184,7 +184,7 @@ pub async fn create_shared_task(
     let repo = SharedTaskRepository::new(pool);
     let user_repo = UserRepository::new(pool);
     let CreateSharedTaskRequest {
-        project_id,
+        swarm_project_id,
         title,
         description,
         status,
@@ -198,7 +198,7 @@ pub async fn create_shared_task(
         return task_error_response(error, "shared task payload too large");
     }
 
-    let organization_id = match ensure_project_access(pool, ctx.user.id, project_id).await {
+    let organization_id = match ensure_project_access(pool, ctx.user.id, swarm_project_id).await {
         Ok(org_id) => {
             Span::current().record("org_id", format_args!("{org_id}"));
             org_id
@@ -250,7 +250,7 @@ pub async fn create_shared_task(
 
     let data = CreateSharedTaskData {
         organization_id,
-        project_id: Some(project_id),
+        project_id: Some(swarm_project_id),
         title: title.clone(),
         description: description.clone(),
         status,
@@ -284,7 +284,7 @@ pub async fn create_shared_task(
             crate::nodes::TaskDispatcher::new(pool.clone(), state.node_connections().clone());
 
         // Find a connected node first to get the correct default_branch
-        match dispatcher.find_connected_node(project_id).await {
+        match dispatcher.find_connected_node(swarm_project_id).await {
             Ok(connected_node) => {
                 // Use the connected node's branch to ensure consistency
                 let task_details = TaskDetails {
@@ -320,7 +320,7 @@ pub async fn create_shared_task(
             Err(e) => {
                 tracing::warn!(
                     task_id = %task.task.id,
-                    project_id = %project_id,
+                    swarm_project_id = %swarm_project_id,
                     error = %e,
                     "no connected node available for dispatch, task created but not assigned"
                 );
@@ -595,7 +595,11 @@ pub struct BulkSharedTasksResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateSharedTaskRequest {
-    pub project_id: Uuid,
+    /// The swarm project ID (from the `swarm_projects` table in the hive).
+    /// This is the ID of the swarm project to create the task in, NOT a local project ID.
+    /// Alias: `project_id` for backwards compatibility.
+    #[serde(alias = "project_id")]
+    pub swarm_project_id: Uuid,
     pub title: String,
     pub description: Option<String>,
     pub status: Option<TaskStatus>,
