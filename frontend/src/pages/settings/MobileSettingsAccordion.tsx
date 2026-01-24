@@ -85,6 +85,16 @@ interface AccordionItemProps {
   description: string;
 }
 
+/**
+ * Render a single settings accordion item with a header and animated collapsible content.
+ *
+ * @param section - Settings section metadata (`id`, `path`, `icon`, and `component`) used to render the icon and content.
+ * @param isExpanded - Whether the section is currently expanded.
+ * @param onToggle - Invoked when the section header is clicked to toggle expansion.
+ * @param title - Visible title text for the section header.
+ * @param description - Visible description text displayed under the title in the header.
+ * @returns The rendered accordion item JSX element containing the header button and animated content area.
+ */
 function AccordionItem({
   section,
   isExpanded,

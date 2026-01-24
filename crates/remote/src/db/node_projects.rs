@@ -363,11 +363,27 @@ impl<'a> NodeProjectRepository<'a> {
         Ok(result.rows_affected())
     }
 
-    /// List all project links for an organization with node ownership info.
+    /// List project links for an organization including the owning node's info.
     ///
-    /// Returns projects linked to ANY node in the organization, with info about
-    /// which node owns each project. Used to provide full project visibility
-    /// to all nodes in the swarm.
+    /// Each item represents a node-level link to a swarm project and includes the
+    /// link id, project id, optional local project id, repository path, default
+    /// branch, a display name for the project (uses the local project name when
+    /// available, otherwise the repository name derived from the path), and the
+    /// source node's id and name.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// use uuid::Uuid;
+    /// // `repo` is a NodeProjectRepository instance
+    /// let org_id = Uuid::parse_str("00000000-0000-0000-0000-000000000000")?;
+    /// let projects = repo.list_by_organization(org_id).await?;
+    /// for p in projects {
+    ///     println!("{} -> {}", p.project_name, p.source_node_name);
+    /// }
+    /// # Ok(()) }
+    /// ```
     pub async fn list_by_organization(
         &self,
         organization_id: Uuid,
@@ -398,10 +414,23 @@ impl<'a> NodeProjectRepository<'a> {
         Ok(projects)
     }
 
-    /// Get the organization ID for a project by looking up via node_projects and nodes.
+    /// Look up the organization that owns a project by querying node_projects and nodes.
     ///
-    /// Returns the organization_id of the node that owns this project.
-    /// Used for access control when the projects table is no longer available.
+    /// Returns the `organization_id` of the node linked to the given `project_id`, or `None` if no link exists.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// use sqlx::PgPool;
+    /// use uuid::Uuid;
+    /// // assume `pool` is an initialized PgPool and `project_id` is a valid project UUID
+    /// let pool: PgPool = unimplemented!();
+    /// let project_id = Uuid::nil();
+    /// let org = crate::db::node_projects::NodeProjectRepository::organization_id(&pool, project_id).await?;
+    /// // `org` is `Some(uuid)` when a node owning the project exists, otherwise `None`
+    /// # Ok(()) }
+    /// ```
     pub async fn organization_id(
         pool: &PgPool,
         project_id: Uuid,

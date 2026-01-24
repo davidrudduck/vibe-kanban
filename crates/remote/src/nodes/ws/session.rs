@@ -44,10 +44,18 @@ const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(90);
 /// Channel buffer size for outgoing messages.
 const OUTGOING_BUFFER_SIZE: usize = 64;
 
-/// Extract project name from a git repository path.
+/// Returns the final path component of a git repository path.
 ///
-/// Returns the last path component, or the full path if no separator is found.
-/// Handles trailing slashes gracefully and supports both Unix and Windows separators.
+/// Trims trailing '/' and '\' characters and supports both Unix and Windows separators. If the input contains no separators, or is empty, the original input is returned.
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!(extract_project_name("https://example.com/org/repo.git"), "repo.git");
+/// assert_eq!(extract_project_name("C:\\path\\to\\project\\"), "project");
+/// assert_eq!(extract_project_name("/single_component"), "single_component");
+/// assert_eq!(extract_project_name(""), "");
+/// ```
 fn extract_project_name(git_repo_path: &str) -> String {
     let trimmed = git_repo_path.trim_end_matches(['/', '\\']);
     let candidate = if trimmed.is_empty() {
@@ -760,7 +768,8 @@ async fn handle_task_progress(
     Ok(())
 }
 
-/// Handle a project link message from a node.
+/// Create a link between a node and a project, persist the link, and broadcast a ProjectSync
+/// message to all other nodes in the organization.
 ///
 /// This links a node's local project to a swarm project by:
 /// 1. Creating/updating the swarm_project_nodes record
@@ -768,6 +777,10 @@ async fn handle_task_progress(
 /// 3. Broadcasting the link to other nodes
 ///
 /// Note: The `project_id` in LinkProjectMessage is now interpreted as `swarm_project_id`.
+///
+/// The broadcast excludes the originating node. The project name included in the broadcast is
+/// derived from the provided `git_repo_path`. Returns an error if the database operation or the
+/// broadcast fails.
 async fn handle_link_project(
     node_id: Uuid,
     organization_id: Uuid,
@@ -876,7 +889,7 @@ async fn handle_link_project(
     Ok(())
 }
 
-/// Handle a project unlink message from a node.
+/// Unlinks a project from the given node and broadcasts the removal to the other nodes in the organization.
 ///
 /// This unlinks a node's local project from a swarm project by:
 /// 1. Finding the swarm_project_nodes link
@@ -885,6 +898,14 @@ async fn handle_link_project(
 /// 4. Broadcasting the unlink to other nodes
 ///
 /// Note: The `project_id` in UnlinkProjectMessage is now interpreted as `swarm_project_id`.
+///
+/// This removes the node-project link from the database and, if the link existed, constructs
+/// and broadcasts a `ProjectSync` removal message to all other nodes in the same organization.
+/// The broadcasted `project_name` is derived from the link's `git_repo_path`.
+///
+/// # Returns
+///
+/// `Ok(())` on success, `Err(HandleError)` if a database or send error occurs.
 async fn handle_unlink_project(
     node_id: Uuid,
     organization_id: Uuid,
@@ -1083,10 +1104,39 @@ async fn send_message(
     }
 }
 
-/// Handle an attempt sync message from a node.
+/// Upserts a node task attempt and, when the attempt has no `assignment_id`, attempts to create a synthetic assignment for locally-started tasks.
 ///
-/// Upserts the task attempt into node_task_attempts.
-/// For locally-started tasks (without assignment_id), creates a synthetic assignment.
+/// If `attempt.assignment_id` is provided, that value is used. If it is `None`, the function tries to locate the shared task and, if the shared task has a `project_id` and a corresponding `node_project` link for the node, creates or finds a synthetic assignment and uses its ID. Failures to create or find a synthetic assignment are logged and do not prevent the attempt from being upserted; the attempt will be stored without an `assignment_id` in that case.
+///
+/// The upsert writes the attempt data into the `node_task_attempts` table.
+///
+/// # Examples
+///
+/// ```
+/// # async fn example(pool: &sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+/// use uuid::Uuid;
+/// use crate::nodes::ws::messages::AttemptSyncMessage;
+///
+/// let node_id = Uuid::new_v4();
+/// let attempt = AttemptSyncMessage {
+///     attempt_id: Uuid::new_v4(),
+///     shared_task_id: Uuid::new_v4(),
+///     assignment_id: None,
+///     executor: None,
+///     executor_variant: None,
+///     branch: None,
+///     target_branch: None,
+///     container_ref: None,
+///     worktree_deleted: false,
+///     setup_completed_at: None,
+///     created_at: chrono::Utc::now(),
+///     updated_at: chrono::Utc::now(),
+/// };
+///
+/// crate::nodes::ws::session::handle_attempt_sync(node_id, &attempt, pool).await?;
+/// # Ok(())
+/// # }
+/// ```
 async fn handle_attempt_sync(
     node_id: Uuid,
     attempt: &AttemptSyncMessage,
