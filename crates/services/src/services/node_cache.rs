@@ -223,7 +223,7 @@ impl<'a> NodeCacheSyncer<'a> {
         let mut synced_remote_project_ids = Vec::with_capacity(projects.len());
 
         for project in projects {
-            synced_remote_project_ids.push(project.project_id);
+            synced_remote_project_ids.push(project.swarm_project_id);
 
             // Convert node status to string for storage (needed for both update and insert paths)
             let node_status_str = match node.status {
@@ -248,7 +248,7 @@ impl<'a> NodeCacheSyncer<'a> {
                 if !existing.is_remote {
                     debug!(
                         git_repo_path = %project.git_repo_path,
-                        remote_project_id = %project.project_id,
+                        remote_project_id = %project.swarm_project_id,
                         local_project_id = %existing.id,
                         "skipping remote project upsert - local project exists with same path"
                     );
@@ -258,21 +258,21 @@ impl<'a> NodeCacheSyncer<'a> {
                     if let Err(e) = Project::update_remote_project_link(
                         self.pool,
                         existing.id,
-                        project.project_id,
+                        project.swarm_project_id,
                         Some(node_status_str.clone()),
                     )
                     .await
                     {
                         warn!(
                             existing_id = %existing.id,
-                            remote_project_id = %project.project_id,
+                            remote_project_id = %project.swarm_project_id,
                             error = %e,
                             "failed to update remote_project_id on existing project"
                         );
                     } else {
                         debug!(
                             existing_id = %existing.id,
-                            remote_project_id = %project.project_id,
+                            remote_project_id = %project.swarm_project_id,
                             "updated remote_project_id on existing remote project"
                         );
                     }
@@ -293,7 +293,7 @@ impl<'a> NodeCacheSyncer<'a> {
                     }
                     debug!(
                         git_repo_path = %project.git_repo_path,
-                        remote_project_id = %project.project_id,
+                        remote_project_id = %project.swarm_project_id,
                         existing_remote_project_id = ?existing.remote_project_id,
                         existing_source_node_id = ?existing.source_node_id,
                         "updated sync status - path already synced from another node"
@@ -313,7 +313,7 @@ impl<'a> NodeCacheSyncer<'a> {
             match Project::upsert_remote_project(
                 self.pool,
                 Uuid::new_v4(), // local_id for new projects
-                project.project_id,
+                project.swarm_project_id,
                 project_name.clone(),
                 project.git_repo_path.clone(),
                 node.id,
@@ -335,7 +335,7 @@ impl<'a> NodeCacheSyncer<'a> {
                 Err(e) => {
                     tracing::error!(
                         node_id = %node.id,
-                        project_id = %project.project_id,
+                        project_id = %project.swarm_project_id,
                         error = %e,
                         "failed to upsert remote project"
                     );

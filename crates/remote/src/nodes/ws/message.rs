@@ -379,8 +379,8 @@ pub enum TaskProgressType {
 
 /// Link a project from node to hive.
 ///
-/// Sent by the node when a user links a local project to a remote project.
-/// This creates an entry in the hive's node_projects table.
+/// Sent by the node when a user links a local project to a swarm project.
+/// This creates an entry in the hive's swarm_project_nodes table.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LinkProjectMessage {
     /// The remote project ID (from the hive's projects table)
@@ -401,7 +401,7 @@ fn default_branch() -> String {
 /// Unlink a project from the hive.
 ///
 /// Sent by the node when a user unlinks a local project.
-/// This removes the entry from the hive's node_projects table.
+/// This removes the entry from the hive's swarm_project_nodes table.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnlinkProjectMessage {
     /// The remote project ID to unlink

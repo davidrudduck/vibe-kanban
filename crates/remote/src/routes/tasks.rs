@@ -19,9 +19,9 @@ use crate::{
     AppState,
     auth::RequestContext,
     db::{
-        node_projects::NodeProjectRepository,
         organization_members,
         organizations::{MemberRole, OrganizationRepository},
+        swarm_projects::SwarmProjectRepository,
         tasks::{
             AssignTaskData, CreateSharedTaskData, DeleteTaskData, SharedTask, SharedTaskError,
             SharedTaskRepository, SharedTaskWithUser, TaskStatus, UpdateSharedTaskData,
@@ -281,8 +281,11 @@ pub async fn create_shared_task(
 
     // Only dispatch to node if start_attempt flag is true
     if start_attempt {
-        let node_project_repo = NodeProjectRepository::new(pool);
-        if let Ok(Some(node_project)) = node_project_repo.find_by_project(project_id).await {
+        // Find nodes linked to this swarm project
+        let nodes = SwarmProjectRepository::find_nodes_for_dispatch(pool, project_id).await;
+        if let Ok(nodes) = nodes
+            && let Some(first_node) = nodes.first()
+        {
             let dispatcher =
                 crate::nodes::TaskDispatcher::new(pool.clone(), state.node_connections().clone());
 
@@ -291,7 +294,7 @@ pub async fn create_shared_task(
                 description,
                 executor: "CLAUDE_CODE".to_string(), // Default executor
                 executor_variant: None,
-                base_branch: node_project.default_branch.clone(),
+                base_branch: first_node.default_branch.clone(),
             };
 
             // Attempt to dispatch - don't fail task creation if dispatch fails

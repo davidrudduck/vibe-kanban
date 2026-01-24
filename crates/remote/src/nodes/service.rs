@@ -7,8 +7,8 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::domain::{
-    CreateNodeApiKey, HeartbeatPayload, LinkProjectData, Node, NodeApiKey, NodeProject,
-    NodeRegistration, NodeStatus, NodeTaskAssignment, NodeTaskAttempt, UpdateAssignmentData,
+    CreateNodeApiKey, HeartbeatPayload, Node, NodeApiKey, NodeRegistration, NodeStatus,
+    NodeTaskAssignment, NodeTaskAttempt, UpdateAssignmentData,
 };
 
 /// Type alias for registration data (used by WebSocket session)
@@ -16,9 +16,9 @@ pub type RegisterNode = NodeRegistration;
 use crate::db::{
     node_api_keys::{NodeApiKeyError, NodeApiKeyRepository},
     node_local_projects::{NodeLocalProjectError, NodeLocalProjectRepository},
-    node_projects::{NodeProjectError, NodeProjectRepository},
     node_task_attempts::{NodeTaskAttemptError, NodeTaskAttemptRepository},
     nodes::{NodeDbError, NodeRepository},
+    swarm_projects::{SwarmProjectError, SwarmProjectNode, SwarmProjectRepository},
     task_assignments::{TaskAssignmentError, TaskAssignmentRepository},
 };
 
@@ -102,16 +102,22 @@ impl From<NodeApiKeyError> for NodeError {
     }
 }
 
-impl From<NodeProjectError> for NodeError {
-    fn from(err: NodeProjectError) -> Self {
+impl From<SwarmProjectError> for NodeError {
+    fn from(err: SwarmProjectError) -> Self {
         match err {
-            NodeProjectError::NotFound => NodeError::NodeProjectNotFound,
-            NodeProjectError::ProjectAlreadyLinked => NodeError::ProjectAlreadyLinked,
-            NodeProjectError::LocalProjectAlreadyLinked => {
-                NodeError::Database("local project already linked".to_string())
+            SwarmProjectError::NotFound => NodeError::NodeProjectNotFound,
+            SwarmProjectError::NameConflict => {
+                NodeError::Database("swarm project name already exists".to_string())
             }
-            NodeProjectError::ProjectNotInHive => NodeError::ProjectNotInHive,
-            NodeProjectError::Database(e) => NodeError::Database(e.to_string()),
+            SwarmProjectError::LinkAlreadyExists => NodeError::ProjectAlreadyLinked,
+            SwarmProjectError::LinkNotFound => NodeError::NodeProjectNotFound,
+            SwarmProjectError::InvalidMetadata => {
+                NodeError::Database("invalid metadata".to_string())
+            }
+            SwarmProjectError::CannotMergeSelf => {
+                NodeError::Database("cannot merge project with itself".to_string())
+            }
+            SwarmProjectError::Database(e) => NodeError::Database(e.to_string()),
         }
     }
 }
@@ -475,9 +481,10 @@ impl NodeServiceImpl {
     /// Merge one node into another.
     ///
     /// This operation:
-    /// 1. Moves all projects from source node to target node
-    /// 2. Rebinds any API keys from source to target
-    /// 3. Deletes the source node
+    /// 1. Moves swarm project links from source node to target node
+    /// 2. Moves local project records from source node to target node
+    /// 3. Rebinds any API keys from source to target
+    /// 4. Deletes the source node
     ///
     /// Returns a summary of the merge operation.
     pub async fn merge_nodes(
@@ -486,7 +493,6 @@ impl NodeServiceImpl {
         target_node_id: Uuid,
     ) -> Result<MergeNodesResult, NodeError> {
         let node_repo = NodeRepository::new(&self.pool);
-        let project_repo = NodeProjectRepository::new(&self.pool);
         let key_repo = NodeApiKeyRepository::new(&self.pool);
 
         // Verify both nodes exist
@@ -514,15 +520,80 @@ impl NodeServiceImpl {
             "Merging nodes"
         );
 
-        // Move all projects from source to target
-        let projects_moved = project_repo
-            .bulk_update_node_id(source_node_id, target_node_id)
-            .await?;
+        // Move swarm project links from source to target (skip conflicts)
+        // Links where target already has same swarm_project_id are deleted
+        let swarm_links_moved = sqlx::query_scalar::<_, i64>(
+            r#"
+            WITH moved AS (
+                UPDATE swarm_project_nodes
+                SET node_id = $2
+                WHERE node_id = $1
+                AND swarm_project_id NOT IN (
+                    SELECT swarm_project_id FROM swarm_project_nodes WHERE node_id = $2
+                )
+                RETURNING 1
+            )
+            SELECT COUNT(*) FROM moved
+            "#,
+        )
+        .bind(source_node_id)
+        .bind(target_node_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| NodeError::Database(e.to_string()))?;
+
+        // Delete remaining source links (conflicts with target)
+        sqlx::query(
+            r#"
+            DELETE FROM swarm_project_nodes
+            WHERE node_id = $1
+            "#,
+        )
+        .bind(source_node_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| NodeError::Database(e.to_string()))?;
+
+        // Move local project records from source to target (skip conflicts)
+        let local_projects_moved = sqlx::query_scalar::<_, i64>(
+            r#"
+            WITH moved AS (
+                UPDATE node_local_projects
+                SET node_id = $2
+                WHERE node_id = $1
+                AND local_project_id NOT IN (
+                    SELECT local_project_id FROM node_local_projects WHERE node_id = $2
+                )
+                RETURNING 1
+            )
+            SELECT COUNT(*) FROM moved
+            "#,
+        )
+        .bind(source_node_id)
+        .bind(target_node_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| NodeError::Database(e.to_string()))?;
+
+        // Delete remaining source local projects (conflicts with target)
+        sqlx::query(
+            r#"
+            DELETE FROM node_local_projects
+            WHERE node_id = $1
+            "#,
+        )
+        .bind(source_node_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| NodeError::Database(e.to_string()))?;
+
+        let projects_moved = (swarm_links_moved + local_projects_moved) as u64;
 
         info!(
             source_id = %source_node_id,
             target_id = %target_node_id,
-            projects_moved = projects_moved,
+            swarm_links_moved = swarm_links_moved,
+            local_projects_moved = local_projects_moved,
             "Moved projects to target node"
         );
 
@@ -571,51 +642,18 @@ impl NodeServiceImpl {
     }
 
     // =========================================================================
-    // Project Linking
+    // Project Linking (via Swarm Projects)
     // =========================================================================
 
-    /// Link a project to a node
-    pub async fn link_project(
-        &self,
-        node_id: Uuid,
-        data: LinkProjectData,
-    ) -> Result<NodeProject, NodeError> {
-        let repo = NodeProjectRepository::new(&self.pool);
-        Ok(repo
-            .create(
-                node_id,
-                data.project_id,
-                data.local_project_id,
-                &data.git_repo_path,
-                &data.default_branch,
-            )
-            .await?)
-    }
-
-    /// Get a project link by project ID
-    pub async fn get_project_link(
-        &self,
-        project_id: Uuid,
-    ) -> Result<Option<NodeProject>, NodeError> {
-        let repo = NodeProjectRepository::new(&self.pool);
-        Ok(repo.find_by_project(project_id).await?)
-    }
-
-    /// List all project links for a node
-    pub async fn list_node_projects(&self, node_id: Uuid) -> Result<Vec<NodeProject>, NodeError> {
-        let repo = NodeProjectRepository::new(&self.pool);
-        Ok(repo.list_by_node(node_id).await?)
-    }
-
-    /// List project links for a node that are linked to a swarm project.
-    /// Only projects in `swarm_project_nodes` are returned - unlinked projects are excluded.
+    /// List swarm project links for a node.
+    ///
+    /// Returns all swarm projects the node is linked to via swarm_project_nodes.
     /// Use this for syncing projects to other nodes (only swarm-linked projects should sync).
     pub async fn list_linked_node_projects(
         &self,
         node_id: Uuid,
-    ) -> Result<Vec<NodeProject>, NodeError> {
-        let repo = NodeProjectRepository::new(&self.pool);
-        Ok(repo.list_linked_by_node(node_id).await?)
+    ) -> Result<Vec<SwarmProjectNode>, NodeError> {
+        Ok(SwarmProjectRepository::list_by_node(&self.pool, node_id).await?)
     }
 
     /// List all local projects for a node with swarm project info.
@@ -629,40 +667,27 @@ impl NodeServiceImpl {
         Ok(NodeLocalProjectRepository::list_by_node_with_swarm_info(&self.pool, node_id).await?)
     }
 
-    /// List all projects in an organization with ownership info.
+    /// Unlink a node from a swarm project.
     ///
-    /// Returns all projects linked to any node in the organization,
-    /// with information about which node owns each project.
-    pub async fn list_organization_projects(
-        &self,
-        organization_id: Uuid,
-    ) -> Result<Vec<crate::db::node_projects::OrgProjectInfo>, NodeError> {
-        let repo = NodeProjectRepository::new(&self.pool);
-        Ok(repo.list_by_organization(organization_id).await?)
-    }
-
-    /// Update project sync status
-    pub async fn update_project_sync(&self, link_id: Uuid, status: &str) -> Result<(), NodeError> {
-        let repo = NodeProjectRepository::new(&self.pool);
-        Ok(repo.update_sync_status(link_id, status).await?)
-    }
-
-    /// Unlink a project from its node (by project ID only)
-    pub async fn unlink_project(&self, project_id: Uuid) -> Result<(), NodeError> {
-        let repo = NodeProjectRepository::new(&self.pool);
-        Ok(repo.delete_by_project(project_id).await?)
-    }
-
-    /// Unlink a project from a specific node.
-    ///
-    /// This method verifies that the node owns the project link before deleting.
-    pub async fn unlink_project_for_node(
+    /// Also clears the swarm_project_id from the corresponding node_local_projects record.
+    pub async fn unlink_swarm_project(
         &self,
         node_id: Uuid,
-        project_id: Uuid,
+        swarm_project_id: Uuid,
     ) -> Result<(), NodeError> {
-        let repo = NodeProjectRepository::new(&self.pool);
-        Ok(repo.delete_by_node_and_project(node_id, project_id).await?)
+        // Get the link to find local_project_id
+        let link = SwarmProjectRepository::find_node_link(&self.pool, swarm_project_id, node_id)
+            .await?
+            .ok_or(NodeError::NodeProjectNotFound)?;
+
+        // Unlink from swarm_project_nodes
+        SwarmProjectRepository::unlink_node_pool(&self.pool, swarm_project_id, node_id).await?;
+
+        // Clear swarm_project_id from node_local_projects
+        NodeLocalProjectRepository::unlink_from_swarm_pool(&self.pool, node_id, link.local_project_id)
+            .await?;
+
+        Ok(())
     }
 
     // =========================================================================

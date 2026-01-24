@@ -14,11 +14,13 @@ use super::organization_members::ensure_member_access;
 use crate::{
     AppState,
     auth::RequestContext,
-    db::organizations::{MemberRole, OrganizationRepository},
+    db::{
+        organizations::{MemberRole, OrganizationRepository},
+        swarm_projects::{SwarmProjectNode, SwarmProjectRepository},
+    },
     nodes::{
-        CreateNodeApiKey, HeartbeatPayload, LinkProjectData, MergeNodesResult, Node, NodeApiKey,
-        NodeError, NodeExecutionProcess, NodeProject, NodeRegistration, NodeServiceImpl,
-        NodeTaskAttempt,
+        CreateNodeApiKey, HeartbeatPayload, MergeNodesResult, Node, NodeApiKey, NodeError,
+        NodeExecutionProcess, NodeRegistration, NodeServiceImpl, NodeTaskAttempt,
     },
 };
 
@@ -34,11 +36,7 @@ pub fn api_key_router() -> Router<AppState> {
     Router::new()
         .route("/nodes/register", post(register_node))
         .route("/nodes/{node_id}/heartbeat", post(heartbeat))
-        .route("/nodes/{node_id}/projects", post(link_project))
-        .route(
-            "/nodes/{node_id}/projects/{link_id}",
-            delete(unlink_project_by_id),
-        )
+        // Legacy project linking endpoints removed - use WebSocket LinkProject/UnlinkProject messages instead
 }
 
 /// Routes that require user JWT authentication
@@ -187,7 +185,7 @@ pub async fn revoke_api_key(
 #[derive(Debug, Serialize)]
 pub struct RegisterNodeResponse {
     pub node: Node,
-    pub linked_projects: Vec<NodeProject>,
+    pub linked_projects: Vec<SwarmProjectNode>,
 }
 
 #[instrument(
@@ -217,9 +215,8 @@ pub async fn register_node(
         .await
     {
         Ok(node) => {
-            // Get linked projects
-            let linked_projects = service
-                .list_node_projects(node.id)
+            // Get linked swarm projects for this node
+            let linked_projects = SwarmProjectRepository::list_by_node(pool, node.id)
                 .await
                 .unwrap_or_default();
 
@@ -260,63 +257,6 @@ pub async fn heartbeat(
     match service.heartbeat(node_id, payload).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => node_error_response(error, "failed to process heartbeat"),
-    }
-}
-
-// ============================================================================
-// Project Linking (API Key Auth)
-// ============================================================================
-
-#[instrument(
-    name = "nodes.link_project",
-    skip(state, headers, payload),
-    fields(node_id = %node_id, project_id = %payload.project_id)
-)]
-pub async fn link_project(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(node_id): Path<Uuid>,
-    Json(payload): Json<LinkProjectData>,
-) -> Response {
-    let pool = state.pool();
-    let service = NodeServiceImpl::new(pool.clone());
-
-    // Validate API key
-    if let Err(response) = extract_and_validate_api_key(&service, &headers).await {
-        return response;
-    }
-
-    match service.link_project(node_id, payload).await {
-        Ok(link) => (StatusCode::CREATED, Json(link)).into_response(),
-        Err(error) => node_error_response(error, "failed to link project"),
-    }
-}
-
-#[instrument(
-    name = "nodes.unlink_project",
-    skip(state, headers),
-    fields(node_id = %node_id, link_id = %link_id)
-)]
-pub async fn unlink_project_by_id(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path((node_id, link_id)): Path<(Uuid, Uuid)>,
-) -> Response {
-    let pool = state.pool();
-    let service = NodeServiceImpl::new(pool.clone());
-
-    // Validate API key
-    if let Err(response) = extract_and_validate_api_key(&service, &headers).await {
-        return response;
-    }
-
-    let _ = node_id; // We could verify the link belongs to this node
-
-    // For now, just delete by project_id from the link
-    // In the future we should verify the link belongs to the node
-    match service.unlink_project(link_id).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => node_error_response(error, "failed to unlink project"),
     }
 }
 
@@ -423,7 +363,7 @@ pub async fn delete_node(
         }
     }
 
-    // Delete the node (cascades node_projects, task_assignments)
+    // Delete the node (cascades swarm_project_nodes, task_assignments)
     match service.delete_node(node_id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => node_error_response(error, "failed to delete node"),

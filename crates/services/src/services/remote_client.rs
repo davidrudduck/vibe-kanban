@@ -6,8 +6,9 @@ use backon::{ExponentialBuilder, Retryable};
 use chrono::Duration as ChronoDuration;
 use remote::{
     activity::ActivityResponse,
+    db::swarm_projects::SwarmProjectNode,
     nodes::{
-        Node, NodeApiKey, NodeExecutionProcess, NodeLocalProjectInfo, NodeProject, NodeTaskAttempt,
+        Node, NodeApiKey, NodeExecutionProcess, NodeLocalProjectInfo, NodeTaskAttempt,
     },
     routes::{
         labels::{SetTaskLabelsRequest, TaskLabelsResponse},
@@ -787,7 +788,7 @@ impl RemoteClient {
     pub async fn list_linked_node_projects(
         &self,
         node_id: Uuid,
-    ) -> Result<Vec<NodeProject>, RemoteClientError> {
+    ) -> Result<Vec<SwarmProjectNode>, RemoteClientError> {
         self.get_authed(&format!("/v1/nodes/{node_id}/projects/linked"))
             .await
     }

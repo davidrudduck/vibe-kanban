@@ -248,39 +248,20 @@ impl SwarmProjectRepository {
     ) -> Result<Vec<SwarmProjectWithNodes>, SwarmProjectError> {
         let records = sqlx::query_as::<_, SwarmProjectWithNodesRow>(
             r#"
-            WITH swarm_hive_projects AS (
-                -- Get hive project IDs for each swarm project
-                SELECT
-                    spn.swarm_project_id,
-                    np.project_id as hive_project_id
-                FROM swarm_project_nodes spn
-                INNER JOIN node_projects np
-                    ON np.node_id = spn.node_id
-                    AND np.local_project_id = spn.local_project_id
-            ),
-            task_counts AS (
+            WITH task_counts AS (
                 -- Count tasks by status for each swarm project
                 -- Note: PostgreSQL enum uses hyphens (in-progress, in-review)
                 SELECT
-                    shp.swarm_project_id,
+                    st.swarm_project_id,
                     COUNT(*) FILTER (WHERE st.status = 'todo') as todo,
                     COUNT(*) FILTER (WHERE st.status = 'in-progress') as in_progress,
                     COUNT(*) FILTER (WHERE st.status = 'in-review') as in_review,
                     COUNT(*) FILTER (WHERE st.status = 'done') as done,
                     COUNT(*) FILTER (WHERE st.status = 'cancelled') as cancelled
-                FROM swarm_hive_projects shp
-                LEFT JOIN shared_tasks st
-                    ON st.project_id = shp.hive_project_id
-                    AND st.deleted_at IS NULL
-                GROUP BY shp.swarm_project_id
-            ),
-            hive_ids AS (
-                -- Aggregate hive project IDs for each swarm project
-                SELECT
-                    swarm_project_id,
-                    ARRAY_AGG(DISTINCT hive_project_id) as hive_project_ids
-                FROM swarm_hive_projects
-                GROUP BY swarm_project_id
+                FROM shared_tasks st
+                WHERE st.deleted_at IS NULL
+                    AND st.swarm_project_id IS NOT NULL
+                GROUP BY st.swarm_project_id
             )
             SELECT
                 sp.id,
@@ -292,7 +273,7 @@ impl SwarmProjectRepository {
                 sp.updated_at,
                 COUNT(spn.id)::bigint AS linked_nodes_count,
                 COALESCE(ARRAY_AGG(DISTINCT n.name) FILTER (WHERE n.name IS NOT NULL), ARRAY[]::text[]) AS linked_node_names,
-                COALESCE(hi.hive_project_ids, ARRAY[]::uuid[]) AS hive_project_ids,
+                ARRAY[]::uuid[] AS hive_project_ids,
                 COALESCE(tc.todo, 0)::bigint AS task_count_todo,
                 COALESCE(tc.in_progress, 0)::bigint AS task_count_in_progress,
                 COALESCE(tc.in_review, 0)::bigint AS task_count_in_review,
@@ -302,9 +283,8 @@ impl SwarmProjectRepository {
             LEFT JOIN swarm_project_nodes spn ON sp.id = spn.swarm_project_id
             LEFT JOIN nodes n ON spn.node_id = n.id
             LEFT JOIN task_counts tc ON sp.id = tc.swarm_project_id
-            LEFT JOIN hive_ids hi ON sp.id = hi.swarm_project_id
             WHERE sp.organization_id = $1
-            GROUP BY sp.id, tc.todo, tc.in_progress, tc.in_review, tc.done, tc.cancelled, hi.hive_project_ids
+            GROUP BY sp.id, tc.todo, tc.in_progress, tc.in_review, tc.done, tc.cancelled
             ORDER BY sp.created_at DESC
             "#,
         )
@@ -814,7 +794,52 @@ pub struct SwarmProjectAuthInfo {
     pub source_node_name: String,
 }
 
+/// Info about a node linked to a swarm project, for task dispatch purposes.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct SwarmProjectNodeForDispatch {
+    pub link_id: Uuid,
+    pub swarm_project_id: Uuid,
+    pub node_id: Uuid,
+    pub node_name: String,
+    pub local_project_id: Uuid,
+    pub git_repo_path: String,
+    pub default_branch: String,
+}
+
 impl SwarmProjectRepository {
+    /// Find all nodes linked to a swarm project, for task dispatch purposes.
+    ///
+    /// Returns nodes with their link info including default_branch from node_local_projects.
+    /// Used by TaskDispatcher to find available nodes for executing tasks.
+    pub async fn find_nodes_for_dispatch(
+        pool: &PgPool,
+        swarm_project_id: Uuid,
+    ) -> Result<Vec<SwarmProjectNodeForDispatch>, SwarmProjectError> {
+        let records = sqlx::query_as::<_, SwarmProjectNodeForDispatch>(
+            r#"
+            SELECT
+                spn.id as link_id,
+                spn.swarm_project_id,
+                spn.node_id,
+                n.name as node_name,
+                spn.local_project_id,
+                spn.git_repo_path,
+                COALESCE(nlp.default_branch, 'main') as default_branch
+            FROM swarm_project_nodes spn
+            JOIN nodes n ON spn.node_id = n.id
+            LEFT JOIN node_local_projects nlp ON spn.node_id = nlp.node_id
+                AND spn.local_project_id = nlp.local_project_id
+            WHERE spn.swarm_project_id = $1
+            ORDER BY spn.linked_at ASC
+            "#,
+        )
+        .bind(swarm_project_id)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(records)
+    }
+
     /// List swarm projects a node is linked to (for auth response).
     ///
     /// Returns all swarm projects the specified node is linked to via swarm_project_nodes.
