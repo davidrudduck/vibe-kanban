@@ -492,6 +492,13 @@ impl NodeServiceImpl {
         source_node_id: Uuid,
         target_node_id: Uuid,
     ) -> Result<MergeNodesResult, NodeError> {
+        // Guard against merging a node into itself
+        if source_node_id == target_node_id {
+            return Err(NodeError::Database(
+                "Cannot merge a node into itself".to_string(),
+            ));
+        }
+
         let node_repo = NodeRepository::new(&self.pool);
         let key_repo = NodeApiKeyRepository::new(&self.pool);
 

@@ -216,9 +216,17 @@ pub async fn register_node(
     {
         Ok(node) => {
             // Get linked swarm projects for this node
-            let linked_projects = SwarmProjectRepository::list_by_node(pool, node.id)
-                .await
-                .unwrap_or_default();
+            let linked_projects = match SwarmProjectRepository::list_by_node(pool, node.id).await {
+                Ok(projects) => projects,
+                Err(e) => {
+                    tracing::warn!(
+                        node_id = %node.id,
+                        error = %e,
+                        "failed to fetch linked projects for node, returning empty list"
+                    );
+                    Vec::new()
+                }
+            };
 
             (
                 StatusCode::OK,
