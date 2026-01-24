@@ -298,6 +298,10 @@ pub async fn create_shared_task(
             let dispatcher =
                 crate::nodes::TaskDispatcher::new(pool.clone(), state.node_connections().clone());
 
+            // FIXME: base_branch is taken from first_node, but the dispatcher may select
+            // a different connected node. If that node has a different default_branch,
+            // the task will be created with a mismatched branch. Consider having the
+            // dispatcher return the selected node's branch or pre-filter to connected nodes.
             let task_details = TaskDetails {
                 title,
                 description,

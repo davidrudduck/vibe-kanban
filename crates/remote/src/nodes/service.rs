@@ -500,9 +500,8 @@ impl NodeServiceImpl {
         }
 
         let node_repo = NodeRepository::new(&self.pool);
-        let key_repo = NodeApiKeyRepository::new(&self.pool);
 
-        // Verify both nodes exist
+        // Verify both nodes exist (outside transaction for early fail)
         let source = node_repo
             .find_by_id(source_node_id)
             .await?
@@ -527,6 +526,13 @@ impl NodeServiceImpl {
             "Merging nodes"
         );
 
+        // Start transaction for atomic merge operation
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| NodeError::Database(e.to_string()))?;
+
         // Move swarm project links from source to target (skip conflicts)
         // Links where target already has same swarm_project_id are deleted
         let swarm_links_moved = sqlx::query_scalar::<_, i64>(
@@ -545,7 +551,7 @@ impl NodeServiceImpl {
         )
         .bind(source_node_id)
         .bind(target_node_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(|e| NodeError::Database(e.to_string()))?;
 
@@ -557,16 +563,25 @@ impl NodeServiceImpl {
             "#,
         )
         .bind(source_node_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| NodeError::Database(e.to_string()))?;
 
         // Move local project records from source to target (skip conflicts)
+        // Also clear swarm_project_id for projects where the swarm link was deleted
+        // (to avoid orphaned references)
         let local_projects_moved = sqlx::query_scalar::<_, i64>(
             r#"
             WITH moved AS (
                 UPDATE node_local_projects
-                SET node_id = $2
+                SET node_id = $2,
+                    -- Clear swarm_project_id if target already has a link for this swarm project
+                    swarm_project_id = CASE
+                        WHEN swarm_project_id IN (
+                            SELECT swarm_project_id FROM swarm_project_nodes WHERE node_id = $2
+                        ) THEN swarm_project_id
+                        ELSE NULL
+                    END
                 WHERE node_id = $1
                 AND local_project_id NOT IN (
                     SELECT local_project_id FROM node_local_projects WHERE node_id = $2
@@ -578,7 +593,7 @@ impl NodeServiceImpl {
         )
         .bind(source_node_id)
         .bind(target_node_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(|e| NodeError::Database(e.to_string()))?;
 
@@ -590,7 +605,7 @@ impl NodeServiceImpl {
             "#,
         )
         .bind(source_node_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| NodeError::Database(e.to_string()))?;
 
@@ -605,14 +620,26 @@ impl NodeServiceImpl {
         );
 
         // Rebind any API keys from source to target
-        let source_keys = key_repo.find_by_node_id(source_node_id).await?;
-        let keys_rebound = source_keys.len();
-
-        for key in source_keys {
-            key_repo
-                .update_node_binding(key.id, target_node_id, true)
-                .await?;
-        }
+        let keys_rebound = sqlx::query_scalar::<_, i64>(
+            r#"
+            WITH updated AS (
+                UPDATE node_api_keys
+                SET node_id = $2,
+                    takeover_count = 0,
+                    takeover_window_start = NULL
+                WHERE node_id = $1
+                AND revoked_at IS NULL
+                AND blocked_at IS NULL
+                RETURNING 1
+            )
+            SELECT COUNT(*) FROM updated
+            "#,
+        )
+        .bind(source_node_id)
+        .bind(target_node_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| NodeError::Database(e.to_string()))?;
 
         info!(
             source_id = %source_node_id,
@@ -622,7 +649,16 @@ impl NodeServiceImpl {
         );
 
         // Delete the source node
-        node_repo.delete(source_node_id).await?;
+        sqlx::query("DELETE FROM nodes WHERE id = $1")
+            .bind(source_node_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| NodeError::Database(e.to_string()))?;
+
+        // Commit the transaction
+        tx.commit()
+            .await
+            .map_err(|e| NodeError::Database(e.to_string()))?;
 
         info!(
             source_id = %source_node_id,
@@ -677,6 +713,7 @@ impl NodeServiceImpl {
     /// Unlink a node from a swarm project.
     ///
     /// Also clears the swarm_project_id from the corresponding node_local_projects record.
+    /// Uses a transaction to ensure both operations succeed or fail together.
     pub async fn unlink_swarm_project(
         &self,
         node_id: Uuid,
@@ -687,12 +724,24 @@ impl NodeServiceImpl {
             .await?
             .ok_or(NodeError::NodeProjectNotFound)?;
 
+        // Start transaction for atomic unlink
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| NodeError::Database(e.to_string()))?;
+
         // Unlink from swarm_project_nodes
-        SwarmProjectRepository::unlink_node_pool(&self.pool, swarm_project_id, node_id).await?;
+        SwarmProjectRepository::unlink_node(&mut tx, swarm_project_id, node_id).await?;
 
         // Clear swarm_project_id from node_local_projects
-        NodeLocalProjectRepository::unlink_from_swarm_pool(&self.pool, node_id, link.local_project_id)
+        NodeLocalProjectRepository::unlink_from_swarm(&mut tx, node_id, link.local_project_id)
             .await?;
+
+        // Commit
+        tx.commit()
+            .await
+            .map_err(|e| NodeError::Database(e.to_string()))?;
 
         Ok(())
     }
