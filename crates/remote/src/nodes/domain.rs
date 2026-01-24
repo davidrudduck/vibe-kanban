@@ -119,20 +119,6 @@ pub struct HeartbeatPayload {
     pub active_tasks: Vec<Uuid>,
 }
 
-/// Link between a node and a project
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct NodeProject {
-    pub id: Uuid,
-    pub node_id: Uuid,
-    pub project_id: Uuid,
-    pub local_project_id: Uuid,
-    pub git_repo_path: String,
-    pub default_branch: String,
-    pub sync_status: String,
-    pub last_synced_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-}
-
 /// Local project from a node for the swarm settings UI.
 ///
 /// This is returned from node_local_projects table and includes
@@ -149,20 +135,6 @@ pub struct NodeLocalProjectInfo {
     pub swarm_project_name: Option<String>,
     pub last_seen_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
-}
-
-/// Data for linking a project to a node
-#[derive(Debug, Clone, Deserialize)]
-pub struct LinkProjectData {
-    pub project_id: Uuid,
-    pub local_project_id: Uuid,
-    pub git_repo_path: String,
-    #[serde(default = "default_branch")]
-    pub default_branch: String,
-}
-
-fn default_branch() -> String {
-    "main".to_string()
 }
 
 /// Task assignment to a node

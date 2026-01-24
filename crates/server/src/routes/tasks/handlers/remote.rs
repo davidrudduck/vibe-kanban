@@ -45,7 +45,7 @@ pub(crate) async fn create_remote_task(
     })?;
 
     let request = CreateSharedTaskRequest {
-        project_id: remote_project_id,
+        swarm_project_id: remote_project_id,
         title: payload.title.clone(),
         description: payload.description.clone(),
         status: None, // Default to Todo on the Hive
@@ -301,7 +301,7 @@ pub(crate) async fn resync_task_to_hive(
 
     // Create the task on the Hive with source tracking
     let request = CreateSharedTaskRequest {
-        project_id: remote_project_id,
+        swarm_project_id: remote_project_id,
         title: title.unwrap_or_else(|| existing_task.title.clone()),
         description: description.or_else(|| existing_task.description.clone()),
         status: status.map(|s| task_status::to_remote(&s)),

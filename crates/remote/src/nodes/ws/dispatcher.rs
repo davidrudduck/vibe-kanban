@@ -9,6 +9,7 @@ use super::{
     connection::ConnectionManager,
     message::{HiveMessage, TaskAssignMessage, TaskDetails},
 };
+use crate::db::swarm_projects::{SwarmProjectNodeForDispatch, SwarmProjectRepository};
 use crate::nodes::service::{NodeError, NodeServiceImpl};
 
 /// Dispatcher for sending tasks to nodes.
@@ -27,31 +28,58 @@ impl TaskDispatcher {
     /// Assign a task to a node.
     ///
     /// This will:
-    /// 1. Find the node linked to the task's project
+    /// 1. Find the first connected node linked to the swarm project
     /// 2. Create a task assignment record
     /// 3. Send the assignment to the node via WebSocket
+    ///
+    /// Note: This method delegates to `find_connected_node` + `assign_task_to_node`
+    /// for consistency. Use `assign_task_to_node` directly if you need to pre-select
+    /// a node (e.g., to get its default_branch for TaskDetails).
     pub async fn assign_task(
         &self,
         task_id: Uuid,
-        project_id: Uuid,
+        swarm_project_id: Uuid,
         task_details: TaskDetails,
     ) -> Result<AssignResult, DispatchError> {
-        let service = NodeServiceImpl::new(self.pool.clone());
+        let node = self.find_connected_node(swarm_project_id).await?;
+        let result = self.assign_task_to_node(task_id, &node, task_details).await?;
 
-        // Find the node linked to this project
-        let project_link = service
-            .get_project_link(project_id)
-            .await?
-            .ok_or(DispatchError::NoNodeForProject)?;
+        tracing::info!(
+            task_id = %task_id,
+            node_id = %result.node_id,
+            assignment_id = %result.assignment_id,
+            swarm_project_id = %swarm_project_id,
+            "task assigned to node"
+        );
 
-        // Check if node is connected
-        if !self.connections.is_connected(project_link.node_id).await {
+        Ok(result)
+    }
+
+    /// Assign a task to a specific pre-selected node.
+    ///
+    /// Use this after `find_connected_node` to ensure the same node is used
+    /// for both branch selection and task dispatch, avoiding drift.
+    ///
+    /// This will:
+    /// 1. Verify the node is still connected
+    /// 2. Create a task assignment record
+    /// 3. Send the assignment to the node via WebSocket
+    pub async fn assign_task_to_node(
+        &self,
+        task_id: Uuid,
+        node: &SwarmProjectNodeForDispatch,
+        task_details: TaskDetails,
+    ) -> Result<AssignResult, DispatchError> {
+        // Verify node is still connected
+        if !self.connections.is_connected(node.node_id).await {
             return Err(DispatchError::NodeNotConnected);
         }
 
-        // Create the assignment
+        let service = NodeServiceImpl::new(self.pool.clone());
+
+        // Create the assignment (use swarm_project_nodes link_id as node_project_id)
         let assignment = service
-            .assign_task(task_id, project_link.node_id, project_link.id)
+            .assign_task(task_id, node.node_id, node.link_id)
             .await?;
 
         // Build the assign message
@@ -59,28 +87,53 @@ impl TaskDispatcher {
             message_id: Uuid::new_v4(),
             assignment_id: assignment.id,
             task_id,
-            node_project_id: project_link.id,
-            local_project_id: project_link.local_project_id,
+            node_project_id: node.link_id,
+            local_project_id: node.local_project_id,
             task: task_details,
         });
 
         // Send to the node
         self.connections
-            .send_to_node(project_link.node_id, message)
+            .send_to_node(node.node_id, message)
             .await
             .map_err(|e| DispatchError::SendFailed(e.to_string()))?;
 
         tracing::info!(
             task_id = %task_id,
-            node_id = %project_link.node_id,
+            node_id = %node.node_id,
             assignment_id = %assignment.id,
-            "task assigned to node"
+            "task assigned to pre-selected node"
         );
 
         Ok(AssignResult {
             assignment_id: assignment.id,
-            node_id: project_link.node_id,
+            node_id: node.node_id,
         })
+    }
+
+    /// Find the first connected node for a swarm project.
+    ///
+    /// Returns the node info including default_branch. Use this to get the
+    /// correct branch before constructing TaskDetails.
+    pub async fn find_connected_node(
+        &self,
+        swarm_project_id: Uuid,
+    ) -> Result<SwarmProjectNodeForDispatch, DispatchError> {
+        let nodes = SwarmProjectRepository::find_nodes_for_dispatch(&self.pool, swarm_project_id)
+            .await
+            .map_err(|e| DispatchError::NodeService(e.into()))?;
+
+        if nodes.is_empty() {
+            return Err(DispatchError::NoNodeForProject);
+        }
+
+        for node in nodes {
+            if self.connections.is_connected(node.node_id).await {
+                return Ok(node);
+            }
+        }
+
+        Err(DispatchError::NodeNotConnected)
     }
 
     /// Cancel a task on a node.
@@ -128,8 +181,10 @@ impl TaskDispatcher {
 
         let service = NodeServiceImpl::new(self.pool.clone());
 
-        // Get the node's projects to find a suitable one
-        let projects = service.list_node_projects(node_info.node_id).await?;
+        // Get the node's swarm project links to find a suitable one
+        let projects = SwarmProjectRepository::list_by_node(&self.pool, node_info.node_id)
+            .await
+            .map_err(|e| DispatchError::NodeService(e.into()))?;
 
         if projects.is_empty() {
             return Err(DispatchError::NoProjectOnNode);
@@ -138,7 +193,7 @@ impl TaskDispatcher {
         // Use the first project (in production, we'd match based on requirements)
         let project_link = &projects[0];
 
-        // Create the assignment
+        // Create the assignment (use swarm_project_nodes link_id as node_project_id)
         let assignment = service
             .assign_task(task_id, node_info.node_id, project_link.id)
             .await?;

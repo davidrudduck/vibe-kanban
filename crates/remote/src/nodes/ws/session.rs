@@ -942,18 +942,17 @@ async fn handle_unlink_project(
     }
 
     // Clear node_local_projects.swarm_project_id if we know the local_project_id
-    if let Some(ref link) = link_info {
-        if let Err(e) =
+    if let Some(ref link) = link_info
+        && let Err(e) =
             NodeLocalProjectRepository::unlink_from_swarm_pool(pool, node_id, link.local_project_id)
                 .await
-        {
-            tracing::warn!(
-                node_id = %node_id,
-                local_project_id = %link.local_project_id,
-                error = ?e,
-                "failed to clear node_local_projects.swarm_project_id (non-fatal)"
-            );
-        }
+    {
+        tracing::warn!(
+            node_id = %node_id,
+            local_project_id = %link.local_project_id,
+            error = ?e,
+            "failed to clear node_local_projects.swarm_project_id (non-fatal)"
+        );
     }
 
     tracing::info!(
@@ -1029,7 +1028,7 @@ async fn handle_deregister(
 
     let service = NodeServiceImpl::new(pool.clone());
 
-    // Delete the node (cascades all related data: node_projects, task_assignments)
+    // Delete the node (cascades all related data: swarm_project_nodes, task_assignments)
     service
         .delete_node(node_id)
         .await
@@ -1142,8 +1141,8 @@ async fn handle_attempt_sync(
     attempt: &AttemptSyncMessage,
     pool: &PgPool,
 ) -> Result<(), HandleError> {
-    use crate::db::node_projects::NodeProjectRepository;
     use crate::db::node_task_attempts::{NodeTaskAttemptRepository, UpsertNodeTaskAttempt};
+    use crate::db::swarm_projects::SwarmProjectRepository;
     use crate::db::task_assignments::TaskAssignmentRepository;
     use crate::db::tasks::SharedTaskRepository;
 
@@ -1152,7 +1151,7 @@ async fn handle_attempt_sync(
         Some(id) => Some(id),
         None => {
             // For locally-started tasks, we need to create a synthetic assignment
-            // First, find the project_id from the shared_task
+            // First, find the swarm_project_id from the shared_task
             let shared_task_repo = SharedTaskRepository::new(pool);
             let shared_task = shared_task_repo
                 .find_by_id(attempt.shared_task_id)
@@ -1160,20 +1159,23 @@ async fn handle_attempt_sync(
                 .map_err(|e| HandleError::Database(e.to_string()))?;
 
             if let Some(task) = shared_task {
-                // Find the node_project link for this project and node
-                // project_id is optional after migration - only attempt if present
-                if let Some(project_id) = task.project_id {
-                    let node_project_repo = NodeProjectRepository::new(pool);
-                    let node_project = node_project_repo
-                        .find_by_node_and_project(node_id, project_id)
-                        .await
-                        .map_err(|e| HandleError::Database(e.to_string()))?;
+                // Find the swarm_project_nodes link for this project and node
+                // swarm_project_id is the source of truth
+                if let Some(swarm_project_id) = task.swarm_project_id {
+                    let node_link = SwarmProjectRepository::find_node_link(
+                        pool,
+                        swarm_project_id,
+                        node_id,
+                    )
+                    .await
+                    .map_err(|e| HandleError::Database(e.to_string()))?;
 
-                    if let Some(np) = node_project {
+                    if let Some(link) = node_link {
                         // Create or find a synthetic assignment
+                        // Use the swarm_project_nodes link ID as the node_project_id
                         let assignment_repo = TaskAssignmentRepository::new(pool);
                         match assignment_repo
-                            .create_or_find_synthetic(attempt.shared_task_id, node_id, np.id)
+                            .create_or_find_synthetic(attempt.shared_task_id, node_id, link.id)
                             .await
                         {
                             Ok(assignment) => {
@@ -1198,8 +1200,8 @@ async fn handle_attempt_sync(
                     } else {
                         tracing::debug!(
                             node_id = %node_id,
-                            project_id = %project_id,
-                            "no node_project link found for synthetic assignment"
+                            swarm_project_id = %swarm_project_id,
+                            "no swarm_project_nodes link found for synthetic assignment"
                         );
                         None
                     }
@@ -1207,7 +1209,7 @@ async fn handle_attempt_sync(
                     tracing::debug!(
                         node_id = %node_id,
                         shared_task_id = %attempt.shared_task_id,
-                        "task has no project_id, skipping synthetic assignment"
+                        "task has no swarm_project_id, skipping synthetic assignment"
                     );
                     None
                 }

@@ -22,7 +22,6 @@ use crate::{
     db::{
         identity_errors::IdentityError,
         invitations::{Invitation, InvitationRepository},
-        node_projects::NodeProjectRepository,
         organization_members::{self, MemberRole},
         organizations::OrganizationRepository,
         swarm_projects::SwarmProjectRepository,
@@ -511,9 +510,9 @@ pub(crate) async fn ensure_admin_access(
         .map_err(|err| membership_error(err, "Admin access required"))
 }
 
-/// Ensures the given user has access to the project and returns its organization ID.
+/// Ensures the given user has access to the swarm project and returns its organization ID.
 ///
-/// Looks up the project's organization via the node_projects table, verifies the user is a member
+/// Looks up the project's organization via the swarm_projects table, verifies the user is a member
 /// of that organization, and returns the organization's UUID on success. If the project is not
 /// found the function returns an ErrorResponse with status `NOT_FOUND`; if the membership check
 /// fails it returns an ErrorResponse indicating the project is not accessible; database failures
@@ -527,8 +526,8 @@ pub(crate) async fn ensure_admin_access(
 /// # use crate::api::ensure_project_access;
 /// # async fn example(pool: &PgPool) -> Result<(), ()> {
 /// let user_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
-/// let project_id = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
-/// match ensure_project_access(pool, user_id, project_id).await {
+/// let swarm_project_id = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
+/// match ensure_project_access(pool, user_id, swarm_project_id).await {
 ///     Ok(org_id) => {
 ///         println!("User is a member of organization {}", org_id);
 ///     }
@@ -541,20 +540,20 @@ pub(crate) async fn ensure_admin_access(
 pub(crate) async fn ensure_project_access(
     pool: &PgPool,
     user_id: Uuid,
-    project_id: Uuid,
+    swarm_project_id: Uuid,
 ) -> Result<Uuid, ErrorResponse> {
-    // Look up organization_id via node_projects table (legacy projects table removed)
-    let organization_id = NodeProjectRepository::organization_id(pool, project_id)
+    // Look up organization_id via swarm_projects table
+    let organization_id = SwarmProjectRepository::organization_id(pool, swarm_project_id)
         .await
         .map_err(|error| {
-            tracing::error!(?error, %project_id, "failed to load project");
+            tracing::error!(?error, %swarm_project_id, "failed to load swarm project");
             ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
         })?
         .ok_or_else(|| {
             warn!(
-                %project_id,
+                %swarm_project_id,
                 %user_id,
-                "project not found for access check"
+                "swarm project not found for access check"
             );
             ErrorResponse::new(StatusCode::NOT_FOUND, "project not found")
         })?;
@@ -566,14 +565,14 @@ pub(crate) async fn ensure_project_access(
                 tracing::error!(
                     ?error,
                     %organization_id,
-                    %project_id,
+                    %swarm_project_id,
                     "failed to authorize project membership"
                 );
             } else {
                 warn!(
                     ?err,
                     %organization_id,
-                    %project_id,
+                    %swarm_project_id,
                     %user_id,
                     "project access denied"
                 );

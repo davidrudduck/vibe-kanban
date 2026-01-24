@@ -8,7 +8,6 @@ pub mod maintenance;
 pub mod node_api_keys;
 pub mod node_execution_processes;
 pub mod node_local_projects;
-pub mod node_projects;
 pub mod node_task_attempts;
 pub mod nodes;
 pub mod oauth;
