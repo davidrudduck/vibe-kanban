@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                id                  AS \"id!\",\n                organization_id     AS \"organization_id!: Uuid\",\n                project_id          AS \"project_id!\",\n                swarm_project_id    AS \"swarm_project_id?: Uuid\",\n                creator_user_id     AS \"creator_user_id?: Uuid\",\n                assignee_user_id    AS \"assignee_user_id?: Uuid\",\n                deleted_by_user_id  AS \"deleted_by_user_id?: Uuid\",\n                executing_node_id   AS \"executing_node_id?: Uuid\",\n                owner_node_id       AS \"owner_node_id?: Uuid\",\n                owner_name          AS \"owner_name?\",\n                source_task_id      AS \"source_task_id?: Uuid\",\n                source_node_id      AS \"source_node_id?: Uuid\",\n                title               AS \"title!\",\n                description         AS \"description?\",\n                status              AS \"status!: TaskStatus\",\n                version             AS \"version!\",\n                deleted_at          AS \"deleted_at?\",\n                shared_at           AS \"shared_at?\",\n                archived_at         AS \"archived_at?\",\n                created_at          AS \"created_at!\",\n                updated_at          AS \"updated_at!\"\n            FROM shared_tasks\n            WHERE source_node_id = $1\n              AND source_task_id = $2\n              AND deleted_at IS NULL\n            ",
+  "query": "\n        UPDATE shared_tasks AS t\n        SET title       = COALESCE($2, t.title),\n            description = COALESCE($3, t.description),\n            status      = COALESCE($4, t.status),\n            archived_at = CASE WHEN $6 THEN $7 ELSE t.archived_at END,\n            version     = t.version + 1,\n            updated_at  = NOW()\n        WHERE t.id = $1\n          AND t.version = COALESCE($5, t.version)\n          AND t.deleted_at IS NULL\n        RETURNING\n            t.id                AS \"id!\",\n            t.organization_id   AS \"organization_id!: Uuid\",\n            t.project_id        AS \"project_id?: Uuid\",\n            t.swarm_project_id  AS \"swarm_project_id?: Uuid\",\n            t.creator_user_id   AS \"creator_user_id?: Uuid\",\n            t.assignee_user_id  AS \"assignee_user_id?: Uuid\",\n            t.deleted_by_user_id AS \"deleted_by_user_id?: Uuid\",\n            t.executing_node_id AS \"executing_node_id?: Uuid\",\n            t.owner_node_id     AS \"owner_node_id?: Uuid\",\n            t.owner_name        AS \"owner_name?\",\n            t.source_task_id    AS \"source_task_id?: Uuid\",\n            t.source_node_id    AS \"source_node_id?: Uuid\",\n            t.title             AS \"title!\",\n            t.description       AS \"description?\",\n            t.status            AS \"status!: TaskStatus\",\n            t.version           AS \"version!\",\n            t.deleted_at        AS \"deleted_at?\",\n            t.shared_at         AS \"shared_at?\",\n            t.archived_at       AS \"archived_at?\",\n            t.created_at        AS \"created_at!\",\n            t.updated_at        AS \"updated_at!\"\n        ",
   "describe": {
     "columns": [
       {
@@ -15,7 +15,7 @@
       },
       {
         "ordinal": 2,
-        "name": "project_id!",
+        "name": "project_id?: Uuid",
         "type_info": "Uuid"
       },
       {
@@ -125,7 +125,25 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid"
+        "Text",
+        "Text",
+        {
+          "Custom": {
+            "name": "task_status",
+            "kind": {
+              "Enum": [
+                "todo",
+                "in-progress",
+                "in-review",
+                "done",
+                "cancelled"
+              ]
+            }
+          }
+        },
+        "Int8",
+        "Bool",
+        "Timestamptz"
       ]
     },
     "nullable": [
@@ -152,5 +170,5 @@
       false
     ]
   },
-  "hash": "dbf6d5aa4dbf975fd6a3f9bb00b8f1d6e13ad915106bc8206a75ac41439e87a3"
+  "hash": "a9992af51fb371cf8824aee2765c995a006ab3d54ac30dafe970ffab32f5b348"
 }

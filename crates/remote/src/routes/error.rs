@@ -5,7 +5,7 @@ use axum::{
 };
 use serde_json::json;
 
-use crate::db::{identity_errors::IdentityError, projects::ProjectError, tasks::SharedTaskError};
+use crate::db::{identity_errors::IdentityError, tasks::SharedTaskError};
 
 #[derive(Debug)]
 pub struct ErrorResponse {
@@ -52,16 +52,6 @@ pub(crate) fn task_error_response(error: SharedTaskError, context: &str) -> Resp
                 "error": "title and description cannot exceed 50 KiB combined"
             })),
         ),
-        SharedTaskError::Project(ProjectError::Conflict(message)) => {
-            (StatusCode::CONFLICT, Json(json!({ "error": message })))
-        }
-        SharedTaskError::Project(err) => {
-            tracing::error!(?err, "{context}", context = context);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "internal server error" })),
-            )
-        }
         SharedTaskError::Identity(err) => return identity_error_response(err, context),
         SharedTaskError::Serialization(err) => {
             tracing::error!(?err, "{context}", context = context);

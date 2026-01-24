@@ -24,7 +24,6 @@ mod nodes;
 mod oauth;
 pub(crate) mod organization_members;
 mod organizations;
-pub mod projects;
 mod relay;
 pub mod swarm_labels;
 pub mod swarm_projects;
@@ -65,7 +64,6 @@ pub fn router(state: AppState) -> Router {
     let v1_protected = Router::<AppState>::new()
         .merge(identity::router())
         .merge(activity::router())
-        .merge(projects::router())
         .merge(swarm_projects::router())
         .merge(swarm_labels::router())
         .merge(swarm_templates::router())

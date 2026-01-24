@@ -380,12 +380,13 @@ impl<'a> NodeProjectRepository<'a> {
                 np.local_project_id,
                 np.git_repo_path,
                 np.default_branch,
-                p.name as project_name,
+                COALESCE(nlp.name, SUBSTRING(np.git_repo_path FROM '[^/]+$')) as project_name,
                 n.id as source_node_id,
                 n.name as source_node_name
             FROM node_projects np
             JOIN nodes n ON np.node_id = n.id
-            JOIN projects p ON np.project_id = p.id
+            LEFT JOIN node_local_projects nlp ON np.node_id = nlp.node_id
+                AND np.local_project_id = nlp.local_project_id
             WHERE n.organization_id = $1
             ORDER BY np.created_at DESC
             "#,
@@ -395,6 +396,30 @@ impl<'a> NodeProjectRepository<'a> {
         .await?;
 
         Ok(projects)
+    }
+
+    /// Get the organization ID for a project by looking up via node_projects and nodes.
+    ///
+    /// Returns the organization_id of the node that owns this project.
+    /// Used for access control when the projects table is no longer available.
+    pub async fn organization_id(
+        pool: &PgPool,
+        project_id: Uuid,
+    ) -> Result<Option<Uuid>, NodeProjectError> {
+        let result = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            SELECT n.organization_id
+            FROM node_projects np
+            JOIN nodes n ON np.node_id = n.id
+            WHERE np.project_id = $1
+            LIMIT 1
+            "#,
+        )
+        .bind(project_id)
+        .fetch_optional(pool)
+        .await?;
+
+        Ok(result)
     }
 }
 

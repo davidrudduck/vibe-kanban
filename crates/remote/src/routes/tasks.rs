@@ -221,7 +221,8 @@ pub async fn create_shared_task(
     }
 
     let data = CreateSharedTaskData {
-        project_id,
+        organization_id,
+        project_id: Some(project_id),
         title: title.clone(),
         description: description.clone(),
         status,

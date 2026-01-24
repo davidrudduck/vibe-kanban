@@ -4,12 +4,7 @@ use sqlx::PgPool;
 use thiserror::Error;
 use uuid::Uuid;
 
-use super::{
-    Tx,
-    identity_errors::IdentityError,
-    projects::{ProjectError, ProjectRepository},
-    users::{UserData, fetch_user},
-};
+use super::{Tx, identity_errors::IdentityError, users::{UserData, fetch_user}};
 use crate::db::maintenance;
 
 pub struct BulkFetchResult {
@@ -47,8 +42,9 @@ impl SharedTaskWithUser {
 pub struct SharedTask {
     pub id: Uuid,
     pub organization_id: Uuid,
-    pub project_id: Uuid,
-    /// Swarm project ID for tasks synced via swarm (may be NULL for legacy tasks)
+    /// Legacy project ID (nullable after migration, swarm_project_id is the source of truth)
+    pub project_id: Option<Uuid>,
+    /// Swarm project ID for tasks synced via swarm (the source of truth)
     pub swarm_project_id: Option<Uuid>,
     pub creator_user_id: Option<Uuid>,
     pub assignee_user_id: Option<Uuid>,
@@ -81,7 +77,8 @@ pub struct SharedTaskActivityPayload {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateSharedTaskData {
-    pub project_id: Uuid,
+    pub organization_id: Uuid,
+    pub project_id: Option<Uuid>,
     pub title: String,
     pub description: Option<String>,
     pub status: Option<TaskStatus>,
@@ -152,8 +149,6 @@ pub enum SharedTaskError {
     #[error("shared task title and description are too large")]
     PayloadTooLarge,
     #[error(transparent)]
-    Project(#[from] ProjectError),
-    #[error(transparent)]
     Identity(#[from] IdentityError),
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
@@ -177,7 +172,7 @@ impl<'a> SharedTaskRepository<'a> {
             SELECT
                 id                  AS "id!",
                 organization_id     AS "organization_id!: Uuid",
-                project_id          AS "project_id!",
+                project_id          AS "project_id?: Uuid",
                 swarm_project_id    AS "swarm_project_id?: Uuid",
                 creator_user_id     AS "creator_user_id?: Uuid",
                 assignee_user_id    AS "assignee_user_id?: Uuid",
@@ -224,7 +219,7 @@ impl<'a> SharedTaskRepository<'a> {
             SELECT
                 id                  AS "id!",
                 organization_id     AS "organization_id!: Uuid",
-                project_id          AS "project_id!",
+                project_id          AS "project_id?: Uuid",
                 swarm_project_id    AS "swarm_project_id?: Uuid",
                 creator_user_id     AS "creator_user_id?: Uuid",
                 assignee_user_id    AS "assignee_user_id?: Uuid",
@@ -289,6 +284,7 @@ impl<'a> SharedTaskRepository<'a> {
         let mut tx = self.pool.begin().await.map_err(SharedTaskError::from)?;
 
         let CreateSharedTaskData {
+            organization_id,
             project_id,
             title,
             description,
@@ -298,15 +294,6 @@ impl<'a> SharedTaskRepository<'a> {
         } = data;
 
         ensure_text_size(&title, description.as_deref())?;
-
-        let project = ProjectRepository::find_by_id(&mut tx, project_id)
-            .await?
-            .ok_or_else(|| {
-                tracing::warn!(%project_id, "remote project not found when creating shared task");
-                SharedTaskError::NotFound
-            })?;
-
-        let organization_id = project.organization_id;
 
         let task = sqlx::query_as!(
             SharedTask,
@@ -324,7 +311,7 @@ impl<'a> SharedTaskRepository<'a> {
             VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, 'todo'::task_status), NOW())
             RETURNING id                 AS "id!",
                       organization_id    AS "organization_id!: Uuid",
-                      project_id         AS "project_id!",
+                      project_id         AS "project_id?: Uuid",
                       swarm_project_id   AS "swarm_project_id?: Uuid",
                       creator_user_id    AS "creator_user_id?: Uuid",
                       assignee_user_id   AS "assignee_user_id?: Uuid",
@@ -451,7 +438,7 @@ impl<'a> SharedTaskRepository<'a> {
         tracing::debug!(
             task_id = %task.id,
             swarm_project_id = ?task.swarm_project_id,
-            project_id = %task.project_id,
+            project_id = ?task.project_id,
             version = %task.version,
             source_task_id = ?task.source_task_id,
             was_created = was_created,
@@ -472,7 +459,7 @@ impl<'a> SharedTaskRepository<'a> {
             SELECT
                 st.id                     AS "id!: Uuid",
                 st.organization_id        AS "organization_id!: Uuid",
-                st.project_id             AS "project_id!: Uuid",
+                st.project_id             AS "project_id?: Uuid",
                 st.swarm_project_id       AS "swarm_project_id?: Uuid",
                 st.creator_user_id        AS "creator_user_id?: Uuid",
                 st.assignee_user_id       AS "assignee_user_id?: Uuid",
@@ -610,7 +597,7 @@ impl<'a> SharedTaskRepository<'a> {
         RETURNING
             t.id                AS "id!",
             t.organization_id   AS "organization_id!: Uuid",
-            t.project_id        AS "project_id!",
+            t.project_id        AS "project_id?: Uuid",
             t.swarm_project_id  AS "swarm_project_id?: Uuid",
             t.creator_user_id   AS "creator_user_id?: Uuid",
             t.assignee_user_id  AS "assignee_user_id?: Uuid",
@@ -678,7 +665,7 @@ impl<'a> SharedTaskRepository<'a> {
         RETURNING
             t.id                AS "id!",
             t.organization_id   AS "organization_id!: Uuid",
-            t.project_id        AS "project_id!",
+            t.project_id        AS "project_id?: Uuid",
             t.swarm_project_id  AS "swarm_project_id?: Uuid",
             t.creator_user_id   AS "creator_user_id?: Uuid",
             t.assignee_user_id  AS "assignee_user_id?: Uuid",
@@ -740,7 +727,7 @@ impl<'a> SharedTaskRepository<'a> {
             RETURNING
                 t.id                AS "id!",
                 t.organization_id   AS "organization_id!: Uuid",
-                t.project_id        AS "project_id!",
+                t.project_id        AS "project_id?: Uuid",
                 t.swarm_project_id  AS "swarm_project_id?: Uuid",
                 t.creator_user_id   AS "creator_user_id?: Uuid",
                 t.assignee_user_id  AS "assignee_user_id?: Uuid",
@@ -814,7 +801,7 @@ impl<'a> SharedTaskRepository<'a> {
         RETURNING
             t.id                AS "id!",
             t.organization_id   AS "organization_id!: Uuid",
-            t.project_id        AS "project_id!",
+            t.project_id        AS "project_id?: Uuid",
             t.swarm_project_id  AS "swarm_project_id?: Uuid",
             t.creator_user_id   AS "creator_user_id?: Uuid",
             t.assignee_user_id  AS "assignee_user_id?: Uuid",
@@ -911,6 +898,19 @@ async fn do_insert_activity(
     event_type: &str,
     payload: serde_json::Value,
 ) -> Result<(), sqlx::Error> {
+    // Use project_id if available, otherwise fall back to swarm_project_id
+    // Skip activity insertion if neither is available (shouldn't happen in practice)
+    let activity_project_id = match task.project_id.or(task.swarm_project_id) {
+        Some(id) => id,
+        None => {
+            tracing::warn!(
+                task_id = %task.id,
+                "skipping activity insertion: task has no project_id or swarm_project_id"
+            );
+            return Ok(());
+        }
+    };
+
     sqlx::query!(
         r#"
         WITH next AS (
@@ -930,7 +930,7 @@ async fn do_insert_activity(
         SELECT $1, next.last_seq, $2, $3, $4
         FROM next
         "#,
-        task.project_id,
+        activity_project_id,
         task.assignee_user_id,
         event_type,
         payload
