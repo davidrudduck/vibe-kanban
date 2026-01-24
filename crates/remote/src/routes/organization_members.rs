@@ -499,6 +499,25 @@ pub(crate) async fn ensure_member_access(
         .map_err(|err| membership_error(err, "Not a member of organization"))
 }
 
+/// Ensure the specified user has admin access to the organization.
+///
+/// # Returns
+///
+/// `Ok(())` if the user is an admin of the organization, `Err(ErrorResponse)` describing the access failure otherwise.
+///
+/// # Examples
+///
+/// ```no_run
+/// # use sqlx::PgPool;
+/// # use uuid::Uuid;
+/// # async fn example(pool: &PgPool, org_id: Uuid, user_id: Uuid) {
+/// let res = crate::routes::organization_members::ensure_admin_access(pool, org_id, user_id).await;
+/// match res {
+///     Ok(()) => println!("user is admin"),
+///     Err(e) => eprintln!("access denied: {:?}", e),
+/// }
+/// # }
+/// ```
 pub(crate) async fn ensure_admin_access(
     pool: &PgPool,
     organization_id: Uuid,

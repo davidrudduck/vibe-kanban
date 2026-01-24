@@ -782,9 +782,33 @@ impl RemoteClient {
             .await
     }
 
-    /// Lists projects linked to a node that are also linked to a swarm project.
-    /// Only swarm-linked projects are returned - unlinked projects are excluded.
-    /// Use this for syncing projects to other nodes.
+    /// Returns the swarm-linked projects for a given node.
+    ///
+    /// Only projects that are linked to a swarm project are included; projects that exist on the node but are not swarm-linked are excluded.
+    ///
+    /// # Parameters
+    ///
+    /// - `node_id`: the UUID of the node to list linked swarm projects for.
+    ///
+    /// # Returns
+    ///
+    /// A `Vec<SwarmProjectNode>` containing the swarm-linked project records for the node. Returns an empty vector if no linked projects are found.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use uuid::Uuid;
+    /// # use remote::RemoteClient;
+    /// # use remote::auth::AuthContext;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let auth = AuthContext::new(/* ... */);
+    /// let client = RemoteClient::new("https://api.example.com", auth)?;
+    /// let node_id = Uuid::parse_str("00000000-0000-0000-0000-000000000000")?;
+    /// let projects = client.list_linked_node_projects(node_id).await?;
+    /// // `projects` is a Vec<SwarmProjectNode>; it may be empty.
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn list_linked_node_projects(
         &self,
         node_id: Uuid,

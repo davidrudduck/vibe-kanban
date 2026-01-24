@@ -889,23 +889,25 @@ async fn handle_link_project(
     Ok(())
 }
 
-/// Unlinks a project from the given node and broadcasts the removal to the other nodes in the organization.
+/// Unlinks a node's local project from its swarm project and broadcasts the removal to other nodes in the organization.
 ///
-/// This unlinks a node's local project from a swarm project by:
-/// 1. Finding the swarm_project_nodes link
-/// 2. Removing the swarm_project_nodes record
-/// 3. Clearing node_local_projects.swarm_project_id
-/// 4. Broadcasting the unlink to other nodes
-///
-/// Note: The `project_id` in UnlinkProjectMessage is now interpreted as `swarm_project_id`.
-///
-/// This removes the node-project link from the database and, if the link existed, constructs
-/// and broadcasts a `ProjectSync` removal message to all other nodes in the same organization.
-/// The broadcasted `project_name` is derived from the link's `git_repo_path`.
+/// This removes the swarm_project_nodes link, clears the corresponding node_local_projects.swarm_project_id when the local project is known, and — if the link existed — sends a `ProjectSync` message with `is_new = false` containing the project's name, default branch (falls back to `"main"`), and source node information to all other nodes in the same organization.
 ///
 /// # Returns
 ///
 /// `Ok(())` on success, `Err(HandleError)` if a database or send error occurs.
+///
+/// # Examples
+///
+/// ```no_run
+/// use uuid::Uuid;
+/// # async fn doc() {
+/// let pool = /* PgPool */ todo!();
+/// let connections = /* ConnectionManager */ todo!();
+/// let unlink = /* UnlinkProjectMessage */ todo!();
+/// handle_unlink_project(Uuid::nil(), Uuid::nil(), &unlink, &pool, &connections).await.unwrap();
+/// # }
+/// ```
 async fn handle_unlink_project(
     node_id: Uuid,
     organization_id: Uuid,
@@ -1008,10 +1010,33 @@ async fn handle_unlink_project(
     Ok(())
 }
 
-/// Handle a node deregistration request.
+/// Deregisters a node by removing its database records and notifying the organization.
 ///
-/// This performs a hard delete of all node data and broadcasts the removal
-/// to all other nodes in the organization.
+/// Deletes the node and its related data, then broadcasts a `NodeRemoved` message to other nodes in the same organization. Any failures to notify peers are logged but do not prevent completion of the deregistration.
+///
+/// # Examples
+///
+/// ```
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// # // placeholders for required values
+/// # let pool = todo!("PgPool instance");
+/// # let connections = todo!("ConnectionManager instance");
+/// use uuid::Uuid;
+/// let node_id = Uuid::new_v4();
+/// let org_id = Uuid::new_v4();
+/// let dereg_msg = DeregisterMessage {
+///     message_id: Uuid::new_v4(),
+///     reason: Some("decommission".into()),
+/// };
+/// // Call the async function (this doc example is illustrative and uses placeholders)
+/// let _ = handle_deregister(node_id, org_id, &dereg_msg, &pool, &connections).await?;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// # Returns
+///
+/// `Ok(())` on success, or `Err(HandleError::Database(_))` if deleting the node from the database fails.
 async fn handle_deregister(
     node_id: Uuid,
     organization_id: Uuid,
@@ -1103,20 +1128,20 @@ async fn send_message(
     }
 }
 
-/// Upserts a node task attempt and, when the attempt has no `assignment_id`, attempts to create a synthetic assignment for locally-started tasks.
+/// Upserts a node task attempt and, when the attempt has no `assignment_id`, tries to create a synthetic assignment for locally-started tasks.
 ///
-/// If `attempt.assignment_id` is provided, that value is used. If it is `None`, the function tries to locate the shared task and, if the shared task has a `project_id` and a corresponding `node_project` link for the node, creates or finds a synthetic assignment and uses its ID. Failures to create or find a synthetic assignment are logged and do not prevent the attempt from being upserted; the attempt will be stored without an `assignment_id` in that case.
-///
-/// The upsert writes the attempt data into the `node_task_attempts` table.
+/// If `attempt.assignment_id` is provided, that value is used. If it is `None`, the function looks up the shared task's `swarm_project_id`, finds the node's `swarm_project_nodes` link for that project, and attempts to create or find a synthetic assignment tied to that link. Failures to create or find a synthetic assignment are logged and do not prevent the attempt from being upserted; the attempt will be stored without an `assignment_id` in that case. The upsert writes the attempt data into the `node_task_attempts` table.
 ///
 /// # Examples
 ///
 /// ```
 /// # async fn example(pool: &sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
 /// use uuid::Uuid;
+/// use chrono::Utc;
 /// use crate::nodes::ws::messages::AttemptSyncMessage;
 ///
 /// let node_id = Uuid::new_v4();
+///
 /// let attempt = AttemptSyncMessage {
 ///     attempt_id: Uuid::new_v4(),
 ///     shared_task_id: Uuid::new_v4(),
@@ -1128,8 +1153,8 @@ async fn send_message(
 ///     container_ref: None,
 ///     worktree_deleted: false,
 ///     setup_completed_at: None,
-///     created_at: chrono::Utc::now(),
-///     updated_at: chrono::Utc::now(),
+///     created_at: Utc::now(),
+///     updated_at: Utc::now(),
 /// };
 ///
 /// crate::nodes::ws::session::handle_attempt_sync(node_id, &attempt, pool).await?;

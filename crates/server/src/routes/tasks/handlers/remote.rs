@@ -20,9 +20,22 @@ use crate::{DeploymentImpl, error::ApiError};
 // Create Remote Task
 // ============================================================================
 
-/// Create a task on a remote project by proxying to the Hive.
+/// Create a task on a remote project by proxying the request to the Hive.
 ///
-/// Called by `create_task` when the project is marked as remote.
+/// Invoked when a task is created for a project that is linked to a remote Hive; rejects payloads that include image attachments.
+///
+/// # Examples
+///
+/// ```no_run
+/// // Run inside an async runtime
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let deployment = /* obtain DeploymentImpl */ ;
+/// let project = /* Project with remote_project_id set */ ;
+/// let payload = /* db::models::task::CreateTask payload */ ;
+/// let resp = crate::routes::tasks::handlers::remote::create_remote_task(&deployment, &project, &payload).await?;
+/// # Ok(())
+/// # }
+/// ```
 pub(crate) async fn create_remote_task(
     deployment: &DeploymentImpl,
     project: &Project,
@@ -241,14 +254,28 @@ pub(crate) async fn delete_remote_task(
 // Resync Task to Hive
 // ============================================================================
 
-/// Re-sync a task to the Hive when its shared_task_id is stale.
+/// Re-synchronize a local task with the Hive, creating a shared task when needed.
 ///
-/// This is called when an update or label operation returns 404 from the Hive,
-/// indicating that the shared_task_id no longer exists. The task is re-created
-/// on the Hive with source tracking to prevent duplicates.
+/// If the local node is not connected to the Hive, the function clears the task's
+/// stale `shared_task_id` and updates the task locally with the provided fields.
+/// If the node is connected, it creates a shared task on the Hive with source
+/// tracking and upserts the returned Hive data into the local task record.
 ///
-/// If the node is not connected to the Hive (no node_id available), this function
-/// will clear the stale shared_task_id and update the task locally instead.
+/// # Returns
+///
+/// The updated local `Task` reflecting the new or cleared `shared_task_id`.
+///
+/// # Examples
+///
+/// ```no_run
+/// # use crates::server::routes::tasks::handlers::remote::resync_task_to_hive;
+/// # use crates::server::db;
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// // `deployment` and `existing_task` would be obtained from the application context.
+/// let updated = resync_task_to_hive(&deployment, &existing_task, Some("New title".into()), None, None).await?;
+/// println!("Resynced task id = {}", updated.id);
+/// # Ok(()) }
+/// ```
 pub(crate) async fn resync_task_to_hive(
     deployment: &DeploymentImpl,
     existing_task: &Task,
