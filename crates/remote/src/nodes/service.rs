@@ -575,7 +575,8 @@ impl NodeServiceImpl {
             WITH moved AS (
                 UPDATE node_local_projects
                 SET node_id = $2,
-                    -- Clear swarm_project_id if target already has a link for this swarm project
+                    -- Keep swarm_project_id only when target has a matching link;
+                    -- otherwise clear it to avoid orphaned references
                     swarm_project_id = CASE
                         WHEN swarm_project_id IN (
                             SELECT swarm_project_id FROM swarm_project_nodes WHERE node_id = $2
@@ -719,24 +720,34 @@ impl NodeServiceImpl {
         node_id: Uuid,
         swarm_project_id: Uuid,
     ) -> Result<(), NodeError> {
-        // Get the link to find local_project_id
-        let link = SwarmProjectRepository::find_node_link(&self.pool, swarm_project_id, node_id)
-            .await?
-            .ok_or(NodeError::NodeProjectNotFound)?;
-
-        // Start transaction for atomic unlink
+        // Start transaction for atomic unlink (includes the lookup to avoid TOCTOU)
         let mut tx = self
             .pool
             .begin()
             .await
             .map_err(|e| NodeError::Database(e.to_string()))?;
 
+        // Get the link to find local_project_id (inside transaction to avoid race)
+        let local_project_id: Option<Uuid> = sqlx::query_scalar(
+            r#"
+            SELECT local_project_id
+            FROM swarm_project_nodes
+            WHERE swarm_project_id = $1 AND node_id = $2
+            "#,
+        )
+        .bind(swarm_project_id)
+        .bind(node_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| NodeError::Database(e.to_string()))?;
+
+        let local_project_id = local_project_id.ok_or(NodeError::NodeProjectNotFound)?;
+
         // Unlink from swarm_project_nodes
         SwarmProjectRepository::unlink_node(&mut tx, swarm_project_id, node_id).await?;
 
         // Clear swarm_project_id from node_local_projects
-        NodeLocalProjectRepository::unlink_from_swarm(&mut tx, node_id, link.local_project_id)
-            .await?;
+        NodeLocalProjectRepository::unlink_from_swarm(&mut tx, node_id, local_project_id).await?;
 
         // Commit
         tx.commit()

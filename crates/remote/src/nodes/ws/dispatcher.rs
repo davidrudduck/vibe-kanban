@@ -9,7 +9,7 @@ use super::{
     connection::ConnectionManager,
     message::{HiveMessage, TaskAssignMessage, TaskDetails},
 };
-use crate::db::swarm_projects::SwarmProjectRepository;
+use crate::db::swarm_projects::{SwarmProjectNodeForDispatch, SwarmProjectRepository};
 use crate::nodes::service::{NodeError, NodeServiceImpl};
 
 /// Dispatcher for sending tasks to nodes.
@@ -92,6 +92,31 @@ impl TaskDispatcher {
             assignment_id: assignment.id,
             node_id: project_link.node_id,
         })
+    }
+
+    /// Find the first connected node for a swarm project.
+    ///
+    /// Returns the node info including default_branch. Use this to get the
+    /// correct branch before constructing TaskDetails.
+    pub async fn find_connected_node(
+        &self,
+        swarm_project_id: Uuid,
+    ) -> Result<SwarmProjectNodeForDispatch, DispatchError> {
+        let nodes = SwarmProjectRepository::find_nodes_for_dispatch(&self.pool, swarm_project_id)
+            .await
+            .map_err(|e| DispatchError::NodeService(NodeError::Database(e.to_string())))?;
+
+        if nodes.is_empty() {
+            return Err(DispatchError::NoNodeForProject);
+        }
+
+        for node in nodes {
+            if self.connections.is_connected(node.node_id).await {
+                return Ok(node);
+            }
+        }
+
+        Err(DispatchError::NodeNotConnected)
     }
 
     /// Cancel a task on a node.

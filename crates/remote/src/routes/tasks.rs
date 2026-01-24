@@ -21,7 +21,6 @@ use crate::{
     db::{
         organization_members,
         organizations::{MemberRole, OrganizationRepository},
-        swarm_projects::SwarmProjectRepository,
         tasks::{
             AssignTaskData, CreateSharedTaskData, DeleteTaskData, SharedTask, SharedTaskError,
             SharedTaskRepository, SharedTaskWithUser, TaskStatus, UpdateSharedTaskData,
@@ -281,55 +280,50 @@ pub async fn create_shared_task(
 
     // Only dispatch to node if start_attempt flag is true
     if start_attempt {
-        // Find nodes linked to this swarm project
-        let nodes = match SwarmProjectRepository::find_nodes_for_dispatch(pool, project_id).await {
-            Ok(nodes) => nodes,
+        let dispatcher =
+            crate::nodes::TaskDispatcher::new(pool.clone(), state.node_connections().clone());
+
+        // Find a connected node first to get the correct default_branch
+        match dispatcher.find_connected_node(project_id).await {
+            Ok(connected_node) => {
+                // Use the connected node's branch to ensure consistency
+                let task_details = TaskDetails {
+                    title,
+                    description,
+                    executor: "CLAUDE_CODE".to_string(), // Default executor
+                    executor_variant: None,
+                    base_branch: connected_node.default_branch.clone(),
+                };
+
+                // Attempt to dispatch - don't fail task creation if dispatch fails
+                match dispatcher
+                    .assign_task(task.task.id, project_id, task_details)
+                    .await
+                {
+                    Ok(result) => {
+                        tracing::info!(
+                            task_id = %task.task.id,
+                            assignment_id = %result.assignment_id,
+                            node_id = %result.node_id,
+                            "task dispatched to node"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            task_id = %task.task.id,
+                            error = %e,
+                            "failed to dispatch task to node - task created but not assigned"
+                        );
+                    }
+                }
+            }
             Err(e) => {
                 tracing::warn!(
                     task_id = %task.task.id,
                     project_id = %project_id,
                     error = %e,
-                    "failed to find nodes for dispatch, task created but not dispatched"
+                    "no connected node available for dispatch, task created but not assigned"
                 );
-                Vec::new()
-            }
-        };
-        if let Some(first_node) = nodes.first() {
-            let dispatcher =
-                crate::nodes::TaskDispatcher::new(pool.clone(), state.node_connections().clone());
-
-            // FIXME: base_branch is taken from first_node, but the dispatcher may select
-            // a different connected node. If that node has a different default_branch,
-            // the task will be created with a mismatched branch. Consider having the
-            // dispatcher return the selected node's branch or pre-filter to connected nodes.
-            let task_details = TaskDetails {
-                title,
-                description,
-                executor: "CLAUDE_CODE".to_string(), // Default executor
-                executor_variant: None,
-                base_branch: first_node.default_branch.clone(),
-            };
-
-            // Attempt to dispatch - don't fail task creation if dispatch fails
-            match dispatcher
-                .assign_task(task.task.id, project_id, task_details)
-                .await
-            {
-                Ok(result) => {
-                    tracing::info!(
-                        task_id = %task.task.id,
-                        assignment_id = %result.assignment_id,
-                        node_id = %result.node_id,
-                        "task dispatched to node"
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        task_id = %task.task.id,
-                        error = %e,
-                        "failed to dispatch task to node - task created but not assigned"
-                    );
-                }
             }
         }
     }
