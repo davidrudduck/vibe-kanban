@@ -165,6 +165,23 @@ impl<'a> SharedTaskRepository<'a> {
         Self { pool }
     }
 
+    /// Fetches a shared task by its ID, excluding tasks that have been marked deleted.
+    ///
+    /// Returns `Some(SharedTask)` if a non-deleted task with the given `task_id` exists, `None` otherwise.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use uuid::Uuid;
+    /// # async fn example(repo: &crate::SharedTaskRepository<'_>, id: Uuid) {
+    /// let result = repo.find_by_id(id).await.unwrap();
+    /// if let Some(task) = result {
+    ///     println!("Found task {}", task.id);
+    /// } else {
+    ///     println!("Task not found or deleted");
+    /// }
+    /// # }
+    /// ```
     pub async fn find_by_id(&self, task_id: Uuid) -> Result<Option<SharedTask>, SharedTaskError> {
         let task = sqlx::query_as!(
             SharedTask,
@@ -205,9 +222,21 @@ impl<'a> SharedTaskRepository<'a> {
 
     /// Find a shared task by its source task ID and source node ID.
     ///
-    /// This is used for duplicate detection during task re-sync.
-    /// Returns the existing task if one was already created from the same source.
-    /// Note: Uses the unique constraint on (source_node_id, source_task_id).
+    /// Returns `Some(SharedTask)` if a non-deleted task exists that was created from the same source, `None` otherwise.
+    ///
+    /// This relies on the unique constraint on `(source_node_id, source_task_id)` to detect duplicates.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # async fn example(repo: &SharedTaskRepository<'_>, node_id: uuid::Uuid, task_id: uuid::Uuid) -> Result<(), SharedTaskError> {
+    /// let found = repo.find_by_source_task_id(node_id, task_id).await?;
+    /// if let Some(task) = found {
+    ///     println!("Found task: {}", task.id);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn find_by_source_task_id(
         &self,
         source_node_id: Uuid,
@@ -277,6 +306,29 @@ impl<'a> SharedTaskRepository<'a> {
         Ok(())
     }
 
+    /// Creates a new shared task, validates text size, persists it, records a `task.created` activity, and returns the created task with its optional assignee user.
+    ///
+    /// On success the returned value contains the newly inserted `SharedTask` and the assignee's `UserData` when an assignee was provided.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use uuid::Uuid;
+    /// # use chrono::Utc;
+    /// # async fn example(repo: &crate::SharedTaskRepository<'_>) -> Result<(), crate::SharedTaskError> {
+    /// let data = crate::CreateSharedTaskData {
+    ///     organization_id: Uuid::new_v4(),
+    ///     project_id: None,
+    ///     title: "Write docs".into(),
+    ///     description: Some("Draft API docs for tasks".into()),
+    ///     status: crate::TaskStatus::Todo,
+    ///     creator_user_id: Some(Uuid::new_v4()),
+    ///     assignee_user_id: None,
+    /// };
+    /// let created = repo.create(data).await?;
+    /// assert_eq!(created.task.title, "Write docs");
+    /// # Ok(()) }
+    /// ```
     pub async fn create(
         &self,
         data: CreateSharedTaskData,
@@ -352,11 +404,36 @@ impl<'a> SharedTaskRepository<'a> {
         Ok(SharedTaskWithUser::new(task, user))
     }
 
-    /// Create or update a shared task from a node.
+    /// Upserts a shared task originating from a remote node, creating it if missing or updating the existing row when the same source identifiers are present.
     ///
-    /// Unlike `create()`, this method doesn't require a user ID.
-    /// Uses ON CONFLICT to handle duplicate syncs gracefully.
-    /// Returns the task and a boolean indicating if it was newly created.
+    /// The operation is idempotent for the same (source_node_id, source_task_id) pair and will increment the stored version on update. The returned boolean is `true` when the call resulted in a new insert and `false` when an existing task was updated.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # async fn example(repo: &crate::SharedTaskRepository<'_>) -> Result<(), crate::SharedTaskError> {
+    /// use uuid::Uuid;
+    /// use crate::{UpsertTaskFromNodeData, TaskStatus};
+    ///
+    /// let data = UpsertTaskFromNodeData {
+    ///     swarm_project_id: Uuid::new_v4(),
+    ///     project_id: None,
+    ///     organization_id: Uuid::new_v4(),
+    ///     origin_node_id: Some(Uuid::new_v4()),
+    ///     local_task_id: Some("remote-1".to_string()),
+    ///     title: "Sync task".into(),
+    ///     description: Some("Created on remote node".into()),
+    ///     status: TaskStatus::Todo,
+    ///     version: 1,
+    ///     owner_node_id: None,
+    ///     owner_name: None,
+    /// };
+    ///
+    /// let (task, was_created) = repo.upsert_from_node(data).await?;
+    /// // `was_created` is true for a new insert, false for an update
+    /// assert_eq!(was_created, task.version == 1);
+    /// # Ok(()) }
+    /// ```
     pub async fn upsert_from_node(
         &self,
         data: UpsertTaskFromNodeData,
@@ -448,6 +525,25 @@ impl<'a> SharedTaskRepository<'a> {
         Ok((task, was_created))
     }
 
+    /// Fetches all shared tasks for a project, the IDs of tasks that were deleted, and the latest activity sequence for that project.
+    ///
+    /// The returned BulkFetchResult contains:
+    /// - `tasks`: a list of SharedTaskActivityPayload for each non-deleted task (task + optional assignee user),
+    /// - `deleted_task_ids`: IDs of tasks that have been deleted for the project,
+    /// - `latest_seq`: the highest activity sequence number for the project (or `None` if there are no activities).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use uuid::Uuid;
+    /// # async fn example(repo: &crate::SharedTaskRepository<'_>, project_id: Uuid) {
+    /// let result = repo.bulk_fetch(project_id).await.unwrap();
+    /// // inspect results
+    /// let _tasks = result.tasks;
+    /// let _deleted = result.deleted_task_ids;
+    /// let _latest_seq = result.latest_seq;
+    /// # }
+    /// ```
     pub async fn bulk_fetch(&self, project_id: Uuid) -> Result<BulkFetchResult, SharedTaskError> {
         let mut tx = self.pool.begin().await?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
@@ -565,6 +661,23 @@ impl<'a> SharedTaskRepository<'a> {
         })
     }
 
+    /// Updates an existing shared task's mutable fields, records a "task.updated" activity, and returns the updated task with its assignee if any.
+    ///
+    /// The `archived_at` field in `UpdateSharedTaskData` is interpreted as: outer `None` = do not change, `Some(None)` = clear `archived_at`, `Some(Some(ts))` = set `archived_at` to `ts`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// // Example usage in an async context:
+    /// # async fn _example(repo: &crate::SharedTaskRepository<'_>, task_id: uuid::Uuid, data: crate::UpdateSharedTaskData) -> Result<(), crate::SharedTaskError> {
+    /// let result = repo.update(task_id, data).await?;
+    /// println!("updated task id = {}", result.task.id);
+    /// # Ok(()) }
+    /// ```
+    ///
+    /// # Returns
+    ///
+    /// `SharedTaskWithUser` containing the updated `SharedTask` and `Some(UserData)` when an assignee exists, or `None` for the assignee.
     pub async fn update(
         &self,
         task_id: Uuid,
@@ -645,6 +758,31 @@ impl<'a> SharedTaskRepository<'a> {
         Ok(SharedTaskWithUser::new(task, user))
     }
 
+    /// Assigns a task to a new assignee, updating the task's version and recording a `task.reassigned` activity.
+    ///
+    /// The update enforces optimistic concurrency using `data.version` and optionally verifies the previous
+    /// assignee via `data.previous_assignee_user_id`. On success returns the updated task together with the
+    /// optionally fetched assignee user. Commits the change as a single transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns `SharedTaskError::Conflict` if the provided version or previous assignee does not match the current row,
+    /// or other `SharedTaskError` variants for database/serialization/identity failures.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # async fn example(repo: &SharedTaskRepository<'_>, task_id: uuid::Uuid) -> Result<(), SharedTaskError> {
+    /// let data = AssignTaskData {
+    ///     new_assignee_user_id: Some(uuid::Uuid::new_v4()),
+    ///     previous_assignee_user_id: None,
+    ///     version: None,
+    /// };
+    /// let result = repo.assign_task(task_id, data).await?;
+    /// println!("Assigned task {} to {:?}", result.task.id, result.user);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn assign_task(
         &self,
         task_id: Uuid,
@@ -706,10 +844,28 @@ impl<'a> SharedTaskRepository<'a> {
         Ok(SharedTaskWithUser::new(task, user))
     }
 
-    /// Update task status from a node execution update.
+    /// Update a shared task's status based on a node execution report.
     ///
-    /// This method bypasses the user check since it's called by the system
-    /// when nodes report execution status changes.
+    /// This operation bypasses user validation and is intended for system-invoked node updates.
+    ///
+    /// # Returns
+    ///
+    /// The updated `SharedTask`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `SharedTaskError::NotFound` if the task does not exist or has been deleted.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use uuid::Uuid;
+    /// # use crate::db::tasks::{SharedTaskRepository, TaskStatus};
+    /// # async fn example(repo: &SharedTaskRepository<'_>) {
+    /// let task_id = Uuid::new_v4();
+    /// let _updated = repo.update_status_from_node(task_id, TaskStatus::InProgress).await;
+    /// # }
+    /// ```
     pub async fn update_status_from_node(
         &self,
         task_id: Uuid,
@@ -781,6 +937,33 @@ impl<'a> SharedTaskRepository<'a> {
         Ok(())
     }
 
+    /// Marks a shared task as deleted, records who deleted it, appends a "task.deleted" activity, and returns the updated task record.
+    ///
+    /// The task's `deleted_at`, `deleted_by_user_id`, and `version` fields will be updated in the database. The function also inserts a corresponding activity row for the deletion event.
+    ///
+    /// # Returns
+    ///
+    /// `SharedTaskWithUser` containing the updated `SharedTask` and `None` for the user (assignee is not fetched here).
+    ///
+    /// # Errors
+    ///
+    /// Returns `SharedTaskError::Conflict` if the provided `version` does not match the current task version or the task was already deleted. Other `SharedTaskError` variants indicate database/serialization/identity failures.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use uuid::Uuid;
+    /// # async fn example(repo: &crate::db::tasks::SharedTaskRepository<'_>) -> Result<(), crate::db::tasks::SharedTaskError> {
+    /// let task_id = Uuid::new_v4();
+    /// let data = crate::db::tasks::DeleteTaskData {
+    ///     acting_user_id: Uuid::new_v4(),
+    ///     version: Some(1),
+    /// };
+    /// let result = repo.delete_task(task_id, data).await?;
+    /// assert_eq!(result.task.id, task_id);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn delete_task(
         &self,
         task_id: Uuid,

@@ -33,6 +33,27 @@ impl IntoResponse for ErrorResponse {
     }
 }
 
+/// Convert a `SharedTaskError` into an HTTP `Response` with an appropriate status code and JSON error body.
+///
+/// The `context` string is forwarded to identity error handling and included in log messages for internal errors.
+///
+/// # Parameters
+///
+/// - `context`: A short context message used when delegating to identity error handling and when logging internal errors.
+///
+/// # Returns
+///
+/// An `axum::response::Response` whose status code and JSON body (`{ "error": "<message>" }`) correspond to the provided `SharedTaskError`.
+///
+/// # Examples
+///
+/// ```
+/// use axum::http::StatusCode;
+/// use crate::db::SharedTaskError;
+///
+/// let resp = crate::handlers::task_error_response(SharedTaskError::NotFound, "fetch_shared_task");
+/// assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+/// ```
 pub(crate) fn task_error_response(error: SharedTaskError, context: &str) -> Response {
     let response = match error {
         SharedTaskError::NotFound => (

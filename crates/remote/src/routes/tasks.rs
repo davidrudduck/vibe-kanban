@@ -142,10 +142,39 @@ pub async fn find_by_source_task_id(
     }
 }
 
+/// Create a new shared task within a project.
+///
+/// Validates text sizes and project access, verifies an optional assignee is an active organization member,
+/// detects and returns an existing task when both `source_task_id` and `source_node_id` match a preexisting task,
+/// persists the new task (including organization context), optionally sets source-tracking information,
+/// and may optionally dispatch an execution attempt to an available node when `start_attempt` is true.
+/// On success responds with `201 Created` and the created `SharedTaskResponse`; if a duplicate is detected by source IDs,
+/// responds with `200 OK` and the existing `SharedTaskResponse`.
+///
+/// # Returns
+///
+/// HTTP response containing either the created `SharedTaskResponse` (`201 Created`) or an existing task (`200 OK`) when duplicate source IDs were found.
+///
+/// # Examples
+///
+/// ```
+/// use uuid::Uuid;
+/// let req = CreateSharedTaskRequest {
+///     project_id: Uuid::new_v4(),
+///     title: "Example task".to_string(),
+///     description: None,
+///     status: None,
+///     assignee_user_id: None,
+///     start_attempt: false,
+///     source_task_id: None,
+///     source_node_id: None,
+/// };
+/// // In an integration test, send `req` to the HTTP handler to create a task and assert the response.
+/// ```
 #[instrument(
-    name = "tasks.create_shared_task",
-    skip(state, ctx, payload),
-    fields(user_id = %ctx.user.id, org_id = tracing::field::Empty)
+name = "tasks.create_shared_task",
+skip(state, ctx, payload),
+fields(user_id = %ctx.user.id, org_id = tracing::field::Empty)
 )]
 pub async fn create_shared_task(
     State(state): State<AppState>,

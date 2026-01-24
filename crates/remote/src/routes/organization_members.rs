@@ -511,6 +511,33 @@ pub(crate) async fn ensure_admin_access(
         .map_err(|err| membership_error(err, "Admin access required"))
 }
 
+/// Ensures the given user has access to the project and returns its organization ID.
+///
+/// Looks up the project's organization via the node_projects table, verifies the user is a member
+/// of that organization, and returns the organization's UUID on success. If the project is not
+/// found the function returns an ErrorResponse with status `NOT_FOUND`; if the membership check
+/// fails it returns an ErrorResponse indicating the project is not accessible; database failures
+/// produce an `INTERNAL_SERVER_ERROR`.
+///
+/// # Examples
+///
+/// ```no_run
+/// # use sqlx::PgPool;
+/// # use uuid::Uuid;
+/// # use crate::api::ensure_project_access;
+/// # async fn example(pool: &PgPool) -> Result<(), ()> {
+/// let user_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+/// let project_id = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
+/// match ensure_project_access(pool, user_id, project_id).await {
+///     Ok(org_id) => {
+///         println!("User is a member of organization {}", org_id);
+///     }
+///     Err(err_resp) => {
+///         eprintln!("Access denied: {:?}", err_resp);
+///     }
+/// }
+/// # Ok(()) }
+/// ```
 pub(crate) async fn ensure_project_access(
     pool: &PgPool,
     user_id: Uuid,
