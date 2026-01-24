@@ -305,13 +305,25 @@ impl ActivityProcessor {
         let hive_task = task_payload.task;
         let hive_user = task_payload.user;
 
+        // Get the project_id (skip if not set - task has no legacy project link)
+        let remote_project_id = match hive_task.project_id {
+            Some(id) => id,
+            None => {
+                debug!(
+                    shared_task_id = %hive_task.id,
+                    "Skipping task sync - task has no project_id"
+                );
+                return Ok(());
+            }
+        };
+
         // Find the local project for this remote project
         let local_project =
-            match Project::find_by_remote_project_id(tx.as_mut(), hive_task.project_id).await? {
+            match Project::find_by_remote_project_id(tx.as_mut(), remote_project_id).await? {
                 Some(p) => p,
                 None => {
                     debug!(
-                        remote_project_id = %hive_task.project_id,
+                        remote_project_id = %remote_project_id,
                         shared_task_id = %hive_task.id,
                         "Skipping task sync - no local project for remote project"
                     );

@@ -49,14 +49,14 @@ const OUTGOING_BUFFER_SIZE: usize = 64;
 /// Returns the last path component, or the full path if no separator is found.
 /// Handles trailing slashes gracefully and supports both Unix and Windows separators.
 fn extract_project_name(git_repo_path: &str) -> String {
-    let trimmed = git_repo_path.trim_end_matches(|c| c == '/' || c == '\\');
+    let trimmed = git_repo_path.trim_end_matches(['/', '\\']);
     let candidate = if trimmed.is_empty() {
         git_repo_path
     } else {
         trimmed
     };
     candidate
-        .rsplit(|c: char| c == '/' || c == '\\')
+        .rsplit(['/', '\\'])
         .next()
         .unwrap_or(candidate)
         .to_string()

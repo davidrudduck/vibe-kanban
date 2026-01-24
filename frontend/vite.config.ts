@@ -74,5 +74,8 @@ export default defineConfig({
     },
     open: process.env.VITE_OPEN === "true",
   },
-  build: { sourcemap: true },
+  build: {
+    sourcemap: true,
+    chunkSizeWarningLimit: 5000,
+  },
 });
