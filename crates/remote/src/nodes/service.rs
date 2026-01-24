@@ -105,7 +105,7 @@ impl From<NodeApiKeyError> for NodeError {
 impl From<SwarmProjectError> for NodeError {
     fn from(err: SwarmProjectError) -> Self {
         match err {
-            SwarmProjectError::NotFound => NodeError::NodeProjectNotFound,
+            SwarmProjectError::NotFound => NodeError::ProjectNotInHive,
             SwarmProjectError::NameConflict => {
                 NodeError::Database("swarm project name already exists".to_string())
             }

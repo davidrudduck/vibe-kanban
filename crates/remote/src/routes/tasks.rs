@@ -295,9 +295,9 @@ pub async fn create_shared_task(
                     base_branch: connected_node.default_branch.clone(),
                 };
 
-                // Attempt to dispatch - don't fail task creation if dispatch fails
+                // Dispatch to the same node we got the branch from to avoid drift
                 match dispatcher
-                    .assign_task(task.task.id, project_id, task_details)
+                    .assign_task_to_node(task.task.id, &connected_node, task_details)
                     .await
                 {
                     Ok(result) => {

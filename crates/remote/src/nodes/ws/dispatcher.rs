@@ -94,6 +94,62 @@ impl TaskDispatcher {
         })
     }
 
+    /// Assign a task to a specific pre-selected node.
+    ///
+    /// Use this after `find_connected_node` to ensure the same node is used
+    /// for both branch selection and task dispatch, avoiding drift.
+    ///
+    /// This will:
+    /// 1. Verify the node is still connected
+    /// 2. Create a task assignment record
+    /// 3. Send the assignment to the node via WebSocket
+    pub async fn assign_task_to_node(
+        &self,
+        task_id: Uuid,
+        node: &SwarmProjectNodeForDispatch,
+        task_details: TaskDetails,
+    ) -> Result<AssignResult, DispatchError> {
+        // Verify node is still connected
+        if !self.connections.is_connected(node.node_id).await {
+            return Err(DispatchError::NodeNotConnected);
+        }
+
+        let service = NodeServiceImpl::new(self.pool.clone());
+
+        // Create the assignment (use swarm_project_nodes link_id as node_project_id)
+        let assignment = service
+            .assign_task(task_id, node.node_id, node.link_id)
+            .await?;
+
+        // Build the assign message
+        let message = HiveMessage::TaskAssign(TaskAssignMessage {
+            message_id: Uuid::new_v4(),
+            assignment_id: assignment.id,
+            task_id,
+            node_project_id: node.link_id,
+            local_project_id: node.local_project_id,
+            task: task_details,
+        });
+
+        // Send to the node
+        self.connections
+            .send_to_node(node.node_id, message)
+            .await
+            .map_err(|e| DispatchError::SendFailed(e.to_string()))?;
+
+        tracing::info!(
+            task_id = %task_id,
+            node_id = %node.node_id,
+            assignment_id = %assignment.id,
+            "task assigned to pre-selected node"
+        );
+
+        Ok(AssignResult {
+            assignment_id: assignment.id,
+            node_id: node.node_id,
+        })
+    }
+
     /// Find the first connected node for a swarm project.
     ///
     /// Returns the node info including default_branch. Use this to get the
