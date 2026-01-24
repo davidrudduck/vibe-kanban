@@ -274,8 +274,23 @@ impl ActivityProcessor {
     // Task event processing
     // =========================================================================
 
-    /// Process a task.created or task.updated event from the Hive.
-    /// This syncs the task's version and metadata to keep local state fresh.
+    /// Syncs a Hive task create/update event into the local database.
+    ///
+    /// Parses the event payload and upserts the corresponding local task record (creating or updating)
+    /// to reflect Hive's title, description, status, assignee, archived state, and remote version.
+    /// If the payload is missing or cannot be parsed, or if the Hive task has no `project_id` or
+    /// there is no matching local project, the function logs the condition and returns success without
+    /// performing any upsert.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// // Illustrative example; types and setup are omitted for brevity.
+    /// # async fn doc_example(processor: &ActivityProcessor, tx: &mut Transaction<'_, Sqlite>, event: ActivityEvent) -> Result<(), ShareError> {
+    /// processor.process_task_upsert_event(tx, &event).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     async fn process_task_upsert_event(
         &self,
         tx: &mut Transaction<'_, Sqlite>,

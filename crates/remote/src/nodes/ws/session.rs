@@ -44,10 +44,18 @@ const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(90);
 /// Channel buffer size for outgoing messages.
 const OUTGOING_BUFFER_SIZE: usize = 64;
 
-/// Extract project name from a git repository path.
+/// Returns the final path component of a git repository path.
 ///
-/// Returns the last path component, or the full path if no separator is found.
-/// Handles trailing slashes gracefully and supports both Unix and Windows separators.
+/// Trims trailing '/' and '\' characters and supports both Unix and Windows separators. If the input contains no separators, or is empty, the original input is returned.
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!(extract_project_name("https://example.com/org/repo.git"), "repo.git");
+/// assert_eq!(extract_project_name("C:\\path\\to\\project\\"), "project");
+/// assert_eq!(extract_project_name("/single_component"), "single_component");
+/// assert_eq!(extract_project_name(""), "");
+/// ```
 fn extract_project_name(git_repo_path: &str) -> String {
     let trimmed = git_repo_path.trim_end_matches(['/', '\\']);
     let candidate = if trimmed.is_empty() {
