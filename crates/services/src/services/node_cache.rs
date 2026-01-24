@@ -335,7 +335,7 @@ impl<'a> NodeCacheSyncer<'a> {
                 Err(e) => {
                     tracing::error!(
                         node_id = %node.id,
-                        project_id = %project.swarm_project_id,
+                        swarm_project_id = %project.swarm_project_id,
                         error = %e,
                         "failed to upsert remote project"
                     );

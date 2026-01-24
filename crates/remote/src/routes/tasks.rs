@@ -282,10 +282,19 @@ pub async fn create_shared_task(
     // Only dispatch to node if start_attempt flag is true
     if start_attempt {
         // Find nodes linked to this swarm project
-        let nodes = SwarmProjectRepository::find_nodes_for_dispatch(pool, project_id).await;
-        if let Ok(nodes) = nodes
-            && let Some(first_node) = nodes.first()
-        {
+        let nodes = match SwarmProjectRepository::find_nodes_for_dispatch(pool, project_id).await {
+            Ok(nodes) => nodes,
+            Err(e) => {
+                tracing::warn!(
+                    task_id = %task.task.id,
+                    project_id = %project_id,
+                    error = %e,
+                    "failed to find nodes for dispatch, task created but not dispatched"
+                );
+                Vec::new()
+            }
+        };
+        if let Some(first_node) = nodes.first() {
             let dispatcher =
                 crate::nodes::TaskDispatcher::new(pool.clone(), state.node_connections().clone());
 
