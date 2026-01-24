@@ -219,12 +219,10 @@ pub async fn register_node(
             let linked_projects = match SwarmProjectRepository::list_by_node(pool, node.id).await {
                 Ok(projects) => projects,
                 Err(e) => {
-                    tracing::warn!(
-                        node_id = %node.id,
-                        error = %e,
-                        "failed to fetch linked projects for node, returning empty list"
+                    return node_error_response(
+                        NodeError::Database(e.to_string()),
+                        "failed to fetch linked projects for registered node",
                     );
-                    Vec::new()
                 }
             };
 
