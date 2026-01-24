@@ -24,6 +24,7 @@ mod nodes;
 mod oauth;
 pub(crate) mod organization_members;
 mod organizations;
+pub mod projects;
 mod relay;
 pub mod swarm_labels;
 pub mod swarm_projects;
