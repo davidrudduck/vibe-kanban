@@ -259,6 +259,31 @@ impl NodeLocalProjectRepository {
         Ok(())
     }
 
+    /// Unlink a local project from its swarm project (pool version, no transaction).
+    pub async fn unlink_from_swarm_pool(
+        pool: &PgPool,
+        node_id: Uuid,
+        local_project_id: Uuid,
+    ) -> Result<(), NodeLocalProjectError> {
+        let result = sqlx::query(
+            r#"
+            UPDATE node_local_projects
+            SET swarm_project_id = NULL
+            WHERE node_id = $1 AND local_project_id = $2
+            "#,
+        )
+        .bind(node_id)
+        .bind(local_project_id)
+        .execute(pool)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(NodeLocalProjectError::NotFound);
+        }
+
+        Ok(())
+    }
+
     /// Delete stale projects that haven't been seen in the specified duration.
     ///
     /// Only deletes projects from online nodes (if the node is offline, the project
@@ -324,5 +349,56 @@ impl NodeLocalProjectRepository {
         .await?;
 
         Ok(result.rows_affected())
+    }
+
+    /// Link a local project to a swarm project (pool version for non-transaction use).
+    ///
+    /// If the node_local_projects record doesn't exist, creates it with the swarm_project_id.
+    /// If it exists, updates the swarm_project_id.
+    pub async fn link_to_swarm_with_upsert(
+        pool: &PgPool,
+        node_id: Uuid,
+        local_project_id: Uuid,
+        swarm_project_id: Uuid,
+        git_repo_path: &str,
+        default_branch: &str,
+    ) -> Result<NodeLocalProject, NodeLocalProjectError> {
+        // Extract project name from git_repo_path (last component)
+        let name = git_repo_path
+            .trim_end_matches(['/', '\\'])
+            .rsplit(['/', '\\'])
+            .next()
+            .unwrap_or(git_repo_path)
+            .to_string();
+
+        let record = sqlx::query_as::<_, NodeLocalProject>(
+            r#"
+            INSERT INTO node_local_projects (
+                node_id,
+                local_project_id,
+                name,
+                git_repo_path,
+                default_branch,
+                swarm_project_id,
+                last_seen_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, NOW())
+            ON CONFLICT (node_id, local_project_id)
+            DO UPDATE SET
+                swarm_project_id = EXCLUDED.swarm_project_id,
+                last_seen_at = NOW()
+            RETURNING *
+            "#,
+        )
+        .bind(node_id)
+        .bind(local_project_id)
+        .bind(name)
+        .bind(git_repo_path)
+        .bind(default_branch)
+        .bind(swarm_project_id)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(record)
     }
 }
