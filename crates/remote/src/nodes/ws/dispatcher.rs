@@ -25,16 +25,24 @@ impl TaskDispatcher {
         Self { pool, connections }
     }
 
-    /// Assign a task to a node.
+    /// Assigns a task to the first connected node linked to a swarm project.
     ///
-    /// This will:
-    /// 1. Find the first connected node linked to the swarm project
-    /// 2. Create a task assignment record
-    /// 3. Send the assignment to the node via WebSocket
+    /// On success returns an AssignResult containing the created assignment ID and the node ID; on failure returns a DispatchError.
     ///
-    /// Note: This method delegates to `find_connected_node` + `assign_task_to_node`
-    /// for consistency. Use `assign_task_to_node` directly if you need to pre-select
-    /// a node (e.g., to get its default_branch for TaskDetails).
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use uuid::Uuid;
+    /// # use crate::nodes::ws::{TaskDispatcher, TaskDetails};
+    /// # async fn example(dispatcher: &TaskDispatcher) -> Result<(), Box<dyn std::error::Error>> {
+    /// let task_id = Uuid::new_v4();
+    /// let swarm_project_id = Uuid::new_v4();
+    /// let details = TaskDetails::default();
+    /// let result = dispatcher.assign_task(task_id, swarm_project_id, details).await?;
+    /// println!("assignment {} sent to node {}", result.assignment_id, result.node_id);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn assign_task(
         &self,
         task_id: Uuid,
@@ -55,15 +63,22 @@ impl TaskDispatcher {
         Ok(result)
     }
 
-    /// Assign a task to a specific pre-selected node.
+    /// Assigns a task to a previously selected node and dispatches the assignment message.
     ///
-    /// Use this after `find_connected_node` to ensure the same node is used
-    /// for both branch selection and task dispatch, avoiding drift.
+    /// Use this after `find_connected_node` to ensure the same node chosen for selection is used for dispatch.
+    /// This verifies the node is still connected, records the assignment in storage, and sends a task-assign
+    /// message to the node.
     ///
-    /// This will:
-    /// 1. Verify the node is still connected
-    /// 2. Create a task assignment record
-    /// 3. Send the assignment to the node via WebSocket
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use uuid::Uuid;
+    /// # async fn example(dispatcher: &crate::nodes::ws::TaskDispatcher, node: &crate::db::swarm_projects::SwarmProjectNodeForDispatch) {
+    /// let task_id = Uuid::new_v4();
+    /// let details = crate::nodes::ws::TaskDetails { /* fields omitted */ };
+    /// let result = dispatcher.assign_task_to_node(task_id, node, details).await;
+    /// # }
+    /// ```
     pub async fn assign_task_to_node(
         &self,
         task_id: Uuid,
@@ -111,10 +126,26 @@ impl TaskDispatcher {
         })
     }
 
-    /// Find the first connected node for a swarm project.
+    /// Finds the first connected node linked to the given swarm project.
     ///
-    /// Returns the node info including default_branch. Use this to get the
-    /// correct branch before constructing TaskDetails.
+    /// Looks up nodes associated with `swarm_project_id` and returns the first one that is currently connected.
+    ///
+    /// # Returns
+    ///
+    /// A `SwarmProjectNodeForDispatch` for a connected node, or a `DispatchError` if no nodes exist for the project,
+    /// none are currently connected, or a node-service operation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use uuid::Uuid;
+    /// # async fn example(dispatcher: &crate::nodes::ws::dispatcher::TaskDispatcher) -> Result<(), ()> {
+    /// let swarm_project_id = Uuid::new_v4();
+    /// let node = dispatcher.find_connected_node(swarm_project_id).await?;
+    /// // use `node.default_branch` before constructing TaskDetails
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn find_connected_node(
         &self,
         swarm_project_id: Uuid,
@@ -165,7 +196,24 @@ impl TaskDispatcher {
         Ok(())
     }
 
-    /// Find an available node for a project and assign the task.
+    /// Finds an available node in the given organization, creates an assignment for `task_id` using the node's first swarm project link, and dispatches the task to that node.
+    ///
+    /// On success returns an `AssignResult` containing the created assignment ID and the node ID. On failure returns an appropriate `DispatchError`.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use uuid::Uuid;
+    /// # use crate::nodes::ws::dispatcher::TaskDispatcher;
+    /// # use crate::nodes::ws::dispatcher::AssignResult;
+    /// # async fn example(dispatcher: &TaskDispatcher) {
+    /// let task_id = Uuid::new_v4();
+    /// let organization_id = Uuid::new_v4();
+    /// let task_details = /* TaskDetails value */;
+    /// let res = dispatcher.dispatch_to_available_node(task_id, organization_id, task_details).await;
+    /// assert!(res.is_ok());
+    /// # }
+    /// ```
     pub async fn dispatch_to_available_node(
         &self,
         task_id: Uuid,

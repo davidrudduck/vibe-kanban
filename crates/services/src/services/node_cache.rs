@@ -206,8 +206,27 @@ impl<'a> NodeCacheSyncer<'a> {
         Ok(stats)
     }
 
-    /// Sync projects for a specific node into the unified projects table.
-    /// Only syncs projects that are linked to a swarm project - unlinked projects stay local.
+    /// Syncs swarm-linked projects for a single node into the unified projects table.
+    ///
+    /// Only projects that are linked to a swarm project are synchronized; local-only (unlinked)
+    /// projects are left unchanged. For each linked project this updates existing records
+    /// (link or sync status) or inserts a new remote project mapping tied to this node.
+    /// After processing, remote projects that are no longer present for the node are removed.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(synced_count, removed_count)` where `synced_count` is the number of projects
+    /// that were inserted or had their sync information updated, and `removed_count` is the
+    /// number of stale remote projects deleted for this node.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Construct a NodeCacheSyncer and a Node, then call:
+    /// let res = syncer.sync_node_projects(&node).await?;
+    /// let (synced, removed) = res;
+    /// println!("synced: {}, removed: {}", synced, removed);
+    /// ```
     async fn sync_node_projects(&self, node: &Node) -> Result<(usize, usize), NodeCacheSyncError> {
         // Only fetch projects that are linked to a swarm project.
         // Unlinked projects are local-only and should not sync to other nodes.
