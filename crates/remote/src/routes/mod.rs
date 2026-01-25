@@ -99,6 +99,10 @@ pub fn router(state: AppState) -> Router {
             require_session,
         ));
 
+    // Node sync routes that accept either OAuth JWT or API key auth
+    // These are used by nodes for background sync operations without requiring user login
+    let v1_node_sync = nodes::node_sync_router(state.clone());
+
     let static_dir = "/srv/static";
     let spa =
         ServeDir::new(static_dir).fallback(ServeFile::new(format!("{static_dir}/index.html")));
@@ -106,6 +110,7 @@ pub fn router(state: AppState) -> Router {
     Router::<AppState>::new()
         .nest("/v1", v1_public)
         .nest("/v1", v1_protected)
+        .nest("/v1", v1_node_sync)
         .fallback_service(spa)
         .layer(CorsLayer::permissive())
         .layer(trace_layer)
