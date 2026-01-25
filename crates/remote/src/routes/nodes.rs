@@ -11,7 +11,7 @@ use serde_json::json;
 use tracing::{Span, instrument};
 use uuid::Uuid;
 
-use super::organization_members::ensure_member_access;
+use super::organization_members::{ensure_member_access, ensure_project_access};
 use crate::{
     AppState,
     auth::{AuthContext, RequestContext, require_session_or_node_api_key},
@@ -44,7 +44,7 @@ pub fn api_key_router() -> Router<AppState> {
     Router::new()
         .route("/nodes/register", post(register_node))
         .route("/nodes/{node_id}/heartbeat", post(heartbeat))
-        // Legacy project linking endpoints removed - use WebSocket LinkProject/UnlinkProject messages instead
+    // Legacy project linking endpoints removed - use WebSocket LinkProject/UnlinkProject messages instead
 }
 
 /// Routes that require user JWT authentication
@@ -94,6 +94,8 @@ pub fn node_sync_router(state: AppState) -> Router<AppState> {
             "/nodes/{node_id}/projects/linked",
             get(list_linked_node_projects_sync),
         )
+        // Task sync endpoint for nodes - needed for syncing remote project tasks
+        .route("/nodes/tasks/bulk", get(bulk_tasks_for_node_sync))
         .layer(middleware::from_fn_with_state(
             state,
             require_session_or_node_api_key,
@@ -527,10 +529,7 @@ pub struct ListNodesSyncQuery {
 /// Accepts either OAuth JWT (user auth) or API key (node auth).
 /// - For user auth: organization_id query param is required
 /// - For node auth: uses the API key's organization (query param optional)
-#[instrument(
-    name = "nodes.list_sync",
-    skip(state, auth_ctx, query),
-)]
+#[instrument(name = "nodes.list_sync", skip(state, auth_ctx, query))]
 pub async fn list_nodes_sync(
     State(state): State<AppState>,
     Extension(auth_ctx): Extension<AuthContext>,
@@ -615,7 +614,9 @@ pub async fn list_node_projects_sync(
     // Verify access based on auth type
     match &auth_ctx {
         AuthContext::User(user_ctx) => {
-            if let Err(error) = ensure_member_access(pool, node.organization_id, user_ctx.user.id).await {
+            if let Err(error) =
+                ensure_member_access(pool, node.organization_id, user_ctx.user.id).await
+            {
                 return error.into_response();
             }
         }
@@ -669,7 +670,9 @@ pub async fn list_linked_node_projects_sync(
     // Verify access based on auth type
     match &auth_ctx {
         AuthContext::User(user_ctx) => {
-            if let Err(error) = ensure_member_access(pool, node.organization_id, user_ctx.user.id).await {
+            if let Err(error) =
+                ensure_member_access(pool, node.organization_id, user_ctx.user.id).await
+            {
                 return error.into_response();
             }
         }
@@ -688,6 +691,129 @@ pub async fn list_linked_node_projects_sync(
     match service.list_linked_node_projects(node_id).await {
         Ok(projects) => (StatusCode::OK, Json(projects)).into_response(),
         Err(error) => node_error_response(error, "failed to list linked node projects"),
+    }
+}
+
+// ============================================================================
+// Bulk Task Sync (Dual Auth: User JWT or Node API Key)
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct BulkTasksSyncQuery {
+    pub project_id: Uuid,
+}
+
+/// Response for bulk task sync operations.
+/// Same format as the user-facing `/tasks/bulk` endpoint.
+#[derive(Debug, Serialize)]
+pub struct BulkSharedTasksSyncResponse {
+    pub tasks: Vec<crate::db::tasks::SharedTaskActivityPayload>,
+    pub deleted_task_ids: Vec<Uuid>,
+    pub latest_seq: Option<i64>,
+}
+
+/// Fetch tasks in bulk for node sync operations.
+///
+/// This endpoint is used by nodes to sync tasks for remote projects. It accepts:
+/// - User OAuth tokens (for user-initiated sync)
+/// - Node API keys (for background sync operations without user login)
+///
+/// Access control:
+/// - For user auth: user must be a member of the project's organization
+/// - For node auth: project must belong to the node's organization
+#[instrument(
+    name = "nodes.bulk_tasks_sync",
+    skip(state, auth_ctx, query),
+    fields(project_id = %query.project_id, org_id = tracing::field::Empty)
+)]
+pub async fn bulk_tasks_for_node_sync(
+    State(state): State<AppState>,
+    Extension(auth_ctx): Extension<AuthContext>,
+    Query(query): Query<BulkTasksSyncQuery>,
+) -> Response {
+    use crate::db::tasks::{SharedTaskError, SharedTaskRepository};
+    use tracing::Span;
+
+    let pool = state.pool();
+
+    // Verify access based on auth type
+    let _organization_id = match &auth_ctx {
+        AuthContext::User(user_ctx) => {
+            // User auth: use standard project access check
+            match ensure_project_access(pool, user_ctx.user.id, query.project_id).await {
+                Ok(org_id) => {
+                    Span::current().record("org_id", format_args!("{org_id}"));
+                    org_id
+                }
+                Err(error) => return error.into_response(),
+            }
+        }
+        AuthContext::Node(node_ctx) => {
+            // Node auth: verify project belongs to node's organization
+            let org_id = match SwarmProjectRepository::organization_id(pool, query.project_id).await
+            {
+                Ok(Some(org_id)) => org_id,
+                Ok(None) => {
+                    return (
+                        StatusCode::NOT_FOUND,
+                        Json(json!({ "error": "project not found" })),
+                    )
+                        .into_response();
+                }
+                Err(e) => {
+                    tracing::error!(?e, "failed to lookup project organization");
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "error": "internal server error" })),
+                    )
+                        .into_response();
+                }
+            };
+
+            // Verify project belongs to node's organization
+            if org_id != node_ctx.organization_id {
+                return (
+                    StatusCode::FORBIDDEN,
+                    Json(json!({ "error": "project belongs to different organization" })),
+                )
+                    .into_response();
+            }
+
+            Span::current().record("org_id", format_args!("{org_id}"));
+            org_id
+        }
+    };
+
+    // Fetch tasks using the same method as the user-facing endpoint
+    let repo = SharedTaskRepository::new(pool);
+    match repo.bulk_fetch(query.project_id).await {
+        Ok(snapshot) => (
+            StatusCode::OK,
+            Json(BulkSharedTasksSyncResponse {
+                tasks: snapshot.tasks,
+                deleted_task_ids: snapshot.deleted_task_ids,
+                latest_seq: snapshot.latest_seq,
+            }),
+        )
+            .into_response(),
+        Err(error) => match error {
+            SharedTaskError::Database(err) => {
+                tracing::error!(?err, "failed to load shared task snapshot");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": "failed to load shared tasks" })),
+                )
+                    .into_response()
+            }
+            other => {
+                tracing::error!(?other, "failed to load shared task snapshot");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": "failed to load shared tasks" })),
+                )
+                    .into_response()
+            }
+        },
     }
 }
 

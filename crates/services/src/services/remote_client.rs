@@ -7,9 +7,7 @@ use chrono::Duration as ChronoDuration;
 use remote::{
     activity::ActivityResponse,
     db::swarm_projects::SwarmProjectNode,
-    nodes::{
-        Node, NodeApiKey, NodeExecutionProcess, NodeLocalProjectInfo, NodeTaskAttempt,
-    },
+    nodes::{Node, NodeApiKey, NodeExecutionProcess, NodeLocalProjectInfo, NodeTaskAttempt},
     routes::{
         labels::{SetTaskLabelsRequest, TaskLabelsResponse},
         projects::ListProjectNodesResponse,
@@ -750,11 +748,14 @@ impl RemoteClient {
     }
 
     /// Fetches bulk snapshot of shared tasks for a project.
+    ///
+    /// Uses the `/v1/nodes/tasks/bulk` endpoint which accepts both OAuth and API key auth,
+    /// allowing nodes to sync tasks without requiring user login.
     pub async fn fetch_bulk_snapshot(
         &self,
         project_id: Uuid,
     ) -> Result<BulkSharedTasksResponse, RemoteClientError> {
-        self.get_authed(&format!("/v1/tasks/bulk?project_id={project_id}"))
+        self.get_authed(&format!("/v1/nodes/tasks/bulk?project_id={project_id}"))
             .await
     }
 
