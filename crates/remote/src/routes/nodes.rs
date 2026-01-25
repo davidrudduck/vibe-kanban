@@ -560,8 +560,18 @@ pub async fn list_nodes_sync(
             org_id
         }
         AuthContext::Node(node_ctx) => {
-            // Node auth: use API key's organization (or query param if provided)
-            query.organization_id.unwrap_or(node_ctx.organization_id)
+            // Node auth: use API key's organization
+            // If organization_id is provided, verify it matches the API key's org
+            match query.organization_id {
+                Some(org_id) if org_id != node_ctx.organization_id => {
+                    return (
+                        StatusCode::FORBIDDEN,
+                        Json(json!({ "error": "Cannot access nodes from different organization" })),
+                    )
+                        .into_response();
+                }
+                _ => node_ctx.organization_id,
+            }
         }
     };
 
