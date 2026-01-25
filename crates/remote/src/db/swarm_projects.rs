@@ -797,6 +797,18 @@ impl SwarmProjectRepository {
 
         Ok(result)
     }
+
+    /// Check if a swarm project exists by ID.
+    pub async fn exists(pool: &PgPool, id: Uuid) -> Result<bool, SwarmProjectError> {
+        let result = sqlx::query_scalar::<_, bool>(
+            r#"SELECT EXISTS(SELECT 1 FROM swarm_projects WHERE id = $1)"#,
+        )
+        .bind(id)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(result)
+    }
 }
 
 /// Info about a swarm project link for auth response.
