@@ -873,9 +873,26 @@ async fn handle_link_project(
         is_new: true,
     });
 
-    let failed = connections
-        .broadcast_to_org_except(organization_id, node_id, sync_msg)
-        .await;
+    // Only broadcast to nodes that are linked to the same swarm project
+    let linked_nodes = SwarmProjectRepository::get_linked_node_ids(pool, swarm_project_id)
+        .await
+        .map_err(|e| HandleError::Database(e.to_string()))?;
+
+    let target_nodes: Vec<_> = linked_nodes
+        .into_iter()
+        .filter(|&id| id != node_id)
+        .collect();
+
+    if target_nodes.is_empty() {
+        tracing::debug!(
+            node_id = %node_id,
+            swarm_project_id = %swarm_project_id,
+            "no other nodes linked to swarm project, skipping broadcast"
+        );
+        return Ok(());
+    }
+
+    let failed = connections.send_to_nodes(&target_nodes, sync_msg).await;
 
     if !failed.is_empty() {
         tracing::warn!(
@@ -910,7 +927,7 @@ async fn handle_link_project(
 /// ```
 async fn handle_unlink_project(
     node_id: Uuid,
-    organization_id: Uuid,
+    _organization_id: Uuid,
     unlink: &UnlinkProjectMessage,
     pool: &PgPool,
     connections: &ConnectionManager,
@@ -993,17 +1010,29 @@ async fn handle_unlink_project(
             is_new: false, // false indicates removal
         });
 
-        let failed = connections
-            .broadcast_to_org_except(organization_id, node_id, sync_msg)
-            .await;
+        // Only broadcast to nodes that are still linked to this swarm project
+        // (the unlinking node was already removed at this point)
+        let linked_nodes = SwarmProjectRepository::get_linked_node_ids(pool, swarm_project_id)
+            .await
+            .unwrap_or_default();
 
-        if !failed.is_empty() {
-            tracing::warn!(
+        if linked_nodes.is_empty() {
+            tracing::debug!(
                 node_id = %node_id,
                 swarm_project_id = %swarm_project_id,
-                failed_count = failed.len(),
-                "failed to broadcast project unlink to some nodes"
+                "no other nodes linked to swarm project, skipping unlink broadcast"
             );
+        } else {
+            let failed = connections.send_to_nodes(&linked_nodes, sync_msg).await;
+
+            if !failed.is_empty() {
+                tracing::warn!(
+                    node_id = %node_id,
+                    swarm_project_id = %swarm_project_id,
+                    failed_count = failed.len(),
+                    "failed to broadcast project unlink to some nodes"
+                );
+            }
         }
     }
 
@@ -1633,20 +1662,22 @@ async fn handle_projects_sync(
     Ok(())
 }
 
-/// Broadcast a node's owned projects to all other nodes in the organization.
+/// Broadcast a node's owned projects to other nodes linked to the same swarm projects.
 ///
 /// This is called when a node connects to notify other nodes about the newly
 /// connected node's available projects. Only projects owned by this node
-/// (is_owned == true) are broadcast.
+/// (is_owned == true) are broadcast, and only to nodes linked to the same swarm project.
 async fn broadcast_node_projects(
     node_id: Uuid,
-    organization_id: Uuid,
+    _organization_id: Uuid,
     node_name: &str,
     node_public_url: Option<&str>,
     linked_projects: &[LinkedProjectInfo],
-    _pool: &PgPool,
+    pool: &PgPool,
     connections: &ConnectionManager,
 ) {
+    use crate::db::swarm_projects::SwarmProjectRepository;
+
     // Only broadcast projects owned by this node
     let owned_projects: Vec<_> = linked_projects.iter().filter(|p| p.is_owned).collect();
 
@@ -1654,7 +1685,38 @@ async fn broadcast_node_projects(
         return;
     }
 
+    let mut broadcast_count = 0;
+
     for project_info in &owned_projects {
+        // Get nodes linked to this swarm project (project_id is swarm_project_id)
+        let linked_nodes = match SwarmProjectRepository::get_linked_node_ids(pool, project_info.project_id).await {
+            Ok(nodes) => nodes,
+            Err(e) => {
+                tracing::warn!(
+                    node_id = %node_id,
+                    project_id = %project_info.project_id,
+                    error = ?e,
+                    "failed to get linked nodes for project, skipping broadcast"
+                );
+                continue;
+            }
+        };
+
+        // Filter out the current node
+        let target_nodes: Vec<_> = linked_nodes
+            .into_iter()
+            .filter(|&id| id != node_id)
+            .collect();
+
+        if target_nodes.is_empty() {
+            tracing::debug!(
+                node_id = %node_id,
+                project_id = %project_info.project_id,
+                "no other nodes linked to swarm project, skipping broadcast"
+            );
+            continue;
+        }
+
         let sync_msg = HiveMessage::ProjectSync(ProjectSyncMessage {
             message_id: Uuid::new_v4(),
             link_id: project_info.link_id,
@@ -1669,9 +1731,8 @@ async fn broadcast_node_projects(
             is_new: true,
         });
 
-        let failed = connections
-            .broadcast_to_org_except(organization_id, node_id, sync_msg)
-            .await;
+        let failed = connections.send_to_nodes(&target_nodes, sync_msg).await;
+        broadcast_count += 1;
 
         if !failed.is_empty() {
             tracing::warn!(
@@ -1686,7 +1747,8 @@ async fn broadcast_node_projects(
     tracing::info!(
         node_id = %node_id,
         owned_project_count = owned_projects.len(),
-        "broadcast node's owned projects to organization"
+        broadcast_count = broadcast_count,
+        "broadcast node's owned projects to linked nodes"
     );
 }
 
