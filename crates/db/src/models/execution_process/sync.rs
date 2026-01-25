@@ -15,7 +15,8 @@ impl ExecutionProcess {
         sqlx::query_as::<_, ExecutionProcess>(
             r#"SELECT ep.id, ep.task_attempt_id, ep.run_reason, ep.executor_action, ep.before_head_commit,
                       ep.after_head_commit, ep.status, ep.exit_code, ep.dropped, ep.pid, ep.started_at, ep.completed_at,
-                      ep.created_at, ep.updated_at, ep.hive_synced_at
+                      ep.created_at, ep.updated_at, ep.hive_synced_at, ep.server_instance_id,
+                      ep.completion_reason, ep.completion_message
                FROM execution_processes ep
                INNER JOIN task_attempts ta ON ep.task_attempt_id = ta.id
                WHERE ep.hive_synced_at IS NULL
