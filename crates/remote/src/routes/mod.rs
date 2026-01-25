@@ -32,12 +32,13 @@ pub mod swarm_templates;
 pub mod tasks;
 mod tokens;
 
-/// Builds the application Router with public and protected v1 API routes, middleware (CORS, tracing, request-id propagation and generation), session enforcement for protected routes, and a single-page-app static-file fallback.
+/// Builds the application router configured with v1 public, protected, and node-sync routes, middleware, and a single-page-app static-file fallback.
 ///
-/// The returned Router is configured for the given AppState and mounts:
+/// The router mounts:
 /// - public v1 endpoints (health, oauth, public tokens, nodes API key endpoints, relay, etc.)
-/// - protected v1 endpoints guarded by a session requirement middleware
-/// - HTTP tracing, permissive CORS, request-id propagation and generation
+/// - protected v1 endpoints guarded by a session requirement
+/// - node sync routes that accept OAuth JWT or API key authentication
+/// - permissive CORS, HTTP tracing, and request-id propagation/generation
 /// - a ServeDir fallback that serves the SPA index.html from /srv/static
 ///
 /// # Examples
@@ -46,7 +47,6 @@ mod tokens;
 /// use crate::routes::router;
 /// use crate::AppState;
 ///
-/// // Provide an AppState value (placeholder here).
 /// let state: AppState = unimplemented!();
 /// let app_router = router(state);
 /// ```

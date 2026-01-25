@@ -61,6 +61,25 @@ impl AuthContext {
     /// For node auth, this is the API key's organization.
     /// For user auth, this must be determined from the request parameters.
     #[allow(dead_code)] // Reserved for future use
+    /// Retrieve the organization ID when the authentication context represents a node.
+    ///
+    /// # Returns
+    ///
+    /// `Some(Uuid)` containing the organization ID for `AuthContext::Node`, `None` for `AuthContext::User`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use uuid::Uuid;
+    ///
+    /// let org = Uuid::new_v4();
+    /// let node_ctx = NodeAuthContext { organization_id: org, node_id: None, api_key_id: Uuid::new_v4() };
+    /// let ctx = AuthContext::Node(node_ctx);
+    /// assert_eq!(ctx.node_organization_id(), Some(org));
+    ///
+    /// let user_ctx = AuthContext::User(RequestContext { /* fields omitted for brevity */ user: todo!(), session_id: Uuid::new_v4(), access_token_expires_at: chrono::Utc::now() });
+    /// assert_eq!(user_ctx.node_organization_id(), None);
+    /// ```
     pub fn node_organization_id(&self) -> Option<Uuid> {
         match self {
             AuthContext::Node(ctx) => Some(ctx.organization_id),
@@ -69,6 +88,23 @@ impl AuthContext {
     }
 }
 
+/// Enforces a valid user session from an OAuth bearer token and inserts a `RequestContext` into the request extensions.
+///
+/// On success, forwards the request to the next handler and returns that handler's `Response`.
+/// On failure, returns an HTTP `401 Unauthorized` for invalid or expired sessions (including revoked or missing session/user)
+/// or `500 Internal Server Error` for database errors encountered while loading session or user.
+///
+/// # Examples
+///
+/// ```no_run
+/// use axum::{Router, routing::get};
+/// use crate::auth::middleware::require_session;
+///
+/// // Mount the middleware on a route so handlers receive an authenticated RequestContext.
+/// let app = Router::new()
+///     .route("/", get(|| async { "ok" }))
+///     .layer(axum::middleware::from_fn(require_session));
+/// ```
 pub async fn require_session(
     State(state): State<AppState>,
     mut req: Request<Body>,
@@ -153,14 +189,23 @@ pub async fn require_session(
     next.run(req).await
 }
 
-/// Middleware that accepts either OAuth JWT (user session) or API key (node sync).
+/// Authenticate the incoming request using either a user OAuth session or a node API key and inject the appropriate auth context into request extensions.
 ///
-/// This is used for node sync endpoints that need to work both:
-/// - When a user is logged in (for UI-initiated operations)
-/// - When only a node API key is available (for background sync operations)
+/// When a valid user session is presented, inserts a `RequestContext` (for legacy compatibility) and `AuthContext::User`. If user session validation fails or is not applicable, attempts API-key authentication and, on success, inserts `AuthContext::Node`.
 ///
-/// The middleware inserts an `AuthContext` enum that handlers can match on.
-/// It also inserts `RequestContext` for user auth (for backwards compatibility).
+/// Returns an HTTP response produced by the next middleware/handler on success, or an appropriate `401`/`500` response for authentication or internal errors.
+///
+/// # Examples
+///
+/// ```no_run
+/// // Typical usage is as a tower/http middleware handler. This sketch demonstrates the call shape.
+/// # use http::Request;
+/// # use hyper::Body;
+/// # use tower::ServiceExt;
+/// # async fn example_call(state: crate::AppState, req: Request<Body>, next: crate::Next) {
+/// let _resp = crate::auth::require_session_or_node_api_key(state.into(), req, next).await;
+/// # }
+/// ```
 pub async fn require_session_or_node_api_key(
     State(state): State<AppState>,
     mut req: Request<Body>,
@@ -248,7 +293,31 @@ pub async fn require_session_or_node_api_key(
     try_api_key_auth(state, req, &bearer, next).await
 }
 
-/// Helper function to validate API key authentication.
+/// Authenticate a request using a raw API key and attach node authentication context on success.
+///
+/// On successful validation, inserts `AuthContext::Node` and a `NodeAuthContext` into the request
+/// extensions and forwards the request to the next handler. If validation fails, returns a
+/// `401 Unauthorized` response.
+///
+/// # Examples
+///
+/// ```
+/// # use axum::http::Request;
+/// # use axum::body::Body;
+/// # use axum::response::Response;
+/// # use axum::middleware::Next;
+/// # use uuid::Uuid;
+/// # async fn example_call(
+/// #     state: crate::AppState,
+/// #     req: Request<Body>,
+/// #     next: Next,
+/// # ) -> Response {
+/// let raw_key = "api_key_string";
+/// // try_api_key_auth returns a response that either continues the chain or is 401
+/// let resp = crate::auth::middleware::try_api_key_auth(state, req, raw_key, next).await;
+/// resp
+/// # }
+/// ```
 async fn try_api_key_auth(
     state: AppState,
     mut req: Request<Body>,
