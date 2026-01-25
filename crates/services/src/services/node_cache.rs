@@ -242,9 +242,7 @@ impl<'a> NodeCacheSyncer<'a> {
         let mut synced_remote_project_ids = Vec::with_capacity(projects.len());
 
         for project in projects {
-            synced_remote_project_ids.push(project.swarm_project_id);
-
-            // Convert node status to string for storage (needed for both update and insert paths)
+            // Convert node status to string for storage
             let node_status_str = match node.status {
                 remote::nodes::NodeStatus::Pending => "pending",
                 remote::nodes::NodeStatus::Online => "online",
@@ -254,70 +252,21 @@ impl<'a> NodeCacheSyncer<'a> {
             }
             .to_string();
 
-            // Check if ANY project already exists with this git_repo_path.
-            // This handles:
-            // 1. A node shares the same repo path as a local project
-            // 2. Multiple remote nodes have the same repo path (e.g., same repo cloned on different machines)
-            // 3. Existing remote projects that need their remote_project_id updated
+            // Check if a LOCAL project exists at this path.
+            // Local projects take precedence - they have actual file access, while
+            // remote project paths are informational (files live on the source node).
+            // Note: find_by_git_repo_path only returns local projects (is_remote = 0)
             if let Some(existing) =
                 Project::find_by_git_repo_path(self.pool, &project.git_repo_path)
                     .await
                     .map_err(NodeCacheSyncError::Database)?
             {
-                if !existing.is_remote {
-                    debug!(
-                        git_repo_path = %project.git_repo_path,
-                        remote_project_id = %project.swarm_project_id,
-                        local_project_id = %existing.id,
-                        "skipping remote project upsert - local project exists with same path"
-                    );
-                } else if existing.remote_project_id.is_none() {
-                    // Existing remote project without remote_project_id - update it!
-                    // This fixes legacy data that was synced before remote_project_id was properly set.
-                    if let Err(e) = Project::update_remote_project_link(
-                        self.pool,
-                        existing.id,
-                        project.swarm_project_id,
-                        Some(node_status_str.clone()),
-                    )
-                    .await
-                    {
-                        warn!(
-                            existing_id = %existing.id,
-                            remote_project_id = %project.swarm_project_id,
-                            error = %e,
-                            "failed to update remote_project_id on existing project"
-                        );
-                    } else {
-                        debug!(
-                            existing_id = %existing.id,
-                            remote_project_id = %project.swarm_project_id,
-                            "updated remote_project_id on existing remote project"
-                        );
-                    }
-                } else {
-                    // Already has remote_project_id, just update the status
-                    if let Err(e) = Project::update_remote_sync_status(
-                        self.pool,
-                        existing.id,
-                        Some(node_status_str.clone()),
-                    )
-                    .await
-                    {
-                        warn!(
-                            existing_id = %existing.id,
-                            error = %e,
-                            "failed to update sync status on existing project"
-                        );
-                    }
-                    debug!(
-                        git_repo_path = %project.git_repo_path,
-                        remote_project_id = %project.swarm_project_id,
-                        existing_remote_project_id = ?existing.remote_project_id,
-                        existing_source_node_id = ?existing.source_node_id,
-                        "updated sync status - path already synced from another node"
-                    );
-                }
+                debug!(
+                    git_repo_path = %project.git_repo_path,
+                    remote_project_id = %project.swarm_project_id,
+                    local_project_id = %existing.id,
+                    "skipping remote project sync - local project exists with same path"
+                );
                 synced_count += 1;
                 continue;
             }
@@ -329,6 +278,11 @@ impl<'a> NodeCacheSyncer<'a> {
                 .unwrap_or("Unknown")
                 .to_string();
 
+            // Upsert the remote project.
+            // - ON CONFLICT(remote_project_id) handles re-syncing the same swarm project
+            // - The (git_repo_path, source_node_id) unique constraint allows multiple
+            //   nodes to have projects at the same path (e.g., /home/david/Code/repo
+            //   exists on both Node A and Node B)
             match Project::upsert_remote_project(
                 self.pool,
                 Uuid::new_v4(), // local_id for new projects
@@ -349,6 +303,11 @@ impl<'a> NodeCacheSyncer<'a> {
                         source_node_id = ?cached.source_node_id,
                         "successfully synced remote project to unified table"
                     );
+                    // Only add to synced list after successful upsert.
+                    // This ensures stale remote entries are cleaned up when:
+                    // 1. A local project now exists at the same path
+                    // 2. The remote project was removed from the hive
+                    synced_remote_project_ids.push(project.swarm_project_id);
                     synced_count += 1;
                 }
                 Err(e) => {
