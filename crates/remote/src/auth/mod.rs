@@ -8,9 +8,7 @@ mod provider;
 pub use connection_token::{ConnectionTokenError, ConnectionTokenService};
 pub use handoff::{CallbackResult, HandoffError, OAuthHandoffService};
 pub use jwt::{JwtError, JwtService};
-pub use middleware::{
-    AuthContext, RequestContext, require_session, require_session_or_node_api_key,
-};
+pub use middleware::{NodeAuthContext, RequestContext, require_node_api_key, require_session};
 pub use oauth_token_validator::{OAuthTokenValidationError, OAuthTokenValidator};
 pub use provider::{
     GitHubOAuthProvider, GoogleOAuthProvider, ProviderRegistry, ProviderTokenDetails,
