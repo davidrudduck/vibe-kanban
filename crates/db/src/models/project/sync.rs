@@ -199,9 +199,12 @@ impl Project {
 
     /// Create or update a remote project synced from the Hive.
     ///
-    /// If a project with the same `git_repo_path` already exists (local or remote),
-    /// returns that project instead of inserting to avoid UNIQUE constraint violations.
-    /// This handles the case where multiple nodes have the same repo path.
+    /// The function uses a two-tier conflict resolution:
+    /// 1. If a LOCAL project exists at the same path, return it (local takes precedence
+    ///    since it has actual file access; remote paths are informational)
+    /// 2. Multiple remote projects can share the same path from different nodes
+    ///    (e.g., /home/david/Code/repo exists on both Node A and Node B)
+    /// 3. ON CONFLICT(remote_project_id) handles updates when re-syncing the same swarm project
     #[allow(clippy::too_many_arguments)]
     pub async fn upsert_remote_project(
         pool: &SqlitePool,
@@ -214,15 +217,14 @@ impl Project {
         source_node_public_url: Option<String>,
         source_node_status: Option<String>,
     ) -> Result<Self, sqlx::Error> {
-        // Check if a project with this git_repo_path already exists.
-        // This prevents UNIQUE constraint violations when multiple nodes
-        // have the same repo path (e.g., same repo cloned on different machines).
+        // Check if a LOCAL project exists at this path.
+        // Local projects take precedence because they have actual file access.
+        // Remote project paths are informational (files live on the source node).
         if let Some(existing) = Self::find_by_git_repo_path(pool, &git_repo_path).await? {
-            // Only skip if it's a DIFFERENT remote project.
-            // If same remote_project_id, allow the update to proceed.
-            if existing.remote_project_id != Some(remote_project_id) {
-                return Ok(existing);
-            }
+            // find_by_git_repo_path only returns local projects (is_remote = 0)
+            // Return the local project - we don't create remote entries for paths
+            // that are already managed locally.
+            return Ok(existing);
         }
 
         let now = Utc::now();
@@ -663,5 +665,314 @@ mod tests {
             .await
             .unwrap();
         assert!(not_found.is_none());
+    }
+
+    // ========================================================================
+    // Phase 3 Tests: Multi-node path collision handling
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_multiple_remote_projects_same_path_different_nodes() {
+        let (pool, _temp_dir) = create_test_pool().await;
+
+        let node_a = Uuid::new_v4();
+        let node_b = Uuid::new_v4();
+        let swarm_project_a = Uuid::new_v4();
+        let swarm_project_b = Uuid::new_v4();
+        let shared_path = "/home/david/Code/Shohin";
+
+        // Node A syncs a project at /home/david/Code/Shohin
+        let project_a = Project::upsert_remote_project(
+            &pool,
+            Uuid::new_v4(),
+            swarm_project_a,
+            "Shohin (Node A)".to_string(),
+            shared_path.to_string(),
+            node_a,
+            "Node A".to_string(),
+            None,
+            Some("online".to_string()),
+        )
+        .await
+        .unwrap();
+
+        assert!(project_a.is_remote);
+        assert_eq!(project_a.source_node_id, Some(node_a));
+
+        // Node B syncs a different swarm project at the SAME path
+        let project_b = Project::upsert_remote_project(
+            &pool,
+            Uuid::new_v4(),
+            swarm_project_b,
+            "Shohin (Node B)".to_string(),
+            shared_path.to_string(),
+            node_b,
+            "Node B".to_string(),
+            None,
+            Some("online".to_string()),
+        )
+        .await
+        .unwrap();
+
+        assert!(project_b.is_remote);
+        assert_eq!(project_b.source_node_id, Some(node_b));
+        assert_ne!(project_a.id, project_b.id); // Different entries!
+
+        // Both projects should be visible
+        let remotes = Project::find_remote_projects(&pool).await.unwrap();
+        assert_eq!(remotes.len(), 2);
+
+        // Verify we can find each by remote project id
+        let found_a = Project::find_by_remote_project_id(&pool, swarm_project_a)
+            .await
+            .unwrap();
+        let found_b = Project::find_by_remote_project_id(&pool, swarm_project_b)
+            .await
+            .unwrap();
+        assert!(found_a.is_some());
+        assert!(found_b.is_some());
+        assert_eq!(found_a.unwrap().source_node_id, Some(node_a));
+        assert_eq!(found_b.unwrap().source_node_id, Some(node_b));
+    }
+
+    #[tokio::test]
+    async fn test_find_remote_by_path_and_node() {
+        let (pool, _temp_dir) = create_test_pool().await;
+
+        let node_a = Uuid::new_v4();
+        let node_b = Uuid::new_v4();
+        let shared_path = "/home/david/Code/TestRepo";
+
+        // Create remote project from Node A
+        let project_a = Project::upsert_remote_project(
+            &pool,
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            "TestRepo".to_string(),
+            shared_path.to_string(),
+            node_a,
+            "Node A".to_string(),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        // Create remote project from Node B at same path
+        let project_b = Project::upsert_remote_project(
+            &pool,
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            "TestRepo".to_string(),
+            shared_path.to_string(),
+            node_b,
+            "Node B".to_string(),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        // find_remote_by_path_and_node should find the correct one for each node
+        let found_a = Project::find_remote_by_path_and_node(&pool, shared_path, node_a)
+            .await
+            .unwrap();
+        let found_b = Project::find_remote_by_path_and_node(&pool, shared_path, node_b)
+            .await
+            .unwrap();
+
+        assert!(found_a.is_some());
+        assert!(found_b.is_some());
+        assert_eq!(found_a.unwrap().id, project_a.id);
+        assert_eq!(found_b.unwrap().id, project_b.id);
+
+        // Searching for a non-existent node should return None
+        let not_found = Project::find_remote_by_path_and_node(&pool, shared_path, Uuid::new_v4())
+            .await
+            .unwrap();
+        assert!(not_found.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_local_project_takes_precedence() {
+        let (pool, _temp_dir) = create_test_pool().await;
+
+        let local_project_id = Uuid::new_v4();
+        let shared_path = "/home/david/Code/LocalRepo";
+
+        // Create a LOCAL project first
+        let local_project = CreateProject {
+            name: "LocalRepo".to_string(),
+            git_repo_path: shared_path.to_string(),
+            use_existing_repo: true,
+            clone_url: None,
+            setup_script: None,
+            dev_script: None,
+            cleanup_script: None,
+            copy_files: None,
+        };
+        Project::create(&pool, &local_project, local_project_id)
+            .await
+            .unwrap();
+
+        // Try to sync a REMOTE project at the same path
+        let remote_result = Project::upsert_remote_project(
+            &pool,
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            "LocalRepo (Remote)".to_string(),
+            shared_path.to_string(),
+            Uuid::new_v4(),
+            "Remote Node".to_string(),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        // upsert_remote_project should return the local project (not create a new one)
+        assert_eq!(remote_result.id, local_project_id);
+        assert!(!remote_result.is_remote); // It's the local project
+
+        // Only 1 project should exist
+        let all = Project::find_all(&pool).await.unwrap();
+        assert_eq!(all.len(), 1);
+        assert!(!all[0].is_remote);
+    }
+
+    #[tokio::test]
+    async fn test_find_by_git_repo_path_only_returns_local() {
+        let (pool, _temp_dir) = create_test_pool().await;
+
+        let shared_path = "/home/david/Code/SharedPath";
+
+        // Create a remote project
+        Project::upsert_remote_project(
+            &pool,
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            "Remote Project".to_string(),
+            shared_path.to_string(),
+            Uuid::new_v4(),
+            "Some Node".to_string(),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        // find_by_git_repo_path should NOT find the remote project
+        let found = Project::find_by_git_repo_path(&pool, shared_path)
+            .await
+            .unwrap();
+        assert!(found.is_none());
+
+        // Now create a local project at the same path (this would fail before migration)
+        // After migration, local projects have separate unique constraint
+        let local_id = Uuid::new_v4();
+        let local_project = CreateProject {
+            name: "Local Project".to_string(),
+            git_repo_path: shared_path.to_string(),
+            use_existing_repo: true,
+            clone_url: None,
+            setup_script: None,
+            dev_script: None,
+            cleanup_script: None,
+            copy_files: None,
+        };
+        Project::create(&pool, &local_project, local_id)
+            .await
+            .unwrap();
+
+        // Now find_by_git_repo_path should find the local project
+        let found = Project::find_by_git_repo_path(&pool, shared_path)
+            .await
+            .unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().id, local_id);
+    }
+
+    #[tokio::test]
+    async fn test_delete_stale_remote_projects_scoped_to_node() {
+        let (pool, _temp_dir) = create_test_pool().await;
+
+        let node_a = Uuid::new_v4();
+        let node_b = Uuid::new_v4();
+        let swarm_project_a1 = Uuid::new_v4();
+        let swarm_project_a2 = Uuid::new_v4();
+        let swarm_project_b = Uuid::new_v4();
+
+        // Create 2 projects from Node A
+        Project::upsert_remote_project(
+            &pool,
+            Uuid::new_v4(),
+            swarm_project_a1,
+            "A1".to_string(),
+            "/path/a1".to_string(),
+            node_a,
+            "Node A".to_string(),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        Project::upsert_remote_project(
+            &pool,
+            Uuid::new_v4(),
+            swarm_project_a2,
+            "A2".to_string(),
+            "/path/a2".to_string(),
+            node_a,
+            "Node A".to_string(),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        // Create 1 project from Node B
+        Project::upsert_remote_project(
+            &pool,
+            Uuid::new_v4(),
+            swarm_project_b,
+            "B1".to_string(),
+            "/path/b1".to_string(),
+            node_b,
+            "Node B".to_string(),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(Project::find_remote_projects(&pool).await.unwrap().len(), 3);
+
+        // Delete stale from Node A - only keep swarm_project_a1
+        // This should delete swarm_project_a2 but NOT swarm_project_b
+        let deleted = Project::delete_stale_remote_projects(&pool, node_a, &[swarm_project_a1])
+            .await
+            .unwrap();
+
+        assert_eq!(deleted, 1); // Only A2 deleted
+
+        let remaining = Project::find_remote_projects(&pool).await.unwrap();
+        assert_eq!(remaining.len(), 2);
+
+        // Verify A1 and B1 still exist
+        let a1 = Project::find_by_remote_project_id(&pool, swarm_project_a1)
+            .await
+            .unwrap();
+        let b1 = Project::find_by_remote_project_id(&pool, swarm_project_b)
+            .await
+            .unwrap();
+        assert!(a1.is_some());
+        assert!(b1.is_some());
+
+        // Verify A2 is gone
+        let a2 = Project::find_by_remote_project_id(&pool, swarm_project_a2)
+            .await
+            .unwrap();
+        assert!(a2.is_none());
     }
 }
