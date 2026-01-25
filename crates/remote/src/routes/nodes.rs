@@ -2,6 +2,7 @@ use axum::{
     Json, Router,
     extract::{Extension, Path, Query, State},
     http::{HeaderMap, StatusCode},
+    middleware,
     response::{IntoResponse, Response},
     routing::{delete, get, post},
 };
@@ -13,7 +14,7 @@ use uuid::Uuid;
 use super::organization_members::ensure_member_access;
 use crate::{
     AppState,
-    auth::RequestContext,
+    auth::{AuthContext, RequestContext, require_session_or_node_api_key},
     db::{
         organizations::{MemberRole, OrganizationRepository},
         swarm_projects::{SwarmProjectNode, SwarmProjectRepository},
@@ -53,14 +54,10 @@ pub fn protected_router() -> Router<AppState> {
         .route("/nodes/api-keys", get(list_api_keys))
         .route("/nodes/api-keys/{key_id}", delete(revoke_api_key))
         .route("/nodes/api-keys/{key_id}/unblock", post(unblock_api_key))
-        .route("/nodes", get(list_nodes))
+        // Note: list_nodes moved to node_sync_router (accepts both JWT and API key)
         .route("/nodes/{node_id}", get(get_node))
         .route("/nodes/{node_id}", delete(delete_node))
-        .route("/nodes/{node_id}/projects", get(list_node_projects))
-        .route(
-            "/nodes/{node_id}/projects/linked",
-            get(list_linked_node_projects),
-        )
+        // Note: list_node_projects and list_linked_node_projects moved to node_sync_router
         .route("/nodes/{source_id}/merge-to/{target_id}", post(merge_nodes))
         .route(
             "/nodes/assignments/{assignment_id}/logs",
@@ -82,6 +79,25 @@ pub fn protected_router() -> Router<AppState> {
             "/nodes/task-attempts/{attempt_id}",
             get(get_node_task_attempt),
         )
+}
+
+/// Routes for node sync operations that accept either OAuth JWT or API key authentication.
+///
+/// These endpoints are used by nodes to sync projects and other data. They work with:
+/// - User OAuth tokens (when a user is logged in)
+/// - Node API keys (for background sync operations without user login)
+pub fn node_sync_router(state: AppState) -> Router<AppState> {
+    Router::new()
+        .route("/nodes", get(list_nodes_sync))
+        .route("/nodes/{node_id}/projects", get(list_node_projects_sync))
+        .route(
+            "/nodes/{node_id}/projects/linked",
+            get(list_linked_node_projects_sync),
+        )
+        .layer(middleware::from_fn_with_state(
+            state,
+            require_session_or_node_api_key,
+        ))
 }
 
 // ============================================================================
@@ -317,13 +333,17 @@ pub async fn heartbeat(
 
 // ============================================================================
 // Node Management (User JWT Auth)
+// Note: list_nodes, list_node_projects, list_linked_node_projects moved to
+// Node Sync section below with dual-auth support (JWT or API key)
 // ============================================================================
 
+#[allow(dead_code)] // Superseded by ListNodesSyncQuery
 #[derive(Debug, Deserialize)]
 pub struct ListNodesQuery {
     pub organization_id: Uuid,
 }
 
+#[allow(dead_code)] // Superseded by list_nodes_sync
 #[instrument(
     name = "nodes.list",
     skip(state, ctx, query),
@@ -443,6 +463,7 @@ pub async fn delete_node(
     }
 }
 
+#[allow(dead_code)] // Superseded by list_node_projects_sync
 #[instrument(
     name = "nodes.list_projects",
     skip(state, ctx),
@@ -468,6 +489,7 @@ pub async fn list_node_projects(
 /// List projects linked to a node that are also linked to a swarm project.
 /// Only swarm-linked projects are returned - unlinked projects are excluded.
 /// Use this endpoint for syncing projects to other nodes.
+#[allow(dead_code)] // Superseded by list_linked_node_projects_sync
 #[instrument(
     name = "nodes.list_linked_projects",
     skip(state, ctx),
@@ -482,6 +504,176 @@ pub async fn list_linked_node_projects(
     let service = NodeServiceImpl::new(pool.clone());
 
     let _ = ctx; // TODO: Verify user has access to the node's organization
+
+    match service.list_linked_node_projects(node_id).await {
+        Ok(projects) => (StatusCode::OK, Json(projects)).into_response(),
+        Err(error) => node_error_response(error, "failed to list linked node projects"),
+    }
+}
+
+// ============================================================================
+// Node Sync (Dual Auth: User JWT or Node API Key)
+// ============================================================================
+
+/// Query parameters for listing nodes (sync version).
+/// For node API key auth, organization_id is optional (uses API key's org).
+#[derive(Debug, Deserialize)]
+pub struct ListNodesSyncQuery {
+    pub organization_id: Option<Uuid>,
+}
+
+/// List nodes in an organization.
+///
+/// Accepts either OAuth JWT (user auth) or API key (node auth).
+/// - For user auth: organization_id query param is required
+/// - For node auth: uses the API key's organization (query param optional)
+#[instrument(
+    name = "nodes.list_sync",
+    skip(state, auth_ctx, query),
+)]
+pub async fn list_nodes_sync(
+    State(state): State<AppState>,
+    Extension(auth_ctx): Extension<AuthContext>,
+    Query(query): Query<ListNodesSyncQuery>,
+) -> Response {
+    let pool = state.pool();
+
+    // Determine organization_id based on auth type
+    let org_id = match &auth_ctx {
+        AuthContext::User(user_ctx) => {
+            // User auth: require organization_id query param
+            let org_id = match query.organization_id {
+                Some(id) => id,
+                None => {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({ "error": "organization_id query parameter required" })),
+                    )
+                        .into_response();
+                }
+            };
+
+            // Verify user has access to the organization
+            if let Err(error) = ensure_member_access(pool, org_id, user_ctx.user.id).await {
+                return error.into_response();
+            }
+            org_id
+        }
+        AuthContext::Node(node_ctx) => {
+            // Node auth: use API key's organization (or query param if provided)
+            query.organization_id.unwrap_or(node_ctx.organization_id)
+        }
+    };
+
+    let service = NodeServiceImpl::new(pool.clone());
+
+    match service.list_nodes(org_id).await {
+        Ok(nodes) => (StatusCode::OK, Json(nodes)).into_response(),
+        Err(error) => node_error_response(error, "failed to list nodes"),
+    }
+}
+
+/// List all local projects for a node.
+///
+/// Accepts either OAuth JWT (user auth) or API key (node auth).
+#[instrument(
+    name = "nodes.list_projects_sync",
+    skip(state, auth_ctx),
+    fields(node_id = %node_id)
+)]
+pub async fn list_node_projects_sync(
+    State(state): State<AppState>,
+    Extension(auth_ctx): Extension<AuthContext>,
+    Path(node_id): Path<Uuid>,
+) -> Response {
+    let pool = state.pool();
+    let service = NodeServiceImpl::new(pool.clone());
+
+    // Get node to verify organization access
+    let node = match service.get_node(node_id).await {
+        Ok(node) => node,
+        Err(NodeError::NodeNotFound) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "Node not found" })),
+            )
+                .into_response();
+        }
+        Err(error) => return node_error_response(error, "failed to get node"),
+    };
+
+    // Verify access based on auth type
+    match &auth_ctx {
+        AuthContext::User(user_ctx) => {
+            if let Err(error) = ensure_member_access(pool, node.organization_id, user_ctx.user.id).await {
+                return error.into_response();
+            }
+        }
+        AuthContext::Node(node_ctx) => {
+            // For node auth, verify node belongs to same organization as API key
+            if node.organization_id != node_ctx.organization_id {
+                return (
+                    StatusCode::FORBIDDEN,
+                    Json(json!({ "error": "Node belongs to different organization" })),
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    match service.list_node_local_projects(node_id).await {
+        Ok(projects) => (StatusCode::OK, Json(projects)).into_response(),
+        Err(error) => node_error_response(error, "failed to list node projects"),
+    }
+}
+
+/// List linked projects for a node.
+///
+/// Accepts either OAuth JWT (user auth) or API key (node auth).
+#[instrument(
+    name = "nodes.list_linked_projects_sync",
+    skip(state, auth_ctx),
+    fields(node_id = %node_id)
+)]
+pub async fn list_linked_node_projects_sync(
+    State(state): State<AppState>,
+    Extension(auth_ctx): Extension<AuthContext>,
+    Path(node_id): Path<Uuid>,
+) -> Response {
+    let pool = state.pool();
+    let service = NodeServiceImpl::new(pool.clone());
+
+    // Get node to verify organization access
+    let node = match service.get_node(node_id).await {
+        Ok(node) => node,
+        Err(NodeError::NodeNotFound) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "Node not found" })),
+            )
+                .into_response();
+        }
+        Err(error) => return node_error_response(error, "failed to get node"),
+    };
+
+    // Verify access based on auth type
+    match &auth_ctx {
+        AuthContext::User(user_ctx) => {
+            if let Err(error) = ensure_member_access(pool, node.organization_id, user_ctx.user.id).await {
+                return error.into_response();
+            }
+        }
+        AuthContext::Node(node_ctx) => {
+            // For node auth, verify node belongs to same organization as API key
+            if node.organization_id != node_ctx.organization_id {
+                return (
+                    StatusCode::FORBIDDEN,
+                    Json(json!({ "error": "Node belongs to different organization" })),
+                )
+                    .into_response();
+            }
+        }
+    }
 
     match service.list_linked_node_projects(node_id).await {
         Ok(projects) => (StatusCode::OK, Json(projects)).into_response(),
