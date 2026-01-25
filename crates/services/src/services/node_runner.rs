@@ -1247,13 +1247,17 @@ pub async fn handle_backfill_attempt(
         .await?
         .ok_or_else(|| NodeRunnerError::SyncError(format!("task {} not found", attempt.task_id)))?;
 
-    // Get shared_task_id, required for sync
-    let shared_task_id = task.shared_task_id.ok_or_else(|| {
-        NodeRunnerError::SyncError(format!(
-            "task {} has no shared_task_id, cannot backfill",
-            task.id
-        ))
-    })?;
+    // Get shared_task_id, required for sync. If the task has no shared_task_id,
+    // it means the project is no longer linked to the hive (e.g., after a reset migration).
+    // This is not an error - we just can't backfill this attempt.
+    let Some(shared_task_id) = task.shared_task_id else {
+        tracing::debug!(
+            task_id = %task.id,
+            attempt_id = %attempt_id,
+            "skipping backfill: task has no shared_task_id (project not linked to hive)"
+        );
+        return Ok(0);
+    };
 
     match backfill_type {
         BackfillType::FullAttempt => {
@@ -1512,7 +1516,7 @@ mod backfill_tests {
     }
 
     #[tokio::test]
-    async fn test_backfill_attempt_without_shared_task_id_returns_error() {
+    async fn test_backfill_attempt_without_shared_task_id_returns_ok_zero() {
         use super::super::hive_client::BackfillType;
 
         let (pool, _temp) = db::test_utils::create_test_pool().await;
@@ -1553,16 +1557,16 @@ mod backfill_tests {
         .await
         .expect("Failed to create task attempt");
 
-        // Try to backfill - should fail because no shared_task_id
+        // Try to backfill - should succeed but return 0 (graceful skip)
+        // This allows the hive to mark the backfill request as complete and stop retrying
         let result =
             handle_backfill_attempt(&pool, &tx, attempt_id, &BackfillType::FullAttempt, None).await;
 
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(
-            err.to_string().contains("shared_task_id"),
-            "Expected error about shared_task_id, got: {}",
-            err
+        assert!(result.is_ok(), "Expected Ok, got {:?}", result);
+        assert_eq!(
+            result.unwrap(),
+            0,
+            "Should return 0 when task has no shared_task_id (graceful skip)"
         );
     }
 
