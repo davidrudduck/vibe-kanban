@@ -75,6 +75,26 @@ struct PendingHandoff {
 
 #[async_trait]
 impl Deployment for LocalDeployment {
+    /// Creates and initializes a LocalDeployment with all core services, background tasks, and optional
+    /// remote/hive integrations configured from environment and persisted config.
+    ///
+    /// The function performs startup work such as loading and persisting configuration, initializing
+    /// the database (with event hooks), image and filesystem services, auth context, optional remote
+    /// clients (OAuth and API-key-based), node runner (when configured), and starts background tasks
+    /// like orphaned image cleanup and node cache synchronization when applicable.
+    ///
+    /// # Returns
+    ///
+    /// A fully initialized `LocalDeployment` on success.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// let deployment = LocalDeployment::new().await.unwrap();
+    /// assert!(!deployment.user_id().is_empty());
+    /// # });
+    /// ```
     async fn new() -> Result<Self, DeploymentError> {
         // Load config and OAuth credentials in parallel for faster startup
         let config_path = config_path();

@@ -147,6 +147,23 @@ pub enum AuthMode {
 }
 
 impl std::fmt::Debug for AuthMode {
+    /// Formats an `AuthMode` for debug output, redacting sensitive API key values.
+    ///
+    /// The implementation produces human-friendly debug strings while ensuring API keys are not exposed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::fmt::Debug;
+    ///
+    /// // ApiKey is redacted
+    /// let a = crate::AuthMode::ApiKey("supersecret".to_string());
+    /// assert_eq!(format!("{:?}", a), "AuthMode::ApiKey(<redacted>)");
+    ///
+    /// // OAuth context is summarized
+    /// let o = crate::AuthMode::OAuth(crate::AuthContext::default());
+    /// assert_eq!(format!("{:?}", o), "AuthMode::OAuth(<context>)");
+    /// ```
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::OAuth(_) => f.write_str("AuthMode::OAuth(<context>)"),
@@ -163,6 +180,17 @@ pub struct RemoteClient {
 }
 
 impl std::fmt::Debug for RemoteClient {
+    /// Implements Debug formatting for `RemoteClient`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use crates::services::remote_client::{RemoteClient, AuthMode};
+    /// # fn make_client() -> RemoteClient { RemoteClient::new_with_api_key("https://example.com", "key".to_string()).unwrap() }
+    /// let client = make_client();
+    /// let s = format!("{:?}", client);
+    /// assert!(s.contains("RemoteClient"));
+    /// ```
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RemoteClient")
             .field("base", &self.base)
@@ -173,6 +201,18 @@ impl std::fmt::Debug for RemoteClient {
 }
 
 impl Clone for RemoteClient {
+    /// Create a deep copy of the `RemoteClient`.
+    ///
+    /// The returned client contains cloned copies of the base URL, the HTTP client, and the authentication mode.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let c1 = RemoteClient::new_with_api_key("https://api.example.com", "key".into()).unwrap();
+    /// let c2 = c1.clone();
+    /// // c1 and c2 are independent handles to the same underlying configuration
+    /// assert_eq!(c1.base, c2.base);
+    /// ```
     fn clone(&self) -> Self {
         Self {
             base: self.base.clone(),
@@ -186,21 +226,53 @@ impl RemoteClient {
     const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
     const TOKEN_REFRESH_LEEWAY_SECS: i64 = 20;
 
-    /// Creates a new RemoteClient with OAuth-based authentication.
+    /// Creates a RemoteClient configured for OAuth-based user authentication.
     ///
-    /// This is used for user-initiated operations that require login.
+    /// On success returns a configured RemoteClient; otherwise returns a RemoteClientError.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// // Construct an AuthContext as appropriate for your application.
+    /// let auth = AuthContext::new(/* ... */);
+    /// let client = RemoteClient::new("https://api.example.com", auth).unwrap();
+    /// ```
     pub fn new(base_url: &str, auth_context: AuthContext) -> Result<Self, RemoteClientError> {
         Self::new_with_auth_mode(base_url, AuthMode::OAuth(auth_context))
     }
 
-    /// Creates a new RemoteClient with API key authentication.
+    /// Constructs a RemoteClient that authenticates requests using a static API key.
     ///
-    /// This is used for node sync operations that don't require user login.
-    /// The API key is passed directly in the Authorization header.
+    /// The provided API key will be sent in the Authorization header for requests.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let client = RemoteClient::new_with_api_key("https://api.example.com", "node-api-key".to_string()).unwrap();
+    /// ```
     pub fn new_with_api_key(base_url: &str, api_key: String) -> Result<Self, RemoteClientError> {
         Self::new_with_auth_mode(base_url, AuthMode::ApiKey(api_key))
     }
 
+    /// Creates a RemoteClient configured with the given base URL and authentication mode.
+    ///
+    /// The function validates and parses `base_url` and constructs an HTTP client with the
+    /// client's default timeout and a package-version user agent. Returns a `RemoteClient` on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RemoteClientError::Url` if `base_url` cannot be parsed, or
+    /// `RemoteClientError::Transport` if the HTTP client cannot be constructed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use crates::services::remote_client::{RemoteClient, AuthMode};
+    ///
+    /// // API key mode
+    /// let client = RemoteClient::new_with_auth_mode("https://api.example.com", AuthMode::ApiKey("secret".into()));
+    /// assert!(client.is_ok());
+    /// ```
     fn new_with_auth_mode(base_url: &str, auth_mode: AuthMode) -> Result<Self, RemoteClientError> {
         let base = Url::parse(base_url).map_err(|e| RemoteClientError::Url(e.to_string()))?;
         let http = Client::builder()
@@ -215,10 +287,19 @@ impl RemoteClient {
         })
     }
 
-    /// Returns a valid access token, refreshing when it's about to expire.
+    /// Obtain a valid access token for the client, refreshing OAuth credentials if they are
+    /// expired or close to expiry; returns the API key unchanged when using API-key auth.
     ///
-    /// For OAuth mode, this handles automatic token refresh.
-    /// For API key mode, this simply returns the key.
+    /// # Examples
+    ///
+    /// ```
+    /// use futures::executor::block_on;
+    ///
+    /// // API-key mode returns the key directly.
+    /// let client = RemoteClient::new_with_api_key("https://example.com", "node-key".into()).unwrap();
+    /// let token = block_on(client.require_token()).unwrap();
+    /// assert_eq!(token, "node-key");
+    /// ```
     fn require_token(
         &self,
     ) -> std::pin::Pin<
@@ -238,7 +319,19 @@ impl RemoteClient {
         })
     }
 
-    /// Helper for OAuth token handling with automatic refresh.
+    /// Obtain a valid OAuth access token for this client, refreshing stored credentials if they are missing or expiring soon.
+    ///
+    /// Attempts to return a non-expired access token from the provided AuthContext. If the token is missing or will expire within a small leeway, a refresh is attempted and the refreshed token is returned. If credentials are absent or refresh fails with an authentication error, `RemoteClientError::Auth` is returned; other refresh failures propagate their corresponding `RemoteClientError`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # async fn example(client: &crate::services::remote_client::RemoteClient, auth_context: &crate::services::auth::AuthContext) -> Result<(), crate::services::remote_client::RemoteClientError> {
+    /// let token = client.require_oauth_token(auth_context).await?;
+    /// assert!(!token.is_empty());
+    /// # Ok(())
+    /// # }
+    /// ```
     async fn require_oauth_token(
         &self,
         auth_context: &AuthContext,
@@ -298,6 +391,20 @@ impl RemoteClient {
         }
     }
 
+    /// Refreshes OAuth credentials by exchanging the current refresh token for a new access token,
+    /// persists the new credentials via the provided AuthContext, and returns the updated credentials.
+    ///
+    /// On success returns `Credentials` populated with the new `access_token`, `refresh_token`, and `expires_at`.
+    /// On failure returns a `RemoteClientError` describing transport, token, storage, or HTTP-level errors.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # async fn _example(client: &crate::RemoteClient, auth_context: &crate::AuthContext, creds: &crate::Credentials) {
+    /// let new_creds = client.refresh_credentials(auth_context, creds).await.unwrap();
+    /// assert!(new_creds.access_token.is_some());
+    /// # }
+    /// ```
     async fn refresh_credentials(
         &self,
         auth_context: &AuthContext,

@@ -55,6 +55,43 @@ pub struct HiveSyncConfig {
 }
 
 impl Default for HiveSyncConfig {
+    /// Creates a HiveSyncConfig populated with sensible defaults for the Hive sync service.
+    
+    ///
+    
+    /// Defaults:
+    
+    /// - `sync_interval`: 30 seconds
+    
+    /// - `max_tasks_per_batch`: 50
+    
+    /// - `max_attempts_per_batch`: 50
+    
+    /// - `max_executions_per_batch`: 100
+    
+    /// - `max_logs_per_batch`: 500
+    
+    ///
+    
+    /// # Examples
+    
+    ///
+    
+    /// ```
+    
+    /// let cfg = HiveSyncConfig::default();
+    
+    /// assert_eq!(cfg.sync_interval, std::time::Duration::from_secs(30));
+    
+    /// assert_eq!(cfg.max_tasks_per_batch, 50);
+    
+    /// assert_eq!(cfg.max_attempts_per_batch, 50);
+    
+    /// assert_eq!(cfg.max_executions_per_batch, 100);
+    
+    /// assert_eq!(cfg.max_logs_per_batch, 500);
+    
+    /// ```
     fn default() -> Self {
         Self {
             // 30 seconds is appropriate for project/task sync
