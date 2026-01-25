@@ -826,6 +826,24 @@ pub struct SwarmProjectNodeForDispatch {
 }
 
 impl SwarmProjectRepository {
+    /// Get all node IDs linked to a swarm project (for broadcast targeting).
+    ///
+    /// This is used to send ProjectSync messages only to nodes that are linked
+    /// to the same swarm project, rather than broadcasting to the entire organization.
+    pub async fn get_linked_node_ids(
+        pool: &PgPool,
+        swarm_project_id: Uuid,
+    ) -> Result<Vec<Uuid>, SwarmProjectError> {
+        let node_ids = sqlx::query_scalar::<_, Uuid>(
+            r#"SELECT node_id FROM swarm_project_nodes WHERE swarm_project_id = $1"#,
+        )
+        .bind(swarm_project_id)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(node_ids)
+    }
+
     /// Fetches all nodes linked to a swarm project for task dispatch.
     ///
     /// Returns a vector of link records including link id, node id and name, local project id,
