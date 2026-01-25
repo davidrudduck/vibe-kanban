@@ -166,8 +166,9 @@ impl Deployment for LocalDeployment {
             .ok()
             .or_else(|| option_env!("VK_SHARED_API_BASE").map(|s| s.to_string()));
 
-        let remote_client = match api_base {
-            Some(url) => match RemoteClient::new(&url, auth_context.clone()) {
+        // Create OAuth-based remote client for user-initiated operations (frontend)
+        let remote_client = match &api_base {
+            Some(url) => match RemoteClient::new(url, auth_context.clone()) {
                 Ok(client) => {
                     tracing::info!("Remote client initialized with URL: {}", url);
                     Ok(client)
@@ -182,6 +183,25 @@ impl Deployment for LocalDeployment {
                 Err(RemoteClientNotConfigured)
             }
         };
+
+        // Create API key-based remote client for node sync operations (no user login required)
+        // This allows nodes to sync with the hive even when no user is logged in
+        let node_auth_client: Option<RemoteClient> =
+            match (api_base.as_ref(), std::env::var("VK_NODE_API_KEY").ok()) {
+                (Some(url), Some(api_key)) => {
+                    match RemoteClient::new_with_api_key(url, api_key) {
+                        Ok(client) => {
+                            tracing::info!("Node auth client initialized for hive sync");
+                            Some(client)
+                        }
+                        Err(e) => {
+                            tracing::error!(?e, "failed to create node auth client");
+                            None
+                        }
+                    }
+                }
+                _ => None,
+            };
 
         let share_publisher = remote_client
             .as_ref()
@@ -242,14 +262,16 @@ impl Deployment for LocalDeployment {
                     tracing::info!("node proxy client enabled for remote project operations");
                 }
 
-                // Pass the container and remote_client to spawn_node_runner to enable
-                // task execution and remote project sync
+                // Pass the container and node_auth_client to spawn_node_runner to enable
+                // task execution and remote project sync.
+                // Use node_auth_client (API key auth) instead of remote_client (OAuth auth)
+                // so sync can happen without requiring user login.
                 (
                     spawn_node_runner(
                         node_config,
                         db.clone(),
                         Some(container.clone()),
-                        remote_client.clone().ok(),
+                        node_auth_client.clone(),
                     ),
                     validator,
                     proxy_client,

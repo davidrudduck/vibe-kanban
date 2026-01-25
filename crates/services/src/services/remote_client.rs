@@ -132,11 +132,34 @@ pub struct NodeTaskAttemptResponse {
     pub is_complete: bool,
 }
 
+/// Authentication mode for the RemoteClient.
+///
+/// The client can authenticate either via OAuth (user login with JWT tokens)
+/// or via a static API key (for node-to-hive sync operations).
+#[derive(Clone)]
+pub enum AuthMode {
+    /// OAuth-based authentication with automatic token refresh.
+    /// Used for user-initiated operations.
+    OAuth(AuthContext),
+    /// Static API key authentication.
+    /// Used for node sync operations that don't require user login.
+    ApiKey(String),
+}
+
+impl std::fmt::Debug for AuthMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OAuth(_) => f.write_str("AuthMode::OAuth(<context>)"),
+            Self::ApiKey(_) => f.write_str("AuthMode::ApiKey(<redacted>)"),
+        }
+    }
+}
+
 /// HTTP client for the remote OAuth server with automatic retries.
 pub struct RemoteClient {
     base: Url,
     http: Client,
-    auth_context: AuthContext,
+    auth_mode: AuthMode,
 }
 
 impl std::fmt::Debug for RemoteClient {
@@ -144,7 +167,7 @@ impl std::fmt::Debug for RemoteClient {
         f.debug_struct("RemoteClient")
             .field("base", &self.base)
             .field("http", &self.http)
-            .field("auth_context", &"<present>")
+            .field("auth_mode", &self.auth_mode)
             .finish()
     }
 }
@@ -154,7 +177,7 @@ impl Clone for RemoteClient {
         Self {
             base: self.base.clone(),
             http: self.http.clone(),
-            auth_context: self.auth_context.clone(),
+            auth_mode: self.auth_mode.clone(),
         }
     }
 }
@@ -163,7 +186,22 @@ impl RemoteClient {
     const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
     const TOKEN_REFRESH_LEEWAY_SECS: i64 = 20;
 
+    /// Creates a new RemoteClient with OAuth-based authentication.
+    ///
+    /// This is used for user-initiated operations that require login.
     pub fn new(base_url: &str, auth_context: AuthContext) -> Result<Self, RemoteClientError> {
+        Self::new_with_auth_mode(base_url, AuthMode::OAuth(auth_context))
+    }
+
+    /// Creates a new RemoteClient with API key authentication.
+    ///
+    /// This is used for node sync operations that don't require user login.
+    /// The API key is passed directly in the Authorization header.
+    pub fn new_with_api_key(base_url: &str, api_key: String) -> Result<Self, RemoteClientError> {
+        Self::new_with_auth_mode(base_url, AuthMode::ApiKey(api_key))
+    }
+
+    fn new_with_auth_mode(base_url: &str, auth_mode: AuthMode) -> Result<Self, RemoteClientError> {
         let base = Url::parse(base_url).map_err(|e| RemoteClientError::Url(e.to_string()))?;
         let http = Client::builder()
             .timeout(Self::REQUEST_TIMEOUT)
@@ -173,76 +211,96 @@ impl RemoteClient {
         Ok(Self {
             base,
             http,
-            auth_context,
+            auth_mode,
         })
     }
 
     /// Returns a valid access token, refreshing when it's about to expire.
+    ///
+    /// For OAuth mode, this handles automatic token refresh.
+    /// For API key mode, this simply returns the key.
     fn require_token(
         &self,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<String, RemoteClientError>> + Send + '_>,
     > {
         Box::pin(async move {
-            let leeway = ChronoDuration::seconds(Self::TOKEN_REFRESH_LEEWAY_SECS);
-            let creds = self.auth_context.get_credentials().await.ok_or_else(|| {
-                debug!("no credentials found in auth context");
-                RemoteClientError::Auth
-            })?;
-
-            if let Some(token) = creds.access_token.as_ref()
-                && !creds.expires_soon(leeway)
-            {
-                return Ok(token.clone());
-            }
-
-            // Token is missing or expiring soon, need to refresh
-            debug!(
-                expires_at = ?creds.expires_at,
-                has_access_token = creds.access_token.is_some(),
-                "access token expired or expiring soon, attempting refresh"
-            );
-
-            let refreshed = {
-                let _refresh_guard = self.auth_context.refresh_guard().await;
-                let latest = self
-                    .auth_context
-                    .get_credentials()
-                    .await
-                    .ok_or(RemoteClientError::Auth)?;
-                if let Some(token) = latest.access_token.as_ref()
-                    && !latest.expires_soon(leeway)
-                {
-                    debug!("another task already refreshed the token");
-                    return Ok(token.clone());
+            match &self.auth_mode {
+                AuthMode::ApiKey(key) => {
+                    // API key auth: just return the key directly
+                    Ok(key.clone())
                 }
-
-                self.refresh_credentials(&latest).await
-            };
-
-            match refreshed {
-                Ok(updated) => {
-                    debug!(
-                        expires_at = ?updated.expires_at,
-                        "token refresh succeeded"
-                    );
-                    updated.access_token.ok_or(RemoteClientError::Auth)
-                }
-                Err(RemoteClientError::Auth) => {
-                    warn!("token refresh failed with auth error, clearing credentials");
-                    let _ = self.auth_context.clear_credentials().await;
-                    Err(RemoteClientError::Auth)
-                }
-                Err(err) => {
-                    warn!(error = %err, "token refresh failed with non-auth error");
-                    Err(err)
+                AuthMode::OAuth(auth_context) => {
+                    // OAuth auth: handle token refresh
+                    self.require_oauth_token(auth_context).await
                 }
             }
         })
     }
 
+    /// Helper for OAuth token handling with automatic refresh.
+    async fn require_oauth_token(
+        &self,
+        auth_context: &AuthContext,
+    ) -> Result<String, RemoteClientError> {
+        let leeway = ChronoDuration::seconds(Self::TOKEN_REFRESH_LEEWAY_SECS);
+        let creds = auth_context.get_credentials().await.ok_or_else(|| {
+            debug!("no credentials found in auth context");
+            RemoteClientError::Auth
+        })?;
+
+        if let Some(token) = creds.access_token.as_ref()
+            && !creds.expires_soon(leeway)
+        {
+            return Ok(token.clone());
+        }
+
+        // Token is missing or expiring soon, need to refresh
+        debug!(
+            expires_at = ?creds.expires_at,
+            has_access_token = creds.access_token.is_some(),
+            "access token expired or expiring soon, attempting refresh"
+        );
+
+        let refreshed = {
+            let _refresh_guard = auth_context.refresh_guard().await;
+            let latest = auth_context
+                .get_credentials()
+                .await
+                .ok_or(RemoteClientError::Auth)?;
+            if let Some(token) = latest.access_token.as_ref()
+                && !latest.expires_soon(leeway)
+            {
+                debug!("another task already refreshed the token");
+                return Ok(token.clone());
+            }
+
+            self.refresh_credentials(auth_context, &latest).await
+        };
+
+        match refreshed {
+            Ok(updated) => {
+                debug!(
+                    expires_at = ?updated.expires_at,
+                    "token refresh succeeded"
+                );
+                updated.access_token.ok_or(RemoteClientError::Auth)
+            }
+            Err(RemoteClientError::Auth) => {
+                warn!("token refresh failed with auth error, clearing credentials");
+                let _ = auth_context.clear_credentials().await;
+                Err(RemoteClientError::Auth)
+            }
+            Err(err) => {
+                warn!(error = %err, "token refresh failed with non-auth error");
+                Err(err)
+            }
+        }
+    }
+
     async fn refresh_credentials(
         &self,
+        auth_context: &AuthContext,
         creds: &Credentials,
     ) -> Result<Credentials, RemoteClientError> {
         debug!("sending token refresh request to hive");
@@ -266,7 +324,7 @@ impl RemoteClient {
             refresh_token,
             expires_at: Some(expires_at),
         };
-        self.auth_context
+        auth_context
             .save_credentials(&new_creds)
             .await
             .map_err(|e| RemoteClientError::Storage(e.to_string()))?;
@@ -291,6 +349,9 @@ impl RemoteClient {
     }
 
     /// Returns a valid access token for use-cases like maintaining a websocket connection.
+    ///
+    /// For OAuth mode, this returns (and potentially refreshes) the JWT access token.
+    /// For API key mode, this returns the static API key.
     pub async fn access_token(&self) -> Result<String, RemoteClientError> {
         self.require_token().await
     }

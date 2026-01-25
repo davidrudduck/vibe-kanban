@@ -57,7 +57,9 @@ pub struct HiveSyncConfig {
 impl Default for HiveSyncConfig {
     fn default() -> Self {
         Self {
-            sync_interval: Duration::from_secs(5),
+            // 30 seconds is appropriate for project/task sync
+            // Active execution (logs/attempts) happens more frequently via direct messages
+            sync_interval: Duration::from_secs(30),
             max_tasks_per_batch: 50,
             max_attempts_per_batch: 50,
             max_executions_per_batch: 100,
