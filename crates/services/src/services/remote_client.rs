@@ -349,6 +349,9 @@ impl RemoteClient {
     }
 
     /// Returns a valid access token for use-cases like maintaining a websocket connection.
+    ///
+    /// For OAuth mode, this returns (and potentially refreshes) the JWT access token.
+    /// For API key mode, this returns the static API key.
     pub async fn access_token(&self) -> Result<String, RemoteClientError> {
         self.require_token().await
     }
