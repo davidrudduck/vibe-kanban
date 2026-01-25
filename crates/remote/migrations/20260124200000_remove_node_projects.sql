@@ -7,12 +7,17 @@
 --
 -- All code has been migrated to use these tables instead.
 
--- First, update the FK constraint on node_task_assignments to reference
--- swarm_project_nodes instead of node_projects. The column is now used to
--- store swarm_project_nodes.id values (set in handle_attempt_sync).
+-- First, drop the old FK constraint on node_task_assignments
 ALTER TABLE node_task_assignments
     DROP CONSTRAINT IF EXISTS node_task_assignments_node_project_id_fkey;
 
+-- Delete orphaned assignments that reference node_projects IDs (not in swarm_project_nodes).
+-- These are stale assignments from before the swarm architecture migration.
+DELETE FROM node_task_assignments
+WHERE node_project_id NOT IN (SELECT id FROM swarm_project_nodes);
+
+-- Now add the new FK constraint to swarm_project_nodes.
+-- The column is now used to store swarm_project_nodes.id values (set in handle_attempt_sync).
 ALTER TABLE node_task_assignments
     ADD CONSTRAINT node_task_assignments_node_project_id_fkey
     FOREIGN KEY (node_project_id) REFERENCES swarm_project_nodes(id) ON DELETE CASCADE;
