@@ -241,7 +241,26 @@ impl SwarmProjectRepository {
         Ok(records)
     }
 
-    /// List all swarm projects for an organization with linked nodes count and task counts.
+    /// Lists swarm projects for an organization, including the count and names of linked nodes and per-status task counts.
+    ///
+    /// The returned entries include the SwarmProject data plus:
+    /// - `linked_nodes_count`: number of node links
+    /// - `linked_node_names`: array of linked node names (unique)
+    /// - `hive_project_ids`: an empty UUID array (reserved field)
+    /// - per-status task counts: `task_count_todo`, `task_count_in_progress`, `task_count_in_review`, `task_count_done`, `task_count_cancelled`
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # async fn doc_example(pool: &sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    /// use uuid::Uuid;
+    /// let org_id = Uuid::new_v4();
+    /// let projects = crate::db::swarm_projects::SwarmProjectRepository::list_with_nodes_count(pool, org_id).await?;
+    /// // Each returned item contains project info and aggregated counts
+    /// assert!(projects.iter().all(|p| p.project.organization_id == org_id));
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn list_with_nodes_count(
         pool: &PgPool,
         organization_id: Uuid,
@@ -807,10 +826,26 @@ pub struct SwarmProjectNodeForDispatch {
 }
 
 impl SwarmProjectRepository {
-    /// Find all nodes linked to a swarm project, for task dispatch purposes.
+    /// Fetches all nodes linked to a swarm project for task dispatch.
     ///
-    /// Returns nodes with their link info including default_branch from node_local_projects.
-    /// Used by TaskDispatcher to find available nodes for executing tasks.
+    /// Returns a vector of link records including link id, node id and name, local project id,
+    /// git repository path, and the node's default branch (falls back to `"main"`). Results are
+    /// ordered by the link creation time (oldest first).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use uuid::Uuid;
+    /// // construct or obtain a PgPool named `pool`
+    /// let pool = unimplemented!();
+    /// let swarm_project_id = Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap();
+    ///
+    /// let nodes = tokio::runtime::Runtime::new().unwrap().block_on(async {
+    ///     SwarmProjectRepository::find_nodes_for_dispatch(&pool, swarm_project_id).await
+    /// }).unwrap();
+    ///
+    /// // `nodes` is a Vec<SwarmProjectNodeForDispatch>
+    /// ```
     pub async fn find_nodes_for_dispatch(
         pool: &PgPool,
         swarm_project_id: Uuid,

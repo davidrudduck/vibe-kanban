@@ -32,10 +32,28 @@ impl SharePublisher {
         Self { db, client }
     }
 
-    /// Share a task to the Hive.
+    /// Shares a local task to the Hive and links the local task to the created remote task.
     ///
-    /// The `assignee_user_id` is optional - if provided, the task will be assigned to that user.
-    /// If not provided, the task will be shared without an assignee.
+    /// The `assignee_user_id` is optional; if provided, the remote task will be assigned to that user.
+    ///
+    /// # Returns
+    ///
+    /// The `Uuid` of the created remote shared task.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `ShareError` if the task or project cannot be found, the task is already shared, or the remote operation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use uuid::Uuid;
+    /// # use futures::executor::block_on;
+    /// # async fn example(publisher: &crate::SharePublisher, task_id: Uuid) {
+    /// let remote_id = publisher.share_task(task_id, None).await.unwrap();
+    /// assert!(remote_id != Uuid::nil());
+    /// # }
+    /// ```
     pub async fn share_task(
         &self,
         task_id: Uuid,

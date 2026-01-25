@@ -31,7 +31,14 @@ const API_KEY_HEADER: &str = "x-api-key";
 // Router Setup
 // ============================================================================
 
-/// Routes that require API key authentication (for nodes)
+/// Creates the HTTP routes that require API key authentication for node operations.
+///
+/// # Examples
+///
+/// ```
+/// let router = api_key_router();
+/// // router now contains POST /nodes/register and POST /nodes/{node_id}/heartbeat
+/// ```
 pub fn api_key_router() -> Router<AppState> {
     Router::new()
         .route("/nodes/register", post(register_node))
@@ -188,10 +195,38 @@ pub struct RegisterNodeResponse {
     pub linked_projects: Vec<SwarmProjectNode>,
 }
 
+/// Registers or updates a node using the provided API key and node registration payload.
+///
+/// On success returns a 200 OK response containing the registered `Node` and any swarm projects
+/// linked to that node. On failure returns an appropriate error response (authentication,
+/// authorization, validation, or database errors).
+///
+/// # Examples
+///
+/// ```
+/// # use axum::http::HeaderMap;
+/// # use axum::extract::State;
+/// # use axum::Json;
+/// # use uuid::Uuid;
+/// # use crate::routes::nodes::{register_node, NodeRegistration};
+/// # // The following is illustrative and requires an application `AppState` and running runtime.
+/// # #[tokio::test]
+/// # async fn example_register_node_call() {
+/// let state = /* obtain AppState */ todo!();
+/// let mut headers = HeaderMap::new();
+/// headers.insert("x-api-key", "example-key".parse().unwrap());
+/// let payload = NodeRegistration {
+///     machine_id: "machine-123".into(),
+///     ..Default::default()
+/// };
+/// let response = register_node(State(state), headers, Json(payload)).await;
+/// // Inspect `response` for status and body
+/// # }
+/// ```
 #[instrument(
-    name = "nodes.register",
-    skip(state, headers, payload),
-    fields(machine_id = %payload.machine_id)
+name = "nodes.register",
+skip(state, headers, payload),
+fields(machine_id = %payload.machine_id)
 )]
 pub async fn register_node(
     State(state): State<AppState>,
@@ -239,10 +274,24 @@ pub async fn register_node(
     }
 }
 
+/// Handle a node heartbeat request authenticated by an API key.
+///
+/// Validates the incoming API key from the `x-api-key` header, invokes the node service heartbeat
+/// for the given `node_id` with the provided payload, and returns an HTTP response:
+/// - 204 No Content on success
+/// - a mapped error response on failure
+///
+/// # Examples
+///
+/// ```no_run
+/// // Illustrative usage within an HTTP handler test environment:
+/// // let resp = heartbeat(State(app_state), headers, Path(node_id), Json(payload)).await;
+/// // assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+/// ```
 #[instrument(
-    name = "nodes.heartbeat",
-    skip(state, headers, payload),
-    fields(node_id = %node_id)
+name = "nodes.heartbeat",
+skip(state, headers, payload),
+fields(node_id = %node_id)
 )]
 pub async fn heartbeat(
     State(state): State<AppState>,
@@ -320,10 +369,28 @@ pub async fn get_node(
     }
 }
 
+/// Deletes the specified node when the requesting user has admin access to the node's organization.
+///
+/// Verifies the node exists, enforces that the requester is an organization admin, and removes the node
+/// (which cascades related swarm_project_nodes and task_assignments). Returns an HTTP response
+/// representing the outcome.
+///
+/// # Returns
+///
+/// `204 No Content` on successful deletion; otherwise an appropriate error status and JSON error message
+/// (e.g., `404` if the node is not found, `403` if the requester lacks admin access, `500` for internal errors).
+///
+/// # Examples
+///
+/// ```
+/// // This handler is intended to be mounted in an Axum router:
+/// // router.delete("/nodes/:id", delete_node);
+/// let _ = "delete_node handler";
+/// ```
 #[instrument(
-    name = "nodes.delete",
-    skip(state, ctx),
-    fields(user_id = %ctx.user.id, node_id = %node_id)
+name = "nodes.delete",
+skip(state, ctx),
+fields(user_id = %ctx.user.id, node_id = %node_id)
 )]
 pub async fn delete_node(
     State(state): State<AppState>,

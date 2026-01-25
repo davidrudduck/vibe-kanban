@@ -141,25 +141,21 @@ pub async fn find_by_source_task_id(
     }
 }
 
-/// Create a new shared task within a project.
+/// Create a shared task for a swarm project.
 ///
-/// Validates text sizes and project access, verifies an optional assignee is an active organization member,
-/// detects and returns an existing task when both `source_task_id` and `source_node_id` match a preexisting task,
-/// persists the new task (including organization context), optionally sets source-tracking information,
-/// and may optionally dispatch an execution attempt to an available node when `start_attempt` is true.
-/// On success responds with `201 Created` and the created `SharedTaskResponse`; if a duplicate is detected by source IDs,
-/// responds with `200 OK` and the existing `SharedTaskResponse`.
+/// Validates the request and caller's access, creates and persists a new shared task (or returns an existing one when both `source_task_id` and `source_node_id` match an existing task), optionally sets source-tracking information, and optionally attempts to dispatch an execution attempt when `start_attempt` is true.
 ///
 /// # Returns
 ///
-/// HTTP response containing either the created `SharedTaskResponse` (`201 Created`) or an existing task (`200 OK`) when duplicate source IDs were found.
+/// HTTP response containing the created `SharedTaskResponse` (`201 Created`) or an existing `SharedTaskResponse` (`200 OK`) when duplicate source IDs were detected.
 ///
 /// # Examples
 ///
 /// ```
 /// use uuid::Uuid;
+///
 /// let req = CreateSharedTaskRequest {
-///     swarm_project_id: Uuid::new_v4(), // Must be a valid swarm_projects.id
+///     swarm_project_id: Uuid::new_v4(),
 ///     title: "Example task".to_string(),
 ///     description: None,
 ///     status: None,
@@ -168,7 +164,8 @@ pub async fn find_by_source_task_id(
 ///     source_task_id: None,
 ///     source_node_id: None,
 /// };
-/// // In an integration test, send `req` to the HTTP handler to create a task and assert the response.
+///
+/// // In integration tests, send `req` to the HTTP handler and assert the response status and body.
 /// ```
 #[instrument(
 name = "tasks.create_shared_task",
