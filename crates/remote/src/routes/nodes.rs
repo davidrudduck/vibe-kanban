@@ -81,19 +81,11 @@ pub fn protected_router() -> Router<AppState> {
         )
 }
 
-/// Create a router exposing node sync endpoints that accept either a user JWT or a node API key.
+/// Routes for node sync operations that accept either OAuth JWT or API key authentication.
 ///
-/// The router mounts endpoints used by nodes to synchronize projects and related data and applies
-/// middleware that allows authentication via an active user session (JWT) or a valid node API key.
-///
-/// # Examples
-///
-/// ```
-/// // Construct an application state (type must implement `Default` or provide an equivalent).
-/// let state = AppState::default();
-/// let router = node_sync_router(state);
-/// // `router` now contains routes like `/nodes` and `/nodes/{node_id}/projects`.
-/// ```
+/// These endpoints are used by nodes to sync projects and other data. They work with:
+/// - User OAuth tokens (when a user is logged in)
+/// - Node API keys (for background sync operations without user login)
 pub fn node_sync_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/nodes", get(list_nodes_sync))
@@ -397,22 +389,21 @@ pub async fn get_node(
     }
 }
 
-/// Delete the specified node if the requesting user is an organization admin.
+/// Deletes the specified node when the requesting user has admin access to the node's organization.
 ///
-/// Verifies the node exists, enforces that the requester has the Admin role for the node's
-/// organization, and removes the node. Deletion cascades related `swarm_project_nodes` and
-/// `task_assignments`.
+/// Verifies the node exists, enforces that the requester is an organization admin, and removes the node
+/// (which cascades related swarm_project_nodes and task_assignments). Returns an HTTP response
+/// representing the outcome.
 ///
 /// # Returns
 ///
-/// `204 No Content` on successful deletion; otherwise an appropriate HTTP error status with a
-/// JSON error message (e.g., `404` if the node is not found, `403` if the requester lacks admin
-/// access, `500` for internal errors).
+/// `204 No Content` on successful deletion; otherwise an appropriate error status and JSON error message
+/// (e.g., `404` if the node is not found, `403` if the requester lacks admin access, `500` for internal errors).
 ///
 /// # Examples
 ///
 /// ```
-/// // Intended to be mounted in an Axum router:
+/// // This handler is intended to be mounted in an Axum router:
 /// // router.delete("/nodes/:id", delete_node);
 /// let _ = "delete_node handler";
 /// ```
@@ -499,23 +490,10 @@ pub async fn list_node_projects(
 /// Only swarm-linked projects are returned - unlinked projects are excluded.
 /// Use this endpoint for syncing projects to other nodes.
 #[allow(dead_code)] // Superseded by list_linked_node_projects_sync
-/// List projects that are linked to the specified node.
-///
-/// Returns an HTTP response containing a JSON array of linked swarm-project entries with status 200 on success,
-/// or an error response mapped from internal node errors on failure.
-///
-/// # Examples
-///
-/// ```ignore
-/// // Handler is intended to be used by the Axum router; this shows the expected shape of a request.
-/// // The real handler is async and invoked by the web server with `State`, `Extension`, and `Path` extractors.
-/// let response = list_linked_node_projects(state, ctx_extension, node_id).await;
-/// // On success the response is a 200 JSON body containing the linked projects.
-/// ```
 #[instrument(
-name = "nodes.list_linked_projects",
-skip(state, ctx),
-fields(user_id = %ctx.user.id, node_id = %node_id)
+    name = "nodes.list_linked_projects",
+    skip(state, ctx),
+    fields(user_id = %ctx.user.id, node_id = %node_id)
 )]
 pub async fn list_linked_node_projects(
     State(state): State<AppState>,
@@ -544,29 +522,14 @@ pub struct ListNodesSyncQuery {
     pub organization_id: Option<Uuid>,
 }
 
-/// List nodes for an organization supporting either user JWT or node API key authentication.
+/// List nodes in an organization.
 ///
-/// For user auth, the `organization_id` query parameter is required and the caller's membership
-/// is verified. For node auth, the API key's organization is used if `organization_id` is omitted.
-/// Returns HTTP 200 with the node list on success; returns an appropriate error response on failure.
-///
-/// # Examples
-///
-/// ```
-/// use axum::extract::{State, Extension, Query};
-/// use uuid::Uuid;
-///
-/// // Example: user-authenticated request (organization_id required)
-/// let query = Query(ListNodesSyncQuery { organization_id: Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()) });
-/// // list_nodes_sync(State(app_state), Extension(auth_ctx_user), query).await;
-///
-/// // Example: node-authenticated request (organization_id optional)
-/// let query_node = Query(ListNodesSyncQuery { organization_id: None });
-/// // list_nodes_sync(State(app_state), Extension(auth_ctx_node), query_node).await;
-/// ```
+/// Accepts either OAuth JWT (user auth) or API key (node auth).
+/// - For user auth: organization_id query param is required
+/// - For node auth: uses the API key's organization (query param optional)
 #[instrument(
-name = "nodes.list_sync",
-skip(state, auth_ctx, query),
+    name = "nodes.list_sync",
+    skip(state, auth_ctx, query),
 )]
 pub async fn list_nodes_sync(
     State(state): State<AppState>,
@@ -620,27 +583,13 @@ pub async fn list_nodes_sync(
     }
 }
 
-/// List local projects associated with a node, accepting either user JWT or node API key authentication.
+/// List all local projects for a node.
 ///
-/// Verifies the node exists, then enforces access:
-/// - For user auth, ensures the user is a member of the node's organization.
-/// - For node API key auth, ensures the API key's organization matches the node's organization.
-///
-/// Returns an HTTP response with status 200 and a JSON array of the node's local projects on success.
-/// Returns 404 if the node does not exist, 403 if the caller is not authorized for the node's organization,
-/// or an appropriate error status for other failure cases.
-///
-/// # Examples
-///
-/// ```
-/// // This handler is intended to be mounted into an Axum router and exercised in integration tests.
-/// // Example usage occurs via HTTP requests against the running service where the request is
-/// // authenticated either with a user JWT or an `x-api-key` header.
-/// ```
+/// Accepts either OAuth JWT (user auth) or API key (node auth).
 #[instrument(
-name = "nodes.list_projects_sync",
-skip(state, auth_ctx),
-fields(node_id = %node_id)
+    name = "nodes.list_projects_sync",
+    skip(state, auth_ctx),
+    fields(node_id = %node_id)
 )]
 pub async fn list_node_projects_sync(
     State(state): State<AppState>,
@@ -688,22 +637,13 @@ pub async fn list_node_projects_sync(
     }
 }
 
-/// Lists the linked (swarm-project-associated) projects for a node, accepting either user JWT or node API key authentication.
+/// List linked projects for a node.
 ///
-/// The handler verifies that the caller has access to the node's organization: for user authentication it requires the user to be a member of the node's organization, and for node API key authentication it requires the API key's organization to match the node's organization. On success returns an HTTP JSON response containing the linked projects; on failure returns an appropriate JSON error response and HTTP status.
-///
-/// # Examples
-///
-/// ```
-/// use axum::{Router, routing::get};
-///
-/// // Register the handler on a router (the handler enforces its own auth checks at runtime).
-/// let app = Router::new().route("/nodes/:id/projects/linked", get(crate::routes::nodes::list_linked_node_projects_sync));
-/// ```
+/// Accepts either OAuth JWT (user auth) or API key (node auth).
 #[instrument(
-name = "nodes.list_linked_projects_sync",
-skip(state, auth_ctx),
-fields(node_id = %node_id)
+    name = "nodes.list_linked_projects_sync",
+    skip(state, auth_ctx),
+    fields(node_id = %node_id)
 )]
 pub async fn list_linked_node_projects_sync(
     State(state): State<AppState>,
