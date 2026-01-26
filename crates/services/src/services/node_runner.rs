@@ -677,6 +677,17 @@ pub fn spawn_node_runner<C: ContainerService + Sync + Send + 'static>(
                         tracing::warn!(error = ?e, "Failed to sync remote projects on connect");
                     }
 
+                    // Sync remote_project_id for owned projects from hive
+                    match sync_owned_project_ids_from_hive(&db.pool, &linked_projects).await {
+                        Ok(count) if count > 0 => {
+                            tracing::info!(count, "Synced remote_project_id from hive for owned projects");
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            tracing::warn!(error = ?e, "Failed to sync owned project IDs from hive");
+                        }
+                    }
+
                     // Auto-link local projects that have remote_project_id but aren't registered with hive
                     if let Err(e) =
                         auto_link_local_projects(&db.pool, &command_tx, &linked_projects).await
@@ -1048,6 +1059,59 @@ async fn auto_link_local_projects(
     }
 
     Ok(())
+}
+
+/// Sync remote_project_id for owned projects from hive auth response.
+///
+/// When a node connects, the hive sends linked_projects with swarm_project_id
+/// for each project this node owns. This updates local projects to set
+/// remote_project_id accordingly, enabling by-remote-id proxy requests.
+async fn sync_owned_project_ids_from_hive(
+    pool: &SqlitePool,
+    linked_projects: &[LinkedProjectInfo],
+) -> Result<usize, NodeRunnerError> {
+    let mut updated_count = 0;
+
+    for project_info in linked_projects {
+        if !project_info.is_owned {
+            continue;
+        }
+
+        let local_project = match Project::find_by_id(pool, project_info.local_project_id).await? {
+            Some(p) => p,
+            None => {
+                tracing::warn!(
+                    local_project_id = %project_info.local_project_id,
+                    "Owned project not found locally"
+                );
+                continue;
+            }
+        };
+
+        let needs_update = local_project
+            .remote_project_id
+            .map(|id| id != project_info.project_id)
+            .unwrap_or(true);
+
+        if needs_update {
+            Project::set_remote_project_id(
+                pool,
+                project_info.local_project_id,
+                Some(project_info.project_id),
+            )
+            .await?;
+
+            tracing::info!(
+                local_project_id = %project_info.local_project_id,
+                remote_project_id = %project_info.project_id,
+                project_name = %local_project.name,
+                "Synced remote_project_id from hive"
+            );
+            updated_count += 1;
+        }
+    }
+
+    Ok(updated_count)
 }
 
 /// Sync swarm labels from hive to local database.

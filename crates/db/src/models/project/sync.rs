@@ -199,12 +199,12 @@ impl Project {
 
     /// Create or update a remote project synced from the Hive.
     ///
-    /// The function uses a two-tier conflict resolution:
-    /// 1. If a LOCAL project exists at the same path, return it (local takes precedence
-    ///    since it has actual file access; remote paths are informational)
-    /// 2. Multiple remote projects can share the same path from different nodes
-    ///    (e.g., /home/david/Code/repo exists on both Node A and Node B)
-    /// 3. ON CONFLICT(remote_project_id) handles updates when re-syncing the same swarm project
+    /// Remote projects are created alongside local projects - they represent the same
+    /// repository path but on different nodes. The database schema supports:
+    /// - Local projects: unique by `git_repo_path` among local projects only
+    /// - Remote projects: unique by `remote_project_id` (swarm project ID)
+    ///
+    /// ON CONFLICT(remote_project_id) handles updates when re-syncing the same swarm project.
     #[allow(clippy::too_many_arguments)]
     pub async fn upsert_remote_project(
         pool: &SqlitePool,
@@ -217,16 +217,6 @@ impl Project {
         source_node_public_url: Option<String>,
         source_node_status: Option<String>,
     ) -> Result<Self, sqlx::Error> {
-        // Check if a LOCAL project exists at this path.
-        // Local projects take precedence because they have actual file access.
-        // Remote project paths are informational (files live on the source node).
-        if let Some(existing) = Self::find_by_git_repo_path(pool, &git_repo_path).await? {
-            // find_by_git_repo_path only returns local projects (is_remote = 0)
-            // Return the local project - we don't create remote entries for paths
-            // that are already managed locally.
-            return Ok(existing);
-        }
-
         let now = Utc::now();
         sqlx::query_as!(
             Project,
@@ -794,10 +784,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_local_project_takes_precedence() {
+    async fn test_local_and_remote_projects_coexist() {
         let (pool, _temp_dir) = create_test_pool().await;
 
         let local_project_id = Uuid::new_v4();
+        let remote_node_id = Uuid::new_v4();
+        let swarm_project_id = Uuid::new_v4();
         let shared_path = "/home/david/Code/LocalRepo";
 
         // Create a LOCAL project first
@@ -815,14 +807,14 @@ mod tests {
             .await
             .unwrap();
 
-        // Try to sync a REMOTE project at the same path
-        let remote_result = Project::upsert_remote_project(
+        // Sync a REMOTE project at the same path from another node
+        let remote = Project::upsert_remote_project(
             &pool,
             Uuid::new_v4(),
-            Uuid::new_v4(),
+            swarm_project_id,
             "LocalRepo (Remote)".to_string(),
             shared_path.to_string(),
-            Uuid::new_v4(),
+            remote_node_id,
             "Remote Node".to_string(),
             None,
             None,
@@ -830,14 +822,19 @@ mod tests {
         .await
         .unwrap();
 
-        // upsert_remote_project should return the local project (not create a new one)
-        assert_eq!(remote_result.id, local_project_id);
-        assert!(!remote_result.is_remote); // It's the local project
+        // Remote entry should be created (not return the local project)
+        assert!(remote.is_remote);
+        assert_ne!(remote.id, local_project_id);
+        assert_eq!(remote.remote_project_id, Some(swarm_project_id));
 
-        // Only 1 project should exist
+        // Both projects should exist
         let all = Project::find_all(&pool).await.unwrap();
-        assert_eq!(all.len(), 1);
-        assert!(!all[0].is_remote);
+        assert_eq!(all.len(), 2);
+
+        let local = all.iter().find(|p| !p.is_remote).unwrap();
+        let remote_proj = all.iter().find(|p| p.is_remote).unwrap();
+        assert_eq!(local.id, local_project_id);
+        assert_eq!(remote_proj.source_node_id, Some(remote_node_id));
     }
 
     #[tokio::test]
