@@ -483,5 +483,11 @@
     "noResults": "テンプレートが見つかりません",
     "loadError": "テンプレートの読み込みに失敗しました",
     "retry": "再試行"
+  },
+  "modelChangeWarning": {
+    "title": "モデル変更が検出されました",
+    "summary": "{{previousLabel}}から{{newLabel}}に切り替えています。",
+    "contextLoss": "異なるモデルを持つバリアント間で切り替えると、以前のコンテキストなしで新しいセッションが開始されます。新しいエグゼキューターは以前の会話履歴にアクセスできません。",
+    "continueAnyway": "続行する"
   }
 }

@@ -511,5 +511,11 @@
     "ascending": "Oldest first",
     "descending": "Newest first",
     "sortBy": "Sort by {{column}}, currently {{direction}}"
+  },
+  "modelChangeWarning": {
+    "title": "Model Change Detected",
+    "summary": "You are switching from {{previousLabel}} to {{newLabel}}.",
+    "contextLoss": "Switching between variants with different models will start a fresh session without prior context. The new executor will not have access to previous conversation history.",
+    "continueAnyway": "Continue Anyway"
   }
 }
