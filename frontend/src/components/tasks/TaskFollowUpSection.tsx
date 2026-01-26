@@ -52,6 +52,7 @@ import {
   TemplatePicker,
   type Template as PickerTemplate,
 } from '@/components/tasks/TemplatePicker';
+import ModelChangeWarningDialog from '@/components/dialogs/ModelChangeWarningDialog';
 
 interface TaskFollowUpSectionProps {
   task: TaskWithAttemptStatus;
@@ -217,9 +218,74 @@ export function TaskFollowUpSection({
   // Track whether the follow-up textarea is focused
   const [isTextareaFocused, setIsTextareaFocused] = useState(false);
 
+  // Model change warning dialog state
+  const [pendingVariant, setPendingVariant] = useState<string | null>(null);
+  const [showModelWarning, setShowModelWarning] = useState(false);
+
   // Variant selection (with keyboard cycling)
-  const { selectedVariant, setSelectedVariant, currentProfile } =
-    useDefaultVariant({ processes, profiles: profiles ?? null });
+  const {
+    selectedVariant,
+    setSelectedVariant,
+    currentProfile,
+    wouldModelChange,
+    previousVariantInfo,
+  } = useDefaultVariant({ processes, profiles: profiles ?? null });
+
+  // Handle variant change with model change detection
+  const handleVariantChange = useCallback(
+    (newVariant: string | null) => {
+      if (wouldModelChange(newVariant)) {
+        setPendingVariant(newVariant);
+        setShowModelWarning(true);
+      } else {
+        setSelectedVariant(newVariant);
+      }
+    },
+    [wouldModelChange, setSelectedVariant]
+  );
+
+  // Confirm model change and apply pending variant
+  const handleConfirmModelChange = useCallback(() => {
+    if (pendingVariant !== null) {
+      setSelectedVariant(pendingVariant);
+    }
+    setPendingVariant(null);
+    setShowModelWarning(false);
+  }, [pendingVariant, setSelectedVariant]);
+
+  // Extract new model for dialog display
+  const newModel = useMemo(() => {
+    if (!pendingVariant || !profiles || processes.length === 0) return null;
+
+    // Get the executor from the latest process
+    const latestProcess = processes[processes.length - 1];
+    if (!latestProcess.executor_action) return null;
+
+    const action = latestProcess.executor_action;
+    const actionType = action.typ;
+    let executor: string | null = null;
+
+    if (
+      actionType.type === 'CodingAgentInitialRequest' ||
+      actionType.type === 'CodingAgentFollowUpRequest'
+    ) {
+      executor = actionType.executor_profile_id.executor;
+    }
+
+    if (!executor) return null;
+
+    const executorConfig = profiles[executor];
+    if (!executorConfig) return null;
+
+    const variantKey = pendingVariant ?? 'DEFAULT';
+    const variantConfig = executorConfig[variantKey];
+    if (!variantConfig) return null;
+
+    const configValue = (variantConfig as Record<string, unknown>)[executor];
+    if (!configValue || typeof configValue !== 'object') return null;
+
+    return (configValue as { model?: string | null }).model ?? null;
+  }, [pendingVariant, profiles, processes]);
 
   // Cycle to the next variant when Shift+Tab is pressed
   const cycleVariant = useCallback(() => {
@@ -235,8 +301,9 @@ export function TaskFollowUpSection({
 
     // Keep using null to represent DEFAULT (backend expects it)
     // But for display/cycling purposes, treat DEFAULT as a real option
-    setSelectedVariant(nextVariant === 'DEFAULT' ? null : nextVariant);
-  }, [currentProfile, selectedVariant, setSelectedVariant]);
+    const nextVariantValue = nextVariant === 'DEFAULT' ? null : nextVariant;
+    handleVariantChange(nextVariantValue);
+  }, [currentProfile, selectedVariant, handleVariantChange]);
 
   // During retry, follow-up box is greyed/disabled (not hidden)
   // Use RetryUi context so optimistic retry immediately disables this box
@@ -626,7 +693,7 @@ export function TaskFollowUpSection({
                 <VariantSelector
                   currentProfile={currentProfile}
                   selectedVariant={selectedVariant}
-                  onChange={setSelectedVariant}
+                  onChange={handleVariantChange}
                   disabled={!isEditable}
                 />
               )}
@@ -733,6 +800,17 @@ export function TaskFollowUpSection({
           showDefaults={true}
           loading={loadingTemplates}
           error={templateError}
+        />
+
+        {/* Model Change Warning Dialog */}
+        <ModelChangeWarningDialog
+          open={showModelWarning}
+          onOpenChange={setShowModelWarning}
+          previousVariant={previousVariantInfo.variant}
+          previousModel={previousVariantInfo.model}
+          newVariant={pendingVariant ?? 'DEFAULT'}
+          newModel={newModel}
+          onConfirm={handleConfirmModelChange}
         />
       </div>
     )

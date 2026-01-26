@@ -483,5 +483,11 @@
     "noResults": "No se encontraron plantillas",
     "loadError": "Error al cargar las plantillas",
     "retry": "Reintentar"
+  },
+  "modelChangeWarning": {
+    "title": "Cambio de Modelo Detectado",
+    "summary": "Está cambiando de {{previousLabel}} a {{newLabel}}.",
+    "contextLoss": "Cambiar entre variantes con diferentes modelos iniciará una sesión nueva sin contexto previo. El nuevo ejecutor no tendrá acceso al historial de conversación anterior.",
+    "continueAnyway": "Continuar De Todos Modos"
   }
 }

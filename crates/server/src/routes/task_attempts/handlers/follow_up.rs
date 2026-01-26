@@ -133,6 +133,24 @@ pub async fn follow_up(
     let coding_agent = executor_configs.get_coding_agent_or_default(&executor_profile_id);
     let skip_context = coding_agent.no_context();
 
+    // Check if model changed (would cause context loss)
+    let model_changed = {
+        let previous_agent = executor_configs.get_coding_agent_or_default(&initial_executor_profile_id);
+        let current_agent = coding_agent;
+        let previous_model = previous_agent.model();
+        let current_model = current_agent.model();
+        previous_model != current_model
+    };
+
+    if model_changed {
+        tracing::info!(
+            task_attempt_id = %task_attempt.id,
+            previous_variant = ?initial_executor_profile_id.variant,
+            current_variant = ?executor_profile_id.variant,
+            "Model changed between sessions, starting fresh to avoid context incompatibility"
+        );
+    }
+
     // For retries, get session ID BEFORE dropping processes to preserve context
     let pre_retry_session_id = if let Some(proc_id) = payload.retry_process_id {
         if !skip_context {
@@ -239,9 +257,10 @@ pub async fn follow_up(
 
     // Determine session ID to use:
     // 1. If skip_context is enabled, start fresh (None)
-    // 2. If we have a pre_retry_session_id from before dropping, use it
-    // 3. Otherwise, find the latest session ID from remaining processes
-    let latest_session_id = if skip_context {
+    // 2. If model changed, start fresh (None) to avoid context incompatibility
+    // 3. If we have a pre_retry_session_id from before dropping, use it
+    // 4. Otherwise, find the latest session ID from remaining processes
+    let latest_session_id = if skip_context || model_changed {
         None
     } else if let Some(session_id) = pre_retry_session_id {
         Some(session_id)

@@ -189,6 +189,21 @@ impl CodingAgent {
             Self::Droid(c) => c.no_context.unwrap_or(false),
         }
     }
+
+    /// Get the model name if configured, or None for default model
+    pub fn model(&self) -> Option<&str> {
+        match self {
+            Self::ClaudeCode(c) => c.model.as_deref(),
+            Self::Amp(_) => None,
+            Self::Gemini(c) => c.model.as_deref(),
+            Self::Codex(c) => c.model.as_deref(),
+            Self::Opencode(c) => c.model.as_deref(),
+            Self::CursorAgent(c) => c.model.as_deref(),
+            Self::QwenCode(_) => None,
+            Self::Copilot(c) => c.model.as_deref(),
+            Self::Droid(c) => c.model.as_deref(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
