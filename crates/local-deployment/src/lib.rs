@@ -53,6 +53,8 @@ pub struct LocalDeployment {
     share_sync_handle: Arc<Mutex<Option<RemoteSyncHandle>>>,
     share_config: Option<ShareConfig>,
     remote_client: Result<RemoteClient, RemoteClientNotConfigured>,
+    /// API key-based client for node operations (available even when not logged in via OAuth)
+    node_auth_client: Option<RemoteClient>,
     auth_context: AuthContext,
     oauth_handoffs: Arc<RwLock<HashMap<Uuid, PendingHandoff>>>,
     /// Node runner context (if connected to a hive) - provides state access and message sending
@@ -336,6 +338,7 @@ impl Deployment for LocalDeployment {
             share_sync_handle: share_sync_handle.clone(),
             share_config: share_config.clone(),
             remote_client,
+            node_auth_client,
             auth_context,
             oauth_handoffs,
             node_runner_context,
@@ -528,6 +531,15 @@ impl LocalDeployment {
     /// Get the node proxy client for proxying requests to remote nodes.
     pub fn node_proxy_client(&self) -> &NodeProxyClient {
         &self.node_proxy_client
+    }
+
+    /// Get the API key-based remote client for node operations.
+    ///
+    /// This client uses the VK_NODE_API_KEY for authentication and is available
+    /// even when no user is logged in via OAuth. Use this for hive operations
+    /// that don't require user-specific permissions.
+    pub fn node_auth_client(&self) -> Option<&RemoteClient> {
+        self.node_auth_client.as_ref()
     }
 
     /// Get direct access to the local container service.
