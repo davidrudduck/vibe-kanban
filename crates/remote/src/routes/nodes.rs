@@ -97,6 +97,7 @@ pub fn node_sync_router(state: AppState) -> Router<AppState> {
             get(list_linked_node_projects_sync),
         )
         .route("/nodes/tasks/bulk", get(bulk_tasks_for_node_sync))
+        .route("/swarm/projects", get(list_swarm_projects_sync))
         .layer(middleware::from_fn_with_state(state, require_node_api_key))
 }
 
@@ -575,6 +576,32 @@ pub async fn list_linked_node_projects_sync(
         )
             .into_response(),
         Err(error) => node_error_response(error, "failed to list linked node projects"),
+    }
+}
+
+/// List swarm projects with task counts for node sync.
+///
+/// Uses API key's organization directly. Returns all swarm projects
+/// in the organization with their task counts (todo, in_progress, etc.).
+#[instrument(name = "nodes.list_swarm_projects_sync", skip(state, node_ctx))]
+pub async fn list_swarm_projects_sync(
+    State(state): State<AppState>,
+    Extension(node_ctx): Extension<NodeAuthContext>,
+) -> Response {
+    use super::swarm_projects::ListSwarmProjectsResponse;
+
+    match SwarmProjectRepository::list_with_nodes_count(state.pool(), node_ctx.organization_id)
+        .await
+    {
+        Ok(projects) => (StatusCode::OK, Json(ListSwarmProjectsResponse { projects })).into_response(),
+        Err(error) => {
+            tracing::error!(?error, "failed to list swarm projects for sync");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "failed to list swarm projects" })),
+            )
+                .into_response()
+        }
     }
 }
 

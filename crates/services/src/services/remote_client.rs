@@ -972,14 +972,24 @@ impl RemoteClient {
     // =====================
 
     /// Lists all swarm projects for an organization.
+    ///
+    /// When using API key auth (node sync), this uses the `/v1/sync/swarm/projects`
+    /// endpoint which doesn't require user OAuth login. The organization is inferred
+    /// from the API key.
+    ///
+    /// When using OAuth auth (user operations), this uses `/v1/swarm/projects`
+    /// which requires the organization_id parameter.
     pub async fn list_swarm_projects(
         &self,
         organization_id: Uuid,
     ) -> Result<ListSwarmProjectsResponse, RemoteClientError> {
-        self.get_authed(&format!(
-            "/v1/swarm/projects?organization_id={organization_id}"
-        ))
-        .await
+        // Use sync endpoint for API key auth (doesn't require OAuth login)
+        // Use regular endpoint for OAuth auth (requires user session)
+        let path = match &self.auth_mode {
+            AuthMode::ApiKey(_) => "/v1/sync/swarm/projects".to_string(),
+            AuthMode::OAuth(_) => format!("/v1/swarm/projects?organization_id={organization_id}"),
+        };
+        self.get_authed(&path).await
     }
 
     /// Gets a specific swarm project by ID.
