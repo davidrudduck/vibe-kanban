@@ -209,8 +209,8 @@ impl<'a> NodeCacheSyncer<'a> {
     /// Syncs swarm-linked projects for a single node into the unified projects table.
     ///
     /// Only projects that are linked to a swarm project are synchronized; local-only (unlinked)
-    /// projects are left unchanged. For each linked project this updates existing records
-    /// (link or sync status) or inserts a new remote project mapping tied to this node.
+    /// projects are left unchanged. Remote project entries are created alongside any local
+    /// projects at the same path - they represent the same repository on different nodes.
     /// After processing, remote projects that are no longer present for the node are removed.
     ///
     /// # Returns
@@ -252,25 +252,6 @@ impl<'a> NodeCacheSyncer<'a> {
             }
             .to_string();
 
-            // Check if a LOCAL project exists at this path.
-            // Local projects take precedence - they have actual file access, while
-            // remote project paths are informational (files live on the source node).
-            // Note: find_by_git_repo_path only returns local projects (is_remote = 0)
-            if let Some(existing) =
-                Project::find_by_git_repo_path(self.pool, &project.git_repo_path)
-                    .await
-                    .map_err(NodeCacheSyncError::Database)?
-            {
-                debug!(
-                    git_repo_path = %project.git_repo_path,
-                    remote_project_id = %project.swarm_project_id,
-                    local_project_id = %existing.id,
-                    "skipping remote project sync - local project exists with same path"
-                );
-                synced_count += 1;
-                continue;
-            }
-
             // Extract project name from git repo path
             let project_name = std::path::Path::new(&project.git_repo_path)
                 .file_name()
@@ -304,9 +285,8 @@ impl<'a> NodeCacheSyncer<'a> {
                         "successfully synced remote project to unified table"
                     );
                     // Only add to synced list after successful upsert.
-                    // This ensures stale remote entries are cleaned up when:
-                    // 1. A local project now exists at the same path
-                    // 2. The remote project was removed from the hive
+                    // This ensures stale remote entries are cleaned up when
+                    // the remote project was removed from the hive.
                     synced_remote_project_ids.push(project.swarm_project_id);
                     synced_count += 1;
                 }
