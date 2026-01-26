@@ -11,7 +11,7 @@ use workspace_utils::msg_store::MsgStore;
 
 use crate::{
     command::CommandParts,
-    executors::{AppendPrompt, ExecutorError, SpawnedChild, StandardCodingAgentExecutor},
+    executors::{AppendPrompt, ExecutorError, SpawnContext, SpawnedChild, StandardCodingAgentExecutor},
     logs::utils::EntryIndexProvider,
 };
 
@@ -111,6 +111,7 @@ async fn spawn(
     command_parts: CommandParts,
     prompt: &String,
     current_dir: &Path,
+    context: SpawnContext,
 ) -> Result<SpawnedChild, ExecutorError> {
     let (program_path, args) = command_parts.into_resolved().await?;
 
@@ -122,6 +123,12 @@ async fn spawn(
         .stderr(Stdio::piped())
         .current_dir(current_dir)
         .args(args);
+
+    // Set VK context environment variables for MCP tools
+    command
+        .env("VK_ATTEMPT_ID", context.task_attempt_id.to_string())
+        .env("VK_TASK_ID", context.task_id.to_string())
+        .env("VK_EXECUTION_PROCESS_ID", context.execution_process_id.to_string());
 
     let mut child = command.group_spawn()?;
 
@@ -135,11 +142,11 @@ async fn spawn(
 
 #[async_trait]
 impl StandardCodingAgentExecutor for Droid {
-    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(&self, current_dir: &Path, prompt: &str, context: SpawnContext) -> Result<SpawnedChild, ExecutorError> {
         let droid_command = self.build_command_builder().build_initial()?;
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
 
-        spawn(droid_command, &combined_prompt, current_dir).await
+        spawn(droid_command, &combined_prompt, current_dir, context).await
     }
 
     async fn spawn_follow_up(
@@ -148,6 +155,9 @@ impl StandardCodingAgentExecutor for Droid {
         prompt: &str,
         session_id: &str,
     ) -> Result<SpawnedChild, ExecutorError> {
+        // Note: VK environment variables (VK_ATTEMPT_ID, VK_TASK_ID, VK_EXECUTION_PROCESS_ID)
+        // are inherited from the parent process that spawned this follow-up
+
         let forked_session_id = fork_session(session_id).map_err(|e| {
             ExecutorError::FollowUpNotSupported(format!(
                 "Failed to fork Droid session {session_id}: {e}"
@@ -158,7 +168,26 @@ impl StandardCodingAgentExecutor for Droid {
             .build_follow_up(&["--session-id".to_string(), forked_session_id.clone()])?;
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
 
-        spawn(continue_cmd, &combined_prompt, current_dir).await
+        // Create a minimal spawn helper without context for follow-up
+        let (program_path, args) = continue_cmd.into_resolved().await?;
+        let mut command = Command::new(program_path);
+        command
+            .kill_on_drop(true)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .current_dir(current_dir)
+            .args(args);
+
+        // Note: Environment variables are inherited from parent process
+        let mut child = command.group_spawn()?;
+
+        if let Some(mut stdin) = child.inner().stdin.take() {
+            stdin.write_all(combined_prompt.as_bytes()).await?;
+            stdin.shutdown().await?;
+        }
+
+        Ok(child.into())
     }
 
     fn normalize_logs(

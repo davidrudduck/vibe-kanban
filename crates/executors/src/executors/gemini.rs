@@ -1,16 +1,20 @@
-use std::{path::Path, sync::Arc};
+use std::{path::Path, process::Stdio, sync::Arc};
 
 use async_trait::async_trait;
+use command_group::AsyncCommandGroup;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use tokio::process::Command;
 use ts_rs::TS;
 use workspace_utils::msg_store::MsgStore;
 
 pub use super::acp::AcpAgentHarness;
 use crate::{
-    command::{CmdOverrides, CommandBuilder, apply_overrides},
+    actions::SpawnContext,
+    command::{CmdOverrides, CommandBuilder, CommandParts, apply_overrides},
     executors::{
-        AppendPrompt, AvailabilityInfo, ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
+        AppendPrompt, AvailabilityInfo, ExecutorError, ExecutorExitResult, SpawnedChild,
+        StandardCodingAgentExecutor,
     },
     logs::utils::EntryIndexProvider,
 };
@@ -46,16 +50,69 @@ impl Gemini {
 
         apply_overrides(builder, &self.cmd)
     }
+
+    async fn spawn_internal(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        command_parts: CommandParts,
+        context: SpawnContext,
+    ) -> Result<SpawnedChild, ExecutorError> {
+        let combined_prompt = self.append_prompt.combine_prompt(prompt);
+        let (program_path, args) = command_parts.into_resolved().await?;
+
+        let mut command = Command::new(program_path);
+        command
+            .kill_on_drop(true)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .current_dir(current_dir)
+            .args(&args)
+            .env("NODE_NO_WARNINGS", "1");
+
+        // Remove pnpm-specific env vars that cause npm warnings when using npx
+        command.env_remove("npm_config__jsr_registry");
+        command.env_remove("npm_config_verify_deps_before_run");
+        command.env_remove("npm_config_globalconfig");
+
+        // Set VK context environment variables for MCP tools
+        command
+            .env("VK_ATTEMPT_ID", context.task_attempt_id.to_string())
+            .env("VK_TASK_ID", context.task_id.to_string())
+            .env("VK_EXECUTION_PROCESS_ID", context.execution_process_id.to_string());
+
+        let mut child = command.group_spawn()?;
+
+        let (exit_tx, exit_rx) = tokio::sync::oneshot::channel::<ExecutorExitResult>();
+        AcpAgentHarness::bootstrap_acp_connection(
+            &mut child,
+            current_dir.to_path_buf(),
+            None,
+            combined_prompt,
+            Some(exit_tx),
+            "gemini_sessions".to_string(),
+        )
+        .await?;
+
+        Ok(SpawnedChild {
+            child,
+            exit_signal: Some(exit_rx),
+            protocol_peer: None,
+        })
+    }
 }
 
 #[async_trait]
 impl StandardCodingAgentExecutor for Gemini {
-    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
-        let harness = AcpAgentHarness::new();
-        let combined_prompt = self.append_prompt.combine_prompt(prompt);
+    async fn spawn(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        context: SpawnContext,
+    ) -> Result<SpawnedChild, ExecutorError> {
         let gemini_command = self.build_command_builder().build_initial()?;
-        harness
-            .spawn_with_command(current_dir, combined_prompt, gemini_command)
+        self.spawn_internal(current_dir, prompt, gemini_command, context)
             .await
     }
 
@@ -68,6 +125,9 @@ impl StandardCodingAgentExecutor for Gemini {
         let harness = AcpAgentHarness::new();
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
         let gemini_command = self.build_command_builder().build_follow_up(&[])?;
+
+        // Follow-up sessions inherit the parent's environment variables,
+        // so VK_* env vars will already be set from the initial spawn
         harness
             .spawn_follow_up_with_command(current_dir, combined_prompt, session_id, gemini_command)
             .await

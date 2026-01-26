@@ -17,6 +17,7 @@ use ts_rs::TS;
 use workspace_utils::msg_store::MsgStore;
 
 use crate::{
+    actions::SpawnContext,
     command::{CmdOverrides, CommandBuilder, apply_overrides},
     executors::{
         AppendPrompt, AvailabilityInfo, ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
@@ -157,7 +158,12 @@ impl Opencode {
 
 #[async_trait]
 impl StandardCodingAgentExecutor for Opencode {
-    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        context: SpawnContext,
+    ) -> Result<SpawnedChild, ExecutorError> {
         let command_parts = self.build_command_builder().build_initial()?;
         let (program_path, args) = command_parts.into_resolved().await?;
 
@@ -177,6 +183,15 @@ impl StandardCodingAgentExecutor for Opencode {
         command.env_remove("npm_config__jsr_registry");
         command.env_remove("npm_config_verify_deps_before_run");
         command.env_remove("npm_config_globalconfig");
+
+        // Set VK context environment variables for MCP tools
+        command
+            .env("VK_ATTEMPT_ID", context.task_attempt_id.to_string())
+            .env("VK_TASK_ID", context.task_id.to_string())
+            .env(
+                "VK_EXECUTION_PROCESS_ID",
+                context.execution_process_id.to_string(),
+            );
 
         let mut child = command.group_spawn().map_err(ExecutorError::SpawnError)?;
 
@@ -198,6 +213,8 @@ impl StandardCodingAgentExecutor for Opencode {
         prompt: &str,
         session_id: &str,
     ) -> Result<SpawnedChild, ExecutorError> {
+        // Note: Environment variables (VK_ATTEMPT_ID, VK_TASK_ID, VK_EXECUTION_PROCESS_ID)
+        // are inherited from the parent process that spawned this follow-up session
         let command_parts = self
             .build_command_builder()
             .build_follow_up(&["--session".to_string(), session_id.to_string()])?;

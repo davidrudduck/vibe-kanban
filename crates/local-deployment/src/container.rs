@@ -28,7 +28,7 @@ use db::{
 };
 use deployment::{DeploymentError, RemoteClientNotConfigured};
 use executors::{
-    actions::{Executable, ExecutorAction},
+    actions::{Executable, ExecutorAction, SpawnContext},
     approvals::{ExecutorApprovalService, NoopExecutorApprovalService},
     executors::{
         BaseCodingAgent, ExecutorExitResult, ExecutorExitSignal, claude::protocol::ProtocolPeer,
@@ -1517,10 +1517,17 @@ impl ContainerService for LocalContainerService {
                 _ => Arc::new(NoopExecutorApprovalService {}),
             };
 
+        // Create SpawnContext with IDs from task_attempt and execution_process
+        let spawn_context = SpawnContext {
+            task_attempt_id: task_attempt.id,
+            task_id: task_attempt.task_id,
+            execution_process_id: execution_process.id,
+        };
+
         // Create the child and stream, add to execution tracker with timeout
         let mut spawned = tokio::time::timeout(
             Duration::from_secs(30),
-            executor_action.spawn(&current_dir, approvals_service),
+            executor_action.spawn(&current_dir, approvals_service, spawn_context),
         )
         .await
         .map_err(|_| {

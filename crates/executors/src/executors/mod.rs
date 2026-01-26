@@ -18,7 +18,7 @@ use crate::executors::claude::protocol::ProtocolPeer;
 use crate::logs::utils::EntryIndexProvider;
 
 use crate::{
-    actions::ExecutorAction,
+    actions::{ExecutorAction, SpawnContext},
     approvals::ExecutorApprovalService,
     command::CommandBuildError,
     executors::{
@@ -214,7 +214,12 @@ impl AvailabilityInfo {
 pub trait StandardCodingAgentExecutor {
     fn use_approvals(&mut self, _approvals: Arc<dyn ExecutorApprovalService>) {}
 
-    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError>;
+    async fn spawn(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        context: SpawnContext,
+    ) -> Result<SpawnedChild, ExecutorError>;
     async fn spawn_follow_up(
         &self,
         current_dir: &Path,

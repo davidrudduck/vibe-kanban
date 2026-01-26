@@ -23,6 +23,7 @@ use self::{
     types::PermissionMode,
 };
 use crate::{
+    actions::SpawnContext,
     approvals::ExecutorApprovalService,
     command::{CmdOverrides, CommandBuilder, CommandParts, apply_overrides},
     executors::{
@@ -169,10 +170,15 @@ impl StandardCodingAgentExecutor for ClaudeCode {
         self.approvals_service = Some(approvals);
     }
 
-    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        context: SpawnContext,
+    ) -> Result<SpawnedChild, ExecutorError> {
         let command_builder = self.build_command_builder().await;
         let command_parts = command_builder.build_initial()?;
-        self.spawn_internal(current_dir, prompt, command_parts)
+        self.spawn_internal(current_dir, prompt, command_parts, context)
             .await
     }
 
@@ -193,7 +199,18 @@ impl StandardCodingAgentExecutor for ClaudeCode {
             "--resume".to_string(),
             session_id.to_string(),
         ])?;
-        self.spawn_internal(current_dir, prompt, command_parts)
+
+        // TEMPORARY: Create placeholder context for follow-up spawns
+        // Follow-up sessions inherit the parent's environment variables,
+        // so these placeholders won't be used in practice
+        use uuid::Uuid;
+        let placeholder_context = SpawnContext {
+            task_attempt_id: Uuid::nil(),
+            task_id: Uuid::nil(),
+            execution_process_id: Uuid::nil(),
+        };
+
+        self.spawn_internal(current_dir, prompt, command_parts, placeholder_context)
             .await
     }
 
@@ -250,6 +267,7 @@ impl ClaudeCode {
         current_dir: &Path,
         prompt: &str,
         command_parts: CommandParts,
+        context: SpawnContext,
     ) -> Result<SpawnedChild, ExecutorError> {
         let (program_path, args) = command_parts.into_resolved().await?;
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
@@ -275,6 +293,15 @@ impl ClaudeCode {
         command.env_remove("npm_config__jsr_registry");
         command.env_remove("npm_config_verify_deps_before_run");
         command.env_remove("npm_config_globalconfig");
+
+        // Set VK context environment variables for MCP tools
+        command
+            .env("VK_ATTEMPT_ID", context.task_attempt_id.to_string())
+            .env("VK_TASK_ID", context.task_id.to_string())
+            .env(
+                "VK_EXECUTION_PROCESS_ID",
+                context.execution_process_id.to_string(),
+            );
 
         let mut child = command.group_spawn()?;
         let child_stdout = child.inner().stdout.take().ok_or_else(|| {
