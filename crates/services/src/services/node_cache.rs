@@ -56,12 +56,16 @@ const DEFAULT_SYNC_INTERVAL: Duration = Duration::from_secs(300);
 ///
 /// This is a stateless function that can be called from anywhere.
 /// It fetches nodes and projects from the remote API and caches them locally.
+///
+/// If `current_node_id` is provided, projects from that node will NOT be synced
+/// as remote entries (since they are local projects, not remote ones).
 pub async fn sync_organization(
     pool: &SqlitePool,
     remote_client: &RemoteClient,
     organization_id: Uuid,
+    current_node_id: Option<Uuid>,
 ) -> Result<SyncStats, NodeCacheSyncError> {
-    let syncer = NodeCacheSyncer::new(pool, remote_client, organization_id);
+    let syncer = NodeCacheSyncer::new(pool, remote_client, organization_id, current_node_id);
     syncer.sync().await
 }
 
@@ -96,7 +100,7 @@ pub async fn sync_all_organizations(
     let mut results = Vec::with_capacity(orgs.organizations.len());
 
     for org in orgs.organizations {
-        match sync_organization(pool, remote_client, org.id).await {
+        match sync_organization(pool, remote_client, org.id, None).await {
             Ok(stats) => {
                 info!(
                     organization_id = %org.id,
@@ -124,14 +128,22 @@ struct NodeCacheSyncer<'a> {
     pool: &'a SqlitePool,
     remote_client: &'a RemoteClient,
     organization_id: Uuid,
+    /// If set, skip syncing projects from this node (they're local, not remote)
+    current_node_id: Option<Uuid>,
 }
 
 impl<'a> NodeCacheSyncer<'a> {
-    fn new(pool: &'a SqlitePool, remote_client: &'a RemoteClient, organization_id: Uuid) -> Self {
+    fn new(
+        pool: &'a SqlitePool,
+        remote_client: &'a RemoteClient,
+        organization_id: Uuid,
+        current_node_id: Option<Uuid>,
+    ) -> Self {
         Self {
             pool,
             remote_client,
             organization_id,
+            current_node_id,
         }
     }
 
@@ -186,13 +198,18 @@ impl<'a> NodeCacheSyncer<'a> {
             }
 
             // Fetch and sync projects for this node
-            match self.sync_node_projects(&node).await {
-                Ok(project_stats) => {
-                    stats.projects_synced += project_stats.0;
-                    stats.projects_removed += project_stats.1;
-                }
-                Err(e) => {
-                    warn!(node_id = %node_id, error = %e, "failed to sync projects for node");
+            // Skip syncing projects from our own node - those are local, not remote
+            if Some(node_id) == self.current_node_id {
+                debug!(node_id = %node_id, "skipping project sync for current node (local projects)");
+            } else {
+                match self.sync_node_projects(&node).await {
+                    Ok(project_stats) => {
+                        stats.projects_synced += project_stats.0;
+                        stats.projects_removed += project_stats.1;
+                    }
+                    Err(e) => {
+                        warn!(node_id = %node_id, error = %e, "failed to sync projects for node");
+                    }
                 }
             }
         }
@@ -209,8 +226,8 @@ impl<'a> NodeCacheSyncer<'a> {
     /// Syncs swarm-linked projects for a single node into the unified projects table.
     ///
     /// Only projects that are linked to a swarm project are synchronized; local-only (unlinked)
-    /// projects are left unchanged. For each linked project this updates existing records
-    /// (link or sync status) or inserts a new remote project mapping tied to this node.
+    /// projects are left unchanged. Remote project entries are created alongside any local
+    /// projects at the same path - they represent the same repository on different nodes.
     /// After processing, remote projects that are no longer present for the node are removed.
     ///
     /// # Returns
@@ -252,25 +269,6 @@ impl<'a> NodeCacheSyncer<'a> {
             }
             .to_string();
 
-            // Check if a LOCAL project exists at this path.
-            // Local projects take precedence - they have actual file access, while
-            // remote project paths are informational (files live on the source node).
-            // Note: find_by_git_repo_path only returns local projects (is_remote = 0)
-            if let Some(existing) =
-                Project::find_by_git_repo_path(self.pool, &project.git_repo_path)
-                    .await
-                    .map_err(NodeCacheSyncError::Database)?
-            {
-                debug!(
-                    git_repo_path = %project.git_repo_path,
-                    remote_project_id = %project.swarm_project_id,
-                    local_project_id = %existing.id,
-                    "skipping remote project sync - local project exists with same path"
-                );
-                synced_count += 1;
-                continue;
-            }
-
             // Extract project name from git repo path
             let project_name = std::path::Path::new(&project.git_repo_path)
                 .file_name()
@@ -304,9 +302,8 @@ impl<'a> NodeCacheSyncer<'a> {
                         "successfully synced remote project to unified table"
                     );
                     // Only add to synced list after successful upsert.
-                    // This ensures stale remote entries are cleaned up when:
-                    // 1. A local project now exists at the same path
-                    // 2. The remote project was removed from the hive
+                    // This ensures stale remote entries are cleaned up when
+                    // the remote project was removed from the hive.
                     synced_remote_project_ids.push(project.swarm_project_id);
                     synced_count += 1;
                 }
