@@ -899,7 +899,11 @@ async fn sync_remote_projects(
     current_node_id: Uuid,
 ) -> Result<(), NodeRunnerError> {
     // 1. Sync organization from hive - this directly upserts remote projects into unified Project table
-    if let Err(e) = node_cache::sync_organization(pool, remote_client, organization_id).await {
+    // Pass current_node_id to skip syncing our own projects as remote entries (they're local)
+    if let Err(e) =
+        node_cache::sync_organization(pool, remote_client, organization_id, Some(current_node_id))
+            .await
+    {
         tracing::warn!(error = ?e, "Failed to sync organization from hive");
     }
 

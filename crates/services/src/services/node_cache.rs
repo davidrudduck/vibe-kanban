@@ -56,12 +56,16 @@ const DEFAULT_SYNC_INTERVAL: Duration = Duration::from_secs(300);
 ///
 /// This is a stateless function that can be called from anywhere.
 /// It fetches nodes and projects from the remote API and caches them locally.
+///
+/// If `current_node_id` is provided, projects from that node will NOT be synced
+/// as remote entries (since they are local projects, not remote ones).
 pub async fn sync_organization(
     pool: &SqlitePool,
     remote_client: &RemoteClient,
     organization_id: Uuid,
+    current_node_id: Option<Uuid>,
 ) -> Result<SyncStats, NodeCacheSyncError> {
-    let syncer = NodeCacheSyncer::new(pool, remote_client, organization_id);
+    let syncer = NodeCacheSyncer::new(pool, remote_client, organization_id, current_node_id);
     syncer.sync().await
 }
 
@@ -96,7 +100,7 @@ pub async fn sync_all_organizations(
     let mut results = Vec::with_capacity(orgs.organizations.len());
 
     for org in orgs.organizations {
-        match sync_organization(pool, remote_client, org.id).await {
+        match sync_organization(pool, remote_client, org.id, None).await {
             Ok(stats) => {
                 info!(
                     organization_id = %org.id,
@@ -124,14 +128,22 @@ struct NodeCacheSyncer<'a> {
     pool: &'a SqlitePool,
     remote_client: &'a RemoteClient,
     organization_id: Uuid,
+    /// If set, skip syncing projects from this node (they're local, not remote)
+    current_node_id: Option<Uuid>,
 }
 
 impl<'a> NodeCacheSyncer<'a> {
-    fn new(pool: &'a SqlitePool, remote_client: &'a RemoteClient, organization_id: Uuid) -> Self {
+    fn new(
+        pool: &'a SqlitePool,
+        remote_client: &'a RemoteClient,
+        organization_id: Uuid,
+        current_node_id: Option<Uuid>,
+    ) -> Self {
         Self {
             pool,
             remote_client,
             organization_id,
+            current_node_id,
         }
     }
 
@@ -186,13 +198,18 @@ impl<'a> NodeCacheSyncer<'a> {
             }
 
             // Fetch and sync projects for this node
-            match self.sync_node_projects(&node).await {
-                Ok(project_stats) => {
-                    stats.projects_synced += project_stats.0;
-                    stats.projects_removed += project_stats.1;
-                }
-                Err(e) => {
-                    warn!(node_id = %node_id, error = %e, "failed to sync projects for node");
+            // Skip syncing projects from our own node - those are local, not remote
+            if Some(node_id) == self.current_node_id {
+                debug!(node_id = %node_id, "skipping project sync for current node (local projects)");
+            } else {
+                match self.sync_node_projects(&node).await {
+                    Ok(project_stats) => {
+                        stats.projects_synced += project_stats.0;
+                        stats.projects_removed += project_stats.1;
+                    }
+                    Err(e) => {
+                        warn!(node_id = %node_id, error = %e, "failed to sync projects for node");
+                    }
                 }
             }
         }
