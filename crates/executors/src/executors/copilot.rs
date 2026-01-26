@@ -22,6 +22,7 @@ use uuid::Uuid;
 use workspace_utils::{msg_store::MsgStore, path::get_vibe_kanban_temp_dir};
 
 use crate::{
+    actions::SpawnContext,
     command::{CmdOverrides, CommandBuilder, apply_overrides},
     executors::{
         AppendPrompt, AvailabilityInfo, ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
@@ -101,7 +102,12 @@ impl Copilot {
 
 #[async_trait]
 impl StandardCodingAgentExecutor for Copilot {
-    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        context: SpawnContext,
+    ) -> Result<SpawnedChild, ExecutorError> {
         let log_dir = Self::create_temp_log_dir(current_dir).await?;
         let command_parts = self
             .build_command_builder(&log_dir.to_string_lossy())
@@ -118,7 +124,10 @@ impl StandardCodingAgentExecutor for Copilot {
             .stderr(Stdio::piped())
             .current_dir(current_dir)
             .args(&args)
-            .env("NODE_NO_WARNINGS", "1");
+            .env("NODE_NO_WARNINGS", "1")
+            .env("VK_ATTEMPT_ID", context.task_attempt_id.to_string())
+            .env("VK_TASK_ID", context.task_id.to_string())
+            .env("VK_EXECUTION_PROCESS_ID", context.execution_process_id.to_string());
 
         // Remove pnpm-specific env vars that cause npm warnings when using npx
         command.env_remove("npm_config__jsr_registry");
@@ -145,6 +154,8 @@ impl StandardCodingAgentExecutor for Copilot {
         prompt: &str,
         session_id: &str,
     ) -> Result<SpawnedChild, ExecutorError> {
+        // Note: Environment variables (VK_ATTEMPT_ID, VK_TASK_ID, VK_EXECUTION_PROCESS_ID)
+        // are inherited from the parent process that calls this method.
         let log_dir = Self::create_temp_log_dir(current_dir).await?;
         let command_parts = self
             .build_command_builder(&log_dir.to_string_lossy())

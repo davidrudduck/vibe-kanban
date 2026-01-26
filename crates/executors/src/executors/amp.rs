@@ -11,7 +11,7 @@ use workspace_utils::msg_store::MsgStore;
 use crate::{
     command::{CmdOverrides, CommandBuilder, apply_overrides},
     executors::{
-        AppendPrompt, ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
+        AppendPrompt, ExecutorError, SpawnContext, SpawnedChild, StandardCodingAgentExecutor,
         claude::{ClaudeLogProcessor, HistoryStrategy},
     },
     logs::{stderr_processor::normalize_stderr_logs, utils::EntryIndexProvider},
@@ -46,7 +46,7 @@ impl Amp {
 
 #[async_trait]
 impl StandardCodingAgentExecutor for Amp {
-    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(&self, current_dir: &Path, prompt: &str, context: SpawnContext) -> Result<SpawnedChild, ExecutorError> {
         let command_parts = self.build_command_builder().build_initial()?;
         let (executable_path, args) = command_parts.into_resolved().await?;
 
@@ -66,6 +66,12 @@ impl StandardCodingAgentExecutor for Amp {
         command.env_remove("npm_config_verify_deps_before_run");
         command.env_remove("npm_config_globalconfig");
 
+        // Set VK context environment variables for MCP tools
+        command
+            .env("VK_ATTEMPT_ID", context.task_attempt_id.to_string())
+            .env("VK_TASK_ID", context.task_id.to_string())
+            .env("VK_EXECUTION_PROCESS_ID", context.execution_process_id.to_string());
+
         let mut child = command.group_spawn()?;
 
         // Feed the prompt in, then close the pipe so amp sees EOF
@@ -83,6 +89,9 @@ impl StandardCodingAgentExecutor for Amp {
         prompt: &str,
         session_id: &str,
     ) -> Result<SpawnedChild, ExecutorError> {
+        // Note: VK environment variables (VK_ATTEMPT_ID, VK_TASK_ID, VK_EXECUTION_PROCESS_ID)
+        // are inherited from the parent process that spawned this follow-up
+
         // 1) Fork the thread synchronously to obtain new thread id
         let builder = self.build_command_builder();
         let fork_line = builder.build_follow_up(&[

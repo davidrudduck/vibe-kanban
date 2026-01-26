@@ -19,7 +19,7 @@ use workspace_utils::stream_lines::LinesStreamExt;
 use super::{AcpClient, SessionManager};
 use crate::{
     command::CommandParts,
-    executors::{ExecutorError, ExecutorExitResult, SpawnedChild, acp::AcpEvent},
+    executors::{ExecutorError, ExecutorExitResult, SpawnContext, SpawnedChild, acp::AcpEvent},
 };
 
 /// Reusable harness for ACP-based conns (Gemini, Qwen, etc.)
@@ -54,6 +54,7 @@ impl AcpAgentHarness {
         current_dir: &Path,
         prompt: String,
         command_parts: CommandParts,
+        context: SpawnContext,
     ) -> Result<SpawnedChild, ExecutorError> {
         let (program_path, args) = command_parts.into_resolved().await?;
         let mut command = Command::new(program_path);
@@ -70,6 +71,12 @@ impl AcpAgentHarness {
         command.env_remove("npm_config__jsr_registry");
         command.env_remove("npm_config_verify_deps_before_run");
         command.env_remove("npm_config_globalconfig");
+
+        // Set VK context environment variables for MCP tools
+        command
+            .env("VK_ATTEMPT_ID", context.task_attempt_id.to_string())
+            .env("VK_TASK_ID", context.task_id.to_string())
+            .env("VK_EXECUTION_PROCESS_ID", context.execution_process_id.to_string());
 
         let mut child = command.group_spawn()?;
 
@@ -98,6 +105,9 @@ impl AcpAgentHarness {
         session_id: &str,
         command_parts: CommandParts,
     ) -> Result<SpawnedChild, ExecutorError> {
+        // Note: VK environment variables (VK_ATTEMPT_ID, VK_TASK_ID, VK_EXECUTION_PROCESS_ID)
+        // are inherited from the parent process that spawned this follow-up
+
         let (program_path, args) = command_parts.into_resolved().await?;
         let mut command = Command::new(program_path);
         command
@@ -134,7 +144,7 @@ impl AcpAgentHarness {
         })
     }
 
-    async fn bootstrap_acp_connection(
+    pub async fn bootstrap_acp_connection(
         child: &mut AsyncGroupChild,
         cwd: PathBuf,
         existing_session: Option<String>,

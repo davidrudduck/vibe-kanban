@@ -30,6 +30,7 @@ use self::{
     session::SessionHandler,
 };
 use crate::{
+    actions::SpawnContext,
     approvals::ExecutorApprovalService,
     command::{CmdOverrides, CommandBuilder, CommandParts, apply_overrides},
     executors::{
@@ -150,9 +151,9 @@ impl StandardCodingAgentExecutor for Codex {
         self.approvals = Some(approvals);
     }
 
-    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(&self, current_dir: &Path, prompt: &str, context: SpawnContext) -> Result<SpawnedChild, ExecutorError> {
         let command_parts = self.build_command_builder().build_initial()?;
-        self.spawn(current_dir, prompt, command_parts, None).await
+        self.spawn_internal(current_dir, prompt, command_parts, None, context).await
     }
 
     async fn spawn_follow_up(
@@ -162,7 +163,16 @@ impl StandardCodingAgentExecutor for Codex {
         session_id: &str,
     ) -> Result<SpawnedChild, ExecutorError> {
         let command_parts = self.build_command_builder().build_follow_up(&[])?;
-        self.spawn(current_dir, prompt, command_parts, Some(session_id))
+
+        // Placeholder context for follow-up (will be properly handled in future iteration)
+        use uuid::Uuid;
+        let placeholder_context = SpawnContext {
+            task_attempt_id: Uuid::nil(),
+            task_id: Uuid::nil(),
+            execution_process_id: Uuid::nil(),
+        };
+
+        self.spawn_internal(current_dir, prompt, command_parts, Some(session_id), placeholder_context)
             .await
     }
 
@@ -291,12 +301,13 @@ impl Codex {
         }
     }
 
-    async fn spawn(
+    async fn spawn_internal(
         &self,
         current_dir: &Path,
         prompt: &str,
         command_parts: CommandParts,
         resume_session: Option<&str>,
+        context: SpawnContext,
     ) -> Result<SpawnedChild, ExecutorError> {
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
         let (program_path, args) = command_parts.into_resolved().await?;
@@ -317,6 +328,12 @@ impl Codex {
         process.env_remove("npm_config__jsr_registry");
         process.env_remove("npm_config_verify_deps_before_run");
         process.env_remove("npm_config_globalconfig");
+
+        // Set VK context environment variables for MCP tools
+        process
+            .env("VK_ATTEMPT_ID", context.task_attempt_id.to_string())
+            .env("VK_TASK_ID", context.task_id.to_string())
+            .env("VK_EXECUTION_PROCESS_ID", context.execution_process_id.to_string());
 
         let mut child = process.group_spawn()?;
 

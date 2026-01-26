@@ -471,7 +471,14 @@ impl TaskAttempt {
                       t.project_id as "project_id!: Uuid"
                FROM task_attempts ta
                JOIN tasks t ON ta.task_id = t.id
-               WHERE ta.container_ref = ?"#,
+               LEFT JOIN execution_processes ep ON ep.task_attempt_id = ta.id
+                   AND ep.status = 'running'
+               WHERE ta.container_ref = ?
+               ORDER BY
+                   CASE WHEN ep.id IS NOT NULL THEN 0 ELSE 1 END,
+                   ep.started_at DESC,
+                   ta.created_at DESC
+               LIMIT 1"#,
             container_ref
         )
         .fetch_optional(pool)
@@ -736,5 +743,107 @@ impl TaskAttempt {
             .execute(pool)
             .await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::execution_process::{
+        CreateExecutionProcess, ExecutionProcess, ExecutionProcessRunReason,
+    };
+    use crate::models::project::{CreateProject, Project};
+    use crate::models::task::{CreateTask, Task};
+    use crate::test_utils::create_test_pool;
+    use executors::actions::{
+        coding_agent_initial::CodingAgentInitialRequest, ExecutorAction, ExecutorActionType,
+    };
+    use executors::executors::BaseCodingAgent;
+    use executors::profile::ExecutorProfileId;
+
+    #[tokio::test]
+    async fn test_resolve_container_ref_prioritizes_running_process() {
+        let (pool, _temp_dir) = create_test_pool().await;
+
+        // Create project
+        let project_data = CreateProject {
+            name: "test-project".to_string(),
+            git_repo_path: "/tmp/test-repo".to_string(),
+            use_existing_repo: true,
+            clone_url: None,
+            setup_script: None,
+            dev_script: None,
+            cleanup_script: None,
+            copy_files: None,
+        };
+        let project = Project::create(&pool, &project_data, Uuid::new_v4())
+            .await
+            .unwrap();
+
+        // Create task
+        let task_data = CreateTask {
+            project_id: project.id,
+            title: "test-task".to_string(),
+            description: None,
+            status: None,
+            parent_task_id: None,
+            image_ids: None,
+            shared_task_id: None,
+        };
+        let task = Task::create(&pool, &task_data, Uuid::new_v4())
+            .await
+            .unwrap();
+
+        // Create two attempts with same container_ref
+        let attempt_data = CreateTaskAttempt {
+            executor: BaseCodingAgent::ClaudeCode,
+            base_branch: "main".to_string(),
+            branch: "feature-1".to_string(),
+        };
+        let attempt1 = TaskAttempt::create(&pool, &attempt_data, Uuid::new_v4(), task.id)
+            .await
+            .unwrap();
+        let attempt2 = TaskAttempt::create(&pool, &attempt_data, Uuid::new_v4(), task.id)
+            .await
+            .unwrap();
+
+        // Set same container_ref for both attempts
+        let container_ref = "/tmp/shared-worktree";
+        TaskAttempt::update_container_ref(&pool, attempt1.id, container_ref)
+            .await
+            .unwrap();
+        TaskAttempt::update_container_ref(&pool, attempt2.id, container_ref)
+            .await
+            .unwrap();
+
+        // Create running execution_process for attempt2
+        let initial_request = CodingAgentInitialRequest {
+            prompt: "test prompt".to_string(),
+            executor_profile_id: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
+        };
+        let exec_data = CreateExecutionProcess {
+            task_attempt_id: attempt2.id,
+            executor_action: ExecutorAction::new(
+                ExecutorActionType::CodingAgentInitialRequest(initial_request),
+                None,
+            ),
+            run_reason: ExecutionProcessRunReason::CodingAgent,
+        };
+        ExecutionProcess::create(&pool, &exec_data, Uuid::new_v4(), None, None)
+            .await
+            .unwrap();
+
+        // Resolve should return attempt2 (has running process)
+        let (resolved_attempt_id, resolved_task_id, resolved_project_id) =
+            TaskAttempt::resolve_container_ref(&pool, container_ref)
+                .await
+                .unwrap();
+
+        assert_eq!(
+            resolved_attempt_id, attempt2.id,
+            "Should resolve to attempt with running process"
+        );
+        assert_eq!(resolved_task_id, task.id);
+        assert_eq!(resolved_project_id, project.id);
     }
 }

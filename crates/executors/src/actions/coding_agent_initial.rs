@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
-    actions::Executable,
+    actions::{Executable, SpawnContext},
     approvals::ExecutorApprovalService,
     executors::{BaseCodingAgent, ExecutorError, SpawnedChild, StandardCodingAgentExecutor},
     profile::{ExecutorConfigs, ExecutorProfileId},
@@ -32,6 +32,7 @@ impl Executable for CodingAgentInitialRequest {
         &self,
         current_dir: &Path,
         approvals: Arc<dyn ExecutorApprovalService>,
+        context: SpawnContext,
     ) -> Result<SpawnedChild, ExecutorError> {
         let executor_profile_id = self.executor_profile_id.clone();
         let mut agent = ExecutorConfigs::get_cached()
@@ -42,6 +43,6 @@ impl Executable for CodingAgentInitialRequest {
 
         agent.use_approvals(approvals.clone());
 
-        agent.spawn(current_dir, &self.prompt).await
+        agent.spawn(current_dir, &self.prompt, context).await
     }
 }
