@@ -531,7 +531,11 @@ mod tests {
         assert!(!local[0].is_remote);
     }
 
+    // DEPRECATED: Remote project caching is disabled.
+    // We now fetch swarm projects directly from the Hive instead of caching
+    // remote project entries locally.
     #[tokio::test]
+    #[ignore = "remote project caching is deprecated - we now fetch from hive directly"]
     async fn test_upsert_remote_project() {
         let (pool, _temp_dir) = create_test_pool().await;
 
@@ -563,6 +567,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "remote project caching is deprecated - we now fetch from hive directly"]
     async fn test_update_remote_sync_status() {
         let (pool, _temp_dir) = create_test_pool().await;
 
@@ -659,9 +664,12 @@ mod tests {
 
     // ========================================================================
     // Phase 3 Tests: Multi-node path collision handling
+    // DEPRECATED: Remote project caching is disabled.
+    // We now fetch swarm projects directly from the Hive.
     // ========================================================================
 
     #[tokio::test]
+    #[ignore = "remote project caching is deprecated - we now fetch from hive directly"]
     async fn test_multiple_remote_projects_same_path_different_nodes() {
         let (pool, _temp_dir) = create_test_pool().await;
 
@@ -726,6 +734,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "remote project caching is deprecated - we now fetch from hive directly"]
     async fn test_find_remote_by_path_and_node() {
         let (pool, _temp_dir) = create_test_pool().await;
 
@@ -784,6 +793,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "remote project caching is deprecated - we now fetch from hive directly"]
     async fn test_local_and_remote_projects_coexist() {
         let (pool, _temp_dir) = create_test_pool().await;
 
@@ -838,6 +848,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "remote project caching is deprecated - we now fetch from hive directly"]
     async fn test_find_by_git_repo_path_only_returns_local() {
         let (pool, _temp_dir) = create_test_pool().await;
 
@@ -890,6 +901,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "remote project caching is deprecated - we now fetch from hive directly"]
     async fn test_delete_stale_remote_projects_scoped_to_node() {
         let (pool, _temp_dir) = create_test_pool().await;
 

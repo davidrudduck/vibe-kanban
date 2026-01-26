@@ -36,9 +36,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use db::models::{
-    cached_node::{CachedNode, CachedNodeCapabilities, CachedNodeInput, CachedNodeStatus},
-    project::Project,
+use db::models::cached_node::{
+    CachedNode, CachedNodeCapabilities, CachedNodeInput, CachedNodeStatus,
 };
 use remote::nodes::Node;
 use sqlx::SqlitePool;
@@ -223,109 +222,22 @@ impl<'a> NodeCacheSyncer<'a> {
         Ok(stats)
     }
 
-    /// Syncs swarm-linked projects for a single node into the unified projects table.
+    /// DEPRECATED: Remote project sync is disabled.
     ///
-    /// Only projects that are linked to a swarm project are synchronized; local-only (unlinked)
-    /// projects are left unchanged. Remote project entries are created alongside any local
-    /// projects at the same path - they represent the same repository on different nodes.
-    /// After processing, remote projects that are no longer present for the node are removed.
+    /// We now fetch swarm projects directly from the Hive instead of caching
+    /// remote project entries locally. This eliminates UNIQUE constraint violations
+    /// and stale data issues.
     ///
     /// # Returns
     ///
-    /// A tuple `(synced_count, removed_count)` where `synced_count` is the number of projects
-    /// that were inserted or had their sync information updated, and `removed_count` is the
-    /// number of stale remote projects deleted for this node.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// // Construct a NodeCacheSyncer and a Node, then call:
-    /// let res = syncer.sync_node_projects(&node).await?;
-    /// let (synced, removed) = res;
-    /// println!("synced: {}, removed: {}", synced, removed);
-    /// ```
+    /// Always returns `(0, 0)` - no projects synced or removed.
+    #[allow(clippy::unused_async)]
     async fn sync_node_projects(&self, node: &Node) -> Result<(usize, usize), NodeCacheSyncError> {
-        // Only fetch projects that are linked to a swarm project.
-        // Unlinked projects are local-only and should not sync to other nodes.
-        let projects = self
-            .remote_client
-            .list_linked_node_projects(node.id)
-            .await
-            .map_err(NodeCacheSyncError::Remote)?;
-
-        debug!(node_id = %node.id, project_count = projects.len(), "fetched swarm-linked projects for node");
-
-        let mut synced_count = 0;
-        let mut synced_remote_project_ids = Vec::with_capacity(projects.len());
-
-        for project in projects {
-            // Convert node status to string for storage
-            let node_status_str = match node.status {
-                remote::nodes::NodeStatus::Pending => "pending",
-                remote::nodes::NodeStatus::Online => "online",
-                remote::nodes::NodeStatus::Offline => "offline",
-                remote::nodes::NodeStatus::Busy => "busy",
-                remote::nodes::NodeStatus::Draining => "draining",
-            }
-            .to_string();
-
-            // Extract project name from git repo path
-            let project_name = std::path::Path::new(&project.git_repo_path)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("Unknown")
-                .to_string();
-
-            // Upsert the remote project.
-            // - ON CONFLICT(remote_project_id) handles re-syncing the same swarm project
-            // - The (git_repo_path, source_node_id) unique constraint allows multiple
-            //   nodes to have projects at the same path (e.g., /home/david/Code/repo
-            //   exists on both Node A and Node B)
-            match Project::upsert_remote_project(
-                self.pool,
-                Uuid::new_v4(), // local_id for new projects
-                project.swarm_project_id,
-                project_name.clone(),
-                project.git_repo_path.clone(),
-                node.id,
-                node.name.clone(),
-                node.public_url.clone(),
-                Some(node_status_str.clone()),
-            )
-            .await
-            {
-                Ok(cached) => {
-                    debug!(
-                        cached_id = %cached.id,
-                        project_name = %cached.name,
-                        source_node_id = ?cached.source_node_id,
-                        "successfully synced remote project to unified table"
-                    );
-                    // Only add to synced list after successful upsert.
-                    // This ensures stale remote entries are cleaned up when
-                    // the remote project was removed from the hive.
-                    synced_remote_project_ids.push(project.swarm_project_id);
-                    synced_count += 1;
-                }
-                Err(e) => {
-                    tracing::error!(
-                        node_id = %node.id,
-                        swarm_project_id = %project.swarm_project_id,
-                        error = %e,
-                        "failed to upsert remote project"
-                    );
-                    return Err(NodeCacheSyncError::Database(e));
-                }
-            }
-        }
-
-        // Remove stale remote projects (those no longer in the hive for this specific node)
-        // Filter by source_node_id to avoid accidentally deleting projects from other nodes
-        let removed =
-            Project::delete_stale_remote_projects(self.pool, node.id, &synced_remote_project_ids)
-                .await?;
-
-        Ok((synced_count, removed as usize))
+        debug!(
+            node_id = %node.id,
+            "remote project sync disabled - using hive directly"
+        );
+        Ok((0, 0))
     }
 
     /// Convert a remote Node to a CachedNodeInput

@@ -93,6 +93,7 @@ pub struct SwarmProjectWithNodesRow {
     pub updated_at: DateTime<Utc>,
     pub linked_nodes_count: i64,
     pub linked_node_names: Vec<String>,
+    pub linked_node_ids: Vec<Uuid>,
     pub hive_project_ids: Vec<Uuid>,
     pub task_count_todo: i64,
     pub task_count_in_progress: i64,
@@ -108,6 +109,8 @@ pub struct SwarmProjectWithNodes {
     pub project: SwarmProject,
     pub linked_nodes_count: i64,
     pub linked_node_names: Vec<String>,
+    /// The node IDs linked to this swarm project (for routing/dispatch)
+    pub linked_node_ids: Vec<Uuid>,
     /// The hive project IDs linked to this swarm project (for task count lookup)
     pub hive_project_ids: Vec<Uuid>,
     pub task_counts: SwarmTaskCounts,
@@ -127,6 +130,7 @@ impl From<SwarmProjectWithNodesRow> for SwarmProjectWithNodes {
             },
             linked_nodes_count: row.linked_nodes_count,
             linked_node_names: row.linked_node_names,
+            linked_node_ids: row.linked_node_ids,
             hive_project_ids: row.hive_project_ids,
             task_counts: SwarmTaskCounts {
                 todo: row.task_count_todo,
@@ -246,6 +250,7 @@ impl SwarmProjectRepository {
     /// The returned entries include the SwarmProject data plus:
     /// - `linked_nodes_count`: number of node links
     /// - `linked_node_names`: array of linked node names (unique)
+    /// - `linked_node_ids`: array of linked node IDs (for routing/dispatch)
     /// - `hive_project_ids`: an empty UUID array (reserved field)
     /// - per-status task counts: `task_count_todo`, `task_count_in_progress`, `task_count_in_review`, `task_count_done`, `task_count_cancelled`
     ///
@@ -292,6 +297,7 @@ impl SwarmProjectRepository {
                 sp.updated_at,
                 COUNT(spn.id)::bigint AS linked_nodes_count,
                 COALESCE(ARRAY_AGG(DISTINCT n.name) FILTER (WHERE n.name IS NOT NULL), ARRAY[]::text[]) AS linked_node_names,
+                COALESCE(ARRAY_AGG(DISTINCT spn.node_id) FILTER (WHERE spn.node_id IS NOT NULL), ARRAY[]::uuid[]) AS linked_node_ids,
                 ARRAY[]::uuid[] AS hive_project_ids,
                 COALESCE(tc.todo, 0)::bigint AS task_count_todo,
                 COALESCE(tc.in_progress, 0)::bigint AS task_count_in_progress,
