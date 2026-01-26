@@ -749,13 +749,13 @@ impl RemoteClient {
 
     /// Fetches bulk snapshot of shared tasks for a project.
     ///
-    /// Uses the `/v1/nodes/tasks/bulk` endpoint which accepts both OAuth and API key auth,
+    /// Uses the `/v1/sync/nodes/tasks/bulk` endpoint which requires API key auth,
     /// allowing nodes to sync tasks without requiring user login.
     pub async fn fetch_bulk_snapshot(
         &self,
         project_id: Uuid,
     ) -> Result<BulkSharedTasksResponse, RemoteClientError> {
-        self.get_authed(&format!("/v1/nodes/tasks/bulk?project_id={project_id}"))
+        self.get_authed(&format!("/v1/sync/nodes/tasks/bulk?project_id={project_id}"))
             .await
     }
 
@@ -820,9 +820,14 @@ impl RemoteClient {
     // =====================
 
     /// Lists all nodes for an organization.
+    ///
+    /// Uses `/v1/nodes` for OAuth auth (user-facing) or `/v1/sync/nodes` for API key auth (node sync).
     pub async fn list_nodes(&self, org_id: Uuid) -> Result<Vec<Node>, RemoteClientError> {
-        self.get_authed(&format!("/v1/nodes?organization_id={org_id}"))
-            .await
+        let path = match &self.auth_mode {
+            AuthMode::OAuth(_) => format!("/v1/nodes?organization_id={org_id}"),
+            AuthMode::ApiKey(_) => format!("/v1/sync/nodes?organization_id={org_id}"),
+        };
+        self.get_authed(&path).await
     }
 
     /// Gets a specific node by ID.
@@ -836,17 +841,24 @@ impl RemoteClient {
     }
 
     /// Lists local projects synced from a node.
+    ///
+    /// Uses `/v1/nodes` for OAuth auth (user-facing) or `/v1/sync/nodes` for API key auth (node sync).
     pub async fn list_node_projects(
         &self,
         node_id: Uuid,
     ) -> Result<Vec<NodeLocalProjectInfo>, RemoteClientError> {
-        self.get_authed(&format!("/v1/nodes/{node_id}/projects"))
-            .await
+        let path = match &self.auth_mode {
+            AuthMode::OAuth(_) => format!("/v1/nodes/{node_id}/projects"),
+            AuthMode::ApiKey(_) => format!("/v1/sync/nodes/{node_id}/projects"),
+        };
+        self.get_authed(&path).await
     }
 
     /// Returns the swarm-linked projects for a given node.
     ///
     /// Only projects that are linked to a swarm project are included; projects that exist on the node but are not swarm-linked are excluded.
+    ///
+    /// Uses `/v1/nodes` for OAuth auth (user-facing) or `/v1/sync/nodes` for API key auth (node sync).
     ///
     /// # Parameters
     ///
@@ -875,8 +887,11 @@ impl RemoteClient {
         &self,
         node_id: Uuid,
     ) -> Result<Vec<SwarmProjectNode>, RemoteClientError> {
-        self.get_authed(&format!("/v1/nodes/{node_id}/projects/linked"))
-            .await
+        let path = match &self.auth_mode {
+            AuthMode::OAuth(_) => format!("/v1/nodes/{node_id}/projects/linked"),
+            AuthMode::ApiKey(_) => format!("/v1/sync/nodes/{node_id}/projects/linked"),
+        };
+        self.get_authed(&path).await
     }
 
     /// Lists task attempts for a shared task.

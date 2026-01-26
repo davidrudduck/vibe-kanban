@@ -54,10 +54,12 @@ pub fn protected_router() -> Router<AppState> {
         .route("/nodes/api-keys", get(list_api_keys))
         .route("/nodes/api-keys/{key_id}", delete(revoke_api_key))
         .route("/nodes/api-keys/{key_id}/unblock", post(unblock_api_key))
-        // Note: list_nodes moved to node_sync_router (accepts both JWT and API key)
+        // User-facing node endpoints (JWT auth for frontend)
+        .route("/nodes", get(list_nodes))
         .route("/nodes/{node_id}", get(get_node))
         .route("/nodes/{node_id}", delete(delete_node))
-        // Note: list_node_projects and list_linked_node_projects moved to node_sync_router
+        .route("/nodes/{node_id}/projects", get(list_node_projects))
+        .route("/nodes/{node_id}/projects/linked", get(list_linked_node_projects))
         .route("/nodes/{source_id}/merge-to/{target_id}", post(merge_nodes))
         .route(
             "/nodes/assignments/{assignment_id}/logs",
@@ -331,17 +333,13 @@ pub async fn heartbeat(
 
 // ============================================================================
 // Node Management (User JWT Auth)
-// Note: list_nodes, list_node_projects, list_linked_node_projects moved to
-// Node Sync section below with dual-auth support (JWT or API key)
 // ============================================================================
 
-#[allow(dead_code)] // Superseded by ListNodesSyncQuery
 #[derive(Debug, Deserialize)]
 pub struct ListNodesQuery {
     pub organization_id: Uuid,
 }
 
-#[allow(dead_code)] // Superseded by list_nodes_sync
 #[instrument(
     name = "nodes.list",
     skip(state, ctx, query),
@@ -461,7 +459,6 @@ pub async fn delete_node(
     }
 }
 
-#[allow(dead_code)] // Superseded by list_node_projects_sync
 #[instrument(
     name = "nodes.list_projects",
     skip(state, ctx),
@@ -487,7 +484,6 @@ pub async fn list_node_projects(
 /// List projects linked to a node that are also linked to a swarm project.
 /// Only swarm-linked projects are returned - unlinked projects are excluded.
 /// Use this endpoint for syncing projects to other nodes.
-#[allow(dead_code)] // Superseded by list_linked_node_projects_sync
 #[instrument(
     name = "nodes.list_linked_projects",
     skip(state, ctx),
