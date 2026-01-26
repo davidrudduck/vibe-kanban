@@ -75,12 +75,20 @@ pub async fn get_merged_projects(
 
     // Fetch swarm projects with task counts from Hive
     // Build a map from hive_project_id → task counts for remote project lookup
+    // Use node_auth_client (API key auth) when available, falling back to remote_client (OAuth)
     let swarm_task_counts: HashMap<Uuid, SwarmTaskCounts> = if let Some(ctx) =
         deployment.node_runner_context()
     {
         if let Some(org_id) = ctx.organization_id().await {
-            match deployment.remote_client() {
-                Ok(client) => match client.list_swarm_projects(org_id).await {
+            // Prefer node_auth_client (API key auth) - works even without user login
+            // Fall back to remote_client (OAuth) for non-node deployments
+            let client_opt = deployment
+                .node_auth_client()
+                .cloned()
+                .or_else(|| deployment.remote_client().ok());
+
+            match client_opt {
+                Some(client) => match client.list_swarm_projects(org_id).await {
                     Ok(response) => {
                         let mut map = HashMap::new();
                         for swarm_project in response.projects {
@@ -100,7 +108,10 @@ pub async fn get_merged_projects(
                         HashMap::new()
                     }
                 },
-                Err(_) => HashMap::new(),
+                None => {
+                    tracing::debug!("No remote client available for swarm project task counts");
+                    HashMap::new()
+                }
             }
         } else {
             HashMap::new()
