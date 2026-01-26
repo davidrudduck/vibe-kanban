@@ -75,9 +75,11 @@ pub async fn get_tasks(
         })?;
 
     // Convert SharedTask to TaskWithAttemptStatus for frontend compatibility
+    // Filter by archived status to match local behavior
     let tasks: Vec<TaskWithAttemptStatus> = response
         .tasks
         .into_iter()
+        .filter(|t| query.include_archived || t.archived_at.is_none())
         .map(|shared_task| {
             // Convert remote TaskStatus to local TaskStatus
             let status = match shared_task.status {

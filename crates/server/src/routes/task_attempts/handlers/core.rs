@@ -157,9 +157,9 @@ pub async fn get_task_attempt(
     }
 
     // If attempt not found locally, try Hive fallback using API key auth
-    if let Some(Extension(remote)) = remote_needed
-        && let Ok(client) = deployment.remote_client()
-    {
+    if let Some(Extension(remote)) = remote_needed {
+        // Propagate remote client errors instead of falling through to 404
+        let client = deployment.remote_client()?;
         match client.get_swarm_attempt(remote.attempt_id).await {
             Ok(hive_response) => {
                 // Try to find local task by shared_task_id to map back to local task_id
