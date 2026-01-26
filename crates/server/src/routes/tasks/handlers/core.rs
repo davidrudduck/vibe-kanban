@@ -44,8 +44,11 @@ pub async fn get_tasks(
         None => Project::find_by_remote_project_id(pool, project_id).await?,
     };
 
-    // Step 2: If project exists locally, fetch tasks from local DB
-    if let Some(project) = project {
+    // Step 2: If project exists locally and is NOT remote, fetch tasks from local DB
+    // Remote project stubs should fall through to Hive query
+    if let Some(ref project) = project
+        && !project.is_remote
+    {
         let tasks = Task::find_by_project_id_with_attempt_status(
             pool,
             project.id,
@@ -55,16 +58,16 @@ pub async fn get_tasks(
         return Ok(ResponseJson(ApiResponse::success(tasks)));
     }
 
-    // Step 3: Project not found locally - try fetching from Hive as a swarm project
-    let remote_client = deployment.remote_client().map_err(|_| {
-        ApiError::NotFound(format!(
-            "Project {} not found and no hive connection available",
-            project_id
-        ))
-    })?;
+    // Step 3: Project not found locally or is remote - fetch from Hive
+    // Use remote_project_id if we have a local stub, otherwise use the requested project_id
+    let hive_project_id = project
+        .and_then(|p| p.remote_project_id)
+        .unwrap_or(project_id);
+
+    let remote_client = deployment.remote_client()?;
 
     let response = remote_client
-        .list_swarm_project_tasks(project_id)
+        .list_swarm_project_tasks(hive_project_id)
         .await
         .map_err(|e| {
             if e.is_not_found() {

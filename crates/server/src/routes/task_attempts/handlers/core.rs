@@ -60,8 +60,21 @@ pub async fn get_task_attempts(
         // Step 2: If found locally with shared_task_id, query Hive
         if let Some(task) = &local_task
             && let Some(shared_task_id) = task.shared_task_id
-            && let Ok(client) = deployment.remote_client()
         {
+            let client = match deployment.remote_client() {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::warn!(
+                        shared_task_id = %shared_task_id,
+                        error = %e,
+                        "Failed to init Hive client, falling back to local"
+                    );
+                    // Fall through to local query by skipping this block
+                    return Ok(ResponseJson(ApiResponse::success(
+                        TaskAttempt::fetch_all(pool, query.task_id).await?,
+                    )));
+                }
+            };
             match client.list_swarm_task_attempts(shared_task_id).await {
                 Ok(response) => {
                     let attempts: Vec<TaskAttempt> = response
@@ -96,9 +109,9 @@ pub async fn get_task_attempts(
         }
 
         // Step 3: If task not found locally, task_id might be a shared_task_id from swarm project
-        if local_task.is_none()
-            && let Ok(client) = deployment.remote_client()
-        {
+        // Propagate remote_client errors here since there's no local fallback
+        if local_task.is_none() {
+            let client = deployment.remote_client()?;
             // Try to query Hive using task_id as shared_task_id
             match client.list_swarm_task_attempts(task_id).await {
                 Ok(response) => {
@@ -195,12 +208,15 @@ pub async fn get_task_attempt(
                         attempt_id = %remote.attempt_id,
                         "Attempt not found on Hive"
                     );
+                    // Fall through to NotFound below
                 } else {
                     tracing::warn!(
                         attempt_id = %remote.attempt_id,
                         error = %e,
                         "Failed to fetch attempt from Hive"
                     );
+                    // Propagate non-NotFound errors to distinguish from missing data
+                    return Err(ApiError::RemoteClient(e));
                 }
             }
         }
