@@ -128,17 +128,38 @@ async fn load_project_impl(
     request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    // Load the project from the database
-    let mut project = match Project::find_by_id(&deployment.db().pool, project_id).await {
-        Ok(Some(project)) => project,
-        Ok(None) => {
-            tracing::warn!("Project {} not found", project_id);
-            return Err(StatusCode::NOT_FOUND);
-        }
+    let pool = &deployment.db().pool;
+
+    // Step 1: Try to find by local project ID
+    let mut project = match Project::find_by_id(pool, project_id).await {
+        Ok(Some(project)) => Some(project),
+        Ok(None) => None,
         Err(e) => {
             tracing::error!("Failed to fetch project {}: {}", project_id, e);
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
+    };
+
+    // Step 2: If not found, try finding by remote_project_id (user may have passed a swarm project ID)
+    if project.is_none() {
+        project = match Project::find_by_remote_project_id(pool, project_id).await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::error!(
+                    "Failed to fetch project by remote_project_id {}: {}",
+                    project_id,
+                    e
+                );
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        };
+    }
+
+    // Step 3: If still not found, return 404
+    let mut request = request;
+    let Some(mut project) = project else {
+        tracing::debug!(project_id = %project_id, "Project not found locally");
+        return Err(StatusCode::NOT_FOUND);
     };
 
     // For local projects linked to Hive, populate source_node_name for symmetric display.
@@ -149,8 +170,6 @@ async fn load_project_impl(
     {
         project.source_node_name = Some(gethostname::gethostname().to_string_lossy().to_string());
     }
-
-    let mut request = request;
 
     // If project is remote, inject RemoteProjectContext for proxy routing
     if project.is_remote {

@@ -7,9 +7,13 @@ use chrono::Duration as ChronoDuration;
 use remote::{
     activity::ActivityResponse,
     db::swarm_projects::SwarmProjectNode,
-    nodes::{Node, NodeApiKey, NodeExecutionProcess, NodeLocalProjectInfo, NodeTaskAttempt},
+    nodes::{Node, NodeApiKey, NodeLocalProjectInfo, NodeTaskAttempt},
     routes::{
         labels::{SetTaskLabelsRequest, TaskLabelsResponse},
+        nodes::{
+            GetAttemptLogsResponse, ListSwarmProjectTasksResponse,
+            ListTaskAttemptsBySharedTaskResponse,
+        },
         projects::ListProjectNodesResponse,
         swarm_labels::{ListSwarmLabelsResponse, MergeLabelsResult, SwarmLabelResponse},
         swarm_projects::{
@@ -121,14 +125,8 @@ struct ApiErrorResponse {
     error: String,
 }
 
-/// Response from the Hive for getting a single node task attempt.
-#[derive(Debug, Clone, Deserialize)]
-pub struct NodeTaskAttemptResponse {
-    pub attempt: NodeTaskAttempt,
-    pub executions: Vec<NodeExecutionProcess>,
-    /// Whether all executions are in a terminal state (complete/failed/killed)
-    pub is_complete: bool,
-}
+// Re-export the NodeTaskAttemptResponse from the remote crate for backwards compatibility
+pub use remote::routes::nodes::NodeTaskAttemptResponse;
 
 /// Authentication mode for the RemoteClient.
 ///
@@ -1068,6 +1066,71 @@ impl RemoteClient {
     ) -> Result<(), RemoteClientError> {
         self.delete_authed(&format!("/v1/swarm/projects/{project_id}/nodes/{node_id}"))
             .await
+    }
+
+    // =====================
+    // Swarm Data Read APIs (for cross-node viewing)
+    // =====================
+
+    /// Lists all tasks for a swarm project.
+    ///
+    /// Used by nodes to fetch tasks from the Hive for swarm projects they don't own.
+    /// Uses the `/v1/sync/` endpoint which requires API key auth.
+    pub async fn list_swarm_project_tasks(
+        &self,
+        swarm_project_id: Uuid,
+    ) -> Result<ListSwarmProjectTasksResponse, RemoteClientError> {
+        self.get_authed(&format!(
+            "/v1/sync/swarm/projects/{swarm_project_id}/tasks"
+        ))
+        .await
+    }
+
+    /// Lists all task attempts for a shared task.
+    ///
+    /// Used by nodes to fetch attempts from the Hive for cross-node viewing.
+    /// Uses the `/v1/sync/` endpoint which requires API key auth.
+    pub async fn list_swarm_task_attempts(
+        &self,
+        shared_task_id: Uuid,
+    ) -> Result<ListTaskAttemptsBySharedTaskResponse, RemoteClientError> {
+        self.get_authed(&format!(
+            "/v1/sync/swarm/tasks/{shared_task_id}/attempts"
+        ))
+        .await
+    }
+
+    /// Gets a single task attempt with execution details.
+    ///
+    /// Used by nodes to fetch attempt details from the Hive for cross-node viewing.
+    /// Uses the `/v1/sync/` endpoint which requires API key auth.
+    pub async fn get_swarm_attempt(
+        &self,
+        attempt_id: Uuid,
+    ) -> Result<NodeTaskAttemptResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/sync/swarm/attempts/{attempt_id}"))
+            .await
+    }
+
+    /// Gets logs for a task attempt.
+    ///
+    /// Used by nodes to fetch logs from the Hive for cross-node viewing.
+    /// Uses the `/v1/sync/` endpoint which requires API key auth.
+    pub async fn get_swarm_attempt_logs(
+        &self,
+        attempt_id: Uuid,
+        limit: Option<i64>,
+        cursor: Option<i64>,
+        direction: Option<&str>,
+    ) -> Result<GetAttemptLogsResponse, RemoteClientError> {
+        let mut path = format!("/v1/sync/swarm/attempts/{attempt_id}/logs?limit={}", limit.unwrap_or(1000));
+        if let Some(c) = cursor {
+            path.push_str(&format!("&cursor={c}"));
+        }
+        if let Some(d) = direction {
+            path.push_str(&format!("&direction={d}"));
+        }
+        self.get_authed(&path).await
     }
 
     // =====================

@@ -98,6 +98,20 @@ pub fn node_sync_router(state: AppState) -> Router<AppState> {
         )
         .route("/nodes/tasks/bulk", get(bulk_tasks_for_node_sync))
         .route("/swarm/projects", get(list_swarm_projects_sync))
+        // Swarm data read endpoints (for cross-node viewing)
+        .route(
+            "/swarm/projects/{project_id}/tasks",
+            get(list_swarm_project_tasks_sync),
+        )
+        .route(
+            "/swarm/tasks/{shared_task_id}/attempts",
+            get(list_task_attempts_sync),
+        )
+        .route("/swarm/attempts/{attempt_id}", get(get_attempt_sync))
+        .route(
+            "/swarm/attempts/{attempt_id}/logs",
+            get(get_attempt_logs_sync),
+        )
         .layer(middleware::from_fn_with_state(state, require_node_api_key))
 }
 
@@ -1234,7 +1248,7 @@ pub async fn get_connection_info(
 // Task Attempts (User JWT Auth)
 // ============================================================================
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ListTaskAttemptsBySharedTaskResponse {
     pub attempts: Vec<NodeTaskAttempt>,
 }
@@ -1295,7 +1309,7 @@ pub async fn list_task_attempts_by_shared_task(
 }
 
 /// Response for getting a single node task attempt
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeTaskAttemptResponse {
     pub attempt: NodeTaskAttempt,
     pub executions: Vec<NodeExecutionProcess>,
@@ -1506,4 +1520,278 @@ fn node_error_response(error: NodeError, context: &str) -> Response {
     };
 
     (status, Json(json!({ "error": message }))).into_response()
+}
+
+// ============================================================================
+// Swarm Data Read (API Key Auth Only)
+// ============================================================================
+
+/// Response for listing shared tasks for a swarm project.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ListSwarmProjectTasksResponse {
+    pub tasks: Vec<crate::db::tasks::SharedTask>,
+}
+
+/// List all tasks for a swarm project.
+///
+/// Used by remote nodes to fetch tasks for swarm projects they don't own.
+#[instrument(
+    name = "nodes.list_swarm_project_tasks_sync",
+    skip(state, _node_ctx),
+    fields(project_id = %project_id)
+)]
+pub async fn list_swarm_project_tasks_sync(
+    State(state): State<AppState>,
+    Extension(_node_ctx): Extension<NodeAuthContext>,
+    Path(project_id): Path<Uuid>,
+) -> Response {
+    use crate::db::tasks::SharedTaskRepository;
+
+    let pool = state.pool();
+
+    // Verify project exists
+    match SwarmProjectRepository::exists(pool, project_id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "project not found" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!(?e, "failed to check project existence");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal server error" })),
+            )
+                .into_response();
+        }
+    }
+
+    // Fetch tasks for this swarm project
+    let repo = SharedTaskRepository::new(pool);
+    match repo.find_by_swarm_project_id(project_id).await {
+        Ok(tasks) => (StatusCode::OK, Json(ListSwarmProjectTasksResponse { tasks })).into_response(),
+        Err(e) => {
+            tracing::error!(?e, "failed to list tasks for swarm project");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "failed to list tasks" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// List task attempts for a shared task (API key auth).
+///
+/// Used by remote nodes to fetch attempts for swarm tasks via the Hive.
+#[instrument(
+    name = "nodes.list_task_attempts_sync",
+    skip(state, _node_ctx),
+    fields(shared_task_id = %shared_task_id)
+)]
+pub async fn list_task_attempts_sync(
+    State(state): State<AppState>,
+    Extension(_node_ctx): Extension<NodeAuthContext>,
+    Path(shared_task_id): Path<Uuid>,
+) -> Response {
+    let pool = state.pool();
+    let service = NodeServiceImpl::new(pool.clone());
+
+    match service
+        .list_task_attempts_by_shared_task(shared_task_id)
+        .await
+    {
+        Ok(attempts) => {
+            let response = ListTaskAttemptsBySharedTaskResponse { attempts };
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(error) => node_error_response(error, "failed to list task attempts"),
+    }
+}
+
+/// Get a single task attempt by ID (API key auth).
+///
+/// Used by remote nodes to fetch attempt details for cross-node viewing.
+#[instrument(
+    name = "nodes.get_attempt_sync",
+    skip(state, _node_ctx),
+    fields(attempt_id = %attempt_id)
+)]
+pub async fn get_attempt_sync(
+    State(state): State<AppState>,
+    Extension(_node_ctx): Extension<NodeAuthContext>,
+    Path(attempt_id): Path<Uuid>,
+) -> Response {
+    use crate::db::node_execution_processes::NodeExecutionProcessRepository;
+    use crate::db::node_task_attempts::NodeTaskAttemptRepository;
+
+    let pool = state.pool();
+
+    // Get the attempt
+    let attempt_repo = NodeTaskAttemptRepository::new(pool);
+    let attempt = match attempt_repo.find_by_id(attempt_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "task attempt not found" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!(?e, "failed to fetch task attempt");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal server error" })),
+            )
+                .into_response();
+        }
+    };
+
+    // Get the execution processes for this attempt
+    let exec_repo = NodeExecutionProcessRepository::new(pool);
+    let executions = match exec_repo.find_by_attempt_id(attempt_id).await {
+        Ok(execs) => execs,
+        Err(e) => {
+            tracing::error!(?e, "failed to fetch execution processes");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal server error" })),
+            )
+                .into_response();
+        }
+    };
+
+    // Determine if the attempt is complete (all executions in terminal state)
+    let is_complete = executions
+        .iter()
+        .all(|e| matches!(e.status.as_str(), "completed" | "failed" | "killed"));
+
+    let response = NodeTaskAttemptResponse {
+        attempt,
+        executions,
+        is_complete,
+    };
+
+    (StatusCode::OK, Json(response)).into_response()
+}
+
+/// Query parameters for paginated log retrieval
+#[derive(Debug, Deserialize)]
+pub struct GetAttemptLogsQuery {
+    /// Maximum number of logs to return
+    #[serde(default = "default_log_limit")]
+    pub limit: i64,
+    /// Cursor for pagination (entry ID)
+    pub cursor: Option<i64>,
+    /// Direction: "forward" (oldest first) or "backward" (newest first)
+    #[serde(default)]
+    pub direction: Option<String>,
+}
+
+fn default_log_limit() -> i64 {
+    1000
+}
+
+/// Response for paginated log retrieval
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetAttemptLogsResponse {
+    pub entries: Vec<utils::unified_log::LogEntry>,
+    pub next_cursor: Option<i64>,
+    pub has_more: bool,
+    pub total_count: Option<i64>,
+}
+
+/// Get logs for a task attempt (API key auth).
+///
+/// Used by remote nodes to fetch logs for cross-node viewing.
+#[instrument(
+    name = "nodes.get_attempt_logs_sync",
+    skip(state, _node_ctx, query),
+    fields(attempt_id = %attempt_id)
+)]
+pub async fn get_attempt_logs_sync(
+    State(state): State<AppState>,
+    Extension(_node_ctx): Extension<NodeAuthContext>,
+    Path(attempt_id): Path<Uuid>,
+    Query(query): Query<GetAttemptLogsQuery>,
+) -> Response {
+    use crate::db::node_task_attempts::NodeTaskAttemptRepository;
+    use crate::db::task_output_logs::TaskOutputLogRepository;
+    use utils::unified_log::Direction;
+
+    let pool = state.pool();
+
+    // Verify the attempt exists
+    let attempt_repo = NodeTaskAttemptRepository::new(pool);
+    let attempt = match attempt_repo.find_by_id(attempt_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "task attempt not found" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!(?e, "failed to fetch task attempt");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal server error" })),
+            )
+                .into_response();
+        }
+    };
+
+    // Logs are stored by assignment_id, which may be linked to the attempt
+    let assignment_id = match attempt.assignment_id {
+        Some(id) => id,
+        None => {
+            // No assignment linked, return empty logs
+            return (
+                StatusCode::OK,
+                Json(GetAttemptLogsResponse {
+                    entries: vec![],
+                    next_cursor: None,
+                    has_more: false,
+                    total_count: Some(0),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    // Parse direction
+    let direction = match query.direction.as_deref() {
+        Some("forward") => Direction::Forward,
+        _ => Direction::Backward, // Default to newest first
+    };
+
+    // Fetch paginated logs
+    let log_repo = TaskOutputLogRepository::new(pool);
+    match log_repo
+        .find_paginated_with_count(assignment_id, query.cursor, query.limit, direction)
+        .await
+    {
+        Ok(paginated) => {
+            let response = GetAttemptLogsResponse {
+                entries: paginated.entries,
+                next_cursor: paginated.next_cursor,
+                has_more: paginated.has_more,
+                total_count: paginated.total_count,
+            };
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(e) => {
+            tracing::error!(?e, "failed to fetch attempt logs");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "failed to fetch logs" })),
+            )
+                .into_response()
+        }
+    }
 }

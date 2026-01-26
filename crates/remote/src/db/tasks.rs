@@ -220,6 +220,50 @@ impl<'a> SharedTaskRepository<'a> {
         Ok(task)
     }
 
+    /// Fetches all shared tasks for a swarm project, excluding deleted tasks.
+    ///
+    /// Returns tasks ordered by updated_at descending (most recently updated first).
+    pub async fn find_by_swarm_project_id(
+        &self,
+        swarm_project_id: Uuid,
+    ) -> Result<Vec<SharedTask>, SharedTaskError> {
+        let tasks = sqlx::query_as::<_, SharedTask>(
+            r#"
+            SELECT
+                id,
+                organization_id,
+                project_id,
+                swarm_project_id,
+                creator_user_id,
+                assignee_user_id,
+                deleted_by_user_id,
+                executing_node_id,
+                owner_node_id,
+                owner_name,
+                source_task_id,
+                source_node_id,
+                title,
+                description,
+                status,
+                version,
+                deleted_at,
+                shared_at,
+                archived_at,
+                created_at,
+                updated_at
+            FROM shared_tasks
+            WHERE swarm_project_id = $1
+              AND deleted_at IS NULL
+            ORDER BY updated_at DESC
+            "#,
+        )
+        .bind(swarm_project_id)
+        .fetch_all(self.pool)
+        .await?;
+
+        Ok(tasks)
+    }
+
     /// Find a shared task by its source task ID and source node ID.
     ///
     /// Returns `Some(SharedTask)` if a non-deleted task exists that was created from the same source, `None` otherwise.

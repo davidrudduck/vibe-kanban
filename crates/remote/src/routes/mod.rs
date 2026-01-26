@@ -20,7 +20,7 @@ mod electric_proxy;
 mod error;
 mod identity;
 pub mod labels;
-mod nodes;
+pub mod nodes;
 mod oauth;
 pub(crate) mod organization_members;
 mod organizations;
