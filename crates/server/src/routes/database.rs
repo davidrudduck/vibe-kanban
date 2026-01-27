@@ -314,9 +314,10 @@ async fn sync_status(
     .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
     // Get node connection status
+    // Only return node_id when connected - a disconnected node_id could be stale/misleading
     let (is_connected, node_id) = if let Some(ctx) = deployment.node_runner_context() {
         let connected = ctx.is_connected().await;
-        let nid = ctx.node_id().await;
+        let nid = if connected { ctx.node_id().await } else { None };
         (connected, nid)
     } else {
         (false, None)

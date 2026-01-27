@@ -503,8 +503,13 @@ impl Task {
 
     /// Clear sync status for all tasks in a project, triggering resync.
     ///
-    /// This clears `shared_task_id` and `remote_version` for all tasks in the project,
+    /// This clears `shared_task_id` and `remote_version` for ALL tasks in the project,
     /// which will trigger them to be re-synced to the Hive on the next sync cycle.
+    ///
+    /// NOTE: Unlike `clear_all_shared_task_ids_for_project` which only clears tasks that
+    /// already have a `shared_task_id`, this method updates ALL tasks in the project
+    /// regardless of their current sync state. This is intentional for force-resync
+    /// scenarios where we want to re-establish sync for the entire project.
     ///
     /// Returns the number of tasks that were updated.
     pub async fn clear_hive_sync_for_project(
