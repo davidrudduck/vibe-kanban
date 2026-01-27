@@ -281,26 +281,18 @@ pub async fn handle(
     // Clean up
     connections.unregister(auth_result.node_id).await;
 
-    // Clear any pending backfill requests for this node and reset attempts to partial
-    let cleared_attempt_ids = tracker.clear_node(auth_result.node_id).await;
-    if !cleared_attempt_ids.is_empty() {
+    // Clear in-memory backfill tracking for this node.
+    // NOTE: We intentionally do NOT reset attempts to partial here. The backfill_request_id
+    // stored in the database allows delayed responses to be processed correctly even after
+    // the in-memory tracker is cleared. The stale timeout mechanism will eventually reset
+    // attempts that truly failed.
+    let cleared_count = tracker.clear_node(auth_result.node_id).await.len();
+    if cleared_count > 0 {
         tracing::info!(
             node_id = %auth_result.node_id,
-            count = cleared_attempt_ids.len(),
-            "clearing pending backfill requests on disconnect"
+            count = cleared_count,
+            "cleared in-memory backfill tracking on disconnect"
         );
-
-        let repo = NodeTaskAttemptRepository::new(&pool);
-        for attempt_id in cleared_attempt_ids {
-            if let Err(e) = repo.reset_attempt_to_partial(attempt_id).await {
-                tracing::warn!(
-                    node_id = %auth_result.node_id,
-                    attempt_id = %attempt_id,
-                    error = %e,
-                    "failed to reset attempt to partial on disconnect"
-                );
-            }
-        }
     }
 
     // Update node status to offline
@@ -951,7 +943,8 @@ async fn handle_unlink_project(
         .map_err(|e| HandleError::Database(e.to_string()))?;
 
     // Remove the swarm_project_nodes link
-    if let Err(e) = SwarmProjectRepository::unlink_node_pool(pool, swarm_project_id, node_id).await {
+    if let Err(e) = SwarmProjectRepository::unlink_node_pool(pool, swarm_project_id, node_id).await
+    {
         tracing::warn!(
             node_id = %node_id,
             swarm_project_id = %swarm_project_id,
@@ -1216,13 +1209,10 @@ async fn handle_attempt_sync(
                 // Find the swarm_project_nodes link for this project and node
                 // swarm_project_id is the source of truth
                 if let Some(swarm_project_id) = task.swarm_project_id {
-                    let node_link = SwarmProjectRepository::find_node_link(
-                        pool,
-                        swarm_project_id,
-                        node_id,
-                    )
-                    .await
-                    .map_err(|e| HandleError::Database(e.to_string()))?;
+                    let node_link =
+                        SwarmProjectRepository::find_node_link(pool, swarm_project_id, node_id)
+                            .await
+                            .map_err(|e| HandleError::Database(e.to_string()))?;
 
                     if let Some(link) = node_link {
                         // Create or find a synthetic assignment
@@ -1423,13 +1413,10 @@ async fn handle_logs_batch(
                 if let Some(task) = shared_task {
                     if let Some(swarm_project_id) = task.swarm_project_id {
                         // Find the node's link to this project
-                        let node_link = SwarmProjectRepository::find_node_link(
-                            pool,
-                            swarm_project_id,
-                            node_id,
-                        )
-                        .await
-                        .map_err(|e| HandleError::Database(e.to_string()))?;
+                        let node_link =
+                            SwarmProjectRepository::find_node_link(pool, swarm_project_id, node_id)
+                                .await
+                                .map_err(|e| HandleError::Database(e.to_string()))?;
 
                         if let Some(link) = node_link {
                             // Create synthetic assignment
@@ -1599,7 +1586,10 @@ async fn handle_task_sync(
                 local_task_id: task_sync.local_task_id,
                 shared_task_id: Uuid::nil(),
                 success: false,
-                error: Some("RETRY: Project not synced yet, please retry after ProjectsSync completes".to_string()),
+                error: Some(
+                    "RETRY: Project not synced yet, please retry after ProjectsSync completes"
+                        .to_string(),
+                ),
             };
             let _ = send_message(ws_sender, &HiveMessage::TaskSyncResponse(r)).await;
             return Ok(());
@@ -1622,7 +1612,10 @@ async fn handle_task_sync(
                 local_task_id: task_sync.local_task_id,
                 shared_task_id: Uuid::nil(),
                 success: false,
-                error: Some("Project not linked to swarm - link it via the swarm settings UI first".to_string()),
+                error: Some(
+                    "Project not linked to swarm - link it via the swarm settings UI first"
+                        .to_string(),
+                ),
             };
             let _ = send_message(ws_sender, &HiveMessage::TaskSyncResponse(r)).await;
             return Ok(());
@@ -1799,7 +1792,12 @@ async fn broadcast_node_projects(
 
     for project_info in &owned_projects {
         // Get nodes linked to this swarm project (project_id is swarm_project_id)
-        let linked_nodes = match SwarmProjectRepository::get_linked_node_ids(pool, project_info.project_id).await {
+        let linked_nodes = match SwarmProjectRepository::get_linked_node_ids(
+            pool,
+            project_info.project_id,
+        )
+        .await
+        {
             Ok(nodes) => nodes,
             Err(e) => {
                 tracing::warn!(
@@ -1882,42 +1880,67 @@ async fn handle_backfill_response(
         "received backfill response from node"
     );
 
-    // Look up the attempt IDs that were tracked for this request
-    let attempt_ids = tracker.complete(response.request_id).await;
-
     let repo = NodeTaskAttemptRepository::new(pool);
+
+    // Look up the attempt IDs - first try in-memory tracker, then fall back to database
+    let attempt_ids = match tracker.complete(response.request_id).await {
+        Some(ids) => ids,
+        None => {
+            // In-memory tracker doesn't have this request - try database fallback.
+            // This handles the race condition where the node disconnects (clearing the tracker)
+            // before the delayed backfill response arrives.
+            match repo.find_by_backfill_request_id(response.request_id).await {
+                Ok(ids) if !ids.is_empty() => {
+                    tracing::info!(
+                        node_id = %node_id,
+                        request_id = %response.request_id,
+                        attempt_count = ids.len(),
+                        "using DB fallback for backfill correlation"
+                    );
+                    ids
+                }
+                Ok(_) => {
+                    // No attempts found in DB either - genuinely unknown request
+                    tracing::warn!(
+                        node_id = %node_id,
+                        request_id = %response.request_id,
+                        "no attempts found for backfill response (not in tracker or DB)"
+                    );
+                    return Ok(());
+                }
+                Err(e) => {
+                    tracing::error!(
+                        node_id = %node_id,
+                        request_id = %response.request_id,
+                        error = %e,
+                        "failed to query DB for backfill request correlation"
+                    );
+                    return Ok(());
+                }
+            }
+        }
+    };
+
+    if attempt_ids.is_empty() {
+        return Ok(());
+    }
 
     if response.success {
         // Mark each tracked attempt as complete
-        match attempt_ids {
-            Some(ids) if !ids.is_empty() => {
-                tracing::debug!(
-                    node_id = %node_id,
-                    request_id = %response.request_id,
-                    attempt_count = ids.len(),
-                    "marking tracked attempts as complete"
-                );
+        tracing::debug!(
+            node_id = %node_id,
+            request_id = %response.request_id,
+            attempt_count = attempt_ids.len(),
+            "marking tracked attempts as complete"
+        );
 
-                for attempt_id in ids {
-                    if let Err(e) = repo.mark_complete(attempt_id).await {
-                        tracing::error!(
-                            node_id = %node_id,
-                            attempt_id = %attempt_id,
-                            error = %e,
-                            "failed to mark attempt as complete"
-                        );
-                    }
-                }
-            }
-            _ => {
-                // No tracked mapping found - this could happen if:
-                // - Request was made before tracker was integrated
-                // - Tracker was cleared due to node disconnect/reconnect
-                // - Stale cleanup removed the mapping
-                tracing::warn!(
+        for attempt_id in attempt_ids {
+            if let Err(e) = repo.mark_complete(attempt_id).await {
+                tracing::error!(
                     node_id = %node_id,
-                    request_id = %response.request_id,
-                    "no tracked attempts found for backfill response"
+                    attempt_id = %attempt_id,
+                    error = %e,
+                    "failed to mark attempt as complete"
                 );
             }
         }
@@ -1931,41 +1954,21 @@ async fn handle_backfill_response(
         );
 
         // Reset tracked attempts to partial state so they can be retried
-        match attempt_ids {
-            Some(ids) if !ids.is_empty() => {
-                tracing::debug!(
-                    node_id = %node_id,
-                    request_id = %response.request_id,
-                    attempt_count = ids.len(),
-                    "resetting tracked attempts to partial"
-                );
+        tracing::debug!(
+            node_id = %node_id,
+            request_id = %response.request_id,
+            attempt_count = attempt_ids.len(),
+            "resetting tracked attempts to partial"
+        );
 
-                for attempt_id in ids {
-                    if let Err(e) = repo.reset_attempt_to_partial(attempt_id).await {
-                        tracing::error!(
-                            node_id = %node_id,
-                            attempt_id = %attempt_id,
-                            error = %e,
-                            "failed to reset attempt to partial"
-                        );
-                    }
-                }
-            }
-            _ => {
-                // No tracked mapping found - fall back to resetting all failed backfills for node
-                tracing::warn!(
+        for attempt_id in attempt_ids {
+            if let Err(e) = repo.reset_attempt_to_partial(attempt_id).await {
+                tracing::error!(
                     node_id = %node_id,
-                    request_id = %response.request_id,
-                    "no tracked attempts found, falling back to reset_failed_backfill"
+                    attempt_id = %attempt_id,
+                    error = %e,
+                    "failed to reset attempt to partial"
                 );
-
-                if let Err(e) = repo.reset_failed_backfill(node_id).await {
-                    tracing::error!(
-                        node_id = %node_id,
-                        error = %e,
-                        "failed to reset failed backfill state"
-                    );
-                }
             }
         }
     }

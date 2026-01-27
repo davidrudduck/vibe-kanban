@@ -291,7 +291,7 @@ async fn test_find_incomplete_pagination() {
     cleanup_org(&pool, org_id).await;
 }
 
-/// Test: mark_pending_backfill transitions partial -> pending_backfill.
+/// Test: mark_pending_backfill transitions partial -> pending_backfill and stores request_id.
 #[tokio::test]
 async fn test_mark_pending_backfill() {
     skip_without_db!();
@@ -303,9 +303,10 @@ async fn test_mark_pending_backfill() {
 
     let attempt = create_attempt_with_state(&pool, node_id, shared_task, "partial").await;
 
+    let request_id = Uuid::new_v4();
     let repo = NodeTaskAttemptRepository::new(&pool);
     let marked = repo
-        .mark_pending_backfill(&[attempt.id])
+        .mark_pending_backfill(&[attempt.id], request_id)
         .await
         .expect("mark_pending_backfill failed");
 
@@ -319,6 +320,14 @@ async fn test_mark_pending_backfill() {
         .expect("Attempt not found");
     assert_eq!(updated.sync_state, "pending_backfill");
     assert!(updated.sync_requested_at.is_some());
+
+    // Verify backfill_request_id is stored and can be queried
+    let found_ids = repo
+        .find_by_backfill_request_id(request_id)
+        .await
+        .expect("find_by_backfill_request_id failed");
+    assert_eq!(found_ids.len(), 1);
+    assert_eq!(found_ids[0], attempt.id);
 
     // Cleanup
     cleanup_attempt(&pool, attempt.id).await;
@@ -420,14 +429,22 @@ async fn test_complete_backfill_flow() {
     assert_eq!(attempt.sync_state, "partial");
 
     let repo = NodeTaskAttemptRepository::new(&pool);
+    let request_id = Uuid::new_v4();
 
     // 2. Mark as pending_backfill (backfill request sent)
-    let marked = repo.mark_pending_backfill(&[attempt.id]).await.unwrap();
+    let marked = repo
+        .mark_pending_backfill(&[attempt.id], request_id)
+        .await
+        .unwrap();
     assert_eq!(marked, 1);
 
     let pending = repo.find_by_id(attempt.id).await.unwrap().unwrap();
     assert_eq!(pending.sync_state, "pending_backfill");
     assert!(pending.sync_requested_at.is_some());
+
+    // Verify request_id is stored
+    let found_ids = repo.find_by_backfill_request_id(request_id).await.unwrap();
+    assert_eq!(found_ids.len(), 1);
 
     // 3. Mark as complete (backfill response received with success)
     let completed = repo.mark_complete(attempt.id).await.unwrap();
@@ -437,7 +454,14 @@ async fn test_complete_backfill_flow() {
     assert_eq!(complete.sync_state, "complete");
     assert!(complete.last_full_sync_at.is_some());
 
-    // 4. Verify it no longer appears in incomplete queries
+    // 4. Verify backfill_request_id is cleared after completion
+    let found_ids = repo.find_by_backfill_request_id(request_id).await.unwrap();
+    assert!(
+        found_ids.is_empty(),
+        "backfill_request_id should be cleared after completion"
+    );
+
+    // 5. Verify it no longer appears in incomplete queries
     let incomplete = repo.find_incomplete_for_node(node_id).await.unwrap();
     let our_incomplete: Vec<_> = incomplete.iter().filter(|a| a.id == attempt.id).collect();
     assert!(
@@ -466,9 +490,16 @@ async fn test_failed_backfill_flow() {
     let attempt = create_attempt_with_state(&pool, node_id, shared_task, "partial").await;
 
     let repo = NodeTaskAttemptRepository::new(&pool);
+    let request_id = Uuid::new_v4();
 
     // 2. Mark as pending_backfill
-    repo.mark_pending_backfill(&[attempt.id]).await.unwrap();
+    repo.mark_pending_backfill(&[attempt.id], request_id)
+        .await
+        .unwrap();
+
+    // Verify request_id is stored
+    let found_ids = repo.find_by_backfill_request_id(request_id).await.unwrap();
+    assert_eq!(found_ids.len(), 1);
 
     // 3. Simulate backfill failure - reset to partial
     let reset = repo.reset_failed_backfill(node_id).await.unwrap();
@@ -477,7 +508,14 @@ async fn test_failed_backfill_flow() {
     let after_reset = repo.find_by_id(attempt.id).await.unwrap().unwrap();
     assert_eq!(after_reset.sync_state, "partial");
 
-    // 4. Verify it still appears in incomplete queries (can be retried)
+    // 4. Verify backfill_request_id is cleared after reset
+    let found_ids = repo.find_by_backfill_request_id(request_id).await.unwrap();
+    assert!(
+        found_ids.is_empty(),
+        "backfill_request_id should be cleared after reset"
+    );
+
+    // 5. Verify it still appears in incomplete queries (can be retried)
     let incomplete = repo.find_incomplete_for_node(node_id).await.unwrap();
     let our_incomplete: Vec<_> = incomplete.iter().filter(|a| a.id == attempt.id).collect();
     assert_eq!(our_incomplete.len(), 1);
@@ -487,4 +525,83 @@ async fn test_failed_backfill_flow() {
     cleanup_node(&pool, node_id).await;
     cleanup_task(&pool, shared_task).await;
     cleanup_org(&pool, org_id).await;
+}
+
+/// Test: DB fallback for backfill correlation after tracker is cleared (disconnect race condition).
+///
+/// This tests the fix for the race condition where:
+/// 1. Node sends backfill request
+/// 2. Node disconnects (clearing in-memory tracker)
+/// 3. Delayed backfill response arrives
+/// 4. Handler uses DB fallback to find attempt IDs
+#[tokio::test]
+async fn test_backfill_response_after_tracker_cleared() {
+    skip_without_db!();
+
+    let pool = create_pool().await;
+    let org_id = create_test_organization(&pool).await;
+    let node_id = create_test_node(&pool, org_id, true).await;
+    let shared_task = create_test_shared_task(&pool, org_id).await;
+
+    // 1. Create partial attempt
+    let attempt = create_attempt_with_state(&pool, node_id, shared_task, "partial").await;
+
+    let repo = NodeTaskAttemptRepository::new(&pool);
+    let request_id = Uuid::new_v4();
+
+    // 2. Mark as pending_backfill (simulating request sent)
+    repo.mark_pending_backfill(&[attempt.id], request_id)
+        .await
+        .unwrap();
+
+    // Verify request_id is stored
+    let found_ids = repo.find_by_backfill_request_id(request_id).await.unwrap();
+    assert_eq!(found_ids.len(), 1);
+    assert_eq!(found_ids[0], attempt.id);
+
+    // 3. Simulate node disconnect - in-memory tracker would be cleared
+    //    (We can't test the actual tracker here, but we can verify the DB fallback works)
+
+    // 4. Simulate delayed response arriving - use DB to find attempt IDs
+    let db_found_ids = repo.find_by_backfill_request_id(request_id).await.unwrap();
+    assert_eq!(db_found_ids.len(), 1, "DB fallback should find the attempt");
+    assert_eq!(db_found_ids[0], attempt.id);
+
+    // 5. Mark as complete using the DB-found ID
+    repo.mark_complete(db_found_ids[0]).await.unwrap();
+
+    // 6. Verify attempt is now complete
+    let completed = repo.find_by_id(attempt.id).await.unwrap().unwrap();
+    assert_eq!(completed.sync_state, "complete");
+
+    // 7. Verify backfill_request_id is cleared
+    let found_after = repo.find_by_backfill_request_id(request_id).await.unwrap();
+    assert!(found_after.is_empty());
+
+    // Cleanup
+    cleanup_attempt(&pool, attempt.id).await;
+    cleanup_node(&pool, node_id).await;
+    cleanup_task(&pool, shared_task).await;
+    cleanup_org(&pool, org_id).await;
+}
+
+/// Test: find_by_backfill_request_id returns empty for unknown request.
+#[tokio::test]
+async fn test_find_by_backfill_request_id_not_found() {
+    skip_without_db!();
+
+    let pool = create_pool().await;
+    let repo = NodeTaskAttemptRepository::new(&pool);
+
+    // Query for a random request_id that doesn't exist
+    let unknown_request_id = Uuid::new_v4();
+    let found_ids = repo
+        .find_by_backfill_request_id(unknown_request_id)
+        .await
+        .unwrap();
+
+    assert!(
+        found_ids.is_empty(),
+        "Should return empty for unknown request_id"
+    );
 }
