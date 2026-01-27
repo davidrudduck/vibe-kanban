@@ -448,25 +448,50 @@ impl HiveSyncService {
                     }
                 };
 
-            // Get the assignment_id from the attempt
-            // For locally-started tasks, this will be None and we skip log sync
-            // The Hive will create a synthetic assignment when it receives the AttemptSync
-            let assignment_id = match attempt.hive_assignment_id {
-                Some(id) => id,
+            // Get the assignment_id and shared_task_id from the attempt
+            // For locally-started tasks, use attempt.id as assignment_id and include shared_task_id
+            // so the Hive can create a synthetic assignment if needed
+            let (assignment_id, shared_task_id) = match attempt.hive_assignment_id {
+                Some(id) => {
+                    // Hive-dispatched task - use the real assignment_id
+                    (id, None)
+                }
                 None => {
-                    debug!(
-                        execution_id = %execution_id,
-                        attempt_id = %attempt.id,
-                        "Skipping log sync - no Hive assignment (locally-started task)"
-                    );
-                    // Mark these logs as synced anyway to prevent retry spam
-                    // They will be synced once the attempt gets a hive_assignment_id
-                    // via AttemptSync -> synthetic assignment creation
-                    for log in batch_logs {
-                        synced_ids.push(log.id);
-                        synced_count += 1;
+                    // Locally-started task - look up shared_task_id from the task
+                    let task = match Task::find_by_id(&self.pool, attempt.task_id).await? {
+                        Some(t) => t,
+                        None => {
+                            debug!(
+                                execution_id = %execution_id,
+                                task_id = %attempt.task_id,
+                                "Skipping log sync - task not found"
+                            );
+                            continue;
+                        }
+                    };
+
+                    match task.shared_task_id {
+                        Some(shared_id) => {
+                            // Use attempt.id as assignment_id (Hive will create synthetic assignment)
+                            debug!(
+                                execution_id = %execution_id,
+                                attempt_id = %attempt.id,
+                                shared_task_id = %shared_id,
+                                "Syncing logs for locally-started task with shared_task_id"
+                            );
+                            (attempt.id, Some(shared_id))
+                        }
+                        None => {
+                            // Don't mark as synced - shared_task_id may arrive via TaskSync later.
+                            // Logs will be retried on subsequent sync cycles until the task is linked.
+                            debug!(
+                                execution_id = %execution_id,
+                                attempt_id = %attempt.id,
+                                "Skipping log sync - no shared_task_id yet (waiting for TaskSync)"
+                            );
+                            continue;
+                        }
                     }
-                    continue;
                 }
             };
 
@@ -481,7 +506,8 @@ impl HiveSyncService {
                 .collect();
 
             let message = LogsBatchMessage {
-                assignment_id, // Now using the real assignment_id from the attempt
+                assignment_id,
+                shared_task_id,
                 execution_process_id: Some(execution_id),
                 entries,
                 compressed: false,

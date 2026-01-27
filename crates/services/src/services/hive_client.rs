@@ -558,8 +558,13 @@ pub struct SyncLogEntry {
 /// Message to sync a batch of log entries to the Hive.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogsBatchMessage {
-    /// The assignment ID (for Hive-dispatched tasks)
+    /// The assignment ID (for Hive-dispatched tasks).
+    /// For locally-started tasks without hive dispatch, this may be the attempt_id.
     pub assignment_id: Uuid,
+    /// Shared task ID in the hive (required for creating synthetic assignments).
+    /// This enables the hive to create an assignment if one doesn't exist yet.
+    #[serde(default)]
+    pub shared_task_id: Option<Uuid>,
     /// The execution process ID these logs belong to
     pub execution_process_id: Option<Uuid>,
     /// The log entries to sync

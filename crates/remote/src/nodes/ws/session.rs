@@ -1391,14 +1391,123 @@ async fn handle_execution_sync(
 /// Handle a logs batch message from a node.
 ///
 /// Stores the log entries in node_task_output_logs with execution_process_id.
+/// If the assignment doesn't exist yet (race condition with AttemptSync), creates
+/// a synthetic assignment using the shared_task_id.
 async fn handle_logs_batch(
     node_id: Uuid,
     logs: &LogsBatchMessage,
     pool: &PgPool,
 ) -> Result<(), HandleError> {
+    use crate::db::swarm_projects::SwarmProjectRepository;
+    use crate::db::task_assignments::TaskAssignmentRepository;
     use crate::db::task_output_logs::{CreateTaskOutputLog, TaskOutputLogRepository};
+    use crate::db::tasks::SharedTaskRepository;
 
-    let repo = TaskOutputLogRepository::new(pool);
+    // First, ensure the assignment exists. If not, try to create a synthetic one.
+    let assignment_repo = TaskAssignmentRepository::new(pool);
+    let assignment_id = match assignment_repo.find_by_id(logs.assignment_id).await {
+        Ok(Some(_)) => {
+            // Assignment exists, use it
+            logs.assignment_id
+        }
+        Ok(None) => {
+            // Assignment doesn't exist - try to create synthetic if we have shared_task_id
+            if let Some(shared_task_id) = logs.shared_task_id {
+                // Look up the task to find swarm_project_id
+                let shared_task_repo = SharedTaskRepository::new(pool);
+                let shared_task = shared_task_repo
+                    .find_by_id(shared_task_id)
+                    .await
+                    .map_err(|e| HandleError::Database(e.to_string()))?;
+
+                if let Some(task) = shared_task {
+                    if let Some(swarm_project_id) = task.swarm_project_id {
+                        // Find the node's link to this project
+                        let node_link = SwarmProjectRepository::find_node_link(
+                            pool,
+                            swarm_project_id,
+                            node_id,
+                        )
+                        .await
+                        .map_err(|e| HandleError::Database(e.to_string()))?;
+
+                        if let Some(link) = node_link {
+                            // Create synthetic assignment
+                            match assignment_repo
+                                .create_or_find_synthetic(shared_task_id, node_id, link.id)
+                                .await
+                            {
+                                Ok(assignment) => {
+                                    tracing::info!(
+                                        node_id = %node_id,
+                                        original_assignment_id = %logs.assignment_id,
+                                        new_assignment_id = %assignment.id,
+                                        shared_task_id = %shared_task_id,
+                                        "created synthetic assignment for logs batch"
+                                    );
+                                    assignment.id
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        node_id = %node_id,
+                                        assignment_id = %logs.assignment_id,
+                                        error = %e,
+                                        "failed to create synthetic assignment for logs"
+                                    );
+                                    return Err(HandleError::Database(format!(
+                                        "failed to create synthetic assignment: {}",
+                                        e
+                                    )));
+                                }
+                            }
+                        } else {
+                            tracing::warn!(
+                                node_id = %node_id,
+                                swarm_project_id = %swarm_project_id,
+                                "no node link found for logs batch - cannot create assignment"
+                            );
+                            return Err(HandleError::Database(
+                                "no node link found for project".to_string(),
+                            ));
+                        }
+                    } else {
+                        tracing::warn!(
+                            node_id = %node_id,
+                            shared_task_id = %shared_task_id,
+                            "task has no swarm_project_id - cannot create assignment"
+                        );
+                        return Err(HandleError::Database(
+                            "task has no swarm_project_id".to_string(),
+                        ));
+                    }
+                } else {
+                    tracing::warn!(
+                        node_id = %node_id,
+                        shared_task_id = %shared_task_id,
+                        "shared task not found - cannot create assignment"
+                    );
+                    return Err(HandleError::Database("shared task not found".to_string()));
+                }
+            } else {
+                // No shared_task_id provided, cannot create synthetic assignment
+                tracing::warn!(
+                    node_id = %node_id,
+                    assignment_id = %logs.assignment_id,
+                    "assignment not found and no shared_task_id provided"
+                );
+                return Err(HandleError::Database(format!(
+                    "assignment {} not found and no shared_task_id provided",
+                    logs.assignment_id
+                )));
+            }
+        }
+        Err(e) => {
+            return Err(HandleError::Database(e.to_string()));
+        }
+    };
+
+    // Now insert the logs with the valid assignment_id
+    let log_repo = TaskOutputLogRepository::new(pool);
 
     for entry in &logs.entries {
         let output_type = match entry.output_type {
@@ -1408,22 +1517,23 @@ async fn handle_logs_batch(
         };
 
         // Create log with optional execution_process_id
-        repo.create_with_execution_process(
-            CreateTaskOutputLog {
-                assignment_id: logs.assignment_id,
-                output_type: output_type.to_string(),
-                content: entry.content.clone(),
-                timestamp: entry.timestamp,
-            },
-            logs.execution_process_id,
-        )
-        .await
-        .map_err(|e| HandleError::Database(e.to_string()))?;
+        log_repo
+            .create_with_execution_process(
+                CreateTaskOutputLog {
+                    assignment_id,
+                    output_type: output_type.to_string(),
+                    content: entry.content.clone(),
+                    timestamp: entry.timestamp,
+                },
+                logs.execution_process_id,
+            )
+            .await
+            .map_err(|e| HandleError::Database(e.to_string()))?;
     }
 
     tracing::trace!(
         node_id = %node_id,
-        assignment_id = %logs.assignment_id,
+        assignment_id = %assignment_id,
         execution_process_id = ?logs.execution_process_id,
         entry_count = logs.entries.len(),
         "stored logs batch from node"

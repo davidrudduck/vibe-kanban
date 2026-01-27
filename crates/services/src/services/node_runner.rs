@@ -1250,10 +1250,17 @@ fn build_execution_sync_message(
 }
 
 /// Build a LogsBatchMessage from log entries for an execution.
+///
+/// # Arguments
+/// * `logs` - The log entries to include
+/// * `execution_id` - The execution process ID
+/// * `assignment_id` - The assignment ID (may be attempt_id for locally-started tasks)
+/// * `shared_task_id` - The shared task ID (enables synthetic assignment creation on hive)
 fn build_logs_batch_message(
     logs: &[db::models::log_entry::DbLogEntry],
     execution_id: Uuid,
     assignment_id: Uuid,
+    shared_task_id: Uuid,
 ) -> super::hive_client::LogsBatchMessage {
     use super::hive_client::{SyncLogEntry, TaskOutputType};
 
@@ -1272,6 +1279,7 @@ fn build_logs_batch_message(
 
     super::hive_client::LogsBatchMessage {
         assignment_id,
+        shared_task_id: Some(shared_task_id),
         execution_process_id: Some(execution_id),
         entries,
         compressed: false,
@@ -1368,6 +1376,7 @@ pub async fn handle_backfill_attempt(
                         &logs,
                         exec.id,
                         attempt.hive_assignment_id.unwrap_or(attempt_id),
+                        shared_task_id,
                     );
                     command_tx
                         .send(NodeMessage::LogsBatch(logs_msg))
@@ -1412,6 +1421,7 @@ pub async fn handle_backfill_attempt(
                         &logs,
                         exec.id,
                         attempt.hive_assignment_id.unwrap_or(attempt_id),
+                        shared_task_id,
                     );
                     command_tx
                         .send(NodeMessage::LogsBatch(logs_msg))
