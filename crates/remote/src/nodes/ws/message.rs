@@ -542,8 +542,13 @@ pub struct LogEntry {
 /// The execution_process_id links logs to a specific process run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogsBatchMessage {
-    /// Assignment ID for routing
+    /// Assignment ID for routing.
+    /// For locally-started tasks without hive dispatch, this may be the attempt_id.
     pub assignment_id: Uuid,
+    /// Shared task ID in the hive (required for creating synthetic assignments).
+    /// This enables the hive to create an assignment if one doesn't exist yet.
+    #[serde(default)]
+    pub shared_task_id: Option<Uuid>,
     /// Execution process ID these logs belong to (optional for backwards compatibility)
     pub execution_process_id: Option<Uuid>,
     /// Batch of log entries
