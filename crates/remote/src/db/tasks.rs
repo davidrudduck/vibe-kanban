@@ -4,7 +4,11 @@ use sqlx::PgPool;
 use thiserror::Error;
 use uuid::Uuid;
 
-use super::{Tx, identity_errors::IdentityError, users::{UserData, fetch_user}};
+use super::{
+    Tx,
+    identity_errors::IdentityError,
+    users::{UserData, fetch_user},
+};
 use crate::db::maintenance;
 
 pub struct BulkFetchResult {
