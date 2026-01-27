@@ -1458,14 +1458,14 @@ async fn handle_logs_batch(
                             ));
                         }
                     } else {
-                        tracing::warn!(
+                        // Task exists but has no swarm_project_id yet - can happen during sync races
+                        // or for legacy tasks. Log at debug level and skip this batch gracefully.
+                        tracing::debug!(
                             node_id = %node_id,
                             shared_task_id = %shared_task_id,
-                            "task has no swarm_project_id - cannot create assignment"
+                            "task has no swarm_project_id - skipping logs batch (will retry after task sync)"
                         );
-                        return Err(HandleError::Database(
-                            "task has no swarm_project_id".to_string(),
-                        ));
+                        return Ok(());
                     }
                 } else {
                     tracing::warn!(
