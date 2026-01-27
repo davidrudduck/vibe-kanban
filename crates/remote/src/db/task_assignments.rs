@@ -340,7 +340,7 @@ impl<'a> TaskAssignmentRepository<'a> {
             r#"
             INSERT INTO node_task_assignments (task_id, node_id, node_project_id, execution_status, started_at)
             VALUES ($1, $2, $3, 'running', NOW())
-            ON CONFLICT ON CONSTRAINT idx_task_assignments_active DO UPDATE
+            ON CONFLICT (task_id) WHERE completed_at IS NULL DO UPDATE
             SET execution_status = node_task_assignments.execution_status
             RETURNING
                 id,
