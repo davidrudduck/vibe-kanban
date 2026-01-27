@@ -680,7 +680,10 @@ pub fn spawn_node_runner<C: ContainerService + Sync + Send + 'static>(
                     // Sync remote_project_id for owned projects from hive
                     match sync_owned_project_ids_from_hive(&db.pool, &linked_projects).await {
                         Ok(count) if count > 0 => {
-                            tracing::info!(count, "Synced remote_project_id from hive for owned projects");
+                            tracing::info!(
+                                count,
+                                "Synced remote_project_id from hive for owned projects"
+                            );
                         }
                         Ok(_) => {}
                         Err(e) => {
@@ -744,25 +747,35 @@ pub fn spawn_node_runner<C: ContainerService + Sync + Send + 'static>(
                 Some(HiveEvent::TaskSyncResponse(response)) => {
                     if response.success {
                         // Update the local task with the shared_task_id
-                        if let Err(e) = Task::set_shared_task_id(
+                        match Task::set_shared_task_id(
                             &db.pool,
                             response.local_task_id,
                             Some(response.shared_task_id),
                         )
                         .await
                         {
-                            tracing::error!(
-                                error = ?e,
-                                local_task_id = %response.local_task_id,
-                                shared_task_id = %response.shared_task_id,
-                                "failed to update task with shared_task_id"
-                            );
-                        } else {
-                            tracing::info!(
-                                local_task_id = %response.local_task_id,
-                                shared_task_id = %response.shared_task_id,
-                                "updated local task with shared_task_id"
-                            );
+                            Ok(true) => {
+                                tracing::info!(
+                                    local_task_id = %response.local_task_id,
+                                    shared_task_id = %response.shared_task_id,
+                                    "updated local task with shared_task_id"
+                                );
+                            }
+                            Ok(false) => {
+                                tracing::warn!(
+                                    local_task_id = %response.local_task_id,
+                                    shared_task_id = %response.shared_task_id,
+                                    "skipped setting shared_task_id (already set or conflict)"
+                                );
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    error = ?e,
+                                    local_task_id = %response.local_task_id,
+                                    shared_task_id = %response.shared_task_id,
+                                    "failed to update task with shared_task_id"
+                                );
+                            }
                         }
                     }
                 }

@@ -73,23 +73,42 @@ impl Task {
         Ok(result.rows_affected() > 0)
     }
 
-    /// Set the shared_task_id for a task.
+    /// Set the shared_task_id for a task with conflict handling.
+    ///
+    /// Returns `Ok(true)` if the task was updated, `Ok(false)` if skipped due to:
+    /// - Task already has this shared_task_id (idempotent re-sync)
+    /// - Another task already owns this shared_task_id (conflict)
+    /// - Task already has a different shared_task_id (prevents overwrite)
+    ///
+    /// This approach avoids UNIQUE constraint violations when:
+    /// - Multiple local tasks try to claim the same shared_task_id
+    /// - Network issues cause duplicate sync responses
+    /// - Concurrent sync cycles process the same task
     pub async fn set_shared_task_id<'e, E>(
         executor: E,
         id: Uuid,
         shared_task_id: Option<Uuid>,
-    ) -> Result<(), sqlx::Error>
+    ) -> Result<bool, sqlx::Error>
     where
         E: Executor<'e, Database = Sqlite>,
     {
-        sqlx::query!(
-            "UPDATE tasks SET shared_task_id = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+        // Only update if:
+        // - The target task's shared_task_id is NULL (first sync) or already equals the new value (idempotent)
+        // - No OTHER task already has this shared_task_id (prevents UNIQUE constraint violation)
+        let result = sqlx::query!(
+            r#"UPDATE tasks
+               SET shared_task_id = $2, updated_at = CURRENT_TIMESTAMP
+               WHERE id = $1
+                 AND (shared_task_id IS NULL OR shared_task_id = $2)
+                 AND NOT EXISTS (
+                     SELECT 1 FROM tasks WHERE shared_task_id = $2 AND id != $1
+                 )"#,
             id,
             shared_task_id
         )
         .execute(executor)
         .await?;
-        Ok(())
+        Ok(result.rows_affected() > 0)
     }
 
     /// Updates the shared_task_id for a task and returns the updated task.
@@ -614,11 +633,12 @@ mod tests {
             .expect("Failed to create task");
         assert!(task.shared_task_id.is_none());
 
-        // Set shared_task_id
+        // Set shared_task_id (first time should succeed)
         let shared_task_id = Uuid::new_v4();
-        Task::set_shared_task_id(&pool, task_id, Some(shared_task_id))
+        let was_set = Task::set_shared_task_id(&pool, task_id, Some(shared_task_id))
             .await
             .expect("Set failed");
+        assert!(was_set, "First set should succeed");
 
         let updated = Task::find_by_id(&pool, task_id)
             .await
@@ -626,7 +646,30 @@ mod tests {
             .expect("Task not found");
         assert_eq!(updated.shared_task_id, Some(shared_task_id));
 
-        // Update shared_task_id
+        // Re-setting same shared_task_id should succeed (idempotent)
+        let was_set_again = Task::set_shared_task_id(&pool, task_id, Some(shared_task_id))
+            .await
+            .expect("Idempotent set failed");
+        assert!(was_set_again, "Idempotent set should succeed");
+
+        // Trying to set a different shared_task_id should fail (returns false)
+        let different_shared_id = Uuid::new_v4();
+        let was_overwritten = Task::set_shared_task_id(&pool, task_id, Some(different_shared_id))
+            .await
+            .expect("Query failed");
+        assert!(
+            !was_overwritten,
+            "Should not overwrite existing shared_task_id"
+        );
+
+        // Verify original shared_task_id is still set
+        let still_original = Task::find_by_id(&pool, task_id)
+            .await
+            .expect("Query failed")
+            .expect("Task not found");
+        assert_eq!(still_original.shared_task_id, Some(shared_task_id));
+
+        // Update shared_task_id using the explicit update method
         let new_shared_task_id = Uuid::new_v4();
         let updated = Task::update_shared_task_id(&pool, task_id, new_shared_task_id)
             .await
@@ -639,6 +682,71 @@ mod tests {
             .expect("Clear failed");
         assert!(cleared.shared_task_id.is_none());
         assert_eq!(cleared.remote_version, 0);
+    }
+
+    #[tokio::test]
+    async fn test_set_shared_task_id_conflict() {
+        let (pool, _temp_dir) = setup_test_pool().await;
+
+        // Create project
+        let project_id = Uuid::new_v4();
+        let project_data = CreateProject {
+            name: "Test Project".to_string(),
+            git_repo_path: format!("/tmp/test-repo-{}", project_id),
+            use_existing_repo: true,
+            clone_url: None,
+            setup_script: None,
+            dev_script: None,
+            cleanup_script: None,
+            copy_files: None,
+        };
+        let _project = Project::create(&pool, &project_data, project_id)
+            .await
+            .expect("Failed to create project");
+
+        // Create two tasks
+        let task1_id = Uuid::new_v4();
+        let task1_data = CreateTask::from_title_description(project_id, "Task 1".to_string(), None);
+        Task::create(&pool, &task1_data, task1_id)
+            .await
+            .expect("Failed to create task 1");
+
+        let task2_id = Uuid::new_v4();
+        let task2_data = CreateTask::from_title_description(project_id, "Task 2".to_string(), None);
+        Task::create(&pool, &task2_data, task2_id)
+            .await
+            .expect("Failed to create task 2");
+
+        // Set shared_task_id on task 1
+        let shared_task_id = Uuid::new_v4();
+        let was_set = Task::set_shared_task_id(&pool, task1_id, Some(shared_task_id))
+            .await
+            .expect("Set failed");
+        assert!(was_set, "First task should get the shared_task_id");
+
+        // Try to set the same shared_task_id on task 2 - should return false (conflict)
+        // This is the scenario that previously caused UNIQUE constraint errors
+        let was_set_on_task2 = Task::set_shared_task_id(&pool, task2_id, Some(shared_task_id))
+            .await
+            .expect("Query should not error");
+        assert!(
+            !was_set_on_task2,
+            "Second task should not get an already-claimed shared_task_id"
+        );
+
+        // Verify task 1 still has the shared_task_id
+        let task1 = Task::find_by_id(&pool, task1_id)
+            .await
+            .expect("Query failed")
+            .expect("Task 1 not found");
+        assert_eq!(task1.shared_task_id, Some(shared_task_id));
+
+        // Verify task 2 still has no shared_task_id
+        let task2 = Task::find_by_id(&pool, task2_id)
+            .await
+            .expect("Query failed")
+            .expect("Task 2 not found");
+        assert!(task2.shared_task_id.is_none());
     }
 
     #[tokio::test]
