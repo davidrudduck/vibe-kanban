@@ -59,7 +59,10 @@ pub fn protected_router() -> Router<AppState> {
         .route("/nodes/{node_id}", get(get_node))
         .route("/nodes/{node_id}", delete(delete_node))
         .route("/nodes/{node_id}/projects", get(list_node_projects))
-        .route("/nodes/{node_id}/projects/linked", get(list_linked_node_projects))
+        .route(
+            "/nodes/{node_id}/projects/linked",
+            get(list_linked_node_projects),
+        )
         .route("/nodes/{source_id}/merge-to/{target_id}", post(merge_nodes))
         .route(
             "/nodes/assignments/{assignment_id}/logs",
@@ -607,7 +610,9 @@ pub async fn list_swarm_projects_sync(
     match SwarmProjectRepository::list_with_nodes_count(state.pool(), node_ctx.organization_id)
         .await
     {
-        Ok(projects) => (StatusCode::OK, Json(ListSwarmProjectsResponse { projects })).into_response(),
+        Ok(projects) => {
+            (StatusCode::OK, Json(ListSwarmProjectsResponse { projects })).into_response()
+        }
         Err(error) => {
             tracing::error!(?error, "failed to list swarm projects for sync");
             (
@@ -1572,7 +1577,11 @@ pub async fn list_swarm_project_tasks_sync(
     // Fetch tasks for this swarm project
     let repo = SharedTaskRepository::new(pool);
     match repo.find_by_swarm_project_id(project_id).await {
-        Ok(tasks) => (StatusCode::OK, Json(ListSwarmProjectTasksResponse { tasks })).into_response(),
+        Ok(tasks) => (
+            StatusCode::OK,
+            Json(ListSwarmProjectTasksResponse { tasks }),
+        )
+            .into_response(),
         Err(e) => {
             tracing::error!(?e, "failed to list tasks for swarm project");
             (

@@ -162,21 +162,25 @@ impl BackfillService {
             return Err(BackfillError::NodeOffline(node_id));
         }
 
-        // Mark as pending backfill
+        // Generate request ID first so we can store it in the database
+        let request_id = Uuid::new_v4();
+
+        // Mark as pending backfill with the request ID for correlation
         let repo = NodeTaskAttemptRepository::new(&self.pool);
-        repo.mark_pending_backfill(&[attempt_id]).await?;
+        repo.mark_pending_backfill(&[attempt_id], request_id)
+            .await?;
 
         // Send backfill request
         let request = BackfillRequestMessage {
-            message_id: Uuid::new_v4(),
+            message_id: request_id,
             backfill_type: BackfillType::FullAttempt,
             entity_ids: vec![attempt_id],
             logs_after: None,
         };
 
-        // Track the request for response correlation
+        // Track the request in memory for response correlation
         self.tracker
-            .track(request.message_id, node_id, vec![attempt_id])
+            .track(request_id, node_id, vec![attempt_id])
             .await;
 
         if let Err(e) = self
@@ -219,9 +223,12 @@ impl BackfillService {
             return Err(BackfillError::NodeOffline(node_id));
         }
 
-        // Mark as pending backfill
+        // Generate request ID first so we can store it in the database
+        let request_id = Uuid::new_v4();
+
+        // Mark as pending backfill with the request ID for correlation
         let repo = NodeTaskAttemptRepository::new(&self.pool);
-        let marked = repo.mark_pending_backfill(&attempt_ids).await?;
+        let marked = repo.mark_pending_backfill(&attempt_ids, request_id).await?;
 
         if marked == 0 {
             // All attempts might already be pending or complete
@@ -234,15 +241,15 @@ impl BackfillService {
 
         // Send backfill request
         let request = BackfillRequestMessage {
-            message_id: Uuid::new_v4(),
+            message_id: request_id,
             backfill_type: BackfillType::FullAttempt,
             entity_ids: attempt_ids.clone(),
             logs_after: None,
         };
 
-        // Track the request for response correlation
+        // Track the request in memory for response correlation
         self.tracker
-            .track(request.message_id, node_id, attempt_ids.clone())
+            .track(request_id, node_id, attempt_ids.clone())
             .await;
 
         if let Err(e) = self

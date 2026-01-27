@@ -50,7 +50,9 @@ impl TaskDispatcher {
         task_details: TaskDetails,
     ) -> Result<AssignResult, DispatchError> {
         let node = self.find_connected_node(swarm_project_id).await?;
-        let result = self.assign_task_to_node(task_id, &node, task_details).await?;
+        let result = self
+            .assign_task_to_node(task_id, &node, task_details)
+            .await?;
 
         tracing::info!(
             task_id = %task_id,

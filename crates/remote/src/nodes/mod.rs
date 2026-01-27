@@ -6,9 +6,9 @@ pub mod ws;
 
 pub use backfill::{BackfillConfig, BackfillError, BackfillService};
 pub use domain::{
-    CreateNodeApiKey, HeartbeatPayload, Node, NodeApiKey, NodeCapabilities,
-    NodeExecutionProcess, NodeLocalProjectInfo, NodeRegistration, NodeStatus,
-    NodeTaskAssignment, NodeTaskAttempt, UpdateAssignmentData,
+    CreateNodeApiKey, HeartbeatPayload, Node, NodeApiKey, NodeCapabilities, NodeExecutionProcess,
+    NodeLocalProjectInfo, NodeRegistration, NodeStatus, NodeTaskAssignment, NodeTaskAttempt,
+    UpdateAssignmentData,
 };
 pub use heartbeat::HeartbeatMonitor;
 pub use service::{MergeNodesResult, NodeError, NodeService, NodeServiceImpl, RegisterNode};
