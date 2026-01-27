@@ -165,15 +165,23 @@ async fn load_project_impl(
     // Step 3: If still not found, check if we should allow Hive fallback
     let mut request = request;
     let Some(mut project) = project else {
-        // Only inject SwarmProjectNeeded for GET requests to the base project endpoint
-        // (e.g., GET /api/projects/{id}). Other routes like sync-health, update, delete
-        // should return 404 since they require a local project to operate on.
+        // Inject SwarmProjectNeeded for GET requests to project routes
+        // (e.g., GET /api/projects/{id}, /api/projects/{id}/branches, /api/projects/{id}/files).
+        // Non-GET routes like sync-health, update, delete should return 404
+        // since they require a local project to operate on.
         let path = request.uri().path().trim_end_matches('/');
-        let is_base_get = request.method() == Method::GET
-            && path.ends_with(&project_id.to_string());
+        let is_get_request = request.method() == Method::GET;
+        let project_id_str = project_id.to_string();
+        // Match paths that contain /projects/{id} - this covers:
+        // - /api/projects/{id} (base)
+        // - /api/projects/{id}/branches
+        // - /api/projects/{id}/files
+        // - /api/projects/{id}/tasks
+        let is_project_route = path.contains(&format!("/projects/{}", project_id_str))
+            || path.ends_with(&project_id_str);
 
-        if is_base_get {
-            tracing::debug!(project_id = %project_id, "Project not found locally, signaling for Hive fallback");
+        if is_get_request && is_project_route {
+            tracing::debug!(project_id = %project_id, path = %path, "Project not found locally, signaling for Hive fallback");
             request.extensions_mut().insert(SwarmProjectNeeded { project_id });
             return Ok(next.run(request).await);
         }
