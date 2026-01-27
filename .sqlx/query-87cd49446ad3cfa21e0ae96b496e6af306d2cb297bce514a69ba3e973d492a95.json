@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "INSERT INTO projects (\n                    id,\n                    name,\n                    git_repo_path,\n                    remote_project_id,\n                    is_remote,\n                    source_node_id,\n                    source_node_name,\n                    source_node_public_url,\n                    source_node_status,\n                    remote_last_synced_at\n                ) VALUES (\n                    $1, $2, $3, $4, 1, $5, $6, $7, $8, $9\n                )\n                ON CONFLICT(remote_project_id) WHERE remote_project_id IS NOT NULL DO UPDATE SET\n                    name = excluded.name,\n                    git_repo_path = excluded.git_repo_path,\n                    source_node_id = excluded.source_node_id,\n                    source_node_name = excluded.source_node_name,\n                    source_node_public_url = excluded.source_node_public_url,\n                    source_node_status = excluded.source_node_status,\n                    remote_last_synced_at = excluded.remote_last_synced_at,\n                    updated_at = datetime('now', 'subsec')\n                RETURNING id as \"id!: Uuid\",\n                          name,\n                          git_repo_path,\n                          setup_script,\n                          dev_script,\n                          cleanup_script,\n                          copy_files,\n                          parallel_setup_script as \"parallel_setup_script!: bool\",\n                          remote_project_id as \"remote_project_id: Uuid\",\n                          created_at as \"created_at!: DateTime<Utc>\",\n                          updated_at as \"updated_at!: DateTime<Utc>\",\n                          is_remote as \"is_remote!: bool\",\n                          source_node_id as \"source_node_id: Uuid\",\n                          source_node_name,\n                          source_node_public_url,\n                          source_node_status,\n                          remote_last_synced_at as \"remote_last_synced_at: DateTime<Utc>\",\n                          github_enabled as \"github_enabled!: bool\",\n                          github_owner,\n                          github_repo,\n                          github_open_issues as \"github_open_issues!: i32\",\n                          github_open_prs as \"github_open_prs!: i32\",\n                          github_last_synced_at as \"github_last_synced_at: DateTime<Utc>\"",
+  "query": "SELECT id as \"id!: Uuid\",\n                      name,\n                      git_repo_path,\n                      setup_script,\n                      dev_script,\n                      cleanup_script,\n                      copy_files,\n                      parallel_setup_script as \"parallel_setup_script!: bool\",\n                      remote_project_id as \"remote_project_id: Uuid\",\n                      created_at as \"created_at!: DateTime<Utc>\",\n                      updated_at as \"updated_at!: DateTime<Utc>\",\n                      is_remote as \"is_remote!: bool\",\n                      source_node_id as \"source_node_id: Uuid\",\n                      source_node_name,\n                      source_node_public_url,\n                      source_node_status,\n                      remote_last_synced_at as \"remote_last_synced_at: DateTime<Utc>\",\n                      github_enabled as \"github_enabled!: bool\",\n                      github_owner,\n                      github_repo,\n                      github_open_issues as \"github_open_issues!: i32\",\n                      github_open_prs as \"github_open_prs!: i32\",\n                      github_last_synced_at as \"github_last_synced_at: DateTime<Utc>\"\n               FROM projects\n               WHERE git_repo_path = $1 AND is_remote = 0",
   "describe": {
     "columns": [
       {
@@ -120,14 +120,14 @@
       }
     ],
     "parameters": {
-      "Right": 9
+      "Right": 1
     },
     "nullable": [
       true,
       false,
       false,
-      false,
-      false,
+      true,
+      true,
       true,
       true,
       false,
@@ -148,5 +148,5 @@
       true
     ]
   },
-  "hash": "8653afe9ec7c6f668bf6b7788b0092ae05e96e88b54d753140d1f55da9108b97"
+  "hash": "87cd49446ad3cfa21e0ae96b496e6af306d2cb297bce514a69ba3e973d492a95"
 }

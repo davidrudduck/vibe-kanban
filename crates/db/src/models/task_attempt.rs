@@ -54,6 +54,10 @@ pub struct TaskAttempt {
     /// NULL for locally-started tasks until a synthetic assignment is created.
     #[ts(optional)]
     pub hive_assignment_id: Option<Uuid>,
+    /// The node ID that created this attempt. NULL for legacy data (treated as local).
+    /// Used for hybrid local+Hive queries: local attempts are always queried from local DB.
+    #[ts(optional)]
+    pub origin_node_id: Option<Uuid>,
 }
 
 /// GitHub PR creation parameters
@@ -91,6 +95,10 @@ pub struct CreateTaskAttempt {
     pub executor: BaseCodingAgent,
     pub base_branch: String,
     pub branch: String,
+    /// The node ID creating this attempt. None for non-swarm or legacy operations.
+    #[ts(optional)]
+    #[serde(default)]
+    pub origin_node_id: Option<Uuid>,
 }
 
 impl TaskAttempt {
@@ -117,7 +125,8 @@ impl TaskAttempt {
                               created_at AS "created_at!: DateTime<Utc>",
                               updated_at AS "updated_at!: DateTime<Utc>",
                               hive_synced_at AS "hive_synced_at: DateTime<Utc>",
-                              hive_assignment_id AS "hive_assignment_id: Uuid"
+                              hive_assignment_id AS "hive_assignment_id: Uuid",
+                              origin_node_id AS "origin_node_id: Uuid"
                        FROM task_attempts
                        WHERE task_id = $1
                        ORDER BY created_at DESC"#,
@@ -139,7 +148,8 @@ impl TaskAttempt {
                               created_at AS "created_at!: DateTime<Utc>",
                               updated_at AS "updated_at!: DateTime<Utc>",
                               hive_synced_at AS "hive_synced_at: DateTime<Utc>",
-                              hive_assignment_id AS "hive_assignment_id: Uuid"
+                              hive_assignment_id AS "hive_assignment_id: Uuid",
+                              origin_node_id AS "origin_node_id: Uuid"
                        FROM task_attempts
                        ORDER BY created_at DESC"#
             )
@@ -172,7 +182,8 @@ impl TaskAttempt {
                        ta.created_at        AS "created_at!: DateTime<Utc>",
                        ta.updated_at        AS "updated_at!: DateTime<Utc>",
                        ta.hive_synced_at    AS "hive_synced_at: DateTime<Utc>",
-                       ta.hive_assignment_id AS "hive_assignment_id: Uuid"
+                       ta.hive_assignment_id AS "hive_assignment_id: Uuid",
+                       ta.origin_node_id    AS "origin_node_id: Uuid"
                FROM    task_attempts ta
                JOIN    tasks t ON ta.task_id = t.id
                JOIN    projects p ON t.project_id = p.id
@@ -247,7 +258,8 @@ impl TaskAttempt {
                        created_at        AS "created_at!: DateTime<Utc>",
                        updated_at        AS "updated_at!: DateTime<Utc>",
                        hive_synced_at    AS "hive_synced_at: DateTime<Utc>",
-                       hive_assignment_id AS "hive_assignment_id: Uuid"
+                       hive_assignment_id AS "hive_assignment_id: Uuid",
+                       origin_node_id    AS "origin_node_id: Uuid"
                FROM    task_attempts
                WHERE   id = $1"#,
             id
@@ -270,7 +282,8 @@ impl TaskAttempt {
                        created_at        AS "created_at!: DateTime<Utc>",
                        updated_at        AS "updated_at!: DateTime<Utc>",
                        hive_synced_at    AS "hive_synced_at: DateTime<Utc>",
-                       hive_assignment_id AS "hive_assignment_id: Uuid"
+                       hive_assignment_id AS "hive_assignment_id: Uuid",
+                       origin_node_id    AS "origin_node_id: Uuid"
                FROM    task_attempts
                WHERE   rowid = $1"#,
             rowid
@@ -389,9 +402,9 @@ impl TaskAttempt {
         // Insert the record into the database
         Ok(sqlx::query_as!(
             TaskAttempt,
-            r#"INSERT INTO task_attempts (id, task_id, container_ref, branch, target_branch, executor, worktree_deleted, setup_completed_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-               RETURNING id as "id!: Uuid", task_id as "task_id!: Uuid", container_ref, branch, target_branch, executor as "executor!",  worktree_deleted as "worktree_deleted!: bool", setup_completed_at as "setup_completed_at: DateTime<Utc>", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", hive_assignment_id as "hive_assignment_id: Uuid""#,
+            r#"INSERT INTO task_attempts (id, task_id, container_ref, branch, target_branch, executor, worktree_deleted, setup_completed_at, origin_node_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+               RETURNING id as "id!: Uuid", task_id as "task_id!: Uuid", container_ref, branch, target_branch, executor as "executor!",  worktree_deleted as "worktree_deleted!: bool", setup_completed_at as "setup_completed_at: DateTime<Utc>", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", hive_assignment_id as "hive_assignment_id: Uuid", origin_node_id as "origin_node_id: Uuid""#,
             id,
             task_id,
             Option::<String>::None, // Container isn't known yet
@@ -399,7 +412,8 @@ impl TaskAttempt {
             data.base_branch, // Target branch is same as base branch during creation
             data.executor,
             false, // worktree_deleted is false during creation
-            Option::<DateTime<Utc>>::None // setup_completed_at is None during creation
+            Option::<DateTime<Utc>>::None, // setup_completed_at is None during creation
+            data.origin_node_id // origin_node_id for tracking which node created this attempt
         )
         .fetch_one(pool)
         .await?)
@@ -573,7 +587,8 @@ impl TaskAttempt {
                        created_at        AS "created_at!: DateTime<Utc>",
                        updated_at        AS "updated_at!: DateTime<Utc>",
                        hive_synced_at    AS "hive_synced_at: DateTime<Utc>",
-                       hive_assignment_id AS "hive_assignment_id: Uuid"
+                       hive_assignment_id AS "hive_assignment_id: Uuid",
+                       origin_node_id    AS "origin_node_id: Uuid"
                FROM    task_attempts
                WHERE   hive_synced_at IS NULL
                ORDER BY created_at ASC
@@ -582,6 +597,17 @@ impl TaskAttempt {
         )
         .fetch_all(pool)
         .await
+    }
+
+    /// Count task attempts that have not been synced to the Hive.
+    /// Useful for monitoring sync status.
+    pub async fn count_unsynced(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"SELECT COUNT(*) as "count!" FROM task_attempts WHERE hive_synced_at IS NULL"#
+        )
+        .fetch_one(pool)
+        .await?;
+        Ok(result.count)
     }
 
     /// Mark a task attempt as synced to the Hive.
@@ -658,7 +684,8 @@ impl TaskAttempt {
                        created_at        AS "created_at!: DateTime<Utc>",
                        updated_at        AS "updated_at!: DateTime<Utc>",
                        hive_synced_at    AS "hive_synced_at: DateTime<Utc>",
-                       hive_assignment_id AS "hive_assignment_id: Uuid"
+                       hive_assignment_id AS "hive_assignment_id: Uuid",
+                       origin_node_id    AS "origin_node_id: Uuid"
                FROM    task_attempts
                WHERE   hive_assignment_id = $1"#,
             assignment_id
@@ -799,6 +826,7 @@ mod tests {
             executor: BaseCodingAgent::ClaudeCode,
             base_branch: "main".to_string(),
             branch: "feature-1".to_string(),
+            origin_node_id: None,
         };
         let attempt1 = TaskAttempt::create(&pool, &attempt_data, Uuid::new_v4(), task.id)
             .await

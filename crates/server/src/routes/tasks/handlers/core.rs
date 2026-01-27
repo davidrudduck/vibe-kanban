@@ -324,6 +324,13 @@ pub async fn create_task_and_start(
 
     let attempt_id = Uuid::new_v4();
 
+    // Get current node_id for tracking attempt origin (for swarm hybrid queries)
+    let origin_node_id = if let Some(ctx) = deployment.node_runner_context() {
+        ctx.node_id().await
+    } else {
+        None
+    };
+
     // Determine branch name and parent worktree info based on use_parent_worktree flag
     let (git_branch_name, parent_container_ref) = if payload.use_parent_worktree.unwrap_or(false) {
         // Validate task has parent
@@ -366,6 +373,7 @@ pub async fn create_task_and_start(
             executor: payload.executor_profile_id.executor,
             base_branch: payload.base_branch.clone(),
             branch: git_branch_name,
+            origin_node_id,
         },
         attempt_id,
         task.id,

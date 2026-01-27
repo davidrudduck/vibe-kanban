@@ -807,7 +807,12 @@ hive_synced_at?: string,
  * The assignment ID from the Hive for tasks dispatched by the Hive.
  * NULL for locally-started tasks until a synthetic assignment is created.
  */
-hive_assignment_id?: string, };
+hive_assignment_id?: string, 
+/**
+ * The node ID that created this attempt. NULL for legacy data (treated as local).
+ * Used for hybrid local+Hive queries: local attempts are always queried from local DB.
+ */
+origin_node_id?: string, };
 
 export type ExecutionProcess = { id: string, task_attempt_id: string, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, 
 /**
@@ -1327,3 +1332,47 @@ deleted: bigint,
  * The cutoff in days used for the purge.
  */
 older_than_days: bigint, };
+
+export type SyncStatusResponse = { 
+/**
+ * Number of tasks not yet synced to Hive.
+ */
+unsynced_tasks: bigint, 
+/**
+ * Number of task attempts not yet synced to Hive.
+ */
+unsynced_attempts: bigint, 
+/**
+ * Number of execution processes not yet synced to Hive.
+ */
+unsynced_executions: bigint, 
+/**
+ * Number of log entries not yet synced to Hive.
+ */
+unsynced_logs: bigint, 
+/**
+ * Whether this node is connected to the Hive.
+ */
+is_connected: boolean, 
+/**
+ * Current node ID (if connected to Hive).
+ */
+node_id: string | null, };
+
+export type ForceResyncResult = { 
+/**
+ * Number of tasks cleared for resync.
+ */
+tasks_cleared: bigint, 
+/**
+ * Number of attempts cleared for resync.
+ */
+attempts_cleared: bigint, 
+/**
+ * Number of executions cleared for resync.
+ */
+executions_cleared: bigint, 
+/**
+ * Number of log entries cleared for resync.
+ */
+logs_cleared: bigint, };

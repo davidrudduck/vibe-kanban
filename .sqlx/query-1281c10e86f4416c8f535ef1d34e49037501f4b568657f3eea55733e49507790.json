@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id AS \"id!: Uuid\",\n                              task_id AS \"task_id!: Uuid\",\n                              container_ref,\n                              branch,\n                              target_branch,\n                              executor AS \"executor!\",\n                              worktree_deleted AS \"worktree_deleted!: bool\",\n                              setup_completed_at AS \"setup_completed_at: DateTime<Utc>\",\n                              created_at AS \"created_at!: DateTime<Utc>\",\n                              updated_at AS \"updated_at!: DateTime<Utc>\",\n                              hive_synced_at AS \"hive_synced_at: DateTime<Utc>\",\n                              hive_assignment_id AS \"hive_assignment_id: Uuid\"\n                       FROM task_attempts\n                       WHERE task_id = $1\n                       ORDER BY created_at DESC",
+  "query": "SELECT id AS \"id!: Uuid\",\n                              task_id AS \"task_id!: Uuid\",\n                              container_ref,\n                              branch,\n                              target_branch,\n                              executor AS \"executor!\",\n                              worktree_deleted AS \"worktree_deleted!: bool\",\n                              setup_completed_at AS \"setup_completed_at: DateTime<Utc>\",\n                              created_at AS \"created_at!: DateTime<Utc>\",\n                              updated_at AS \"updated_at!: DateTime<Utc>\",\n                              hive_synced_at AS \"hive_synced_at: DateTime<Utc>\",\n                              hive_assignment_id AS \"hive_assignment_id: Uuid\",\n                              origin_node_id AS \"origin_node_id: Uuid\"\n                       FROM task_attempts\n                       WHERE task_id = $1\n                       ORDER BY created_at DESC",
   "describe": {
     "columns": [
       {
@@ -62,6 +62,11 @@
         "name": "hive_assignment_id: Uuid",
         "ordinal": 11,
         "type_info": "Text"
+      },
+      {
+        "name": "origin_node_id: Uuid",
+        "ordinal": 12,
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -79,8 +84,9 @@
       false,
       false,
       true,
+      true,
       true
     ]
   },
-  "hash": "82790212ba66413d7590922ece44b5baea7d89966209f84d210700eaa4b56227"
+  "hash": "1281c10e86f4416c8f535ef1d34e49037501f4b568657f3eea55733e49507790"
 }

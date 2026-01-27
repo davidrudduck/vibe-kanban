@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id as \"id!: Uuid\",\n                      name,\n                      git_repo_path,\n                      setup_script,\n                      dev_script,\n                      cleanup_script,\n                      copy_files,\n                      parallel_setup_script as \"parallel_setup_script!: bool\",\n                      remote_project_id as \"remote_project_id: Uuid\",\n                      created_at as \"created_at!: DateTime<Utc>\",\n                      updated_at as \"updated_at!: DateTime<Utc>\",\n                      is_remote as \"is_remote!: bool\",\n                      source_node_id as \"source_node_id: Uuid\",\n                      source_node_name,\n                      source_node_public_url,\n                      source_node_status,\n                      remote_last_synced_at as \"remote_last_synced_at: DateTime<Utc>\",\n                      github_enabled as \"github_enabled!: bool\",\n                      github_owner,\n                      github_repo,\n                      github_open_issues as \"github_open_issues!: i32\",\n                      github_open_prs as \"github_open_prs!: i32\",\n                      github_last_synced_at as \"github_last_synced_at: DateTime<Utc>\"\n               FROM projects\n               WHERE git_repo_path = $1",
+  "query": "SELECT id as \"id!: Uuid\",\n                      name,\n                      git_repo_path,\n                      setup_script,\n                      dev_script,\n                      cleanup_script,\n                      copy_files,\n                      parallel_setup_script as \"parallel_setup_script!: bool\",\n                      remote_project_id as \"remote_project_id: Uuid\",\n                      created_at as \"created_at!: DateTime<Utc>\",\n                      updated_at as \"updated_at!: DateTime<Utc>\",\n                      is_remote as \"is_remote!: bool\",\n                      source_node_id as \"source_node_id: Uuid\",\n                      source_node_name,\n                      source_node_public_url,\n                      source_node_status,\n                      remote_last_synced_at as \"remote_last_synced_at: DateTime<Utc>\",\n                      github_enabled as \"github_enabled!: bool\",\n                      github_owner,\n                      github_repo,\n                      github_open_issues as \"github_open_issues!: i32\",\n                      github_open_prs as \"github_open_prs!: i32\",\n                      github_last_synced_at as \"github_last_synced_at: DateTime<Utc>\"\n               FROM projects\n               WHERE git_repo_path = $1 AND is_remote = 1 AND source_node_id = $2",
   "describe": {
     "columns": [
       {
@@ -120,7 +120,7 @@
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 2
     },
     "nullable": [
       true,
@@ -148,5 +148,5 @@
       true
     ]
   },
-  "hash": "e9ada915bdb369b573782b53c4c1ccc3e9ef006a629376ef8e111df1e594bb93"
+  "hash": "17bd2966563effff2136265fc96f399952ff2b046708987451f8968b77e38194"
 }

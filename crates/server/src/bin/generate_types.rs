@@ -258,6 +258,8 @@ fn generate_types_content() -> String {
         server::routes::database::ArchivedPurgeResult::decl(),
         server::routes::database::LogStatsResponse::decl(),
         server::routes::database::LogPurgeResult::decl(),
+        server::routes::database::SyncStatusResponse::decl(),
+        server::routes::database::ForceResyncResult::decl(),
     ];
 
     let body = decls

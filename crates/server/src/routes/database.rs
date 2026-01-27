@@ -9,17 +9,25 @@
 //! - POST /api/database/purge-archived - Delete archived terminal tasks
 //! - GET /api/database/log-stats - Count log entries for purging
 //! - POST /api/database/purge-logs - Delete old log entries
+//! - GET /api/database/sync-status - Get Hive sync status (unsynced entity counts)
+//! - POST /api/database/force-resync/:project_id - Force resync all entities for a project
 
 use axum::{
     Router,
-    extract::{Query, State},
+    extract::{Path, Query, State},
     response::Json as ResponseJson,
     routing::{get, post},
 };
 use db::{
     DatabaseStats, VacuumResult, analyze_database, get_database_stats,
-    models::log_entry::DbLogEntry, models::task::Task, vacuum_database,
+    models::execution_process::ExecutionProcess,
+    models::log_entry::DbLogEntry,
+    models::project::Project,
+    models::task::Task,
+    models::task_attempt::TaskAttempt,
+    vacuum_database,
 };
+use uuid::Uuid;
 use deployment::Deployment;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -85,6 +93,38 @@ pub struct LogPurgeResult {
     pub deleted: i64,
     /// The cutoff in days used for the purge.
     pub older_than_days: i64,
+}
+
+/// Response for Hive sync status.
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
+pub struct SyncStatusResponse {
+    /// Number of tasks not yet synced to Hive.
+    pub unsynced_tasks: i64,
+    /// Number of task attempts not yet synced to Hive.
+    pub unsynced_attempts: i64,
+    /// Number of execution processes not yet synced to Hive.
+    pub unsynced_executions: i64,
+    /// Number of log entries not yet synced to Hive.
+    pub unsynced_logs: i64,
+    /// Whether this node is connected to the Hive.
+    pub is_connected: bool,
+    /// Current node ID (if connected to Hive).
+    pub node_id: Option<Uuid>,
+}
+
+/// Response for force resync operation.
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
+pub struct ForceResyncResult {
+    /// Number of tasks cleared for resync.
+    pub tasks_cleared: u64,
+    /// Number of attempts cleared for resync.
+    pub attempts_cleared: u64,
+    /// Number of executions cleared for resync.
+    pub executions_cleared: u64,
+    /// Number of log entries cleared for resync.
+    pub logs_cleared: u64,
 }
 
 /// GET /api/database/stats
@@ -255,6 +295,100 @@ async fn purge_logs(
     })))
 }
 
+/// GET /api/database/sync-status
+///
+/// Returns the number of unsynced entities (tasks, attempts, executions, logs)
+/// and the current node connection status.
+async fn sync_status(
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<SyncStatusResponse>>, ApiError> {
+    let pool = &deployment.db().pool;
+
+    // Get counts in parallel for efficiency
+    let (unsynced_tasks, unsynced_attempts, unsynced_executions, unsynced_logs) = tokio::try_join!(
+        Task::count_unsynced(pool),
+        TaskAttempt::count_unsynced(pool),
+        ExecutionProcess::count_unsynced(pool),
+        DbLogEntry::count_unsynced(pool),
+    )
+    .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    // Get node connection status
+    // Only return node_id when connected - a disconnected node_id could be stale/misleading
+    let (is_connected, node_id) = if let Some(ctx) = deployment.node_runner_context() {
+        let connected = ctx.is_connected().await;
+        let nid = if connected { ctx.node_id().await } else { None };
+        (connected, nid)
+    } else {
+        (false, None)
+    };
+
+    Ok(ResponseJson(ApiResponse::success(SyncStatusResponse {
+        unsynced_tasks,
+        unsynced_attempts,
+        unsynced_executions,
+        unsynced_logs,
+        is_connected,
+        node_id,
+    })))
+}
+
+/// POST /api/database/force-resync/:project_id
+///
+/// Clears hive_synced_at for all tasks, attempts, executions, and logs in a project,
+/// triggering them to be re-synced to the Hive on the next sync cycle.
+async fn force_resync(
+    State(deployment): State<DeploymentImpl>,
+    Path(project_id): Path<Uuid>,
+) -> Result<ResponseJson<ApiResponse<ForceResyncResult>>, ApiError> {
+    let pool = &deployment.db().pool;
+
+    // Verify project exists
+    let project = Project::find_by_id(pool, project_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("Project {} not found", project_id)))?;
+
+    // Only allow force resync for swarm-linked projects
+    if project.remote_project_id.is_none() {
+        return Err(ApiError::BadRequest(
+            "Project is not linked to a swarm (no remote_project_id)".to_string(),
+        ));
+    }
+
+    // Clear sync timestamps for all entities in this project
+    let tasks_cleared = Task::clear_hive_sync_for_project(pool, project_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    let attempts_cleared = TaskAttempt::clear_hive_sync_for_project(pool, project_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    let executions_cleared = ExecutionProcess::clear_hive_sync_for_project(pool, project_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    let logs_cleared = DbLogEntry::clear_hive_sync_for_project(pool, project_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    tracing::info!(
+        project_id = %project_id,
+        tasks_cleared = tasks_cleared,
+        attempts_cleared = attempts_cleared,
+        executions_cleared = executions_cleared,
+        logs_cleared = logs_cleared,
+        "Force resync triggered for project"
+    );
+
+    Ok(ResponseJson(ApiResponse::success(ForceResyncResult {
+        tasks_cleared,
+        attempts_cleared,
+        executions_cleared,
+        logs_cleared,
+    })))
+}
+
 /// Create the database routes router.
 pub fn router() -> Router<DeploymentImpl> {
     Router::new()
@@ -269,4 +403,6 @@ pub fn router() -> Router<DeploymentImpl> {
         .route("/database/purge-archived", post(purge_archived))
         .route("/database/log-stats", get(log_stats))
         .route("/database/purge-logs", post(purge_logs))
+        .route("/database/sync-status", get(sync_status))
+        .route("/database/force-resync/:project_id", post(force_resync))
 }

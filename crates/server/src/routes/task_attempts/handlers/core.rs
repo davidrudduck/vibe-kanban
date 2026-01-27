@@ -50,130 +50,164 @@ pub async fn get_task_attempts(
     State(deployment): State<DeploymentImpl>,
     Query(query): Query<TaskAttemptQuery>,
 ) -> Result<ResponseJson<ApiResponse<Vec<TaskAttempt>>>, ApiError> {
+    use std::collections::HashMap;
+
     let pool = &deployment.db().pool;
 
-    // If task_id is provided, check if it's a swarm task
-    if let Some(task_id) = query.task_id {
-        // Step 1: Try to find task locally
-        let local_task = Task::find_by_id(pool, task_id).await?;
+    // If no task_id provided, just return all local attempts
+    let Some(task_id) = query.task_id else {
+        let attempts = TaskAttempt::fetch_all(pool, None).await?;
+        return Ok(ResponseJson(ApiResponse::success(attempts)));
+    };
 
-        // Step 2: If found locally with shared_task_id, query Hive
-        if let Some(task) = &local_task
-            && let Some(shared_task_id) = task.shared_task_id
-        {
-            // Prefer node_auth_client (API key auth) - works even without user login
-            // Fall back to remote_client (OAuth) for non-node deployments
-            let client = match deployment.node_auth_client().cloned() {
-                Some(c) => c,
-                None => match deployment.remote_client() {
-                    Ok(c) => c,
-                    Err(e) => {
-                        tracing::warn!(
-                            shared_task_id = %shared_task_id,
-                            error = %e,
-                            "Remote client unavailable, falling back to local"
-                        );
-                        // Fall through to local query by skipping this block
-                        return Ok(ResponseJson(ApiResponse::success(
-                            TaskAttempt::fetch_all(pool, query.task_id).await?,
-                        )));
-                    }
-                },
-            };
-            match client.list_swarm_task_attempts(shared_task_id).await {
-                Ok(response) => {
-                    let attempts: Vec<TaskAttempt> = response
-                        .attempts
-                        .into_iter()
-                        .map(|nta| TaskAttempt {
-                            id: nta.id,
-                            task_id, // Map back to local task_id
-                            container_ref: nta.container_ref,
-                            branch: nta.branch,
-                            target_branch: nta.target_branch,
-                            executor: nta.executor,
-                            worktree_deleted: nta.worktree_deleted,
-                            setup_completed_at: nta.setup_completed_at,
-                            created_at: nta.created_at,
-                            updated_at: nta.updated_at,
-                            hive_synced_at: Some(nta.updated_at),
-                            hive_assignment_id: nta.assignment_id,
-                        })
-                        .collect();
-                    return Ok(ResponseJson(ApiResponse::success(attempts)));
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        shared_task_id = %shared_task_id,
-                        error = %e,
-                        "Failed to fetch task attempts from Hive, falling back to local"
-                    );
-                    // Fall through to local query
-                }
+    // Step 1: Try to find task locally
+    let local_task = Task::find_by_id(pool, task_id).await?;
+
+    // Step 2: If task not found locally, it might be a shared_task_id from a swarm project
+    // In this case, we can only query Hive (no local data)
+    if local_task.is_none() {
+        let client = match deployment.node_auth_client().cloned() {
+            Some(c) => c,
+            None => deployment.remote_client().map_err(|e| {
+                tracing::warn!(
+                    task_id = %task_id,
+                    error = %e,
+                    "No remote client available for swarm task lookup"
+                );
+                ApiError::BadGateway("No remote client available".into())
+            })?,
+        };
+        // Try to query Hive using task_id as shared_task_id
+        match client.list_swarm_task_attempts(task_id).await {
+            Ok(response) => {
+                let attempts: Vec<TaskAttempt> = response
+                    .attempts
+                    .into_iter()
+                    .map(|nta| TaskAttempt {
+                        id: nta.id,
+                        task_id, // Keep as-is (it's the shared_task_id)
+                        container_ref: nta.container_ref,
+                        branch: nta.branch,
+                        target_branch: nta.target_branch,
+                        executor: nta.executor,
+                        worktree_deleted: nta.worktree_deleted,
+                        setup_completed_at: nta.setup_completed_at,
+                        created_at: nta.created_at,
+                        updated_at: nta.updated_at,
+                        hive_synced_at: Some(nta.updated_at),
+                        hive_assignment_id: nta.assignment_id,
+                        origin_node_id: Some(nta.node_id), // Remote attempt's origin
+                    })
+                    .collect();
+                return Ok(ResponseJson(ApiResponse::success(attempts)));
             }
-        }
-
-        // Step 3: If task not found locally, task_id might be a shared_task_id from swarm project
-        // Propagate remote_client errors here since there's no local fallback
-        if local_task.is_none() {
-            // Prefer node_auth_client (API key auth) - works even without user login
-            // Fall back to remote_client (OAuth) for non-node deployments
-            let client = match deployment.node_auth_client().cloned() {
-                Some(c) => c,
-                None => deployment.remote_client().map_err(|e| {
-                    tracing::warn!(
-                        task_id = %task_id,
-                        error = %e,
-                        "No remote client available for swarm task lookup"
-                    );
-                    ApiError::BadGateway("No remote client available".into())
-                })?,
-            };
-            // Try to query Hive using task_id as shared_task_id
-            match client.list_swarm_task_attempts(task_id).await {
-                Ok(response) => {
-                    let attempts: Vec<TaskAttempt> = response
-                        .attempts
-                        .into_iter()
-                        .map(|nta| TaskAttempt {
-                            id: nta.id,
-                            task_id, // Keep as-is (it's the shared_task_id)
-                            container_ref: nta.container_ref,
-                            branch: nta.branch,
-                            target_branch: nta.target_branch,
-                            executor: nta.executor,
-                            worktree_deleted: nta.worktree_deleted,
-                            setup_completed_at: nta.setup_completed_at,
-                            created_at: nta.created_at,
-                            updated_at: nta.updated_at,
-                            hive_synced_at: Some(nta.updated_at),
-                            hive_assignment_id: nta.assignment_id,
-                        })
-                        .collect();
-                    return Ok(ResponseJson(ApiResponse::success(attempts)));
+            Err(e) => {
+                if e.is_not_found() {
+                    return Err(ApiError::NotFound(format!(
+                        "Task {} not found locally or on Hive",
+                        task_id
+                    )));
                 }
-                Err(e) => {
-                    // Not found on Hive either
-                    if e.is_not_found() {
-                        return Err(ApiError::NotFound(format!(
-                            "Task {} not found locally or on Hive",
-                            task_id
-                        )));
-                    }
-                    tracing::warn!(
-                        task_id = %task_id,
-                        error = %e,
-                        "Failed to fetch swarm task attempts from Hive"
-                    );
-                    return Err(ApiError::RemoteClient(e));
-                }
+                tracing::warn!(
+                    task_id = %task_id,
+                    error = %e,
+                    "Failed to fetch swarm task attempts from Hive"
+                );
+                return Err(ApiError::RemoteClient(e));
             }
         }
     }
 
-    // Fall back to local attempts
-    let attempts = TaskAttempt::fetch_all(pool, query.task_id).await?;
-    Ok(ResponseJson(ApiResponse::success(attempts)))
+    let task = local_task.unwrap();
+
+    // Step 3: ALWAYS query local attempts first - this is the core fix
+    // Local attempts are authoritative for THIS node's executions
+    let local_attempts = TaskAttempt::fetch_all(pool, Some(task_id)).await?;
+
+    // Step 4: If task is not linked to swarm (no shared_task_id), just return local
+    let Some(shared_task_id) = task.shared_task_id else {
+        return Ok(ResponseJson(ApiResponse::success(local_attempts)));
+    };
+
+    // Step 5: For swarm tasks, get current node_id to filter Hive results
+    let current_node_id = if let Some(ctx) = deployment.node_runner_context() {
+        ctx.node_id().await
+    } else {
+        None
+    };
+
+    // Step 6: Try to fetch remote attempts from Hive
+    let client = match deployment.node_auth_client().cloned() {
+        Some(c) => c,
+        None => match deployment.remote_client() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(
+                    shared_task_id = %shared_task_id,
+                    error = %e,
+                    "Remote client unavailable, returning local attempts only"
+                );
+                // Graceful degradation: return local attempts when Hive is unavailable
+                return Ok(ResponseJson(ApiResponse::success(local_attempts)));
+            }
+        },
+    };
+
+    let remote_attempts = match client.list_swarm_task_attempts(shared_task_id).await {
+        Ok(response) => response.attempts,
+        Err(e) => {
+            tracing::warn!(
+                shared_task_id = %shared_task_id,
+                error = %e,
+                "Failed to fetch task attempts from Hive, returning local attempts only"
+            );
+            // Graceful degradation: return local attempts when Hive query fails
+            return Ok(ResponseJson(ApiResponse::success(local_attempts)));
+        }
+    };
+
+    // Step 7: Merge local + remote attempts, filtering out current node's attempts from Hive
+    // (to avoid duplicates - we already have them locally)
+    // Use HashMap to deduplicate by attempt ID, preferring local data
+    let mut attempt_map: HashMap<Uuid, TaskAttempt> =
+        local_attempts.into_iter().map(|a| (a.id, a)).collect();
+
+    for nta in remote_attempts {
+        // Skip if this attempt is from the current node (we have local data)
+        if Some(nta.node_id) == current_node_id {
+            continue;
+        }
+
+        // Only add if not already in the map (prefer local data)
+        attempt_map.entry(nta.id).or_insert_with(|| TaskAttempt {
+            id: nta.id,
+            task_id, // Map back to local task_id
+            container_ref: nta.container_ref,
+            branch: nta.branch,
+            target_branch: nta.target_branch,
+            executor: nta.executor,
+            worktree_deleted: nta.worktree_deleted,
+            setup_completed_at: nta.setup_completed_at,
+            created_at: nta.created_at,
+            updated_at: nta.updated_at,
+            hive_synced_at: Some(nta.updated_at),
+            hive_assignment_id: nta.assignment_id,
+            origin_node_id: Some(nta.node_id), // Track which node this came from
+        });
+    }
+
+    // Step 8: Convert back to Vec and sort by created_at DESC
+    let mut merged: Vec<TaskAttempt> = attempt_map.into_values().collect();
+    merged.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+    tracing::debug!(
+        task_id = %task_id,
+        shared_task_id = %shared_task_id,
+        attempt_count = merged.len(),
+        "Returning hybrid local+remote task attempts"
+    );
+
+    Ok(ResponseJson(ApiResponse::success(merged)))
 }
 
 pub async fn get_task_attempt(
@@ -227,6 +261,7 @@ pub async fn get_task_attempt(
                     updated_at: hive_response.attempt.updated_at,
                     hive_synced_at: Some(hive_response.attempt.updated_at),
                     hive_assignment_id: hive_response.attempt.assignment_id,
+                    origin_node_id: Some(hive_response.attempt.node_id),
                 };
                 return Ok(ResponseJson(ApiResponse::success(attempt)));
             }
@@ -389,6 +424,13 @@ pub async fn create_task_attempt(
         .await?
         .ok_or(SqlxError::RowNotFound)?;
 
+    // Get current node_id for tracking attempt origin (for swarm hybrid queries)
+    let origin_node_id = if let Some(ctx) = deployment.node_runner_context() {
+        ctx.node_id().await
+    } else {
+        None
+    };
+
     // Auto-unarchive the task when a new attempt is created
     if Task::unarchive_if_archived(pool, task.id).await? {
         tracing::info!(
@@ -454,6 +496,7 @@ pub async fn create_task_attempt(
             executor: executor_profile_id.executor,
             base_branch: payload.base_branch.clone(),
             branch: git_branch_name.clone(),
+            origin_node_id,
         },
         attempt_id,
         payload.task_id,
@@ -550,6 +593,13 @@ pub async fn create_task_attempt_by_task_id(
     let executor_profile_id = payload.executor_profile_id.clone();
     let pool = &deployment.db().pool;
 
+    // Get current node_id for tracking attempt origin (for swarm hybrid queries)
+    let origin_node_id = if let Some(ctx) = deployment.node_runner_context() {
+        ctx.node_id().await
+    } else {
+        None
+    };
+
     let attempt_id = Uuid::new_v4();
 
     // Determine branch name and parent worktree info based on use_parent_worktree flag
@@ -594,6 +644,7 @@ pub async fn create_task_attempt_by_task_id(
             executor: executor_profile_id.executor,
             base_branch: payload.base_branch.clone(),
             branch: git_branch_name.clone(),
+            origin_node_id,
         },
         attempt_id,
         task.id,

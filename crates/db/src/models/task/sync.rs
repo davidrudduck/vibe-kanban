@@ -1,6 +1,12 @@
 //! Hive sync operations for tasks.
 //!
 //! These operations handle synchronization between local tasks and the Hive (remote server).
+//!
+//! Note: Tasks don't use `hive_synced_at` like TaskAttempt and ExecutionProcess.
+//! Instead, task sync status is tracked via `shared_task_id`:
+//! - Tasks in swarm projects (where project.remote_project_id IS NOT NULL) that
+//!   have NULL `shared_task_id` are considered "unsynced"
+//! - Once synced, `shared_task_id` is set to the Hive's task ID
 
 use chrono::{DateTime, Utc};
 use sqlx::{Executor, Sqlite, SqlitePool};
@@ -473,6 +479,55 @@ impl Task {
         .fetch_one(pool)
         .await?;
         Ok(count)
+    }
+
+    /// Count tasks that have not been synced to the Hive.
+    ///
+    /// For tasks, "unsynced" means:
+    /// - Task belongs to a swarm project (project.remote_project_id IS NOT NULL)
+    /// - Task does not have a shared_task_id yet
+    ///
+    /// Note: Unlike TaskAttempt and ExecutionProcess, Task doesn't have a `hive_synced_at` field.
+    pub async fn count_unsynced(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
+        let count = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) as "count!: i64"
+               FROM tasks t
+               JOIN projects p ON t.project_id = p.id
+               WHERE t.shared_task_id IS NULL
+                 AND p.remote_project_id IS NOT NULL"#
+        )
+        .fetch_one(pool)
+        .await?;
+        Ok(count)
+    }
+
+    /// Clear sync status for all tasks in a project, triggering resync.
+    ///
+    /// This clears `shared_task_id` and `remote_version` for ALL tasks in the project,
+    /// which will trigger them to be re-synced to the Hive on the next sync cycle.
+    ///
+    /// NOTE: Unlike `clear_all_shared_task_ids_for_project` which only clears tasks that
+    /// already have a `shared_task_id`, this method updates ALL tasks in the project
+    /// regardless of their current sync state. This is intentional for force-resync
+    /// scenarios where we want to re-establish sync for the entire project.
+    ///
+    /// Returns the number of tasks that were updated.
+    pub async fn clear_hive_sync_for_project(
+        pool: &SqlitePool,
+        project_id: Uuid,
+    ) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"UPDATE tasks
+               SET shared_task_id = NULL,
+                   remote_version = 0,
+                   remote_last_synced_at = NULL,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE project_id = $1"#,
+            project_id
+        )
+        .execute(pool)
+        .await?;
+        Ok(result.rows_affected())
     }
 }
 
