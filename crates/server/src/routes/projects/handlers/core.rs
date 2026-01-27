@@ -19,7 +19,11 @@ use services::services::{
 use utils::{api::projects::RemoteProject, path::expand_tilde, response::ApiResponse};
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError, middleware::{RemoteProjectContext, SwarmProjectNeeded}};
+use crate::{
+    DeploymentImpl,
+    error::ApiError,
+    middleware::{RemoteProjectContext, SwarmProjectNeeded},
+};
 
 use super::super::types::{
     OpenEditorRequest, OpenEditorResponse, OrphanedProject, OrphanedProjectsResponse,
@@ -52,19 +56,37 @@ pub async fn get_project(
 
     // If we have a SwarmProjectNeeded marker, try to fetch from Hive
     if let Some(Extension(swarm)) = swarm_needed {
-        let client = deployment.remote_client()?;
-        let response = client.get_swarm_project(swarm.project_id).await.map_err(|e| {
-            tracing::warn!(
-                project_id = %swarm.project_id,
-                error = ?e,
-                "Failed to fetch swarm project from Hive"
-            );
-            if e.is_not_found() {
-                ApiError::NotFound("Project not found".into())
-            } else {
-                ApiError::RemoteClient(e)
+        // Prefer node_auth_client (API key auth) - works even without user login
+        // Fall back to remote_client (OAuth) for non-node deployments
+        let client = match deployment
+            .node_auth_client()
+            .cloned()
+            .or_else(|| deployment.remote_client().ok())
+        {
+            Some(c) => c,
+            None => {
+                tracing::warn!(
+                    project_id = %swarm.project_id,
+                    "No remote client available for swarm project lookup"
+                );
+                return Err(ApiError::BadGateway("No remote client available".into()));
             }
-        })?;
+        };
+        let response = client
+            .get_swarm_project(swarm.project_id)
+            .await
+            .map_err(|e| {
+                tracing::warn!(
+                    project_id = %swarm.project_id,
+                    error = ?e,
+                    "Failed to fetch swarm project from Hive"
+                );
+                if e.is_not_found() {
+                    ApiError::NotFound("Project not found".into())
+                } else {
+                    ApiError::RemoteClient(e)
+                }
+            })?;
 
         // Convert SwarmProject to Project for display
         let swarm_project = response.project;
