@@ -167,6 +167,34 @@ const { data: fileData, isLoading, error } = useQuery({
 });
 ```
 
+### API Endpoint Selection
+
+The routing decision happens in two layers:
+
+**1. Component Layer** - Components like `FileChangeRenderer` and `DisplayConversationEntry` determine which `FileInfo` properties to pass when calling `openFile()`:
+
+```typescript
+// Priority: attemptId first, then claudeRelativePath
+if (attemptId) {
+  // Worktree file - always use attemptId when available
+  openFile({ path, attemptId });
+} else if (claudeRelativePath) {
+  // Claude home directory file - use relativePath
+  openFile({ path, relativePath: claudeRelativePath });
+}
+```
+
+**2. Container Layer** - `FileViewerContainer` routes to the appropriate API based on which property was set:
+
+- `relativePath` present → `fileBrowserApi.readClaudeFile()` (Claude home directory)
+- `attemptId` present → `fileBrowserApi.readWorktreeFile()` (task worktree)
+
+<Note>
+The `attemptId` priority in the component layer is critical: worktree files can have `.claude/` in their path (e.g., `.claude/tasks/001.md`), and without this priority they would be incorrectly routed to the Claude home directory API.
+
+This routing priority was established in PR #380.
+</Note>
+
 ## FileViewerSheet (Mobile)
 
 Full-screen bottom sheet for mobile devices with touch-optimized interactions.
