@@ -90,17 +90,17 @@ const FileChangeRenderer = ({
   const handleViewFile = () => {
     if (!showViewButton) return;
 
-    if (claudeRelativePath) {
-      // Claude file - use relativePath
-      openFile({
-        path,
-        relativePath: claudeRelativePath,
-      });
-    } else if (attemptId) {
-      // Worktree file - use attemptId
+    if (attemptId) {
+      // Worktree file - always use attemptId when available
       openFile({
         path,
         attemptId,
+      });
+    } else if (claudeRelativePath) {
+      // Claude home directory file - use relativePath
+      openFile({
+        path,
+        relativePath: claudeRelativePath,
       });
     }
   };

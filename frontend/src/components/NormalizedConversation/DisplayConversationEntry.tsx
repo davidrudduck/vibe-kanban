@@ -529,17 +529,17 @@ const ToolCallCard: React.FC<{
   const handleViewFile = () => {
     if (!fileReadPath || !showViewButton) return;
 
-    if (claudeRelativePath) {
-      // Claude file - use relativePath
-      openFile({
-        path: fileReadPath,
-        relativePath: claudeRelativePath,
-      });
-    } else if (attemptId) {
-      // Worktree file - use attemptId
+    if (attemptId) {
+      // Worktree file - always use attemptId when available
       openFile({
         path: fileReadPath,
         attemptId,
+      });
+    } else if (claudeRelativePath) {
+      // Claude home directory file - use relativePath
+      openFile({
+        path: fileReadPath,
+        relativePath: claudeRelativePath,
       });
     }
   };

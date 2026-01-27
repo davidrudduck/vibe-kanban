@@ -132,6 +132,28 @@ On desktop, the side panel layout lets you:
 
 The desktop panel remembers your preferred width. Resize once, and it stays at that width across all file viewing sessions until you change it.
 
+## How File Preview Routing Works
+
+When you click a file preview link in conversation logs, the viewer determines which API endpoint to use based on the context:
+
+### Routing Priority
+
+1. **Worktree files (attemptId present)** - If the conversation entry has an `attemptId`, the file is always fetched from the task attempt's worktree, regardless of the file path. This includes files with `.claude/` in their path that exist within the worktree.
+
+2. **Claude home directory files (no attemptId)** - If there's no `attemptId` and the file path contains `.claude/`, the file is fetched from your `~/.claude/` home directory using a relative path.
+
+### Why This Matters
+
+This routing logic ensures that:
+
+- **Worktree files with `.claude/` in their path** (like `.claude/tasks/001.md` within a task's worktree) correctly open from the worktree API
+- **Regular worktree files** (like `src/main.rs`) continue to work as expected
+- **Claude home directory files** (when viewing files outside a task attempt context) properly use the Claude home API
+
+<Note>
+The `attemptId` is prioritized over path-based detection to prevent worktree files containing `.claude/` in their path from being incorrectly routed to the Claude home directory API.
+</Note>
+
 ## Troubleshooting
 
 ### File Won't Load
