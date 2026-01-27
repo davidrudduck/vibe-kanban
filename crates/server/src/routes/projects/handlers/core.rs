@@ -58,19 +58,19 @@ pub async fn get_project(
     if let Some(Extension(swarm)) = swarm_needed {
         // Prefer node_auth_client (API key auth) - works even without user login
         // Fall back to remote_client (OAuth) for non-node deployments
-        let client = match deployment
-            .node_auth_client()
-            .cloned()
-            .or_else(|| deployment.remote_client().ok())
-        {
+        let client = match deployment.node_auth_client().cloned() {
             Some(c) => c,
-            None => {
-                tracing::warn!(
-                    project_id = %swarm.project_id,
-                    "No remote client available for swarm project lookup"
-                );
-                return Err(ApiError::BadGateway("No remote client available".into()));
-            }
+            None => match deployment.remote_client() {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::warn!(
+                        project_id = %swarm.project_id,
+                        error = ?e,
+                        "No remote client available for swarm project lookup"
+                    );
+                    return Err(ApiError::BadGateway("No remote client available".into()));
+                }
+            },
         };
         let response = client
             .get_swarm_project(swarm.project_id)

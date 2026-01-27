@@ -995,8 +995,13 @@ impl RemoteClient {
         &self,
         project_id: Uuid,
     ) -> Result<SwarmProjectResponse, RemoteClientError> {
-        self.get_authed(&format!("/v1/swarm/projects/{project_id}"))
-            .await
+        // Use sync endpoint for API key auth (doesn't require OAuth login)
+        // Use regular endpoint for OAuth auth (requires user session)
+        let path = match &self.auth_mode {
+            AuthMode::ApiKey(_) => format!("/v1/sync/swarm/projects/{project_id}"),
+            AuthMode::OAuth(_) => format!("/v1/swarm/projects/{project_id}"),
+        };
+        self.get_authed(&path).await
     }
 
     /// Creates a new swarm project.

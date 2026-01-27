@@ -101,6 +101,7 @@ pub fn node_sync_router(state: AppState) -> Router<AppState> {
         )
         .route("/nodes/tasks/bulk", get(bulk_tasks_for_node_sync))
         .route("/swarm/projects", get(list_swarm_projects_sync))
+        .route("/swarm/projects/{project_id}", get(get_swarm_project_sync))
         // Swarm data read endpoints (for cross-node viewing)
         .route(
             "/swarm/projects/{project_id}/tasks",
@@ -618,6 +619,50 @@ pub async fn list_swarm_projects_sync(
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": "failed to list swarm projects" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// Get a single swarm project by ID for node sync.
+///
+/// Uses API key's organization to verify access. Returns the project
+/// if it belongs to the same organization as the authenticated node.
+#[instrument(
+    name = "nodes.get_swarm_project_sync",
+    skip(state, node_ctx),
+    fields(project_id = %project_id)
+)]
+pub async fn get_swarm_project_sync(
+    State(state): State<AppState>,
+    Extension(node_ctx): Extension<NodeAuthContext>,
+    Path(project_id): Path<Uuid>,
+) -> Response {
+    use super::swarm_projects::SwarmProjectResponse;
+
+    match SwarmProjectRepository::find_by_id(state.pool(), project_id).await {
+        Ok(Some(project)) => {
+            // Verify project belongs to the same organization as the node's API key
+            if project.organization_id != node_ctx.organization_id {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({ "error": "swarm project not found" })),
+                )
+                    .into_response();
+            }
+            (StatusCode::OK, Json(SwarmProjectResponse { project })).into_response()
+        }
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "swarm project not found" })),
+        )
+            .into_response(),
+        Err(error) => {
+            tracing::error!(?error, "failed to get swarm project for sync");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "failed to get swarm project" })),
             )
                 .into_response()
         }

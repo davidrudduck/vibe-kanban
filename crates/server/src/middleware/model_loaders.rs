@@ -165,28 +165,25 @@ async fn load_project_impl(
     // Step 3: If still not found, check if we should allow Hive fallback
     let mut request = request;
     let Some(mut project) = project else {
-        // Inject SwarmProjectNeeded for GET requests to project routes
-        // (e.g., GET /api/projects/{id}, /api/projects/{id}/branches, /api/projects/{id}/files).
-        // Non-GET routes like sync-health, update, delete should return 404
-        // since they require a local project to operate on.
+        // Inject SwarmProjectNeeded ONLY for GET requests to the base project route
+        // (GET /api/projects/{id}). Sub-routes like /branches, /files, /sync-health,
+        // /github/counts require a local project to operate on - they can't work with
+        // a project that only exists on the Hive, so they should return 404.
         let path = request.uri().path().trim_end_matches('/');
         let is_get_request = request.method() == Method::GET;
         let project_id_str = project_id.to_string();
-        // Match paths that contain /projects/{id} - this covers:
-        // - /api/projects/{id} (base)
-        // - /api/projects/{id}/branches
-        // - /api/projects/{id}/files
-        // - /api/projects/{id}/tasks
-        let is_project_route = path.contains(&format!("/projects/{}", project_id_str))
+        // Only match the base project route (exactly /api/projects/{id}), not sub-routes.
+        // This prevents 500 errors from handlers that unconditionally expect Extension<Project>.
+        let is_base_project_route = path.ends_with(&format!("/projects/{}", project_id_str))
             || path.ends_with(&project_id_str);
 
-        if is_get_request && is_project_route {
+        if is_get_request && is_base_project_route {
             tracing::debug!(project_id = %project_id, path = %path, "Project not found locally, signaling for Hive fallback");
             request.extensions_mut().insert(SwarmProjectNeeded { project_id });
             return Ok(next.run(request).await);
         }
 
-        tracing::debug!(project_id = %project_id, "Project not found locally");
+        tracing::debug!(project_id = %project_id, path = %path, "Project not found locally");
         return Err(StatusCode::NOT_FOUND);
     };
 

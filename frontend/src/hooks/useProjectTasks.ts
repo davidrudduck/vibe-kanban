@@ -227,6 +227,12 @@ export const useProjectTasks = (
     }
   }, [isRemote, restData]);
 
+  // Clear optimistic state when switching projects or toggling remote mode
+  useEffect(() => {
+    setLocalOptimisticTasks({});
+    setOptimisticArchivedOverrides(new Map());
+  }, [projectId, isRemote]);
+
   // ============================================================================
   // Merge data sources
   // ============================================================================
