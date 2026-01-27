@@ -111,6 +111,7 @@ pub fn node_sync_router(state: AppState) -> Router<AppState> {
             "/swarm/tasks/{shared_task_id}/attempts",
             get(list_task_attempts_sync),
         )
+        .route("/swarm/tasks/{task_id}", get(get_task_sync))
         .route("/swarm/attempts/{attempt_id}", get(get_attempt_sync))
         .route(
             "/swarm/attempts/{attempt_id}/logs",
@@ -1663,6 +1664,48 @@ pub async fn list_task_attempts_sync(
             (StatusCode::OK, Json(response)).into_response()
         }
         Err(error) => node_error_response(error, "failed to list task attempts"),
+    }
+}
+
+/// Get a single shared task by ID (API key auth).
+///
+/// Used by remote nodes to fetch task details for cross-node viewing.
+#[instrument(
+    name = "nodes.get_task_sync",
+    skip(state, _node_ctx),
+    fields(task_id = %task_id)
+)]
+pub async fn get_task_sync(
+    State(state): State<AppState>,
+    Extension(_node_ctx): Extension<NodeAuthContext>,
+    Path(task_id): Path<Uuid>,
+) -> Response {
+    use crate::db::tasks::SharedTaskRepository;
+
+    let pool = state.pool();
+    let repo = SharedTaskRepository::new(pool);
+
+    match repo.find_by_id(task_id).await {
+        Ok(Some(task)) => {
+            (
+                StatusCode::OK,
+                Json(crate::routes::tasks::SharedTaskResponse { task, user: None }),
+            )
+                .into_response()
+        }
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "task not found" })),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!(?e, "failed to fetch shared task");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal server error" })),
+            )
+                .into_response()
+        }
     }
 }
 

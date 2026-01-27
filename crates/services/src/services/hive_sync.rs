@@ -189,16 +189,22 @@ impl HiveSyncService {
     /// Sync tasks that need a shared_task_id to the Hive.
     ///
     /// This finds tasks that:
-    /// 1. Have unsynced attempts (attempts without hive_synced_at)
-    /// 2. Don't have a shared_task_id
-    /// 3. Belong to projects with a remote_project_id (linked to swarm)
+    /// 1. Don't have a shared_task_id
+    /// 2. Belong to local projects (not remote) with a remote_project_id (linked to swarm)
+    ///
+    /// This includes:
+    /// - Tasks created before the project was linked to swarm
+    /// - Tasks that failed initial sync
+    /// - Tasks without any attempts yet
     ///
     /// For each such task, we send a TaskSync message to the Hive with the
     /// local_project_id. The Hive looks up the swarm_project_id via node_local_projects.
     /// The Hive will respond with a TaskSyncResponse containing the shared_task_id.
     async fn sync_tasks(&self) -> Result<usize, HiveSyncError> {
-        // Find tasks that need syncing: have unsynced attempts but no shared_task_id
-        let tasks = Task::find_needing_sync(&self.pool, self.config.max_tasks_per_batch).await?;
+        // Find ALL tasks in swarm-linked projects that are missing shared_task_id
+        // This captures tasks created before project was linked, failed syncs, etc.
+        let tasks =
+            Task::find_missing_shared_task_id(&self.pool, self.config.max_tasks_per_batch).await?;
 
         if tasks.is_empty() {
             return Ok(0);

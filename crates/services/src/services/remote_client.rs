@@ -777,6 +777,23 @@ impl RemoteClient {
         Ok(())
     }
 
+    /// Gets a shared task by ID from the Hive.
+    ///
+    /// Used for cross-node task viewing when a task isn't found locally.
+    pub async fn get_shared_task(
+        &self,
+        task_id: Uuid,
+    ) -> Result<remote::db::tasks::SharedTask, RemoteClientError> {
+        // Use sync endpoint for API key auth (doesn't require OAuth login)
+        // Use regular endpoint for OAuth auth (requires user session)
+        let path = match &self.auth_mode {
+            AuthMode::ApiKey(_) => format!("/v1/sync/swarm/tasks/{task_id}"),
+            AuthMode::OAuth(_) => format!("/v1/tasks/{task_id}"),
+        };
+        let response: SharedTaskResponse = self.get_authed(&path).await?;
+        Ok(response.task)
+    }
+
     /// Finds a shared task by its source task ID and source node ID.
     ///
     /// This is used for duplicate detection during task re-sync.

@@ -36,6 +36,7 @@ pub fn router() -> Router<AppState> {
         .route("/tasks/bulk", get(bulk_shared_tasks))
         .route("/tasks/by-source", get(find_by_source_task_id))
         .route("/tasks", post(create_shared_task))
+        .route("/tasks/{task_id}", get(get_shared_task))
         .route("/tasks/{task_id}", patch(update_shared_task))
         .route("/tasks/{task_id}", delete(delete_shared_task))
         .route("/tasks/{task_id}/assign", post(assign_task))
@@ -138,6 +139,42 @@ pub async fn find_by_source_task_id(
         )
             .into_response(),
         Err(error) => task_error_response(error, "failed to find task by source"),
+    }
+}
+
+/// Get a shared task by ID.
+///
+/// Returns the task details if the caller has access to it.
+#[instrument(
+    name = "tasks.get_shared_task",
+    skip(state, ctx),
+    fields(user_id = %ctx.user.id, task_id = %task_id)
+)]
+pub async fn get_shared_task(
+    State(state): State<AppState>,
+    Extension(ctx): Extension<RequestContext>,
+    Path(task_id): Path<Uuid>,
+) -> Response {
+    let pool = state.pool();
+
+    // Verify user has access to the task
+    if let Err(error) = ensure_task_access(pool, ctx.user.id, task_id).await {
+        return error.into_response();
+    }
+
+    let repo = SharedTaskRepository::new(pool);
+    match repo.find_by_id(task_id).await {
+        Ok(Some(task)) => (
+            StatusCode::OK,
+            Json(SharedTaskResponse { task, user: None }),
+        )
+            .into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "task not found" })),
+        )
+            .into_response(),
+        Err(error) => task_error_response(error, "failed to fetch task"),
     }
 }
 

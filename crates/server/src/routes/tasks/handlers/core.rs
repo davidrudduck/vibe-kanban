@@ -24,6 +24,7 @@ use utils::response::ApiResponse;
 use uuid::Uuid;
 
 use super::remote::{create_remote_task, delete_remote_task, update_remote_task};
+use crate::middleware::RemoteTaskNeeded;
 use crate::routes::tasks::types::{CreateAndStartTaskRequest, TaskQuery};
 use crate::{DeploymentImpl, error::ApiError};
 
@@ -258,10 +259,99 @@ pub async fn get_tasks(
 }
 
 pub async fn get_task(
-    Extension(task): Extension<Task>,
-    State(_deployment): State<DeploymentImpl>,
+    local_task: Option<Extension<Task>>,
+    remote_needed: Option<Extension<RemoteTaskNeeded>>,
+    State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<Task>>, ApiError> {
-    Ok(ResponseJson(ApiResponse::success(task)))
+    // If we have a local task, return it
+    if let Some(Extension(task)) = local_task {
+        return Ok(ResponseJson(ApiResponse::success(task)));
+    }
+
+    // If task not found locally, try Hive fallback
+    if let Some(Extension(remote)) = remote_needed {
+        // Prefer node_auth_client (API key auth) - works even without user login
+        // Fall back to remote_client (OAuth) for non-node deployments
+        let client = match deployment.node_auth_client().cloned() {
+            Some(c) => c,
+            None => deployment.remote_client().map_err(|e| {
+                tracing::warn!(
+                    task_id = %remote.task_id,
+                    error = %e,
+                    "No remote client available for task lookup"
+                );
+                ApiError::BadGateway("No remote client available".into())
+            })?,
+        };
+
+        // Try to get the task from Hive
+        match client.get_shared_task(remote.task_id).await {
+            Ok(shared_task) => {
+                // Require swarm_project_id - can't construct a valid Task without it
+                let project_id = match shared_task.swarm_project_id {
+                    Some(id) => id,
+                    None => {
+                        tracing::warn!(
+                            task_id = %shared_task.id,
+                            "Shared task missing swarm_project_id"
+                        );
+                        return Err(ApiError::BadGateway(
+                            "Shared task missing swarm_project_id".into(),
+                        ));
+                    }
+                };
+
+                // Convert SharedTask to local Task format
+                let status = match shared_task.status {
+                    remote::db::tasks::TaskStatus::Todo => TaskStatus::Todo,
+                    remote::db::tasks::TaskStatus::InProgress => TaskStatus::InProgress,
+                    remote::db::tasks::TaskStatus::InReview => TaskStatus::InReview,
+                    remote::db::tasks::TaskStatus::Done => TaskStatus::Done,
+                    remote::db::tasks::TaskStatus::Cancelled => TaskStatus::Cancelled,
+                };
+
+                let task = Task {
+                    id: shared_task.id,
+                    project_id,
+                    title: shared_task.title,
+                    description: shared_task.description,
+                    status,
+                    shared_task_id: Some(shared_task.id),
+                    remote_version: shared_task.version,
+                    parent_task_id: None,
+                    archived_at: shared_task.archived_at,
+                    created_at: shared_task.created_at,
+                    updated_at: shared_task.updated_at,
+                    remote_assignee_user_id: shared_task.assignee_user_id,
+                    remote_assignee_name: None,
+                    remote_assignee_username: None,
+                    remote_last_synced_at: shared_task.shared_at,
+                    remote_stream_node_id: shared_task.executing_node_id.or(shared_task.owner_node_id),
+                    remote_stream_url: None,
+                    activity_at: None,
+                };
+                return Ok(ResponseJson(ApiResponse::success(task)));
+            }
+            Err(e) => {
+                if e.is_not_found() {
+                    tracing::debug!(
+                        task_id = %remote.task_id,
+                        "Task not found on Hive"
+                    );
+                    // Fall through to NotFound below
+                } else {
+                    tracing::warn!(
+                        task_id = %remote.task_id,
+                        error = %e,
+                        "Failed to fetch task from Hive"
+                    );
+                    return Err(ApiError::RemoteClient(e));
+                }
+            }
+        }
+    }
+
+    Err(ApiError::NotFound("Task not found".to_string()))
 }
 
 // ============================================================================

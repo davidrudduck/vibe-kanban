@@ -108,6 +108,13 @@ pub struct SwarmProjectNeeded {
     pub project_id: Uuid,
 }
 
+/// Marker extension indicating a task wasn't found locally
+/// and needs to be fetched from the Hive for cross-node viewing.
+#[derive(Debug, Clone)]
+pub struct RemoteTaskNeeded {
+    pub task_id: Uuid,
+}
+
 pub async fn load_project_middleware(
     State(deployment): State<DeploymentImpl>,
     Path(project_id): Path<Uuid>,
@@ -329,12 +336,20 @@ pub async fn load_task_middleware(
     request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    // Load the task and validate it belongs to the project
+    // Load the task from local database
     let task = match Task::find_by_id(&deployment.db().pool, task_id).await {
-        Ok(Some(task)) => task,
+        Ok(Some(task)) => Some(task),
         Ok(None) => {
-            tracing::warn!("Task {} not found", task_id);
-            return Err(StatusCode::NOT_FOUND);
+            // Task not found locally - might be a remote task from Hive.
+            // Also try looking up by shared_task_id in case this is a Hive ID.
+            match Task::find_by_shared_task_id(&deployment.db().pool, task_id).await {
+                Ok(Some(task)) => Some(task),
+                Ok(None) => None,
+                Err(e) => {
+                    tracing::error!("Failed to fetch task by shared_task_id {}: {}", task_id, e);
+                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                }
+            }
         }
         Err(e) => {
             tracing::error!("Failed to fetch task {}: {}", task_id, e);
@@ -342,12 +357,47 @@ pub async fn load_task_middleware(
         }
     };
 
-    // Insert both models as extensions
     let mut request = request;
-    request.extensions_mut().insert(task);
 
-    // Continue with the next middleware/handler
-    Ok(next.run(request).await)
+    if let Some(task) = task {
+        // Found locally - insert as extension
+        request.extensions_mut().insert(task);
+        return Ok(next.run(request).await);
+    }
+
+    // Task not found locally - only allow Hive fallback for GET requests to the
+    // base task route (GET /api/tasks/{id}). Sub-routes like /children, /labels,
+    // /variables require a local task to operate on.
+    //
+    // This mirrors the project middleware behavior where Hive fallback is only
+    // allowed for the base project route.
+    let path = request
+        .extensions()
+        .get::<OriginalUri>()
+        .map(|uri| uri.path())
+        .unwrap_or_else(|| request.uri().path())
+        .trim_end_matches('/');
+    let task_id_str = task_id.to_string();
+    let is_base_task_route =
+        path.ends_with(&format!("/tasks/{}", task_id_str)) || path.ends_with(&task_id_str);
+
+    if request.method() == Method::GET && is_base_task_route {
+        tracing::debug!(
+            task_id = %task_id,
+            "Task not found locally, signaling for Hive fallback"
+        );
+        request.extensions_mut().insert(RemoteTaskNeeded { task_id });
+        return Ok(next.run(request).await);
+    }
+
+    // Non-GET request or sub-route with missing task - return 404
+    tracing::debug!(
+        task_id = %task_id,
+        method = %request.method(),
+        path = %path,
+        "Task not found locally, returning 404"
+    );
+    Err(StatusCode::NOT_FOUND)
 }
 
 pub async fn load_task_attempt_middleware(

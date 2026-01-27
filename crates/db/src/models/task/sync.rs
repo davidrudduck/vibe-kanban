@@ -458,6 +458,52 @@ impl Task {
         .await
     }
 
+    /// Find tasks in swarm-linked projects that are missing `shared_task_id`.
+    ///
+    /// This is used for reconciliation: tasks that were created before a project
+    /// was linked to the swarm, or tasks that failed initial sync, won't have a
+    /// `shared_task_id`. This query finds all such tasks regardless of whether
+    /// they have attempts, so they can be synced to the Hive.
+    ///
+    /// Unlike `find_needing_sync`, this doesn't require unsynced attempts - it
+    /// finds all tasks that should have been synced but weren't.
+    pub async fn find_missing_shared_task_id(
+        pool: &SqlitePool,
+        limit: i64,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as::<_, Self>(
+            r#"SELECT
+                t.id,
+                t.project_id,
+                t.title,
+                t.description,
+                t.status,
+                t.parent_task_id,
+                t.shared_task_id,
+                t.created_at,
+                t.updated_at,
+                t.remote_assignee_user_id,
+                t.remote_assignee_name,
+                t.remote_assignee_username,
+                t.remote_version,
+                t.remote_last_synced_at,
+                t.remote_stream_node_id,
+                t.remote_stream_url,
+                t.archived_at,
+                t.activity_at
+            FROM tasks t
+            INNER JOIN projects p ON p.id = t.project_id
+            WHERE t.shared_task_id IS NULL
+              AND p.remote_project_id IS NOT NULL
+              AND p.is_remote = 0
+            ORDER BY t.created_at ASC
+            LIMIT ?"#,
+        )
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+    }
+
     /// Count orphaned tasks for a project.
     ///
     /// An orphaned task is one that has a `shared_task_id` value but the sync
