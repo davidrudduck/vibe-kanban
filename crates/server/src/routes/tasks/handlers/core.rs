@@ -64,7 +64,20 @@ pub async fn get_tasks(
         .and_then(|p| p.remote_project_id)
         .unwrap_or(project_id);
 
-    let remote_client = deployment.remote_client()?;
+    // Prefer node_auth_client (API key auth) - works even without user login
+    // Fall back to remote_client (OAuth) for non-node deployments
+    let remote_client = match deployment.node_auth_client().cloned() {
+        Some(c) => c,
+        None => deployment.remote_client().map_err(|e| {
+            tracing::warn!(
+                project_id = %project_id,
+                hive_project_id = %hive_project_id,
+                error = %e,
+                "No remote client available for project tasks lookup"
+            );
+            ApiError::BadGateway("No remote client available".into())
+        })?,
+    };
 
     let response = remote_client
         .list_swarm_project_tasks(hive_project_id)

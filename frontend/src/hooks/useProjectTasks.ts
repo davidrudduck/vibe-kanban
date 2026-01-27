@@ -1,10 +1,12 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useJsonPatchWsStream } from './useJsonPatchWsStream';
 import {
   useRegisterOptimisticCallback,
   useRegisterStatusCallback,
   useRegisterArchivedCallback,
 } from '@/contexts/TaskOptimisticContext';
+import { tasksApi } from '@/lib/api';
 import type { TaskStatus, TaskWithAttemptStatus } from 'shared/types';
 import { sortTaskGroups, type SortDirection } from '@/lib/taskSorting';
 
@@ -43,12 +45,19 @@ export interface UseProjectTasksOptions {
   includeArchived?: boolean;
   /** Sort directions for each status column. Defaults to ascending (oldest first) for all. */
   sortDirections?: Partial<Record<TaskStatus, SortDirection>>;
+  /** If true, use REST API polling instead of WebSocket (for remote swarm projects). */
+  isRemote?: boolean;
+  /** Polling interval for remote projects in ms (default: 5000). */
+  pollingInterval?: number;
 }
 
 /**
  * Stream tasks for a project via WebSocket (JSON Patch) and expose as array + map.
  * Server sends initial snapshot: replace /tasks with an object keyed by id.
  * Live updates arrive at /tasks/<id> via add/replace/remove operations.
+ *
+ * For remote swarm projects (isRemote=true), falls back to REST API polling
+ * since WebSocket only returns local tasks.
  *
  * Note: remote_project_id is NOT passed to the backend - the backend fetches it
  * from the database using project_id. This avoids a race condition where
@@ -58,67 +67,142 @@ export const useProjectTasks = (
   projectId: string,
   options: UseProjectTasksOptions = {}
 ): UseProjectTasksResult => {
-  const { includeArchived = false, sortDirections } = options;
-  const endpoint = projectId
-    ? `/api/tasks/stream/ws?project_id=${encodeURIComponent(projectId)}&include_archived=${includeArchived}`
-    : undefined;
+  const {
+    includeArchived = false,
+    sortDirections,
+    isRemote = false,
+    pollingInterval = 5000,
+  } = options;
+
+  // ============================================================================
+  // WebSocket mode (local projects)
+  // ============================================================================
+  const wsEndpoint =
+    projectId && !isRemote
+      ? `/api/tasks/stream/ws?project_id=${encodeURIComponent(projectId)}&include_archived=${includeArchived}`
+      : undefined;
 
   const initialData = useCallback((): TasksState => ({ tasks: {} }), []);
 
-  const { data, isConnected, error, patchData } = useJsonPatchWsStream(
-    endpoint,
-    !!endpoint,
-    initialData
-  );
+  const {
+    data: wsData,
+    isConnected: wsConnected,
+    error: wsError,
+    patchData,
+  } = useJsonPatchWsStream(wsEndpoint, !!wsEndpoint, initialData);
 
-  // Track optimistic archived_at overrides that persist across WebSocket updates
+  // ============================================================================
+  // REST API mode (remote projects)
+  // ============================================================================
+  const {
+    data: restData,
+    isLoading: restLoading,
+    error: restError,
+    refetch: restRefetch,
+  } = useQuery({
+    queryKey: ['projectTasks', projectId, includeArchived],
+    queryFn: () => tasksApi.listByProject(projectId, includeArchived),
+    enabled: !!projectId && isRemote,
+    staleTime: pollingInterval / 2, // Consider data stale after half the polling interval
+    refetchInterval: pollingInterval,
+    refetchIntervalInBackground: false, // Don't poll when tab is not active
+  });
+
+  // Convert REST array to record format for consistency
+  const restTasksById = useMemo(() => {
+    if (!restData) return {};
+    const record: Record<string, TaskWithAttemptStatus> = {};
+    for (const task of restData) {
+      record[task.id] = task;
+    }
+    return record;
+  }, [restData]);
+
+  // ============================================================================
+  // Optimistic updates state
+  // ============================================================================
+
+  // Track optimistic archived_at overrides that persist across updates
   // Key: taskId, Value: { archivedAt: string | null, timestamp: number }
-  // The timestamp helps us determine when to clear the override (after server confirms)
   const [optimisticArchivedOverrides, setOptimisticArchivedOverrides] =
     useState<Map<string, { archivedAt: string | null; timestamp: number }>>(
       () => new Map()
     );
 
-  // Optimistically add a task to local state via JSON Patch
+  // For remote mode, we need local state to support optimistic updates
+  const [localOptimisticTasks, setLocalOptimisticTasks] = useState<
+    Record<string, TaskWithAttemptStatus>
+  >({});
+
+  // Optimistically add a task to local state
   const addTaskOptimistically = useCallback(
     (task: TaskWithAttemptStatus) => {
-      patchData([
-        {
-          op: 'add',
-          path: `/tasks/${task.id}`,
-          value: task,
-        },
-      ]);
+      if (isRemote) {
+        // For remote mode, add to local state
+        setLocalOptimisticTasks((prev) => ({
+          ...prev,
+          [task.id]: task,
+        }));
+        // Trigger a refetch to sync with server
+        restRefetch();
+      } else {
+        // For local mode, use JSON Patch
+        patchData([
+          {
+            op: 'add',
+            path: `/tasks/${task.id}`,
+            value: task,
+          },
+        ]);
+      }
     },
-    [patchData]
+    [isRemote, patchData, restRefetch]
   );
 
-  // Optimistically update a task's status via JSON Patch
+  // Optimistically update a task's status
   const updateTaskStatusOptimistically = useCallback(
     (taskId: string, status: TaskStatus) => {
-      patchData([
-        {
-          op: 'replace',
-          path: `/tasks/${taskId}/status`,
-          value: status,
-        },
-      ]);
+      if (isRemote) {
+        // For remote mode, update local state
+        setLocalOptimisticTasks((prev) => {
+          const existing = prev[taskId] || restTasksById[taskId];
+          if (!existing) return prev;
+          return {
+            ...prev,
+            [taskId]: { ...existing, status },
+          };
+        });
+        // Trigger a refetch to sync with server
+        restRefetch();
+      } else {
+        // For local mode, use JSON Patch
+        patchData([
+          {
+            op: 'replace',
+            path: `/tasks/${taskId}/status`,
+            value: status,
+          },
+        ]);
+      }
     },
-    [patchData]
+    [isRemote, patchData, restRefetch, restTasksById]
   );
 
   // Optimistically update a task's archived_at
-  // This uses a separate state to persist across WebSocket updates
   const updateTaskArchivedOptimistically = useCallback(
     (taskId: string, archivedAt: string | null) => {
-      // Store the optimistic override
+      // Store the optimistic override (works for both modes)
       setOptimisticArchivedOverrides((prev) => {
         const next = new Map(prev);
         next.set(taskId, { archivedAt, timestamp: Date.now() });
         return next;
       });
+      // For remote mode, also trigger a refetch
+      if (isRemote) {
+        restRefetch();
+      }
     },
-    []
+    [isRemote, restRefetch]
   );
 
   // Register callbacks globally so modals/other components can access them
@@ -126,18 +210,47 @@ export const useProjectTasks = (
   useRegisterStatusCallback(projectId, updateTaskStatusOptimistically);
   useRegisterArchivedCallback(projectId, updateTaskArchivedOptimistically);
 
-  // Merge WebSocket data with optimistic overrides
-  const localTasksById = useMemo(() => {
-    const tasks = data?.tasks ?? {};
+  // Clear optimistic tasks when REST data changes (they've been synced)
+  useEffect(() => {
+    if (isRemote && restData) {
+      // Only clear tasks that now exist in server data
+      setLocalOptimisticTasks((prev) => {
+        const newOptimistic: Record<string, TaskWithAttemptStatus> = {};
+        for (const [id, task] of Object.entries(prev)) {
+          if (!restData.some((t) => t.id === id)) {
+            // Keep optimistic task if it's not in server data yet
+            newOptimistic[id] = task;
+          }
+        }
+        return newOptimistic;
+      });
+    }
+  }, [isRemote, restData]);
 
+  // ============================================================================
+  // Merge data sources
+  // ============================================================================
+
+  // Select the appropriate data source
+  const baseTasksById = useMemo(() => {
+    if (isRemote) {
+      // Merge REST data with optimistic local tasks
+      return { ...restTasksById, ...localOptimisticTasks };
+    } else {
+      return wsData?.tasks ?? {};
+    }
+  }, [isRemote, restTasksById, localOptimisticTasks, wsData?.tasks]);
+
+  // Merge base data with optimistic archived_at overrides
+  const mergedTasksById = useMemo(() => {
     // If no overrides, return tasks as-is
     if (optimisticArchivedOverrides.size === 0) {
-      return tasks;
+      return baseTasksById;
     }
 
     // Apply optimistic overrides
     const merged: Record<string, TaskWithAttemptStatus> = {};
-    for (const [taskId, task] of Object.entries(tasks)) {
+    for (const [taskId, task] of Object.entries(baseTasksById)) {
       const override = optimisticArchivedOverrides.get(taskId);
       if (override) {
         // Check if server has confirmed our change
@@ -176,10 +289,16 @@ export const useProjectTasks = (
     }
 
     return merged;
-  }, [data?.tasks, optimisticArchivedOverrides]);
+  }, [baseTasksById, optimisticArchivedOverrides]);
+
+  // ============================================================================
+  // Final computed values
+  // ============================================================================
 
   const { tasks, tasksById, tasksByStatus } = useMemo(() => {
-    const merged: Record<string, TaskWithAttemptStatus> = { ...localTasksById };
+    const merged: Record<string, TaskWithAttemptStatus> = {
+      ...mergedTasksById,
+    };
     const byStatus: Record<TaskStatus, TaskWithAttemptStatus[]> = {
       todo: [],
       inprogress: [],
@@ -203,9 +322,22 @@ export const useProjectTasks = (
     });
 
     return { tasks: sorted, tasksById: merged, tasksByStatus: sortedByStatus };
-  }, [localTasksById, sortDirections]);
+  }, [mergedTasksById, sortDirections]);
 
-  const isLoading = !data && !error; // until first snapshot
+  // Determine loading and error states based on mode
+  const isLoading = isRemote
+    ? restLoading
+    : !wsData && !wsError; // until first snapshot
+
+  const isConnected = isRemote
+    ? !restError // REST doesn't have "connected" concept, but no error = good
+    : wsConnected;
+
+  const error = isRemote
+    ? restError
+      ? String(restError)
+      : null
+    : wsError;
 
   return {
     tasks,

@@ -48,6 +48,19 @@ export const tasksApi = {
     return handleApiResponse<AllTasksResponse>(response);
   },
 
+  /** Fetch tasks for a project (with Hive fallback for remote projects). */
+  listByProject: async (
+    projectId: string,
+    includeArchived: boolean = false
+  ): Promise<TaskWithAttemptStatus[]> => {
+    const params = new URLSearchParams({
+      project_id: projectId,
+      include_archived: String(includeArchived),
+    });
+    const response = await makeRequest(`/api/tasks?${params}`);
+    return handleApiResponse<TaskWithAttemptStatus[]>(response);
+  },
+
   getById: async (taskId: string): Promise<Task> => {
     const response = await makeRequest(`/api/tasks/${taskId}`);
     return handleApiResponse<Task>(response);

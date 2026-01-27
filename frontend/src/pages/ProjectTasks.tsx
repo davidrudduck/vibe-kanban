@@ -159,6 +159,7 @@ export function ProjectTasks() {
 
   const {
     projectId,
+    project,
     isLoading: projectLoading,
     error: projectError,
   } = useProject();
@@ -184,8 +185,14 @@ export function ProjectTasks() {
   // Filter state from URL params
   const showArchived = searchParams.get('archived') === 'on';
   const projectTasksOptions: UseProjectTasksOptions = useMemo(
-    () => ({ includeArchived: showArchived, sortDirections }),
-    [showArchived, sortDirections]
+    () => ({
+      includeArchived: showArchived,
+      sortDirections,
+      // For remote projects, use REST API polling instead of WebSocket
+      // since WebSocket only returns local tasks
+      isRemote: project?.is_remote ?? false,
+    }),
+    [showArchived, sortDirections, project?.is_remote]
   );
 
   const {
