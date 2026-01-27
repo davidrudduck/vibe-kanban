@@ -18,7 +18,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { isMarkdownFile } from '@/utils/fileHelpers';
+import {
+  shouldShowViewButton,
+  getFilePreviewRouting,
+} from '@/utils/fileHelpers';
 import { useFileViewer } from '@/contexts/FileViewerContext';
 
 type Props = {
@@ -70,19 +73,6 @@ function processUnifiedDiff(unifiedDiff: string, hasLineNumbers: boolean) {
 
 import { useExpandable } from '@/stores/useExpandableStore';
 
-/**
- * Extract relative path within ~/.claude/ directory from a full path.
- * Returns null if path is not within ~/.claude/.
- *
- * Examples:
- * - "/home/user/.claude/plans/foo.md" -> "plans/foo.md"
- * - "/home/user/project/file.ts" -> null
- */
-function getClaudeRelativePath(path: string): string | null {
-  const match = path.match(/\.claude\/(.+)$/);
-  return match ? match[1] : null;
-}
-
 function EditDiffRenderer({
   path,
   unifiedDiff,
@@ -99,26 +89,14 @@ function EditDiffRenderer({
   const effectiveExpanded = forceExpanded || expanded;
 
   const theme = getActualTheme(config?.theme);
-  const claudeRelativePath = getClaudeRelativePath(path);
 
   // Show view button for .claude/ files or any markdown file
-  const showViewButton = claudeRelativePath || isMarkdownFile(path);
+  const showViewButton = shouldShowViewButton(path);
 
   const handleViewFile = () => {
-    if (!showViewButton) return;
-
-    if (claudeRelativePath) {
-      // Claude file - use relativePath
-      openFile({
-        path,
-        relativePath: claudeRelativePath,
-      });
-    } else if (attemptId) {
-      // Worktree file - use attemptId
-      openFile({
-        path,
-        attemptId,
-      });
+    const routing = getFilePreviewRouting({ path, attemptId });
+    if (routing) {
+      openFile(routing);
     }
   };
   const { hunks, hideLineNumbers, additions, deletions, isValidDiff } = useMemo(

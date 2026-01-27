@@ -47,7 +47,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { isMarkdownFile } from '@/utils/fileHelpers';
+import {
+  shouldShowViewButton,
+  getFilePreviewRouting,
+} from '@/utils/fileHelpers';
 import { useFileViewer } from '@/contexts/FileViewerContext';
 
 type Props = {
@@ -453,15 +456,6 @@ const PlanPresentationCard: React.FC<{
   );
 };
 
-/**
- * Extract relative path within ~/.claude/ directory from a full path.
- * Returns null if path is not within ~/.claude/.
- */
-function getClaudeRelativePath(path: string): string | null {
-  const match = path.match(/\.claude\/(.+)$/);
-  return match ? match[1] : null;
-}
-
 const ToolCallCard: React.FC<{
   entry: NormalizedEntry | ProcessStartPayload;
   expansionKey: string;
@@ -518,29 +512,15 @@ const ToolCallCard: React.FC<{
   // File read with path detection for view file link
   const isFileRead = actionType?.action === 'file_read';
   const fileReadPath = isFileRead ? actionType.path : null;
-  const claudeRelativePath = fileReadPath
-    ? getClaudeRelativePath(fileReadPath)
-    : null;
 
   // Show view button for .claude/ files or any markdown file
-  const showViewButton =
-    fileReadPath && (claudeRelativePath || isMarkdownFile(fileReadPath));
+  const showViewButton = fileReadPath && shouldShowViewButton(fileReadPath);
 
   const handleViewFile = () => {
-    if (!fileReadPath || !showViewButton) return;
-
-    if (attemptId) {
-      // Worktree file - always use attemptId when available
-      openFile({
-        path: fileReadPath,
-        attemptId,
-      });
-    } else if (claudeRelativePath) {
-      // Claude home directory file - use relativePath
-      openFile({
-        path: fileReadPath,
-        relativePath: claudeRelativePath,
-      });
+    if (!fileReadPath) return;
+    const routing = getFilePreviewRouting({ path: fileReadPath, attemptId });
+    if (routing) {
+      openFile(routing);
     }
   };
 
