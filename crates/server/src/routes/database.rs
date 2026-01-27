@@ -404,5 +404,5 @@ pub fn router() -> Router<DeploymentImpl> {
         .route("/database/log-stats", get(log_stats))
         .route("/database/purge-logs", post(purge_logs))
         .route("/database/sync-status", get(sync_status))
-        .route("/database/force-resync/:project_id", post(force_resync))
+        .route("/database/force-resync/{project_id}", post(force_resync))
 }
