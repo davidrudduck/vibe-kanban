@@ -287,6 +287,20 @@ pub async fn get_task(
         // Try to get the task from Hive
         match client.get_shared_task(remote.task_id).await {
             Ok(shared_task) => {
+                // Require swarm_project_id - can't construct a valid Task without it
+                let project_id = match shared_task.swarm_project_id {
+                    Some(id) => id,
+                    None => {
+                        tracing::warn!(
+                            task_id = %shared_task.id,
+                            "Shared task missing swarm_project_id"
+                        );
+                        return Err(ApiError::BadGateway(
+                            "Shared task missing swarm_project_id".into(),
+                        ));
+                    }
+                };
+
                 // Convert SharedTask to local Task format
                 let status = match shared_task.status {
                     remote::db::tasks::TaskStatus::Todo => TaskStatus::Todo,
@@ -298,7 +312,7 @@ pub async fn get_task(
 
                 let task = Task {
                     id: shared_task.id,
-                    project_id: shared_task.swarm_project_id.unwrap_or(shared_task.id),
+                    project_id,
                     title: shared_task.title,
                     description: shared_task.description,
                     status,

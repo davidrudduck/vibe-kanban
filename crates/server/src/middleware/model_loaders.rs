@@ -362,17 +362,27 @@ pub async fn load_task_middleware(
     if let Some(task) = task {
         // Found locally - insert as extension
         request.extensions_mut().insert(task);
-    } else {
-        // Task not found locally - signal handler to try Hive fallback
+        return Ok(next.run(request).await);
+    }
+
+    // Task not found locally - only allow Hive fallback for GET requests.
+    // Non-GET methods (PUT, DELETE, POST) require Extension<Task> and should 404.
+    if request.method() == Method::GET {
         tracing::debug!(
             task_id = %task_id,
             "Task not found locally, signaling for Hive fallback"
         );
         request.extensions_mut().insert(RemoteTaskNeeded { task_id });
+        return Ok(next.run(request).await);
     }
 
-    // Continue with the next middleware/handler
-    Ok(next.run(request).await)
+    // Non-GET request with missing task - return 404
+    tracing::debug!(
+        task_id = %task_id,
+        method = %request.method(),
+        "Task not found locally, returning 404 for non-GET request"
+    );
+    Err(StatusCode::NOT_FOUND)
 }
 
 pub async fn load_task_attempt_middleware(
