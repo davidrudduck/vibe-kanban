@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, Request, State},
+    extract::{OriginalUri, Path, Request, State},
     http::{HeaderMap, Method, StatusCode},
     middleware::Next,
     response::Response,
@@ -169,7 +169,16 @@ async fn load_project_impl(
         // (GET /api/projects/{id}). Sub-routes like /branches, /files, /sync-health,
         // /github/counts require a local project to operate on - they can't work with
         // a project that only exists on the Hive, so they should return 404.
-        let path = request.uri().path().trim_end_matches('/');
+        //
+        // Note: We use OriginalUri from extensions because nested routes strip the prefix
+        // from request.uri().path(). For example, /api/projects/{id} becomes just "/" after
+        // nesting through /api, /projects, and /{id}.
+        let path = request
+            .extensions()
+            .get::<OriginalUri>()
+            .map(|uri| uri.path())
+            .unwrap_or_else(|| request.uri().path())
+            .trim_end_matches('/');
         let is_get_request = request.method() == Method::GET;
         let project_id_str = project_id.to_string();
         // Only match the base project route (exactly /api/projects/{id}), not sub-routes.
