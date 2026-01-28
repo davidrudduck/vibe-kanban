@@ -65,6 +65,10 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/", get(handlers::get_tasks).post(handlers::create_task))
         .route("/stream/ws", get(handlers::stream_tasks_ws))
         .route("/create-and-start", post(handlers::create_task_and_start))
+        .route(
+            "/sync-archived-to-hive",
+            post(handlers::sync_archived_to_hive),
+        )
         .nest("/{task_id}", task_id_router);
 
     // Mount under /tasks (will be nested under /projects/{project_id} by parent router)

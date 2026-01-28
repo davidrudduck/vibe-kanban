@@ -401,6 +401,7 @@ impl<'a> SharedTaskRepository<'a> {
             INSERT INTO shared_tasks (
                 organization_id,
                 project_id,
+                swarm_project_id,
                 creator_user_id,
                 assignee_user_id,
                 title,
@@ -408,7 +409,7 @@ impl<'a> SharedTaskRepository<'a> {
                 status,
                 shared_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, 'todo'::task_status), NOW())
+            VALUES ($1, $2, $2, $3, $4, $5, $6, COALESCE($7, 'todo'::task_status), NOW())
             RETURNING id                 AS "id!",
                       organization_id    AS "organization_id!: Uuid",
                       project_id         AS "project_id?: Uuid",

@@ -6,17 +6,20 @@
 //! - `labels`: Get labels, set labels
 //! - `remote`: Remote/Hive task helpers (create, update, delete, resync)
 //! - `streams`: WebSocket and streaming (task streams, available nodes, connection info)
+//! - `sync`: Hive sync operations (backfill archive status)
 
 pub mod core;
 pub mod labels;
 pub mod remote;
 pub mod status;
 pub mod streams;
+pub mod sync;
 
 // Re-export all handlers for convenient access from the router
 pub use core::{create_task, create_task_and_start, delete_task, get_task, get_tasks, update_task};
 pub use labels::{get_task_labels, set_task_labels};
 pub use status::{archive_task, assign_task, get_task_children, unarchive_task};
 pub use streams::{get_available_nodes, get_stream_connection_info, stream_tasks_ws};
+pub use sync::sync_archived_to_hive;
 
 // Note: remote helpers are pub(crate) and available via crate::routes::tasks::handlers::remote
