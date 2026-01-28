@@ -753,6 +753,23 @@ impl TaskAttempt {
         Ok(result.rows_affected())
     }
 
+    /// Clear hive_synced_at for all attempts of a specific task.
+    /// This triggers re-sync of attempts when the task's shared_task_id changes.
+    pub async fn clear_hive_sync_for_task(
+        pool: &SqlitePool,
+        task_id: Uuid,
+    ) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"UPDATE task_attempts
+               SET hive_synced_at = NULL
+               WHERE task_id = $1"#,
+            task_id
+        )
+        .execute(pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     /// Remove the task attempt record with the given ID from the database.
     ///
     /// This is intended for cleanup of failed or partially created attempts (for example, when worktree creation fails).
@@ -783,7 +800,7 @@ mod tests {
     use crate::models::task::{CreateTask, Task};
     use crate::test_utils::create_test_pool;
     use executors::actions::{
-        coding_agent_initial::CodingAgentInitialRequest, ExecutorAction, ExecutorActionType,
+        ExecutorAction, ExecutorActionType, coding_agent_initial::CodingAgentInitialRequest,
     };
     use executors::executors::BaseCodingAgent;
     use executors::profile::ExecutorProfileId;

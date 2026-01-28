@@ -457,6 +457,7 @@ mod tests {
             updated_at: Utc::now(),
             hive_synced_at: None,
             hive_assignment_id: None,
+            origin_node_id: None,
         };
 
         // Call reject_if_remote - should return NotFound for missing task
