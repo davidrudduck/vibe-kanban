@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use db::DBService;
-use db::models::{label::Label, project::Project, task::Task, task::TaskStatus};
+use db::models::{label::Label, project::Project, task::Task, task::TaskStatus, task_attempt::TaskAttempt};
 use remote::db::tasks::TaskStatus as RemoteTaskStatus;
 use sqlx::SqlitePool;
 use tokio::sync::{RwLock, mpsc};
@@ -760,6 +760,24 @@ pub fn spawn_node_runner<C: ContainerService + Sync + Send + 'static>(
                                     shared_task_id = %response.shared_task_id,
                                     "updated local task with shared_task_id"
                                 );
+                                // Reset attempt sync status so attempts get re-synced with the correct shared_task_id
+                                match TaskAttempt::clear_hive_sync_for_task(&db.pool, response.local_task_id).await {
+                                    Ok(count) if count > 0 => {
+                                        tracing::info!(
+                                            local_task_id = %response.local_task_id,
+                                            count = count,
+                                            "reset hive sync status for task attempts (will re-sync with correct shared_task_id)"
+                                        );
+                                    }
+                                    Ok(_) => {} // No attempts to reset
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            error = ?e,
+                                            local_task_id = %response.local_task_id,
+                                            "failed to reset attempt sync status"
+                                        );
+                                    }
+                                }
                             }
                             Ok(false) => {
                                 tracing::warn!(

@@ -10,7 +10,7 @@
 
 use db::{
     DBService,
-    models::{project::Project, task::Task},
+    models::{project::Project, task::Task, task_attempt::TaskAttempt},
 };
 use remote::routes::tasks::{
     CreateSharedTaskRequest, DeleteSharedTaskRequest, UpdateSharedTaskRequest,
@@ -92,6 +92,15 @@ impl SharePublisher {
 
         // Link the local task to the Hive task
         Task::set_shared_task_id(&self.db.pool, task.id, Some(remote_task.task.id)).await?;
+
+        // Reset attempt sync status so attempts get re-synced with the correct shared_task_id
+        if let Err(e) = TaskAttempt::clear_hive_sync_for_task(&self.db.pool, task.id).await {
+            tracing::warn!(
+                error = ?e,
+                task_id = %task.id,
+                "failed to reset attempt sync status after creating shared task"
+            );
+        }
 
         Ok(remote_task.task.id)
     }
