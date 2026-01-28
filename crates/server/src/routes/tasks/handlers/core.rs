@@ -52,12 +52,9 @@ pub async fn get_tasks(
     if let Some(ref project) = project
         && !project.is_remote
     {
-        let local_tasks = Task::find_by_project_id_with_attempt_status(
-            pool,
-            project.id,
-            query.include_archived,
-        )
-        .await?;
+        let local_tasks =
+            Task::find_by_project_id_with_attempt_status(pool, project.id, query.include_archived)
+                .await?;
 
         // Step 2a: If not swarm-linked, return local tasks only
         let Some(remote_project_id) = project.remote_project_id else {
@@ -82,7 +79,10 @@ pub async fn get_tasks(
             },
         };
 
-        let remote_tasks = match remote_client.list_swarm_project_tasks(remote_project_id).await {
+        let remote_tasks = match remote_client
+            .list_swarm_project_tasks(remote_project_id)
+            .await
+        {
             Ok(response) => response.tasks,
             Err(e) => {
                 tracing::warn!(
@@ -145,7 +145,9 @@ pub async fn get_tasks(
                         remote_assignee_name: None,
                         remote_assignee_username: None,
                         remote_last_synced_at: shared_task.shared_at,
-                        remote_stream_node_id: shared_task.executing_node_id.or(shared_task.owner_node_id),
+                        remote_stream_node_id: shared_task
+                            .executing_node_id
+                            .or(shared_task.owner_node_id),
                         remote_stream_url: None,
                         activity_at: None,
                     },
@@ -159,9 +161,14 @@ pub async fn get_tasks(
             );
         }
 
-        // Convert back to Vec and sort by created_at DESC
+        // Convert back to Vec and sort by activity_at (with created_at fallback) DESC
+        // This preserves the same ordering as local-only queries which use COALESCE(activity_at, created_at)
         let mut merged: Vec<TaskWithAttemptStatus> = task_map.into_values().collect();
-        merged.sort_by(|a, b| b.task.created_at.cmp(&a.task.created_at));
+        merged.sort_by(|a, b| {
+            let a_key = a.task.activity_at.unwrap_or(a.task.created_at);
+            let b_key = b.task.activity_at.unwrap_or(b.task.created_at);
+            b_key.cmp(&a_key)
+        });
 
         tracing::debug!(
             project_id = %project_id,
@@ -241,7 +248,9 @@ pub async fn get_tasks(
                     remote_assignee_name: None,
                     remote_assignee_username: None,
                     remote_last_synced_at: shared_task.shared_at,
-                    remote_stream_node_id: shared_task.executing_node_id.or(shared_task.owner_node_id),
+                    remote_stream_node_id: shared_task
+                        .executing_node_id
+                        .or(shared_task.owner_node_id),
                     remote_stream_url: None,
                     activity_at: None,
                 },
@@ -288,7 +297,7 @@ pub async fn get_task(
         match client.get_shared_task(remote.task_id).await {
             Ok(shared_task) => {
                 // Require swarm_project_id - can't construct a valid Task without it
-                let project_id = match shared_task.swarm_project_id {
+                let swarm_project_id = match shared_task.swarm_project_id {
                     Some(id) => id,
                     None => {
                         tracing::warn!(
@@ -299,6 +308,18 @@ pub async fn get_task(
                             "Shared task missing swarm_project_id".into(),
                         ));
                     }
+                };
+
+                // Try to find a local project that maps to this Hive project
+                // This ensures consistency with get_tasks which maps remote tasks to local project IDs
+                let project_id = match Project::find_by_remote_project_id(
+                    &deployment.db().pool,
+                    swarm_project_id,
+                )
+                .await
+                {
+                    Ok(Some(local_project)) => local_project.id,
+                    Ok(None) | Err(_) => swarm_project_id, // Fallback to Hive project ID
                 };
 
                 // Convert SharedTask to local Task format
@@ -326,7 +347,9 @@ pub async fn get_task(
                     remote_assignee_name: None,
                     remote_assignee_username: None,
                     remote_last_synced_at: shared_task.shared_at,
-                    remote_stream_node_id: shared_task.executing_node_id.or(shared_task.owner_node_id),
+                    remote_stream_node_id: shared_task
+                        .executing_node_id
+                        .or(shared_task.owner_node_id),
                     remote_stream_url: None,
                     activity_at: None,
                 };

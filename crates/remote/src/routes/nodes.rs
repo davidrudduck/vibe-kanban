@@ -1672,12 +1672,12 @@ pub async fn list_task_attempts_sync(
 /// Used by remote nodes to fetch task details for cross-node viewing.
 #[instrument(
     name = "nodes.get_task_sync",
-    skip(state, _node_ctx),
+    skip(state, node_ctx),
     fields(task_id = %task_id)
 )]
 pub async fn get_task_sync(
     State(state): State<AppState>,
-    Extension(_node_ctx): Extension<NodeAuthContext>,
+    Extension(node_ctx): Extension<NodeAuthContext>,
     Path(task_id): Path<Uuid>,
 ) -> Response {
     use crate::db::tasks::SharedTaskRepository;
@@ -1687,6 +1687,14 @@ pub async fn get_task_sync(
 
     match repo.find_by_id(task_id).await {
         Ok(Some(task)) => {
+            // Validate that the task belongs to the same organization as the API key
+            if task.organization_id != node_ctx.organization_id {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({ "error": "task not found" })),
+                )
+                    .into_response();
+            }
             (
                 StatusCode::OK,
                 Json(crate::routes::tasks::SharedTaskResponse { task, user: None }),
