@@ -319,7 +319,15 @@ pub async fn get_task(
                 .await
                 {
                     Ok(Some(local_project)) => local_project.id,
-                    Ok(None) | Err(_) => swarm_project_id, // Fallback to Hive project ID
+                    Ok(None) => swarm_project_id, // Fallback to Hive project ID
+                    Err(e) => {
+                        tracing::warn!(
+                            swarm_project_id = %swarm_project_id,
+                            error = %e,
+                            "Failed to map swarm_project_id to local project"
+                        );
+                        swarm_project_id
+                    }
                 };
 
                 // Convert SharedTask to local Task format

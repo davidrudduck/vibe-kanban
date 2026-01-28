@@ -195,7 +195,9 @@ async fn load_project_impl(
 
         if is_get_request && is_base_project_route {
             tracing::debug!(project_id = %project_id, path = %path, "Project not found locally, signaling for Hive fallback");
-            request.extensions_mut().insert(SwarmProjectNeeded { project_id });
+            request
+                .extensions_mut()
+                .insert(SwarmProjectNeeded { project_id });
             return Ok(next.run(request).await);
         }
 
@@ -365,12 +367,11 @@ pub async fn load_task_middleware(
         return Ok(next.run(request).await);
     }
 
-    // Task not found locally - only allow Hive fallback for GET requests to the
-    // base task route (GET /api/tasks/{id}). Sub-routes like /children, /labels,
-    // /variables require a local task to operate on.
+    // Task not found locally - allow Hive fallback for GET requests to:
+    // - Base task route: GET /api/tasks/{id}
+    // - Labels sub-route: GET /api/tasks/{id}/labels
     //
-    // This mirrors the project middleware behavior where Hive fallback is only
-    // allowed for the base project route.
+    // Other sub-routes like /children, /variables require a local task to operate on.
     let path = request
         .extensions()
         .get::<OriginalUri>()
@@ -380,17 +381,21 @@ pub async fn load_task_middleware(
     let task_id_str = task_id.to_string();
     let is_base_task_route =
         path.ends_with(&format!("/tasks/{}", task_id_str)) || path.ends_with(&task_id_str);
+    let is_labels_route = path.ends_with("/labels");
 
-    if request.method() == Method::GET && is_base_task_route {
+    if request.method() == Method::GET && (is_base_task_route || is_labels_route) {
         tracing::debug!(
             task_id = %task_id,
+            path = %path,
             "Task not found locally, signaling for Hive fallback"
         );
-        request.extensions_mut().insert(RemoteTaskNeeded { task_id });
+        request
+            .extensions_mut()
+            .insert(RemoteTaskNeeded { task_id });
         return Ok(next.run(request).await);
     }
 
-    // Non-GET request or sub-route with missing task - return 404
+    // Non-GET request or unsupported sub-route with missing task - return 404
     tracing::debug!(
         task_id = %task_id,
         method = %request.method(),

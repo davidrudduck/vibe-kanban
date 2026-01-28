@@ -753,8 +753,10 @@ impl RemoteClient {
         &self,
         project_id: Uuid,
     ) -> Result<BulkSharedTasksResponse, RemoteClientError> {
-        self.get_authed(&format!("/v1/sync/nodes/tasks/bulk?project_id={project_id}"))
-            .await
+        self.get_authed(&format!(
+            "/v1/sync/nodes/tasks/bulk?project_id={project_id}"
+        ))
+        .await
     }
 
     /// Sets the executing node for a shared task.
@@ -813,6 +815,15 @@ impl RemoteClient {
             Err(e) if e.is_not_found() => Ok(None),
             Err(e) => Err(e),
         }
+    }
+
+    /// Gets labels for a shared task.
+    pub async fn get_task_labels(
+        &self,
+        task_id: Uuid,
+    ) -> Result<TaskLabelsResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/tasks/{task_id}/labels"))
+            .await
     }
 
     /// Sets labels for a shared task.
@@ -1102,10 +1113,8 @@ impl RemoteClient {
         &self,
         swarm_project_id: Uuid,
     ) -> Result<ListSwarmProjectTasksResponse, RemoteClientError> {
-        self.get_authed(&format!(
-            "/v1/sync/swarm/projects/{swarm_project_id}/tasks"
-        ))
-        .await
+        self.get_authed(&format!("/v1/sync/swarm/projects/{swarm_project_id}/tasks"))
+            .await
     }
 
     /// Lists all task attempts for a shared task.
@@ -1116,10 +1125,8 @@ impl RemoteClient {
         &self,
         shared_task_id: Uuid,
     ) -> Result<ListTaskAttemptsBySharedTaskResponse, RemoteClientError> {
-        self.get_authed(&format!(
-            "/v1/sync/swarm/tasks/{shared_task_id}/attempts"
-        ))
-        .await
+        self.get_authed(&format!("/v1/sync/swarm/tasks/{shared_task_id}/attempts"))
+            .await
     }
 
     /// Gets a single task attempt with execution details.
@@ -1145,7 +1152,10 @@ impl RemoteClient {
         cursor: Option<i64>,
         direction: Option<&str>,
     ) -> Result<GetAttemptLogsResponse, RemoteClientError> {
-        let mut path = format!("/v1/sync/swarm/attempts/{attempt_id}/logs?limit={}", limit.unwrap_or(1000));
+        let mut path = format!(
+            "/v1/sync/swarm/attempts/{attempt_id}/logs?limit={}",
+            limit.unwrap_or(1000)
+        );
         if let Some(c) = cursor {
             path.push_str(&format!("&cursor={c}"));
         }
