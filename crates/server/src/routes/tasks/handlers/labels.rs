@@ -32,19 +32,16 @@ pub async fn get_task_labels(
 
     // Remote task - fetch from Hive
     if let Some(Extension(remote)) = remote_needed {
-        // Prefer node_auth_client (API key auth) - works even without user login
-        // Fall back to remote_client (OAuth) for non-node deployments
-        let client = match deployment.node_auth_client().cloned() {
-            Some(c) => c,
-            None => deployment.remote_client().map_err(|e| {
-                tracing::warn!(
-                    task_id = %remote.task_id,
-                    error = %e,
-                    "No remote client available for labels lookup"
-                );
-                ApiError::BadGateway("No remote client available".into())
-            })?,
-        };
+        // Use OAuth client only - the labels endpoint requires OAuth auth
+        // (unlike get_shared_task which has a separate /v1/sync/swarm/tasks/{id} endpoint)
+        let client = deployment.remote_client().map_err(|e| {
+            tracing::warn!(
+                task_id = %remote.task_id,
+                error = %e,
+                "No OAuth client available for labels lookup"
+            );
+            ApiError::BadGateway("No OAuth client available for labels".into())
+        })?;
 
         match client.get_task_labels(remote.task_id).await {
             Ok(response) => {
