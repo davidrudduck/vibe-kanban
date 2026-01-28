@@ -111,6 +111,7 @@ async fn create_test_attempt(
             executor: BaseCodingAgent::ClaudeCode,
             branch: branch.to_string(),
             base_branch: base_branch.to_string(),
+            origin_node_id: None,
         },
         id,
         task_id,
