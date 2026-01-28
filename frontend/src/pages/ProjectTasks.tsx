@@ -184,15 +184,20 @@ export function ProjectTasks() {
 
   // Filter state from URL params
   const showArchived = searchParams.get('archived') === 'on';
+  // Use REST API polling for remote projects OR swarm-linked projects
+  // WebSocket only returns local tasks, but swarm-linked projects need merged local+hive tasks
+  const isSwarmLinked = !!project?.remote_project_id;
+  const useRestApi = project?.is_remote || isSwarmLinked;
+
   const projectTasksOptions: UseProjectTasksOptions = useMemo(
     () => ({
       includeArchived: showArchived,
       sortDirections,
-      // For remote projects, use REST API polling instead of WebSocket
+      // For remote or swarm-linked projects, use REST API polling instead of WebSocket
       // since WebSocket only returns local tasks
-      isRemote: project?.is_remote ?? false,
+      isRemote: useRestApi,
     }),
-    [showArchived, sortDirections, project?.is_remote]
+    [showArchived, sortDirections, useRestApi]
   );
 
   const {
