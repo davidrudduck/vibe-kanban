@@ -297,7 +297,7 @@ impl Task {
                     remote_version = excluded.remote_version,
                     remote_last_synced_at = excluded.remote_last_synced_at,
                     activity_at = excluded.activity_at,
-                    archived_at = excluded.archived_at,
+                    archived_at = COALESCE(excluded.archived_at, tasks.archived_at),
                     updated_at = datetime('now', 'subsec')
                 RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", shared_task_id as "shared_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
                           remote_assignee_user_id as "remote_assignee_user_id: Uuid",
@@ -564,6 +564,52 @@ impl Task {
         .fetch_one(pool)
         .await?;
         Ok(count)
+    }
+
+    /// Find archived tasks that have a shared_task_id but need their archived_at pushed to Hive.
+    ///
+    /// This is used to backfill archive status to Hive for tasks that were archived before
+    /// getting a shared_task_id or before archive status was being synced to Hive.
+    ///
+    /// Returns tasks where:
+    /// - `archived_at` is NOT NULL (task is archived locally)
+    /// - `shared_task_id` is NOT NULL (task is synced to Hive)
+    /// - The task belongs to a swarm project (project.remote_project_id IS NOT NULL)
+    pub async fn find_archived_needing_hive_sync(
+        pool: &SqlitePool,
+        limit: i64,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as::<_, Self>(
+            r#"SELECT
+                t.id,
+                t.project_id,
+                t.title,
+                t.description,
+                t.status,
+                t.parent_task_id,
+                t.shared_task_id,
+                t.created_at,
+                t.updated_at,
+                t.remote_assignee_user_id,
+                t.remote_assignee_name,
+                t.remote_assignee_username,
+                t.remote_version,
+                t.remote_last_synced_at,
+                t.remote_stream_node_id,
+                t.remote_stream_url,
+                t.archived_at,
+                t.activity_at
+            FROM tasks t
+            INNER JOIN projects p ON p.id = t.project_id
+            WHERE t.archived_at IS NOT NULL
+              AND t.shared_task_id IS NOT NULL
+              AND p.remote_project_id IS NOT NULL
+            ORDER BY t.archived_at ASC
+            LIMIT ?"#,
+        )
+        .bind(limit)
+        .fetch_all(pool)
+        .await
     }
 
     /// Clear sync status for all tasks in a project, triggering resync.
@@ -870,6 +916,150 @@ mod tests {
         assert_eq!(
             updated.remote_stream_url,
             Some("https://example.com/stream".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_upsert_preserves_local_archived_at_when_remote_is_null() {
+        let (pool, _temp_dir) = setup_test_pool().await;
+
+        // Create project
+        let project_id = Uuid::new_v4();
+        let project_data = CreateProject {
+            name: "Test Project".to_string(),
+            git_repo_path: format!("/tmp/test-repo-{}", project_id),
+            use_existing_repo: true,
+            clone_url: None,
+            setup_script: None,
+            dev_script: None,
+            cleanup_script: None,
+            copy_files: None,
+        };
+        let _project = Project::create(&pool, &project_data, project_id)
+            .await
+            .expect("Failed to create project");
+
+        let local_id = Uuid::new_v4();
+        let shared_task_id = Uuid::new_v4();
+        let archived_timestamp = Utc::now();
+
+        // Insert a task with archived_at set
+        let task = Task::upsert_remote_task(
+            &pool,
+            local_id,
+            project_id,
+            shared_task_id,
+            "Archived Task".to_string(),
+            Some("Description".to_string()),
+            TaskStatus::Done,
+            None,
+            None,
+            None,
+            1,
+            None,
+            Some(archived_timestamp),
+        )
+        .await
+        .expect("Upsert failed");
+
+        assert!(task.archived_at.is_some(), "Task should be archived");
+
+        // Now upsert with archived_at = None (simulating remote sync with NULL archived_at)
+        let updated = Task::upsert_remote_task(
+            &pool,
+            Uuid::new_v4(),
+            project_id,
+            shared_task_id,
+            "Still Archived Task".to_string(),
+            None,
+            TaskStatus::Done,
+            None,
+            None,
+            None,
+            2,
+            None,
+            None, // Remote has NULL archived_at
+        )
+        .await
+        .expect("Upsert failed");
+
+        // Should preserve the original archived_at value
+        assert_eq!(updated.id, task.id);
+        assert!(
+            updated.archived_at.is_some(),
+            "Local archived_at should be preserved when remote is NULL"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_upsert_updates_archived_at_when_remote_has_value() {
+        let (pool, _temp_dir) = setup_test_pool().await;
+
+        // Create project
+        let project_id = Uuid::new_v4();
+        let project_data = CreateProject {
+            name: "Test Project".to_string(),
+            git_repo_path: format!("/tmp/test-repo-{}", project_id),
+            use_existing_repo: true,
+            clone_url: None,
+            setup_script: None,
+            dev_script: None,
+            cleanup_script: None,
+            copy_files: None,
+        };
+        let _project = Project::create(&pool, &project_data, project_id)
+            .await
+            .expect("Failed to create project");
+
+        let local_id = Uuid::new_v4();
+        let shared_task_id = Uuid::new_v4();
+
+        // Insert a task without archived_at
+        let task = Task::upsert_remote_task(
+            &pool,
+            local_id,
+            project_id,
+            shared_task_id,
+            "Not Archived Task".to_string(),
+            Some("Description".to_string()),
+            TaskStatus::Todo,
+            None,
+            None,
+            None,
+            1,
+            None,
+            None,
+        )
+        .await
+        .expect("Upsert failed");
+
+        assert!(task.archived_at.is_none(), "Task should not be archived");
+
+        // Now upsert with a specific archived_at value from remote
+        let remote_archived_timestamp = Utc::now();
+        let updated = Task::upsert_remote_task(
+            &pool,
+            Uuid::new_v4(),
+            project_id,
+            shared_task_id,
+            "Now Archived Task".to_string(),
+            None,
+            TaskStatus::Done,
+            None,
+            None,
+            None,
+            2,
+            None,
+            Some(remote_archived_timestamp),
+        )
+        .await
+        .expect("Upsert failed");
+
+        // Should update to the new archived_at value from remote
+        assert_eq!(updated.id, task.id);
+        assert!(
+            updated.archived_at.is_some(),
+            "archived_at should be updated when remote has a value"
         );
     }
 
