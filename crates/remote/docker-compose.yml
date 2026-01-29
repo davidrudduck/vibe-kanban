@@ -150,7 +150,7 @@ services:
       # ElectricSQL sync service URL (internal Docker network)
       ELECTRIC_URL: http://electric:3000
     ports:
-      - "0.0.0.0:3000:8081"
+      - "0.0.0.0:${SERVER_PORT:-9000}:8081"
     restart: unless-stopped
     logging:
       driver: json-file
