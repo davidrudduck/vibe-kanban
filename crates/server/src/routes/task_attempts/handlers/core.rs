@@ -849,8 +849,16 @@ pub async fn open_task_attempt_in_editor(
 #[axum::debug_handler]
 pub async fn start_dev_server(
     Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    // Dev server is a local-only operation - reject remote attempts
+    if remote_ctx.is_some() {
+        return Err(ApiError::BadRequest(
+            "Cannot start dev server for remote task attempts".to_string(),
+        ));
+    }
+
     let pool = &deployment.db().pool;
 
     // Get parent task

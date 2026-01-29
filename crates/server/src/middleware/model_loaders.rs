@@ -385,7 +385,13 @@ pub async fn load_task_middleware(
 
         // Try to get client for Hive access
         let client = deployment.node_auth_client().cloned().or_else(|| {
-            deployment.remote_client().ok()
+            match deployment.remote_client() {
+                Ok(client) => Some(client),
+                Err(e) => {
+                    tracing::warn!(error = %e, "Failed to build Hive client for task fallback");
+                    None
+                }
+            }
         });
 
         if let Some(client) = client {
@@ -543,7 +549,13 @@ async fn load_task_attempt_impl(
             if request.method() == Method::GET {
                 // Try to get client for Hive access
                 let client = deployment.node_auth_client().cloned().or_else(|| {
-                    deployment.remote_client().ok()
+                    match deployment.remote_client() {
+                        Ok(client) => Some(client),
+                        Err(e) => {
+                            tracing::warn!(error = %e, "Failed to build Hive client for attempt fallback");
+                            None
+                        }
+                    }
                 });
 
                 if let Some(client) = client {
