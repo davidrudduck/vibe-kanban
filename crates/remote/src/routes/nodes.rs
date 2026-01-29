@@ -1876,16 +1876,17 @@ pub async fn get_task_sync(
 /// Used by remote nodes to fetch attempt details for cross-node viewing.
 #[instrument(
     name = "nodes.get_attempt_sync",
-    skip(state, _node_ctx),
+    skip(state, node_ctx),
     fields(attempt_id = %attempt_id)
 )]
 pub async fn get_attempt_sync(
     State(state): State<AppState>,
-    Extension(_node_ctx): Extension<NodeAuthContext>,
+    Extension(node_ctx): Extension<NodeAuthContext>,
     Path(attempt_id): Path<Uuid>,
 ) -> Response {
     use crate::db::node_execution_processes::NodeExecutionProcessRepository;
     use crate::db::node_task_attempts::NodeTaskAttemptRepository;
+    use crate::db::tasks::SharedTaskRepository;
 
     let pool = state.pool();
 
@@ -1909,6 +1910,40 @@ pub async fn get_attempt_sync(
                 .into_response();
         }
     };
+
+    // Validate organization ownership via the shared task
+    let task_repo = SharedTaskRepository::new(pool);
+    match task_repo.find_by_id(attempt.shared_task_id).await {
+        Ok(Some(task)) => {
+            if task.organization_id != node_ctx.organization_id {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({ "error": "task attempt not found" })),
+                )
+                    .into_response();
+            }
+        }
+        Ok(None) => {
+            tracing::warn!(
+                attempt_id = %attempt_id,
+                shared_task_id = %attempt.shared_task_id,
+                "attempt references non-existent shared task"
+            );
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "task attempt not found" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!(?e, "failed to fetch shared task for org validation");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal server error" })),
+            )
+                .into_response();
+        }
+    }
 
     // Get the execution processes for this attempt
     let exec_repo = NodeExecutionProcessRepository::new(pool);
