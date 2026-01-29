@@ -60,7 +60,9 @@ POSTGRES_USER=postgres
 POSTGRES_PASSWORD=your_secure_password
 
 # Network - Public URL for OAuth callbacks
-SERVER_PUBLIC_BASE_URL=http://your-server:3000
+SERVER_PUBLIC_BASE_URL=http://your-server:9000
+# Server port (must match the port in SERVER_PUBLIC_BASE_URL)
+SERVER_PORT=9000
 
 # JWT Secret (base64-encoded, minimum 32 bytes)
 # Generate with: openssl rand -base64 32
@@ -479,6 +481,7 @@ The log viewer shows connection status:
 2. Verify `VK_NODE_API_KEY` is valid and not revoked
 3. Check node logs for connection errors
 4. Ensure the API key belongs to the correct organization
+5. Verify `SERVER_PORT` in `.env.remote` matches the port in `VK_HIVE_URL`
 
 ### Node Shows as Offline
 
@@ -574,7 +577,8 @@ POSTGRES_USER=postgres
 POSTGRES_PASSWORD=your_secure_password
 
 # Network
-SERVER_PUBLIC_BASE_URL=http://localhost:3000
+SERVER_PUBLIC_BASE_URL=http://localhost:9000
+SERVER_PORT=9000
 
 # Security - generate with: openssl rand -base64 32
 VIBEKANBAN_REMOTE_JWT_SECRET=your_base64_encoded_secret_here
