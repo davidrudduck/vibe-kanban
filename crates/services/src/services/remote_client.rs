@@ -1165,6 +1165,28 @@ impl RemoteClient {
         self.get_authed(&path).await
     }
 
+    /// Gets statuses for multiple nodes by their IDs.
+    ///
+    /// Used by nodes to sync source_node_status for remote projects.
+    /// Returns current status and public_url for each node.
+    /// Uses the `/v1/sync/` endpoint which requires API key auth.
+    pub async fn get_node_statuses(
+        &self,
+        node_ids: &[Uuid],
+    ) -> Result<GetNodeStatusesResponse, RemoteClientError> {
+        if node_ids.is_empty() {
+            return Ok(GetNodeStatusesResponse { nodes: vec![] });
+        }
+
+        let ids_param = node_ids
+            .iter()
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        self.get_authed(&format!("/v1/sync/nodes/status?ids={ids_param}"))
+            .await
+    }
+
     // =====================
     // Label APIs
     // =====================
@@ -1422,6 +1444,24 @@ pub struct LinkSwarmProjectNodeRequest {
     pub git_repo_path: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub os_type: Option<String>,
+}
+
+// =====================
+// Node Status Types
+// =====================
+
+/// Response for a single node's status
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeStatusInfo {
+    pub id: Uuid,
+    pub status: String,
+    pub public_url: Option<String>,
+}
+
+/// Response for batch node status query
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetNodeStatusesResponse {
+    pub nodes: Vec<NodeStatusInfo>,
 }
 
 // =====================

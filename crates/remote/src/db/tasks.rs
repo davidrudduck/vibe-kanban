@@ -42,6 +42,15 @@ impl SharedTaskWithUser {
     }
 }
 
+/// Shared task struct with optional denormalized metadata for API responses.
+///
+/// This struct serves dual purposes:
+/// 1. Database queries (core fields come from shared_tasks table)
+/// 2. API responses (includes denormalized assignee metadata)
+///
+/// The assignee metadata fields (`assignee_name`, `assignee_username`, `activity_at`)
+/// are populated separately after fetching from the database, typically by joining
+/// with the users table or using cached user data.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct SharedTask {
     pub id: Uuid,
@@ -71,6 +80,46 @@ pub struct SharedTask {
     pub archived_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+
+    // Denormalized assignee metadata for cross-node display
+    // These fields are NOT stored in the database - they are populated separately
+    // after fetching tasks, using #[sqlx(default)] to allow FromRow derivation.
+    /// Display name of the assignee (first + last name)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub assignee_name: Option<String>,
+    /// Username of the assignee (for badge display)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub assignee_username: Option<String>,
+    /// Timestamp of last status change (for time-in-column tracking)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub activity_at: Option<DateTime<Utc>>,
+}
+
+impl SharedTask {
+    /// Populate assignee metadata from user data.
+    pub fn with_assignee_info(mut self, user: Option<&UserData>) -> Self {
+        if let Some(u) = user {
+            // Build display name from first + last name
+            self.assignee_name = match (&u.first_name, &u.last_name) {
+                (Some(first), Some(last)) => Some(format!("{} {}", first, last)),
+                (Some(first), None) => Some(first.clone()),
+                (None, Some(last)) => Some(last.clone()),
+                (None, None) => None,
+            };
+            self.assignee_username = u.username.clone();
+        }
+        self
+    }
+
+    /// Set activity_at to track when status last changed.
+    /// For tasks fetched from the Hive, we use updated_at as a proxy for activity.
+    pub fn with_activity_at(mut self, activity_at: Option<DateTime<Utc>>) -> Self {
+        self.activity_at = activity_at;
+        self
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -211,7 +260,10 @@ impl<'a> SharedTaskRepository<'a> {
                 shared_at           AS "shared_at?",
                 archived_at         AS "archived_at?",
                 created_at          AS "created_at!",
-                updated_at          AS "updated_at!"
+                updated_at          AS "updated_at!",
+                NULL::text          AS "assignee_name?",
+                NULL::text          AS "assignee_username?",
+                NULL::timestamptz   AS "activity_at?"
             FROM shared_tasks
             WHERE id = $1
               AND deleted_at IS NULL
@@ -314,7 +366,10 @@ impl<'a> SharedTaskRepository<'a> {
                 shared_at           AS "shared_at?",
                 archived_at         AS "archived_at?",
                 created_at          AS "created_at!",
-                updated_at          AS "updated_at!"
+                updated_at          AS "updated_at!",
+                NULL::text          AS "assignee_name?",
+                NULL::text          AS "assignee_username?",
+                NULL::timestamptz   AS "activity_at?"
             FROM shared_tasks
             WHERE source_node_id = $1
               AND source_task_id = $2
@@ -430,7 +485,10 @@ impl<'a> SharedTaskRepository<'a> {
                       shared_at          AS "shared_at?",
                       archived_at        AS "archived_at?",
                       created_at         AS "created_at!",
-                      updated_at         AS "updated_at!"
+                      updated_at         AS "updated_at!",
+                      NULL::text         AS "assignee_name?",
+                      NULL::text         AS "assignee_username?",
+                      NULL::timestamptz  AS "activity_at?"
             "#,
             organization_id,
             project_id,
@@ -641,6 +699,13 @@ impl<'a> SharedTaskRepository<'a> {
         let tasks = rows
             .into_iter()
             .map(|row| {
+                let user = row.user_id.map(|id| UserData {
+                    id,
+                    first_name: row.user_first_name.clone(),
+                    last_name: row.user_last_name.clone(),
+                    username: row.user_username.clone(),
+                });
+
                 let task = SharedTask {
                     id: row.id,
                     organization_id: row.organization_id,
@@ -663,14 +728,13 @@ impl<'a> SharedTaskRepository<'a> {
                     archived_at: row.archived_at,
                     created_at: row.created_at,
                     updated_at: row.updated_at,
-                };
-
-                let user = row.user_id.map(|id| UserData {
-                    id,
-                    first_name: row.user_first_name,
-                    last_name: row.user_last_name,
-                    username: row.user_username,
-                });
+                    // Initialize metadata fields with defaults, then populate via helpers
+                    assignee_name: None,
+                    assignee_username: None,
+                    activity_at: None,
+                }
+                .with_assignee_info(user.as_ref())
+                .with_activity_at(Some(row.updated_at));
 
                 SharedTaskActivityPayload { task, user }
             })
@@ -777,7 +841,10 @@ impl<'a> SharedTaskRepository<'a> {
             t.shared_at         AS "shared_at?",
             t.archived_at       AS "archived_at?",
             t.created_at        AS "created_at!",
-            t.updated_at        AS "updated_at!"
+            t.updated_at        AS "updated_at!",
+            NULL::text          AS "assignee_name?",
+            NULL::text          AS "assignee_username?",
+            NULL::timestamptz   AS "activity_at?"
         "#,
             task_id,
             data.title,
@@ -870,7 +937,10 @@ impl<'a> SharedTaskRepository<'a> {
             t.shared_at         AS "shared_at?",
             t.archived_at       AS "archived_at?",
             t.created_at        AS "created_at!",
-            t.updated_at        AS "updated_at!"
+            t.updated_at        AS "updated_at!",
+            NULL::text          AS "assignee_name?",
+            NULL::text          AS "assignee_username?",
+            NULL::timestamptz   AS "activity_at?"
         "#,
             task_id,
             data.new_assignee_user_id,
@@ -950,7 +1020,10 @@ impl<'a> SharedTaskRepository<'a> {
                 t.shared_at         AS "shared_at?",
                 t.archived_at       AS "archived_at?",
                 t.created_at        AS "created_at!",
-                t.updated_at        AS "updated_at!"
+                t.updated_at        AS "updated_at!",
+                NULL::text          AS "assignee_name?",
+                NULL::text          AS "assignee_username?",
+                NULL::timestamptz   AS "activity_at?"
             "#,
             task_id,
             status as TaskStatus,
@@ -1051,7 +1124,10 @@ impl<'a> SharedTaskRepository<'a> {
             t.shared_at         AS "shared_at?",
             t.archived_at       AS "archived_at?",
             t.created_at        AS "created_at!",
-            t.updated_at        AS "updated_at!"
+            t.updated_at        AS "updated_at!",
+            NULL::text          AS "assignee_name?",
+            NULL::text          AS "assignee_username?",
+            NULL::timestamptz   AS "activity_at?"
         "#,
             task_id,
             data.version,

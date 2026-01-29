@@ -94,6 +94,7 @@ pub fn protected_router() -> Router<AppState> {
 pub fn node_sync_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/nodes", get(list_nodes_sync))
+        .route("/nodes/status", get(get_node_statuses_sync))
         .route("/nodes/{node_id}/projects", get(list_node_projects_sync))
         .route(
             "/nodes/{node_id}/projects/linked",
@@ -543,6 +544,80 @@ pub async fn list_nodes_sync(
     match service.list_nodes(node_ctx.organization_id).await {
         Ok(nodes) => (StatusCode::OK, Json(nodes)).into_response(),
         Err(error) => node_error_response(error, "failed to list nodes"),
+    }
+}
+
+/// Query parameters for getting node statuses
+#[derive(Debug, Deserialize)]
+pub struct GetNodeStatusesQuery {
+    /// Comma-separated list of node IDs
+    pub ids: String,
+}
+
+/// Response for node status query
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NodeStatusInfo {
+    pub id: Uuid,
+    pub status: String,
+    pub public_url: Option<String>,
+}
+
+/// Response for batch node status query
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetNodeStatusesResponse {
+    pub nodes: Vec<NodeStatusInfo>,
+}
+
+/// Get statuses for multiple nodes by their IDs.
+///
+/// Used by nodes to sync source_node_status for remote projects.
+/// Accepts a comma-separated list of node IDs and returns their current statuses.
+/// Results are scoped to the caller's organization for security.
+#[instrument(name = "nodes.get_statuses_sync", skip(state, node_ctx, query))]
+pub async fn get_node_statuses_sync(
+    State(state): State<AppState>,
+    Extension(node_ctx): Extension<NodeAuthContext>,
+    Query(query): Query<GetNodeStatusesQuery>,
+) -> Response {
+    use crate::db::nodes::NodeRepository;
+
+    // Parse the comma-separated IDs
+    let node_ids: Vec<Uuid> = query
+        .ids
+        .split(',')
+        .filter_map(|s| Uuid::parse_str(s.trim()).ok())
+        .collect();
+
+    if node_ids.is_empty() {
+        return (
+            StatusCode::OK,
+            Json(GetNodeStatusesResponse { nodes: vec![] }),
+        )
+            .into_response();
+    }
+
+    let repo = NodeRepository::new(state.pool());
+    // Scope query to caller's organization to prevent cross-org access
+    match repo.get_statuses_by_ids(node_ctx.organization_id, &node_ids).await {
+        Ok(statuses) => {
+            let nodes: Vec<NodeStatusInfo> = statuses
+                .into_iter()
+                .map(|(id, status, public_url)| NodeStatusInfo {
+                    id,
+                    status: status.to_string(),
+                    public_url,
+                })
+                .collect();
+            (StatusCode::OK, Json(GetNodeStatusesResponse { nodes })).into_response()
+        }
+        Err(e) => {
+            tracing::error!(?e, "failed to get node statuses");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "failed to get node statuses" })),
+            )
+                .into_response()
+        }
     }
 }
 
@@ -1586,24 +1661,36 @@ pub struct ListSwarmProjectTasksResponse {
 /// List all tasks for a swarm project.
 ///
 /// Used by remote nodes to fetch tasks for swarm projects they don't own.
+/// Includes denormalized assignee metadata (name, username) for cross-node display.
 #[instrument(
     name = "nodes.list_swarm_project_tasks_sync",
-    skip(state, _node_ctx),
+    skip(state, node_ctx),
     fields(project_id = %project_id)
 )]
 pub async fn list_swarm_project_tasks_sync(
     State(state): State<AppState>,
-    Extension(_node_ctx): Extension<NodeAuthContext>,
+    Extension(node_ctx): Extension<NodeAuthContext>,
     Path(project_id): Path<Uuid>,
 ) -> Response {
     use crate::db::tasks::SharedTaskRepository;
+    use crate::db::users::fetch_users_by_ids;
+    use std::collections::HashMap;
 
     let pool = state.pool();
 
-    // Verify project exists
-    match SwarmProjectRepository::exists(pool, project_id).await {
-        Ok(true) => {}
-        Ok(false) => {
+    // Verify project exists and belongs to caller's organization
+    match SwarmProjectRepository::find_by_id(pool, project_id).await {
+        Ok(Some(project)) => {
+            // Security: ensure caller can only access their own organization's projects
+            if project.organization_id != node_ctx.organization_id {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({ "error": "project not found" })),
+                )
+                    .into_response();
+            }
+        }
+        Ok(None) => {
             return (
                 StatusCode::NOT_FOUND,
                 Json(json!({ "error": "project not found" })),
@@ -1622,21 +1709,55 @@ pub async fn list_swarm_project_tasks_sync(
 
     // Fetch tasks for this swarm project
     let repo = SharedTaskRepository::new(pool);
-    match repo.find_by_swarm_project_id(project_id).await {
-        Ok(tasks) => (
-            StatusCode::OK,
-            Json(ListSwarmProjectTasksResponse { tasks }),
-        )
-            .into_response(),
+    let tasks = match repo.find_by_swarm_project_id(project_id).await {
+        Ok(t) => t,
         Err(e) => {
             tracing::error!(?e, "failed to list tasks for swarm project");
-            (
+            return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": "failed to list tasks" })),
             )
-                .into_response()
+                .into_response();
         }
-    }
+    };
+
+    // Collect unique assignee user IDs for batch fetch
+    let assignee_ids: Vec<Uuid> = tasks
+        .iter()
+        .filter_map(|t| t.assignee_user_id)
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+
+    // Fetch user data for assignees in one batch
+    let users_map: HashMap<Uuid, crate::db::users::UserData> = if !assignee_ids.is_empty() {
+        match fetch_users_by_ids(pool, &assignee_ids).await {
+            Ok(users) => users.into_iter().map(|u| (u.id, u)).collect(),
+            Err(e) => {
+                tracing::warn!(?e, "Failed to fetch assignee user data, returning tasks without metadata");
+                HashMap::new()
+            }
+        }
+    } else {
+        HashMap::new()
+    };
+
+    // Enrich tasks with assignee metadata and activity_at
+    let enriched_tasks: Vec<_> = tasks
+        .into_iter()
+        .map(|task| {
+            let user = task.assignee_user_id.and_then(|id| users_map.get(&id));
+            // Use updated_at as activity_at since we don't have a dedicated column yet
+            let activity_at = task.updated_at;
+            task.with_assignee_info(user).with_activity_at(Some(activity_at))
+        })
+        .collect();
+
+    (
+        StatusCode::OK,
+        Json(ListSwarmProjectTasksResponse { tasks: enriched_tasks }),
+    )
+        .into_response()
 }
 
 /// List task attempts for a shared task (API key auth).

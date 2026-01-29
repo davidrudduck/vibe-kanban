@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO shared_tasks (\n                organization_id,\n                project_id,\n                creator_user_id,\n                assignee_user_id,\n                title,\n                description,\n                status,\n                shared_at\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, 'todo'::task_status), NOW())\n            RETURNING id                 AS \"id!\",\n                      organization_id    AS \"organization_id!: Uuid\",\n                      project_id         AS \"project_id?: Uuid\",\n                      swarm_project_id   AS \"swarm_project_id?: Uuid\",\n                      creator_user_id    AS \"creator_user_id?: Uuid\",\n                      assignee_user_id   AS \"assignee_user_id?: Uuid\",\n                      deleted_by_user_id AS \"deleted_by_user_id?: Uuid\",\n                      executing_node_id  AS \"executing_node_id?: Uuid\",\n                      owner_node_id      AS \"owner_node_id?: Uuid\",\n                      owner_name         AS \"owner_name?\",\n                      source_task_id     AS \"source_task_id?: Uuid\",\n                      source_node_id     AS \"source_node_id?: Uuid\",\n                      title              AS \"title!\",\n                      description        AS \"description?\",\n                      status             AS \"status!: TaskStatus\",\n                      version            AS \"version!\",\n                      deleted_at         AS \"deleted_at?\",\n                      shared_at          AS \"shared_at?\",\n                      archived_at        AS \"archived_at?\",\n                      created_at         AS \"created_at!\",\n                      updated_at         AS \"updated_at!\"\n            ",
+  "query": "\n        UPDATE shared_tasks AS t\n        SET deleted_at = NOW(),\n            deleted_by_user_id = $3,\n            version = t.version + 1\n        WHERE t.id = $1\n          AND t.version = COALESCE($2, t.version)\n          AND t.deleted_at IS NULL\n        RETURNING\n            t.id                AS \"id!\",\n            t.organization_id   AS \"organization_id!: Uuid\",\n            t.project_id        AS \"project_id?: Uuid\",\n            t.swarm_project_id  AS \"swarm_project_id?: Uuid\",\n            t.creator_user_id   AS \"creator_user_id?: Uuid\",\n            t.assignee_user_id  AS \"assignee_user_id?: Uuid\",\n            t.deleted_by_user_id AS \"deleted_by_user_id?: Uuid\",\n            t.executing_node_id AS \"executing_node_id?: Uuid\",\n            t.owner_node_id     AS \"owner_node_id?: Uuid\",\n            t.owner_name        AS \"owner_name?\",\n            t.source_task_id    AS \"source_task_id?: Uuid\",\n            t.source_node_id    AS \"source_node_id?: Uuid\",\n            t.title             AS \"title!\",\n            t.description       AS \"description?\",\n            t.status            AS \"status!: TaskStatus\",\n            t.version           AS \"version!\",\n            t.deleted_at        AS \"deleted_at?\",\n            t.shared_at         AS \"shared_at?\",\n            t.archived_at       AS \"archived_at?\",\n            t.created_at        AS \"created_at!\",\n            t.updated_at        AS \"updated_at!\",\n            NULL::text          AS \"assignee_name?\",\n            NULL::text          AS \"assignee_username?\",\n            NULL::timestamptz   AS \"activity_at?\"\n        ",
   "describe": {
     "columns": [
       {
@@ -120,36 +120,33 @@
         "ordinal": 20,
         "name": "updated_at!",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 21,
+        "name": "assignee_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 22,
+        "name": "assignee_username?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 23,
+        "name": "activity_at?",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid",
-        "Uuid",
-        "Uuid",
-        "Text",
-        "Text",
-        {
-          "Custom": {
-            "name": "task_status",
-            "kind": {
-              "Enum": [
-                "todo",
-                "in-progress",
-                "in-review",
-                "done",
-                "cancelled"
-              ]
-            }
-          }
-        }
+        "Int8",
+        "Uuid"
       ]
     },
     "nullable": [
       false,
       false,
-      false,
       true,
       true,
       true,
@@ -157,18 +154,22 @@
       true,
       true,
       true,
-      true,
-      true,
-      false,
-      true,
-      false,
-      false,
       true,
       true,
       true,
       false,
-      false
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      null,
+      null,
+      null
     ]
   },
-  "hash": "2619b87b2b2e65f5b01a388fe321158c843d2f049dbd6f67713938358143310f"
+  "hash": "a7719a46c96a30d1ef5b4816deab6906b7b968db4a18b24959a02ee0749ef63c"
 }

@@ -282,4 +282,39 @@ impl<'a> NodeRepository<'a> {
 
         Ok(())
     }
+
+    /// Get statuses for multiple nodes by their IDs within an organization.
+    ///
+    /// Returns a list of (node_id, status, public_url) for all found nodes
+    /// that belong to the specified organization.
+    /// Nodes that don't exist or belong to other organizations are omitted.
+    pub async fn get_statuses_by_ids(
+        &self,
+        organization_id: Uuid,
+        node_ids: &[Uuid],
+    ) -> Result<Vec<(Uuid, NodeStatus, Option<String>)>, NodeDbError> {
+        if node_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Build a dynamic query with IN clause, scoped to organization
+        let placeholders: Vec<String> = node_ids
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("${}", i + 2)) // Start at $2 since $1 is organization_id
+            .collect();
+        let query = format!(
+            "SELECT id, status, public_url FROM nodes WHERE organization_id = $1 AND id IN ({})",
+            placeholders.join(", ")
+        );
+
+        let mut query_builder = sqlx::query_as::<_, (Uuid, NodeStatus, Option<String>)>(&query);
+        query_builder = query_builder.bind(organization_id);
+        for id in node_ids {
+            query_builder = query_builder.bind(id);
+        }
+
+        let rows = query_builder.fetch_all(self.pool).await?;
+        Ok(rows)
+    }
 }

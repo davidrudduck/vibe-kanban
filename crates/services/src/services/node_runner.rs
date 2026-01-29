@@ -707,6 +707,14 @@ pub fn spawn_node_runner<C: ContainerService + Sync + Send + 'static>(
                             "Synced swarm labels from hive"
                         );
                     }
+
+                    // Sync node statuses from hive for remote projects
+                    // This ensures source_node_status is up-to-date and not stale
+                    if let Some(ref client) = remote_client {
+                        if let Err(e) = sync_node_statuses(&db.pool, client).await {
+                            tracing::warn!(error = ?e, "Failed to sync node statuses from hive");
+                        }
+                    }
                 }
                 Some(HiveEvent::TaskAssigned(assignment)) => {
                     tracing::info!(
@@ -1217,6 +1225,61 @@ async fn sync_swarm_labels(
                 .await?;
             }
         }
+    }
+
+    Ok(())
+}
+
+/// Sync node statuses from hive for all remote projects.
+///
+/// This is called on connection to ensure source_node_status is up-to-date
+/// and not stale. Without this sync, remote task attempts would fail with
+/// "Remote node offline" errors even when the node is actually online.
+async fn sync_node_statuses(
+    pool: &SqlitePool,
+    remote_client: &RemoteClient,
+) -> Result<(), NodeRunnerError> {
+    // Get all unique source node IDs from remote projects
+    let source_node_ids = Project::get_remote_source_node_ids(pool).await?;
+
+    if source_node_ids.is_empty() {
+        return Ok(());
+    }
+
+    // Fetch current statuses from hive
+    let response = remote_client
+        .get_node_statuses(&source_node_ids)
+        .await
+        .map_err(|e| NodeRunnerError::SyncError(format!("Failed to fetch node statuses: {}", e)))?;
+
+    // Update local projects with current statuses
+    let mut updated_count = 0;
+    for node_info in response.nodes {
+        let rows_affected = Project::update_node_status_by_source_node_id(
+            pool,
+            node_info.id,
+            &node_info.status,
+            node_info.public_url.as_deref(),
+        )
+        .await?;
+
+        if rows_affected > 0 {
+            updated_count += rows_affected;
+            tracing::debug!(
+                node_id = %node_info.id,
+                status = %node_info.status,
+                public_url = ?node_info.public_url,
+                "Updated source_node_status for remote projects"
+            );
+        }
+    }
+
+    if updated_count > 0 {
+        tracing::info!(
+            updated_count,
+            node_count = source_node_ids.len(),
+            "Synced node statuses from hive"
+        );
     }
 
     Ok(())

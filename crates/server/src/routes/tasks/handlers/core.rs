@@ -95,70 +95,106 @@ pub async fn get_tasks(
         };
 
         // Step 2c: Merge local + remote tasks, deduplicating by shared_task_id
-        // Local tasks take precedence (we have more complete data locally)
+        // For swarm projects: Hive status takes precedence for core task fields (status, assignee)
+        // while local task provides the detailed execution info (attempt status, executor, etc.)
         let mut task_map: HashMap<Uuid, TaskWithAttemptStatus> = HashMap::new();
 
-        // Add local tasks first (these take precedence)
+        // Add local tasks first
         for task in local_tasks {
             // Key by shared_task_id if available, otherwise by id
             let key = task.task.shared_task_id.unwrap_or(task.task.id);
             task_map.insert(key, task);
         }
 
-        // Add remote tasks that aren't already present locally
+        // Process remote tasks - either add new or update existing with Hive's authoritative data
         for shared_task in remote_tasks {
-            // Skip if already have this task locally
-            if task_map.contains_key(&shared_task.id) {
-                continue;
-            }
-
             // Skip archived tasks if not requested
             if !query.include_archived && shared_task.archived_at.is_some() {
                 continue;
             }
 
-            let status = match shared_task.status {
+            let hive_status = match shared_task.status {
                 remote::db::tasks::TaskStatus::Todo => TaskStatus::Todo,
                 remote::db::tasks::TaskStatus::InProgress => TaskStatus::InProgress,
                 remote::db::tasks::TaskStatus::InReview => TaskStatus::InReview,
                 remote::db::tasks::TaskStatus::Done => TaskStatus::Done,
                 remote::db::tasks::TaskStatus::Cancelled => TaskStatus::Cancelled,
             };
-            let is_in_progress = status == TaskStatus::InProgress;
 
-            task_map.insert(
-                shared_task.id,
-                TaskWithAttemptStatus {
-                    task: Task {
-                        id: shared_task.id,
-                        project_id: project.id, // Map to local project ID
-                        title: shared_task.title,
-                        description: shared_task.description,
-                        status,
-                        shared_task_id: Some(shared_task.id),
-                        remote_version: shared_task.version,
-                        parent_task_id: None,
-                        archived_at: shared_task.archived_at,
-                        created_at: shared_task.created_at,
-                        updated_at: shared_task.updated_at,
-                        remote_assignee_user_id: shared_task.assignee_user_id,
-                        remote_assignee_name: None,
-                        remote_assignee_username: None,
-                        remote_last_synced_at: shared_task.shared_at,
-                        remote_stream_node_id: shared_task
-                            .executing_node_id
-                            .or(shared_task.owner_node_id),
-                        remote_stream_url: None,
-                        activity_at: None,
+            if let Some(existing) = task_map.get_mut(&shared_task.id) {
+                // Task exists locally - update with Hive's authoritative fields
+                // The Hive is the source of truth for status, assignee, and version
+                // because other nodes may have updated these fields
+
+                // Only update if Hive has a newer or equal version to avoid stale data
+                if shared_task.version >= existing.task.remote_version {
+                    // Update status from Hive (this is the core fix - Hive status takes precedence)
+                    existing.task.status = hive_status.clone();
+
+                    // Update assignee info from Hive
+                    existing.task.remote_assignee_user_id = shared_task.assignee_user_id;
+                    existing.task.remote_assignee_name = shared_task.assignee_name.clone();
+                    existing.task.remote_assignee_username = shared_task.assignee_username.clone();
+
+                    // Update version and sync timestamp
+                    existing.task.remote_version = shared_task.version;
+                    existing.task.remote_last_synced_at = shared_task.shared_at;
+
+                    // Update archived status
+                    existing.task.archived_at = shared_task.archived_at;
+
+                    // Update stream node info for remote log access
+                    existing.task.remote_stream_node_id = shared_task
+                        .executing_node_id
+                        .or(shared_task.owner_node_id);
+
+                    // Update activity_at if Hive has it (for time-in-column tracking)
+                    if shared_task.activity_at.is_some() {
+                        existing.task.activity_at = shared_task.activity_at;
+                    }
+
+                    // Update has_in_progress_attempt based on Hive status
+                    existing.has_in_progress_attempt =
+                        existing.has_in_progress_attempt || hive_status == TaskStatus::InProgress;
+                }
+            } else {
+                // Task is new from Hive - add it
+                let is_in_progress = hive_status == TaskStatus::InProgress;
+
+                task_map.insert(
+                    shared_task.id,
+                    TaskWithAttemptStatus {
+                        task: Task {
+                            id: shared_task.id,
+                            project_id: project.id, // Map to local project ID
+                            title: shared_task.title,
+                            description: shared_task.description,
+                            status: hive_status,
+                            shared_task_id: Some(shared_task.id),
+                            remote_version: shared_task.version,
+                            parent_task_id: None,
+                            archived_at: shared_task.archived_at,
+                            created_at: shared_task.created_at,
+                            updated_at: shared_task.updated_at,
+                            remote_assignee_user_id: shared_task.assignee_user_id,
+                            remote_assignee_name: shared_task.assignee_name,
+                            remote_assignee_username: shared_task.assignee_username,
+                            remote_last_synced_at: shared_task.shared_at,
+                            remote_stream_node_id: shared_task
+                                .executing_node_id
+                                .or(shared_task.owner_node_id),
+                            remote_stream_url: None,
+                            activity_at: shared_task.activity_at,
+                        },
+                        has_in_progress_attempt: is_in_progress,
+                        has_merged_attempt: false,
+                        last_attempt_failed: false,
+                        executor: String::new(),
+                        latest_execution_started_at: None,
+                        latest_execution_completed_at: None,
                     },
-                    has_in_progress_attempt: is_in_progress,
-                    has_merged_attempt: false,
-                    last_attempt_failed: false,
-                    executor: String::new(),
-                    latest_execution_started_at: None,
-                    latest_execution_completed_at: None,
-                },
-            );
+                );
+            }
         }
 
         // Convert back to Vec and sort by activity_at (with created_at fallback) DESC
