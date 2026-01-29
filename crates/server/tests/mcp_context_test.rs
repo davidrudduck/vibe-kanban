@@ -61,6 +61,7 @@ async fn test_env_var_setup_and_reading() {
         executor: BaseCodingAgent::ClaudeCode,
         base_branch: "main".to_string(),
         branch: "feature/test".to_string(),
+        origin_node_id: None,
     };
     let attempt = TaskAttempt::create(&pool, &create_attempt, attempt_id, task.id)
         .await
@@ -149,6 +150,7 @@ async fn test_env_var_priority_pattern() {
         executor: BaseCodingAgent::ClaudeCode,
         base_branch: "main".to_string(),
         branch: "feature/test".to_string(),
+        origin_node_id: None,
     };
     let _attempt = TaskAttempt::create(&pool, &create_attempt, attempt_id, task.id)
         .await
@@ -271,6 +273,7 @@ async fn test_multiple_attempts_same_project() {
         executor: BaseCodingAgent::ClaudeCode,
         base_branch: "main".to_string(),
         branch: "feature/subtask1".to_string(),
+        origin_node_id: None,
     };
     let attempt1 = TaskAttempt::create(&pool, &create_attempt1, attempt1_id, subtask1.id)
         .await
@@ -281,6 +284,7 @@ async fn test_multiple_attempts_same_project() {
         executor: BaseCodingAgent::ClaudeCode,
         base_branch: "main".to_string(),
         branch: "feature/subtask2".to_string(),
+        origin_node_id: None,
     };
     let attempt2 = TaskAttempt::create(&pool, &create_attempt2, attempt2_id, subtask2.id)
         .await
