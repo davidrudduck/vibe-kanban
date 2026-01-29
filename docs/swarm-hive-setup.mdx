@@ -60,7 +60,9 @@ POSTGRES_USER=postgres
 POSTGRES_PASSWORD=your_secure_password
 
 # Network - Public URL for OAuth callbacks
-SERVER_PUBLIC_BASE_URL=http://your-server:3000
+SERVER_PUBLIC_BASE_URL=http://your-server:9000
+# Server port (must match the port in SERVER_PUBLIC_BASE_URL)
+SERVER_PORT=9000
 
 # JWT Secret (base64-encoded, minimum 32 bytes)
 # Generate with: openssl rand -base64 32
@@ -106,11 +108,11 @@ The hive requires user authentication via OAuth (GitHub or Google). Since there'
 
 ```bash
 # 1. Start the OAuth handoff
-curl -X POST http://localhost:3000/v1/oauth/web/init \
+curl -X POST http://localhost:9000/v1/oauth/web/init \
   -H "Content-Type: application/json" \
   -d '{
     "provider": "github",
-    "return_to": "http://localhost:3000/oauth-callback",
+    "return_to": "http://localhost:9000/oauth-callback",
     "app_challenge": "your-random-challenge-string"
   }'
 
@@ -122,7 +124,7 @@ After completing OAuth in the browser, you'll be redirected with an `app_code`. 
 
 ```bash
 # 2. Redeem the OAuth code for tokens
-curl -X POST http://localhost:3000/v1/oauth/web/redeem \
+curl -X POST http://localhost:9000/v1/oauth/web/redeem \
   -H "Content-Type: application/json" \
   -d '{
     "handoff_id": "handoff-id-from-step-1",
@@ -140,7 +142,7 @@ Save the `access_token` - you'll use it for all subsequent API calls.
 Use the `/v1/me` endpoint to see your user info and organizations in one call:
 
 ```bash
-curl http://localhost:3000/v1/me \
+curl http://localhost:9000/v1/me \
   -H "Authorization: Bearer <your-access-token>"
 ```
 
@@ -175,7 +177,7 @@ A personal organization is automatically created when you first sign in. Use its
 If you need a separate organization for team nodes:
 
 ```bash
-curl -X POST http://localhost:3000/v1/organizations \
+curl -X POST http://localhost:9000/v1/organizations \
   -H "Authorization: Bearer <your-access-token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -189,7 +191,7 @@ curl -X POST http://localhost:3000/v1/organizations \
 Use the `organization_id` from `/v1/me` to create an API key:
 
 ```bash
-curl -X POST http://localhost:3000/v1/nodes/api-keys \
+curl -X POST http://localhost:9000/v1/nodes/api-keys \
   -H "Authorization: Bearer <your-access-token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -479,6 +481,7 @@ The log viewer shows connection status:
 2. Verify `VK_NODE_API_KEY` is valid and not revoked
 3. Check node logs for connection errors
 4. Ensure the API key belongs to the correct organization
+5. Verify `SERVER_PORT` in `.env.remote` matches the port in `VK_HIVE_URL`
 
 ### Node Shows as Offline
 
@@ -574,7 +577,8 @@ POSTGRES_USER=postgres
 POSTGRES_PASSWORD=your_secure_password
 
 # Network
-SERVER_PUBLIC_BASE_URL=http://localhost:3000
+SERVER_PUBLIC_BASE_URL=http://localhost:9000
+SERVER_PORT=9000
 
 # Security - generate with: openssl rand -base64 32
 VIBEKANBAN_REMOTE_JWT_SECRET=your_base64_encoded_secret_here
@@ -596,7 +600,7 @@ EOF
 cd crates/remote && docker compose --env-file .env.remote up --build -d
 
 # Wait for hive to start, then:
-# 1. Access http://localhost:3000 and sign in via OAuth
+# 1. Access http://localhost:9000 and sign in via OAuth
 # 2. Create an organization
 # 3. Generate an API key for your node
 ```
@@ -631,7 +635,7 @@ cd crates/remote && cargo run &
 
 ```bash
 # Node configuration (same for Docker or local)
-export VK_HIVE_URL=ws://localhost:8081  # or ws://localhost:3000 for Docker
+export VK_HIVE_URL=ws://localhost:8081  # or ws://localhost:9000 for Docker
 export VK_NODE_API_KEY="your-api-key-here"  # From hive setup above
 export VK_NODE_NAME="Development Node"
 export VK_NODE_PUBLIC_URL=http://localhost:3000
