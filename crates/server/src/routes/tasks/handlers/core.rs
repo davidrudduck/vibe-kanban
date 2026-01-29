@@ -129,7 +129,7 @@ pub async fn get_tasks(
                 // Only update if Hive has a newer or equal version to avoid stale data
                 if shared_task.version >= existing.task.remote_version {
                     // Update status from Hive (this is the core fix - Hive status takes precedence)
-                    existing.task.status = hive_status;
+                    existing.task.status = hive_status.clone();
 
                     // Update assignee info from Hive
                     existing.task.remote_assignee_user_id = shared_task.assignee_user_id;
