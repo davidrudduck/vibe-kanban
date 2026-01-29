@@ -108,11 +108,11 @@ The hive requires user authentication via OAuth (GitHub or Google). Since there'
 
 ```bash
 # 1. Start the OAuth handoff
-curl -X POST http://localhost:3000/v1/oauth/web/init \
+curl -X POST http://localhost:9000/v1/oauth/web/init \
   -H "Content-Type: application/json" \
   -d '{
     "provider": "github",
-    "return_to": "http://localhost:3000/oauth-callback",
+    "return_to": "http://localhost:9000/oauth-callback",
     "app_challenge": "your-random-challenge-string"
   }'
 
@@ -124,7 +124,7 @@ After completing OAuth in the browser, you'll be redirected with an `app_code`. 
 
 ```bash
 # 2. Redeem the OAuth code for tokens
-curl -X POST http://localhost:3000/v1/oauth/web/redeem \
+curl -X POST http://localhost:9000/v1/oauth/web/redeem \
   -H "Content-Type: application/json" \
   -d '{
     "handoff_id": "handoff-id-from-step-1",
@@ -142,7 +142,7 @@ Save the `access_token` - you'll use it for all subsequent API calls.
 Use the `/v1/me` endpoint to see your user info and organizations in one call:
 
 ```bash
-curl http://localhost:3000/v1/me \
+curl http://localhost:9000/v1/me \
   -H "Authorization: Bearer <your-access-token>"
 ```
 
@@ -177,7 +177,7 @@ A personal organization is automatically created when you first sign in. Use its
 If you need a separate organization for team nodes:
 
 ```bash
-curl -X POST http://localhost:3000/v1/organizations \
+curl -X POST http://localhost:9000/v1/organizations \
   -H "Authorization: Bearer <your-access-token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -191,7 +191,7 @@ curl -X POST http://localhost:3000/v1/organizations \
 Use the `organization_id` from `/v1/me` to create an API key:
 
 ```bash
-curl -X POST http://localhost:3000/v1/nodes/api-keys \
+curl -X POST http://localhost:9000/v1/nodes/api-keys \
   -H "Authorization: Bearer <your-access-token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -600,7 +600,7 @@ EOF
 cd crates/remote && docker compose --env-file .env.remote up --build -d
 
 # Wait for hive to start, then:
-# 1. Access http://localhost:3000 and sign in via OAuth
+# 1. Access http://localhost:9000 and sign in via OAuth
 # 2. Create an organization
 # 3. Generate an API key for your node
 ```
@@ -635,7 +635,7 @@ cd crates/remote && cargo run &
 
 ```bash
 # Node configuration (same for Docker or local)
-export VK_HIVE_URL=ws://localhost:8081  # or ws://localhost:3000 for Docker
+export VK_HIVE_URL=ws://localhost:8081  # or ws://localhost:9000 for Docker
 export VK_NODE_API_KEY="your-api-key-here"  # From hive setup above
 export VK_NODE_NAME="Development Node"
 export VK_NODE_PUBLIC_URL=http://localhost:3000
