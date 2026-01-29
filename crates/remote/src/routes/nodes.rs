@@ -572,10 +572,11 @@ pub struct GetNodeStatusesResponse {
 ///
 /// Used by nodes to sync source_node_status for remote projects.
 /// Accepts a comma-separated list of node IDs and returns their current statuses.
-#[instrument(name = "nodes.get_statuses_sync", skip(state, _node_ctx, query))]
+/// Results are scoped to the caller's organization for security.
+#[instrument(name = "nodes.get_statuses_sync", skip(state, node_ctx, query))]
 pub async fn get_node_statuses_sync(
     State(state): State<AppState>,
-    Extension(_node_ctx): Extension<NodeAuthContext>,
+    Extension(node_ctx): Extension<NodeAuthContext>,
     Query(query): Query<GetNodeStatusesQuery>,
 ) -> Response {
     use crate::db::nodes::NodeRepository;
@@ -596,7 +597,8 @@ pub async fn get_node_statuses_sync(
     }
 
     let repo = NodeRepository::new(state.pool());
-    match repo.get_statuses_by_ids(&node_ids).await {
+    // Scope query to caller's organization to prevent cross-org access
+    match repo.get_statuses_by_ids(node_ctx.organization_id, &node_ids).await {
         Ok(statuses) => {
             let nodes: Vec<NodeStatusInfo> = statuses
                 .into_iter()
