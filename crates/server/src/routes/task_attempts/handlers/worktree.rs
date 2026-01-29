@@ -243,10 +243,19 @@ pub async fn get_worktree_path(
 /// Deletes the worktree filesystem and marks the attempt as cleaned up in the database.
 /// Returns 409 Conflict if there are running processes.
 /// Returns 200 OK if already cleaned up (idempotent).
+/// Returns 400 Bad Request for remote attempts (worktree cleanup is local-only).
 pub async fn cleanup_worktree(
     Extension(task_attempt): Extension<TaskAttempt>,
+    remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    // Worktree cleanup is a local-only operation - reject remote attempts
+    if remote_ctx.is_some() {
+        return Err(ApiError::BadRequest(
+            "Cannot cleanup worktree for remote task attempts".to_string(),
+        ));
+    }
+
     let pool = &deployment.db().pool;
 
     // Already cleaned up - return success (idempotent)

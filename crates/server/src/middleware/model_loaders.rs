@@ -115,6 +115,14 @@ pub struct RemoteTaskNeeded {
     pub task_id: Uuid,
 }
 
+/// Marker extension indicating a task was fetched from Hive (not local).
+/// Handlers can check for this to determine if they should return fallback values.
+#[derive(Debug, Clone)]
+pub struct RemoteTaskContext {
+    pub shared_task_id: Uuid,
+    pub origin_node_id: Option<Uuid>,
+}
+
 pub async fn load_project_middleware(
     State(deployment): State<DeploymentImpl>,
     Path(project_id): Path<Uuid>,
@@ -367,35 +375,129 @@ pub async fn load_task_middleware(
         return Ok(next.run(request).await);
     }
 
-    // Task not found locally - allow Hive fallback for GET requests to:
-    // - Base task route: GET /api/tasks/{id}
-    // - Labels sub-route: GET /api/tasks/{id}/labels
-    //
-    // Other sub-routes like /children, /variables require a local task to operate on.
-    let path = request
-        .extensions()
-        .get::<OriginalUri>()
-        .map(|uri| uri.path())
-        .unwrap_or_else(|| request.uri().path())
-        .trim_end_matches('/');
-    let task_id_str = task_id.to_string();
-    let is_base_task_route =
-        path.ends_with(&format!("/tasks/{}", task_id_str)) || path.ends_with(&task_id_str);
-    let is_labels_route = path.ends_with("/labels");
-
-    if request.method() == Method::GET && (is_base_task_route || is_labels_route) {
+    // Task not found locally - try Hive fallback for GET requests
+    if request.method() == Method::GET {
         tracing::debug!(
             task_id = %task_id,
-            path = %path,
-            "Task not found locally, signaling for Hive fallback"
+            method = %request.method(),
+            "Task not found locally, attempting Hive fallback"
         );
+
+        // Try to get client for Hive access
+        let client = deployment.node_auth_client().cloned().or_else(|| {
+            match deployment.remote_client() {
+                Ok(client) => Some(client),
+                Err(e) => {
+                    tracing::warn!(error = %e, "Failed to build Hive client for task fallback");
+                    None
+                }
+            }
+        });
+
+        if let Some(client) = client {
+            match client.get_shared_task(task_id).await {
+                Ok(shared_task) => {
+                    tracing::debug!(
+                        task_id = %task_id,
+                        shared_task_id = %shared_task.id,
+                        "Fetched task from Hive"
+                    );
+
+                    // Get swarm_project_id, falling back to project_id
+                    let swarm_project_id = shared_task.swarm_project_id.or(shared_task.project_id);
+
+                    // Try to find a local project that maps to this Hive project
+                    let project_id = if let Some(hive_project_id) = swarm_project_id {
+                        match Project::find_by_remote_project_id(&deployment.db().pool, hive_project_id).await {
+                            Ok(Some(local_project)) => local_project.id,
+                            Ok(None) => hive_project_id,
+                            Err(e) => {
+                                tracing::warn!(
+                                    hive_project_id = %hive_project_id,
+                                    error = %e,
+                                    "Failed to map Hive project ID; falling back to Hive ID"
+                                );
+                                hive_project_id
+                            }
+                        }
+                    } else {
+                        // No project reference - use task_id as placeholder (shouldn't happen)
+                        task_id
+                    };
+
+                    // Convert SharedTask status to local TaskStatus
+                    use db::models::task::TaskStatus;
+                    let status = match shared_task.status {
+                        remote::db::tasks::TaskStatus::Todo => TaskStatus::Todo,
+                        remote::db::tasks::TaskStatus::InProgress => TaskStatus::InProgress,
+                        remote::db::tasks::TaskStatus::InReview => TaskStatus::InReview,
+                        remote::db::tasks::TaskStatus::Done => TaskStatus::Done,
+                        remote::db::tasks::TaskStatus::Cancelled => TaskStatus::Cancelled,
+                    };
+
+                    // Convert SharedTask to local Task format
+                    let hive_task = Task {
+                        id: shared_task.id,
+                        project_id,
+                        title: shared_task.title,
+                        description: shared_task.description,
+                        status,
+                        shared_task_id: Some(shared_task.id),
+                        remote_version: shared_task.version,
+                        parent_task_id: None,
+                        archived_at: shared_task.archived_at,
+                        created_at: shared_task.created_at,
+                        updated_at: shared_task.updated_at,
+                        remote_assignee_user_id: shared_task.assignee_user_id,
+                        remote_assignee_name: None,
+                        remote_assignee_username: None,
+                        remote_last_synced_at: shared_task.shared_at,
+                        remote_stream_node_id: shared_task.executing_node_id.or(shared_task.owner_node_id),
+                        remote_stream_url: None,
+                        activity_at: None,
+                    };
+
+                    // Inject RemoteTaskContext so handlers know this is a remote task
+                    let remote_ctx = RemoteTaskContext {
+                        shared_task_id: shared_task.id,
+                        origin_node_id: shared_task.source_node_id,
+                    };
+
+                    request.extensions_mut().insert(hive_task);
+                    request.extensions_mut().insert(remote_ctx);
+                    return Ok(next.run(request).await);
+                }
+                Err(e) => {
+                    if e.is_not_found() {
+                        tracing::debug!(
+                            task_id = %task_id,
+                            "Task not found on Hive either"
+                        );
+                    } else {
+                        tracing::warn!(
+                            task_id = %task_id,
+                            error = %e,
+                            "Failed to fetch task from Hive"
+                        );
+                    }
+                }
+            }
+        }
+
+        // Fall back to signaling handler (for handlers that can handle RemoteTaskNeeded)
         request
             .extensions_mut()
             .insert(RemoteTaskNeeded { task_id });
         return Ok(next.run(request).await);
     }
 
-    // Non-GET request or unsupported sub-route with missing task - return 404
+    // Non-GET request with missing task - return 404
+    let path = request
+        .extensions()
+        .get::<OriginalUri>()
+        .map(|uri| uri.path())
+        .unwrap_or_else(|| request.uri().path())
+        .trim_end_matches('/');
     tracing::debug!(
         task_id = %task_id,
         method = %request.method(),
@@ -436,11 +538,84 @@ async fn load_task_attempt_impl(
     let attempt = match TaskAttempt::find_by_id(&deployment.db().pool, task_attempt_id).await {
         Ok(Some(a)) => Some(a),
         Ok(None) => {
-            // Attempt not found locally - signal handler to try Hive fallback
+            // Attempt not found locally - try Hive fallback for GET requests
             tracing::debug!(
                 attempt_id = %task_attempt_id,
-                "TaskAttempt not found locally, signaling for Hive fallback"
+                method = %request.method(),
+                "TaskAttempt not found locally, attempting Hive fallback"
             );
+
+            // Only fetch from Hive for GET requests (read operations)
+            if request.method() == Method::GET {
+                // Try to get client for Hive access
+                let client = deployment.node_auth_client().cloned().or_else(|| {
+                    match deployment.remote_client() {
+                        Ok(client) => Some(client),
+                        Err(e) => {
+                            tracing::warn!(error = %e, "Failed to build Hive client for attempt fallback");
+                            None
+                        }
+                    }
+                });
+
+                if let Some(client) = client {
+                    match client.get_swarm_attempt(task_attempt_id).await {
+                        Ok(response) => {
+                            tracing::debug!(
+                                attempt_id = %task_attempt_id,
+                                shared_task_id = %response.attempt.shared_task_id,
+                                node_id = %response.attempt.node_id,
+                                "Fetched attempt from Hive"
+                            );
+
+                            // Convert NodeTaskAttempt to local TaskAttempt
+                            let hive_attempt = TaskAttempt {
+                                id: response.attempt.id,
+                                task_id: response.attempt.shared_task_id, // Use shared_task_id as task reference
+                                container_ref: response.attempt.container_ref,
+                                branch: response.attempt.branch,
+                                target_branch: response.attempt.target_branch,
+                                executor: response.attempt.executor,
+                                worktree_deleted: response.attempt.worktree_deleted,
+                                setup_completed_at: response.attempt.setup_completed_at,
+                                created_at: response.attempt.created_at,
+                                updated_at: response.attempt.updated_at,
+                                hive_synced_at: Some(response.attempt.updated_at),
+                                hive_assignment_id: response.attempt.assignment_id,
+                                origin_node_id: Some(response.attempt.node_id),
+                            };
+
+                            // Inject RemoteTaskAttemptContext so handlers know this is a remote attempt
+                            let remote_ctx = RemoteTaskAttemptContext {
+                                node_id: response.attempt.node_id,
+                                node_url: None, // We don't have node URL from Hive response
+                                node_status: None,
+                                task_id: response.attempt.shared_task_id,
+                            };
+
+                            request.extensions_mut().insert(hive_attempt);
+                            request.extensions_mut().insert(remote_ctx);
+                            return Ok(next.run(request).await);
+                        }
+                        Err(e) => {
+                            if e.is_not_found() {
+                                tracing::debug!(
+                                    attempt_id = %task_attempt_id,
+                                    "Attempt not found on Hive either"
+                                );
+                            } else {
+                                tracing::warn!(
+                                    attempt_id = %task_attempt_id,
+                                    error = %e,
+                                    "Failed to fetch attempt from Hive"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Fall back to signaling handler
             request.extensions_mut().insert(RemoteAttemptNeeded {
                 attempt_id: task_attempt_id,
             });
