@@ -16,7 +16,7 @@ pub struct User {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct UserData {
     pub id: Uuid,
     pub first_name: Option<String>,
@@ -147,4 +147,35 @@ pub async fn fetch_user(tx: &mut Tx<'_>, user_id: Uuid) -> Result<Option<UserDat
             username: row.username,
         })
     })
+}
+
+/// Fetch user data for multiple users by their IDs.
+///
+/// Used for batch fetching assignee info when listing tasks.
+/// Users not found are simply omitted from the result.
+pub async fn fetch_users_by_ids(
+    pool: &PgPool,
+    user_ids: &[Uuid],
+) -> Result<Vec<UserData>, IdentityError> {
+    if user_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let rows: Vec<UserData> = query_as(
+        r#"
+        SELECT
+            id,
+            first_name,
+            last_name,
+            username
+        FROM users
+        WHERE id = ANY($1)
+        "#,
+    )
+    .bind(user_ids)
+    .fetch_all(pool)
+    .await
+    .map_err(IdentityError::from)?;
+
+    Ok(rows)
 }
