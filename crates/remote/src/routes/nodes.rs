@@ -1434,6 +1434,15 @@ pub async fn list_task_attempts_by_shared_task(
     }
 }
 
+/// Node information for cross-node proxy routing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeInfo {
+    pub id: Uuid,
+    pub name: String,
+    pub public_url: Option<String>,
+    pub status: String,
+}
+
 /// Response for getting a single node task attempt
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeTaskAttemptResponse {
@@ -1441,6 +1450,9 @@ pub struct NodeTaskAttemptResponse {
     pub executions: Vec<NodeExecutionProcess>,
     /// Whether all executions are in a terminal state (complete/failed/killed)
     pub is_complete: bool,
+    /// Node information for cross-node proxy routing
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_info: Option<NodeInfo>,
 }
 
 /// Get a single task attempt by ID.
@@ -1555,10 +1567,31 @@ pub async fn get_node_task_attempt(
         .iter()
         .all(|e| matches!(e.status.as_str(), "completed" | "failed" | "killed"));
 
+    // Fetch node info for cross-node proxy routing
+    use crate::db::nodes::NodeRepository;
+    let node_repo = NodeRepository::new(pool);
+    let node_info = match node_repo.find_by_id(attempt.node_id).await {
+        Ok(Some(node)) => Some(NodeInfo {
+            id: node.id,
+            name: node.name,
+            public_url: node.public_url,
+            status: node.status.to_string(),
+        }),
+        Ok(None) => {
+            tracing::warn!(node_id = %attempt.node_id, "Node not found for attempt");
+            None
+        }
+        Err(e) => {
+            tracing::warn!(?e, node_id = %attempt.node_id, "Failed to fetch node info");
+            None
+        }
+    };
+
     let response = NodeTaskAttemptResponse {
         attempt,
         executions,
         is_complete,
+        node_info,
     };
 
     (StatusCode::OK, Json(response)).into_response()
@@ -1896,10 +1929,31 @@ pub async fn get_attempt_sync(
         .iter()
         .all(|e| matches!(e.status.as_str(), "completed" | "failed" | "killed"));
 
+    // Fetch node info for cross-node proxy routing
+    use crate::db::nodes::NodeRepository;
+    let node_repo = NodeRepository::new(pool);
+    let node_info = match node_repo.find_by_id(attempt.node_id).await {
+        Ok(Some(node)) => Some(NodeInfo {
+            id: node.id,
+            name: node.name,
+            public_url: node.public_url,
+            status: node.status.to_string(),
+        }),
+        Ok(None) => {
+            tracing::warn!(node_id = %attempt.node_id, "Node not found for attempt");
+            None
+        }
+        Err(e) => {
+            tracing::warn!(?e, node_id = %attempt.node_id, "Failed to fetch node info");
+            None
+        }
+    };
+
     let response = NodeTaskAttemptResponse {
         attempt,
         executions,
         is_complete,
+        node_info,
     };
 
     (StatusCode::OK, Json(response)).into_response()

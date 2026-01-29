@@ -170,10 +170,21 @@ pub async fn get_project_sync_health(
 }
 
 pub async fn get_project_branches(
-    Extension(project): Extension<Project>,
+    local_project: Option<Extension<Project>>,
     remote_ctx: Option<Extension<RemoteProjectContext>>,
+    swarm_needed: Option<Extension<SwarmProjectNeeded>>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<Vec<GitBranch>>>, ApiError> {
+    // If no local project and this is a swarm-only project, return empty branches
+    // (swarm-only projects don't have local git repos on this node)
+    let Some(Extension(project)) = local_project else {
+        if swarm_needed.is_some() {
+            tracing::debug!("Swarm-only project, returning empty branches list");
+            return Ok(ResponseJson(ApiResponse::success(vec![])));
+        }
+        return Err(ApiError::NotFound("Project not found".to_string()));
+    };
+
     // LOCAL-FIRST: If we have a valid local git repo, use it directly
     // This handles the case where a project exists on multiple nodes and this node has a local copy
     if !project.git_repo_path.as_os_str().is_empty()

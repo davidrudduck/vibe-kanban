@@ -180,10 +180,15 @@ async fn load_project_impl(
     // Step 3: If still not found, check if we should allow Hive fallback
     let mut request = request;
     let Some(mut project) = project else {
-        // Inject SwarmProjectNeeded ONLY for GET requests to the base project route
-        // (GET /api/projects/{id}). Sub-routes like /branches, /files, /sync-health,
-        // /github/counts require a local project to operate on - they can't work with
-        // a project that only exists on the Hive, so they should return 404.
+        // Inject SwarmProjectNeeded for GET requests to routes that support swarm-only projects.
+        // These routes have handlers that can gracefully handle the absence of a local project.
+        //
+        // Supported routes:
+        // - Base project route (GET /api/projects/{id}) - returns swarm project details
+        // - Branches route (GET /api/projects/{id}/branches) - returns empty list for swarm-only
+        //
+        // Sub-routes like /files, /sync-health, /github/counts require a local project
+        // to operate on - they can't work with a project that only exists on the Hive.
         //
         // Note: We use OriginalUri from extensions because nested routes strip the prefix
         // from request.uri().path(). For example, /api/projects/{id} becomes just "/" after
@@ -196,12 +201,12 @@ async fn load_project_impl(
             .trim_end_matches('/');
         let is_get_request = request.method() == Method::GET;
         let project_id_str = project_id.to_string();
-        // Only match the base project route (exactly /api/projects/{id}), not sub-routes.
-        // This prevents 500 errors from handlers that unconditionally expect Extension<Project>.
+        // Match base project route (exactly /api/projects/{id}) or branches route
         let is_base_project_route = path.ends_with(&format!("/projects/{}", project_id_str))
             || path.ends_with(&project_id_str);
+        let is_branches_route = path.ends_with("/branches");
 
-        if is_get_request && is_base_project_route {
+        if is_get_request && (is_base_project_route || is_branches_route) {
             tracing::debug!(project_id = %project_id, path = %path, "Project not found locally, signaling for Hive fallback");
             request
                 .extensions_mut()
@@ -449,12 +454,12 @@ pub async fn load_task_middleware(
                         created_at: shared_task.created_at,
                         updated_at: shared_task.updated_at,
                         remote_assignee_user_id: shared_task.assignee_user_id,
-                        remote_assignee_name: None,
-                        remote_assignee_username: None,
+                        remote_assignee_name: shared_task.assignee_name,
+                        remote_assignee_username: shared_task.assignee_username,
                         remote_last_synced_at: shared_task.shared_at,
                         remote_stream_node_id: shared_task.executing_node_id.or(shared_task.owner_node_id),
                         remote_stream_url: None,
-                        activity_at: None,
+                        activity_at: shared_task.activity_at,
                     };
 
                     // Inject RemoteTaskContext so handlers know this is a remote task
@@ -586,10 +591,11 @@ async fn load_task_attempt_impl(
                             };
 
                             // Inject RemoteTaskAttemptContext so handlers know this is a remote attempt
+                            // Use node_info from Hive response for proxy routing
                             let remote_ctx = RemoteTaskAttemptContext {
                                 node_id: response.attempt.node_id,
-                                node_url: None, // We don't have node URL from Hive response
-                                node_status: None,
+                                node_url: response.node_info.as_ref().and_then(|n| n.public_url.clone()),
+                                node_status: response.node_info.as_ref().map(|n| n.status.clone()),
                                 task_id: response.attempt.shared_task_id,
                             };
 
