@@ -1,3 +1,5 @@
+use std::fmt;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -19,6 +21,18 @@ pub enum NodeStatus {
     Busy,
     /// No new work, finishing current
     Draining,
+}
+
+impl fmt::Display for NodeStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NodeStatus::Pending => write!(f, "pending"),
+            NodeStatus::Online => write!(f, "online"),
+            NodeStatus::Offline => write!(f, "offline"),
+            NodeStatus::Busy => write!(f, "busy"),
+            NodeStatus::Draining => write!(f, "draining"),
+        }
+    }
 }
 
 /// Node capabilities describing what a node can execute

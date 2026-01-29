@@ -301,6 +301,49 @@ impl Project {
         Ok(())
     }
 
+    /// Batch update source_node_status and source_node_public_url for all remote projects
+    /// from a given source node.
+    ///
+    /// This is used to sync node status from the Hive after connection, ensuring
+    /// that the local DB reflects the actual status of remote nodes.
+    pub async fn update_node_status_by_source_node_id(
+        pool: &SqlitePool,
+        source_node_id: Uuid,
+        status: &str,
+        public_url: Option<&str>,
+    ) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query(
+            r#"UPDATE projects
+               SET source_node_status = ?2,
+                   source_node_public_url = ?3,
+                   updated_at = datetime('now', 'subsec')
+               WHERE source_node_id = ?1 AND is_remote = 1"#,
+        )
+        .bind(source_node_id)
+        .bind(status)
+        .bind(public_url)
+        .execute(pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Get all unique source_node_ids from remote projects.
+    ///
+    /// Used to determine which node statuses need to be synced from the Hive.
+    pub async fn get_remote_source_node_ids(
+        pool: &SqlitePool,
+    ) -> Result<Vec<Uuid>, sqlx::Error> {
+        let rows: Vec<(Uuid,)> = sqlx::query_as(
+            r#"SELECT DISTINCT source_node_id
+               FROM projects
+               WHERE is_remote = 1 AND source_node_id IS NOT NULL"#,
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
     /// Update the remote_project_id for an existing remote project.
     ///
     /// This is used when a remote project was synced before the remote_project_id

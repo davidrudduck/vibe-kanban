@@ -282,4 +282,36 @@ impl<'a> NodeRepository<'a> {
 
         Ok(())
     }
+
+    /// Get statuses for multiple nodes by their IDs.
+    ///
+    /// Returns a map of node_id -> (status, public_url) for all found nodes.
+    /// Nodes that don't exist are simply omitted from the result.
+    pub async fn get_statuses_by_ids(
+        &self,
+        node_ids: &[Uuid],
+    ) -> Result<Vec<(Uuid, NodeStatus, Option<String>)>, NodeDbError> {
+        if node_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Build a dynamic query with IN clause
+        let placeholders: Vec<String> = node_ids
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("${}", i + 1))
+            .collect();
+        let query = format!(
+            "SELECT id, status, public_url FROM nodes WHERE id IN ({})",
+            placeholders.join(", ")
+        );
+
+        let mut query_builder = sqlx::query_as::<_, (Uuid, NodeStatus, Option<String>)>(&query);
+        for id in node_ids {
+            query_builder = query_builder.bind(id);
+        }
+
+        let rows = query_builder.fetch_all(self.pool).await?;
+        Ok(rows)
+    }
 }
