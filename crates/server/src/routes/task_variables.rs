@@ -56,8 +56,14 @@ fn validate_var_name(name: &str) -> Result<(), ApiError> {
 /// Get all variables defined directly on a task (not inherited)
 pub async fn get_task_variables(
     Extension(task): Extension<Task>,
+    remote_ctx: Option<Extension<crate::middleware::RemoteTaskContext>>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<Vec<TaskVariable>>>, ApiError> {
+    // Remote tasks don't have local variables - return empty
+    if remote_ctx.is_some() {
+        return Ok(ResponseJson(ApiResponse::success(vec![])));
+    }
+
     let variables = TaskVariable::find_by_task_id(&deployment.db().pool, task.id).await?;
     Ok(ResponseJson(ApiResponse::success(variables)))
 }
@@ -65,8 +71,14 @@ pub async fn get_task_variables(
 /// Get all resolved variables for a task including inherited ones from parent chain
 pub async fn get_resolved_variables(
     Extension(task): Extension<Task>,
+    remote_ctx: Option<Extension<crate::middleware::RemoteTaskContext>>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<Vec<ResolvedVariable>>>, ApiError> {
+    // Remote tasks don't have local variables - return empty
+    if remote_ctx.is_some() {
+        return Ok(ResponseJson(ApiResponse::success(vec![])));
+    }
+
     let variables = TaskVariable::find_inherited_with_system(&deployment.db().pool, task.id).await?;
     Ok(ResponseJson(ApiResponse::success(variables)))
 }
