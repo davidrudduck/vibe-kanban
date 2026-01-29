@@ -1664,12 +1664,12 @@ pub struct ListSwarmProjectTasksResponse {
 /// Includes denormalized assignee metadata (name, username) for cross-node display.
 #[instrument(
     name = "nodes.list_swarm_project_tasks_sync",
-    skip(state, _node_ctx),
+    skip(state, node_ctx),
     fields(project_id = %project_id)
 )]
 pub async fn list_swarm_project_tasks_sync(
     State(state): State<AppState>,
-    Extension(_node_ctx): Extension<NodeAuthContext>,
+    Extension(node_ctx): Extension<NodeAuthContext>,
     Path(project_id): Path<Uuid>,
 ) -> Response {
     use crate::db::tasks::SharedTaskRepository;
@@ -1678,10 +1678,19 @@ pub async fn list_swarm_project_tasks_sync(
 
     let pool = state.pool();
 
-    // Verify project exists
-    match SwarmProjectRepository::exists(pool, project_id).await {
-        Ok(true) => {}
-        Ok(false) => {
+    // Verify project exists and belongs to caller's organization
+    match SwarmProjectRepository::find_by_id(pool, project_id).await {
+        Ok(Some(project)) => {
+            // Security: ensure caller can only access their own organization's projects
+            if project.organization_id != node_ctx.organization_id {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({ "error": "project not found" })),
+                )
+                    .into_response();
+            }
+        }
+        Ok(None) => {
             return (
                 StatusCode::NOT_FOUND,
                 Json(json!({ "error": "project not found" })),

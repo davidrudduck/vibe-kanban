@@ -706,16 +706,6 @@ impl<'a> SharedTaskRepository<'a> {
                     username: row.user_username.clone(),
                 });
 
-                // Build assignee display name from user data
-                let assignee_name = user.as_ref().and_then(|u| {
-                    match (&u.first_name, &u.last_name) {
-                        (Some(first), Some(last)) => Some(format!("{} {}", first, last)),
-                        (Some(first), None) => Some(first.clone()),
-                        (None, Some(last)) => Some(last.clone()),
-                        (None, None) => None,
-                    }
-                });
-
                 let task = SharedTask {
                     id: row.id,
                     organization_id: row.organization_id,
@@ -738,11 +728,13 @@ impl<'a> SharedTaskRepository<'a> {
                     archived_at: row.archived_at,
                     created_at: row.created_at,
                     updated_at: row.updated_at,
-                    // Denormalized metadata
-                    assignee_name,
-                    assignee_username: user.as_ref().and_then(|u| u.username.clone()),
-                    activity_at: Some(row.updated_at), // Use updated_at as activity proxy
-                };
+                    // Initialize metadata fields with defaults, then populate via helpers
+                    assignee_name: None,
+                    assignee_username: None,
+                    activity_at: None,
+                }
+                .with_assignee_info(user.as_ref())
+                .with_activity_at(Some(row.updated_at));
 
                 SharedTaskActivityPayload { task, user }
             })
