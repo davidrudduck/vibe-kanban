@@ -9,6 +9,7 @@ import { useTaskLabels } from '@/hooks/useTaskLabels';
 import { paths } from '@/lib/paths';
 import { TaskCardHeader } from './TaskCardHeader';
 import { useTranslation } from 'react-i18next';
+import { useProject } from '@/contexts/ProjectContext';
 import { cn } from '@/lib/utils';
 import { ArchiveToggleIcon } from './ArchiveToggleIcon';
 import { CompactLabelList } from './CompactLabelList';
@@ -74,6 +75,7 @@ export function TaskCard({
   const { t } = useTranslation('tasks');
   const navigate = useNavigateWithSearch();
   const isOrgAdmin = useIsOrgAdmin();
+  const { project } = useProject();
   const taskOptimisticContext = useTaskOptimistic();
 
   // Get optimistic archived callback from context or global registry
@@ -88,8 +90,8 @@ export function TaskCard({
   const ownerName =
     task.remote_assignee_name ?? task.remote_assignee_username ?? null;
 
-  // Get short node name from task (for swarm tasks, shows which node the task came from)
-  const shortNodeName = getShortNodeName(task.source_node_name);
+  // Get short node name from project
+  const shortNodeName = getShortNodeName(project?.source_node_name);
 
   const handleClick = useCallback(() => {
     onViewDetails(task);
