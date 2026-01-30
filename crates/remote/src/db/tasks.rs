@@ -189,6 +189,8 @@ pub struct UpsertTaskFromNodeData {
     pub owner_node_id: Option<Uuid>,
     /// Name of the owner node
     pub owner_name: Option<String>,
+    /// Assignee user ID (hive user ID)
+    pub assignee_user_id: Option<Uuid>,
 }
 
 #[derive(Debug, Error)]
@@ -558,6 +560,7 @@ impl<'a> SharedTaskRepository<'a> {
                 executing_node_id,
                 owner_node_id,
                 owner_name,
+                assignee_user_id,
                 source_task_id,
                 source_node_id,
                 title,
@@ -566,7 +569,7 @@ impl<'a> SharedTaskRepository<'a> {
                 version,
                 shared_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::task_status, $12, NOW())
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::task_status, $13, NOW())
             ON CONFLICT (source_node_id, source_task_id)
                 WHERE source_node_id IS NOT NULL AND source_task_id IS NOT NULL AND deleted_at IS NULL
             DO UPDATE SET
@@ -575,6 +578,7 @@ impl<'a> SharedTaskRepository<'a> {
                 status = EXCLUDED.status,
                 owner_node_id = EXCLUDED.owner_node_id,
                 owner_name = EXCLUDED.owner_name,
+                assignee_user_id = COALESCE(EXCLUDED.assignee_user_id, shared_tasks.assignee_user_id),
                 version = shared_tasks.version + 1,
                 updated_at = NOW()
             RETURNING id,
@@ -606,6 +610,7 @@ impl<'a> SharedTaskRepository<'a> {
         .bind(data.origin_node_id) // executing_node_id
         .bind(data.owner_node_id)
         .bind(&data.owner_name)
+        .bind(data.assignee_user_id)
         .bind(data.local_task_id) // source_task_id = local_task_id
         .bind(data.origin_node_id) // source_node_id = origin_node_id
         .bind(&data.title)

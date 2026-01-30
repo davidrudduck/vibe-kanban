@@ -504,6 +504,15 @@ pub struct TaskSyncMessage {
     /// These should be hive label IDs (from label.shared_label_id), not local IDs.
     #[serde(default)]
     pub label_ids: Vec<Uuid>,
+    /// Assignee user ID (hive user ID)
+    #[serde(default)]
+    pub assignee_user_id: Option<Uuid>,
+    /// Assignee display name (for cross-node display)
+    #[serde(default)]
+    pub assignee_name: Option<String>,
+    /// Assignee username (for badge display)
+    #[serde(default)]
+    pub assignee_username: Option<String>,
 }
 
 /// Response from Hive after processing a TaskSync message.

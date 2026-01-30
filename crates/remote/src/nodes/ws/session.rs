@@ -1681,6 +1681,7 @@ async fn handle_task_sync(
             version: task_sync.version,
             owner_node_id: task_sync.owner_node_id.or(Some(node_id)),
             owner_name: task_sync.owner_name.clone(),
+            assignee_user_id: task_sync.assignee_user_id,
         })
         .await
     {

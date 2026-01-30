@@ -277,6 +277,10 @@ impl HiveSyncService {
                 created_at: task.created_at,
                 updated_at: task.updated_at,
                 label_ids,
+                // Assignee fields from remote_assignee_* (synced from hive)
+                assignee_user_id: task.remote_assignee_user_id,
+                assignee_name: task.remote_assignee_name.clone(),
+                assignee_username: task.remote_assignee_username.clone(),
             };
 
             if let Err(e) = self.command_tx.send(NodeMessage::TaskSync(message)).await {
