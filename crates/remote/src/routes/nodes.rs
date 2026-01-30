@@ -1798,15 +1798,47 @@ pub async fn list_swarm_project_tasks_sync(
 /// Used by remote nodes to fetch attempts for swarm tasks via the Hive.
 #[instrument(
     name = "nodes.list_task_attempts_sync",
-    skip(state, _node_ctx),
+    skip(state, node_ctx),
     fields(shared_task_id = %shared_task_id)
 )]
 pub async fn list_task_attempts_sync(
     State(state): State<AppState>,
-    Extension(_node_ctx): Extension<NodeAuthContext>,
+    Extension(node_ctx): Extension<NodeAuthContext>,
     Path(shared_task_id): Path<Uuid>,
 ) -> Response {
+    use crate::db::tasks::SharedTaskRepository;
+
     let pool = state.pool();
+
+    // Validate that the task belongs to the same organization as the API key
+    let task_repo = SharedTaskRepository::new(pool);
+    match task_repo.find_by_id(shared_task_id).await {
+        Ok(Some(task)) => {
+            if task.organization_id != node_ctx.organization_id {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({ "error": "task not found" })),
+                )
+                    .into_response();
+            }
+        }
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "task not found" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!(?e, "failed to fetch task for org validation");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal server error" })),
+            )
+                .into_response();
+        }
+    }
+
     let service = NodeServiceImpl::new(pool.clone());
 
     match service
@@ -2062,20 +2094,37 @@ pub async fn get_attempt_logs_sync(
     };
 
     // Logs are stored by assignment_id, which may be linked to the attempt
+    // First try the direct assignment_id, then fall back to looking up by local_attempt_id
     let assignment_id = match attempt.assignment_id {
         Some(id) => id,
         None => {
-            // No assignment linked, return empty logs
-            return (
-                StatusCode::OK,
-                Json(GetAttemptLogsResponse {
-                    entries: vec![],
-                    next_cursor: None,
-                    has_more: false,
-                    total_count: Some(0),
-                }),
-            )
-                .into_response();
+            // Try to find assignment by looking up via local_attempt_id
+            use crate::db::task_assignments::TaskAssignmentRepository;
+            let assignment_repo = TaskAssignmentRepository::new(pool);
+            match assignment_repo.find_by_local_attempt_id(attempt_id).await {
+                Ok(Some(assignment)) => assignment.id,
+                Ok(None) => {
+                    // No assignment found, return empty logs
+                    return (
+                        StatusCode::OK,
+                        Json(GetAttemptLogsResponse {
+                            entries: vec![],
+                            next_cursor: None,
+                            has_more: false,
+                            total_count: Some(0),
+                        }),
+                    )
+                        .into_response();
+                }
+                Err(e) => {
+                    tracing::error!(?e, "failed to look up assignment by local_attempt_id");
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "error": "internal server error" })),
+                    )
+                        .into_response();
+                }
+            }
         }
     };
 

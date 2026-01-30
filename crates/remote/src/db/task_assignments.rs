@@ -161,6 +161,38 @@ impl<'a> TaskAssignmentRepository<'a> {
         Ok(assignment)
     }
 
+    /// Find an assignment by local_attempt_id.
+    /// Used to look up assignment when querying logs for an attempt.
+    pub async fn find_by_local_attempt_id(
+        &self,
+        local_attempt_id: Uuid,
+    ) -> Result<Option<NodeTaskAssignment>, TaskAssignmentError> {
+        let assignment = sqlx::query_as::<_, NodeTaskAssignment>(
+            r#"
+            SELECT
+                id,
+                task_id,
+                node_id,
+                node_project_id,
+                local_task_id,
+                local_attempt_id,
+                execution_status,
+                assigned_at,
+                started_at,
+                completed_at,
+                created_at
+            FROM node_task_assignments
+            WHERE local_attempt_id = $1
+            LIMIT 1
+            "#,
+        )
+        .bind(local_attempt_id)
+        .fetch_optional(self.pool)
+        .await?;
+
+        Ok(assignment)
+    }
+
     /// List all assignments for a node
     pub async fn list_by_node(
         &self,
