@@ -111,3 +111,4 @@ vks-progress.md
 # Playwright MCP screenshots and development artifacts
 .playwright-mcp/
 .mcp.json
+.omc/
