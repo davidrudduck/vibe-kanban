@@ -25,6 +25,22 @@ pub struct UpdateTemplate {
     pub content: Option<String>,
 }
 
+/// Unified template combining system, swarm, and local sources
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct UnifiedTemplate {
+    pub id: String,
+    pub name: String,
+    pub content: String,
+    pub description: Option<String>,
+    /// Source of the template: "system", "swarm", or "local"
+    pub source: String,
+    #[ts(type = "Date | null")]
+    pub created_at: Option<DateTime<Utc>>,
+    #[ts(type = "Date | null")]
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
 impl Template {
     pub async fn find_all(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
         sqlx::query_as!(
