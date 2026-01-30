@@ -574,6 +574,117 @@ impl Task {
         Ok(count)
     }
 
+    /// Find all synced tasks for a project that need force re-sync.
+    ///
+    /// Returns tasks that:
+    /// - Have a `shared_task_id` (already synced to Hive)
+    /// - Belong to the specified project
+    ///
+    /// This is used for force re-sync scenarios where we need to push updated
+    /// fields (labels, owner_node_id, assignee) that weren't synced before.
+    pub async fn find_synced_tasks_for_project(
+        pool: &SqlitePool,
+        project_id: Uuid,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as::<_, Self>(
+            r#"SELECT
+                t.id,
+                t.project_id,
+                t.title,
+                t.description,
+                t.status,
+                t.parent_task_id,
+                t.shared_task_id,
+                t.created_at,
+                t.updated_at,
+                t.remote_assignee_user_id,
+                t.remote_assignee_name,
+                t.remote_assignee_username,
+                t.remote_version,
+                t.remote_last_synced_at,
+                t.remote_stream_node_id,
+                t.remote_stream_url,
+                t.archived_at,
+                t.activity_at
+            FROM tasks t
+            WHERE t.project_id = ?
+              AND t.shared_task_id IS NOT NULL
+            ORDER BY t.created_at ASC"#,
+        )
+        .bind(project_id)
+        .fetch_all(pool)
+        .await
+    }
+
+    /// Mark all synced tasks in a project for re-sync.
+    ///
+    /// Sets `remote_last_synced_at = NULL` for all tasks with shared_task_id,
+    /// which triggers the sync service to resync them on the next cycle.
+    ///
+    /// Returns the number of tasks marked for resync.
+    pub async fn mark_for_resync_by_project(
+        pool: &SqlitePool,
+        project_id: Uuid,
+    ) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query(
+            r#"UPDATE tasks
+               SET remote_last_synced_at = NULL,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE project_id = ?
+                 AND shared_task_id IS NOT NULL"#,
+        )
+        .bind(project_id)
+        .execute(pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Find tasks that need re-sync (have shared_task_id but need to push updates).
+    ///
+    /// Returns tasks where:
+    /// - `shared_task_id` IS NOT NULL (already synced once)
+    /// - `remote_last_synced_at` IS NULL (marked for resync)
+    /// - Project has `remote_project_id` (linked to swarm)
+    ///
+    /// This is used by the sync service to pick up force-resync tasks.
+    pub async fn find_needing_resync(
+        pool: &SqlitePool,
+        limit: i64,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as::<_, Self>(
+            r#"SELECT
+                t.id,
+                t.project_id,
+                t.title,
+                t.description,
+                t.status,
+                t.parent_task_id,
+                t.shared_task_id,
+                t.created_at,
+                t.updated_at,
+                t.remote_assignee_user_id,
+                t.remote_assignee_name,
+                t.remote_assignee_username,
+                t.remote_version,
+                t.remote_last_synced_at,
+                t.remote_stream_node_id,
+                t.remote_stream_url,
+                t.archived_at,
+                t.activity_at
+            FROM tasks t
+            INNER JOIN projects p ON p.id = t.project_id
+            WHERE t.shared_task_id IS NOT NULL
+              AND t.remote_last_synced_at IS NULL
+              AND p.remote_project_id IS NOT NULL
+              AND p.is_remote = 0
+            ORDER BY t.updated_at ASC
+            LIMIT ?"#,
+        )
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+    }
+
     /// Find archived tasks that have a shared_task_id but need their archived_at pushed to Hive.
     ///
     /// This is used to backfill archive status to Hive for tasks that were archived before
