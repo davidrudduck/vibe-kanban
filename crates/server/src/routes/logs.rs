@@ -98,28 +98,41 @@ pub async fn get_logs(
     let cursor = params.cursor;
     let direction = params.direction();
 
-    // Create the unified log service
-    let service = UnifiedLogService::new(
+    // Get optional remote client for cross-node log access
+    let remote_client = deployment.node_auth_client().cloned();
+
+    // Create the unified log service with remote client if available
+    let service = UnifiedLogService::with_remote_client(
         deployment.db().pool.clone(),
         deployment.node_proxy_client().clone(),
+        remote_client,
     );
 
     // Fetch paginated logs
     let paginated = service
         .get_logs_paginated(execution_id, cursor, limit, direction)
         .await
-        .map_err(|e| match e {
-            LogServiceError::ExecutionNotFound(id) => {
-                ApiError::BadRequest(format!("Execution not found: {}", id))
-            }
-            LogServiceError::Database(db_err) => ApiError::Database(db_err),
-            LogServiceError::RemoteProxy(proxy_err) => ApiError::NodeProxy(proxy_err),
-            LogServiceError::InvalidLocation => {
-                ApiError::BadRequest("Invalid execution location".to_string())
-            }
-        })?;
+        .map_err(map_log_service_error)?;
 
     Ok(ResponseJson(ApiResponse::success(paginated)))
+}
+
+/// Map LogServiceError to ApiError
+fn map_log_service_error(e: LogServiceError) -> ApiError {
+    match e {
+        LogServiceError::ExecutionNotFound(id) => {
+            ApiError::BadRequest(format!("Execution not found: {}", id))
+        }
+        LogServiceError::Database(db_err) => ApiError::Database(db_err),
+        LogServiceError::RemoteProxy(proxy_err) => ApiError::NodeProxy(proxy_err),
+        LogServiceError::RemoteClient(client_err) => ApiError::RemoteClient(client_err),
+        LogServiceError::RemoteLogsNotAvailable => {
+            ApiError::BadRequest("Remote logs not available (not connected to Hive)".to_string())
+        }
+        LogServiceError::InvalidLocation => {
+            ApiError::BadRequest("Invalid execution location".to_string())
+        }
+    }
 }
 
 /// Query parameters for the live logs WebSocket endpoint.
@@ -200,12 +213,61 @@ async fn handle_live_logs_ws(
     run_ws_stream(socket, stream, WsKeepAlive::for_execution_streams()).await
 }
 
+/// GET /api/logs/attempt/{attempt_id}
+///
+/// Returns paginated log entries for a remote task attempt from the Hive.
+/// This endpoint is used for cross-node log viewing when the attempt
+/// was executed on a different node.
+///
+/// # Query Parameters
+/// - `limit`: Maximum entries to return (default: 100, max: 500)
+/// - `cursor`: Entry ID to start from (for pagination)
+/// - `direction`: "forward" (oldest first) or "backward" (newest first, default)
+///
+/// # Response
+/// Returns a `PaginatedLogs` object containing log entries from the Hive.
+pub async fn get_logs_for_attempt(
+    State(deployment): State<DeploymentImpl>,
+    Path(attempt_id): Path<Uuid>,
+    Query(params): Query<PaginationParams>,
+) -> Result<ResponseJson<ApiResponse<PaginatedLogs>>, ApiError> {
+    let limit = params.limit();
+    let cursor = params.cursor;
+    let direction = params.direction();
+
+    // Get remote client for Hive access
+    let remote_client = deployment.node_auth_client().cloned();
+
+    // Create the unified log service with remote client
+    let service = UnifiedLogService::with_remote_client(
+        deployment.db().pool.clone(),
+        deployment.node_proxy_client().clone(),
+        remote_client,
+    );
+
+    // Check if remote log fetching is enabled
+    if !service.is_remote_enabled() {
+        return Err(ApiError::BadRequest(
+            "Remote logs not available (not connected to Hive)".to_string(),
+        ));
+    }
+
+    // Fetch logs from Hive by attempt_id
+    let paginated = service
+        .get_remote_logs_for_attempt(attempt_id, cursor, limit, direction)
+        .await
+        .map_err(map_log_service_error)?;
+
+    Ok(ResponseJson(ApiResponse::success(paginated)))
+}
+
 /// Create the router for log endpoints.
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let _ = deployment; // Reserved for future middleware
     Router::new()
         .route("/logs/{execution_id}", get(get_logs))
         .route("/logs/{execution_id}/live", get(stream_live_logs_ws))
+        .route("/logs/attempt/{attempt_id}", get(get_logs_for_attempt))
 }
 
 #[cfg(test)]

@@ -1,9 +1,8 @@
+// Only export components that should NOT be code-split
 export { SettingsLayout } from './SettingsLayout';
-export { GeneralSettings } from './GeneralSettings';
-export { ProjectSettings } from './ProjectSettings';
-export { OrganizationSettings } from './OrganizationSettings';
-export { SwarmSettings } from './SwarmSettings';
-export { AgentSettings } from './AgentSettings';
-export { McpSettings } from './McpSettings';
-export { SystemSettings } from './SystemSettings';
 export { MobileSettingsAccordion } from './MobileSettingsAccordion';
+
+// NOTE: Individual settings components (GeneralSettings, ProjectSettings, etc.)
+// are NOT exported here to enable code splitting. Import them directly with
+// lazy() from their individual files, e.g.:
+//   const GeneralSettings = lazy(() => import('@/pages/settings/GeneralSettings'));

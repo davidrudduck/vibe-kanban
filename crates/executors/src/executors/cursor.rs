@@ -18,7 +18,7 @@ use workspace_utils::{
 use crate::{
     command::{CmdOverrides, CommandBuilder, apply_overrides},
     executors::{
-        AppendPrompt, AvailabilityInfo, ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
+        AppendPrompt, AvailabilityInfo, ExecutorError, SpawnContext, SpawnedChild, StandardCodingAgentExecutor,
     },
     logs::{
         ActionType, FileChange, NormalizedEntry, NormalizedEntryError, NormalizedEntryType,
@@ -69,7 +69,7 @@ impl CursorAgent {
 
 #[async_trait]
 impl StandardCodingAgentExecutor for CursorAgent {
-    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(&self, current_dir: &Path, prompt: &str, context: SpawnContext) -> Result<SpawnedChild, ExecutorError> {
         mcp::ensure_mcp_server_trust(self, current_dir).await;
 
         let command_parts = self.build_command_builder().build_initial()?;
@@ -87,6 +87,12 @@ impl StandardCodingAgentExecutor for CursorAgent {
             .current_dir(current_dir)
             .args(&args);
 
+        // Set VK context environment variables for MCP tools
+        command
+            .env("VK_ATTEMPT_ID", context.task_attempt_id.to_string())
+            .env("VK_TASK_ID", context.task_id.to_string())
+            .env("VK_EXECUTION_PROCESS_ID", context.execution_process_id.to_string());
+
         let mut child = command.group_spawn()?;
 
         if let Some(mut stdin) = child.inner().stdin.take() {
@@ -103,6 +109,9 @@ impl StandardCodingAgentExecutor for CursorAgent {
         prompt: &str,
         session_id: &str,
     ) -> Result<SpawnedChild, ExecutorError> {
+        // Note: VK environment variables (VK_ATTEMPT_ID, VK_TASK_ID, VK_EXECUTION_PROCESS_ID)
+        // are inherited from the parent process that spawned this follow-up
+
         mcp::ensure_mcp_server_trust(self, current_dir).await;
 
         let command_parts = self
@@ -135,9 +144,8 @@ impl StandardCodingAgentExecutor for CursorAgent {
         &self,
         msg_store: Arc<MsgStore>,
         worktree_path: &Path,
+        entry_index_provider: EntryIndexProvider,
     ) -> tokio::task::JoinHandle<()> {
-        let entry_index_provider = EntryIndexProvider::start_from(&msg_store);
-
         // Custom stderr processor for Cursor that detects login errors
         // Process stderr with automatic error classification
         let msg_store_stderr = msg_store.clone();
@@ -1243,7 +1251,8 @@ mod tests {
         ));
         msg_store.push_finished();
 
-        executor.normalize_logs(msg_store.clone(), &current_dir);
+        let entry_index = EntryIndexProvider::start_from(&msg_store);
+        executor.normalize_logs(msg_store.clone(), &current_dir, entry_index);
 
         tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
 

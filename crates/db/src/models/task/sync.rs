@@ -1,6 +1,12 @@
 //! Hive sync operations for tasks.
 //!
 //! These operations handle synchronization between local tasks and the Hive (remote server).
+//!
+//! Note: Tasks don't use `hive_synced_at` like TaskAttempt and ExecutionProcess.
+//! Instead, task sync status is tracked via `shared_task_id`:
+//! - Tasks in swarm projects (where project.remote_project_id IS NOT NULL) that
+//!   have NULL `shared_task_id` are considered "unsynced"
+//! - Once synced, `shared_task_id` is set to the Hive's task ID
 
 use chrono::{DateTime, Utc};
 use sqlx::{Executor, Sqlite, SqlitePool};
@@ -67,23 +73,42 @@ impl Task {
         Ok(result.rows_affected() > 0)
     }
 
-    /// Set the shared_task_id for a task.
+    /// Set the shared_task_id for a task with conflict handling.
+    ///
+    /// Returns `Ok(true)` if the task was updated, `Ok(false)` if skipped due to:
+    /// - Task already has this shared_task_id (idempotent re-sync)
+    /// - Another task already owns this shared_task_id (conflict)
+    /// - Task already has a different shared_task_id (prevents overwrite)
+    ///
+    /// This approach avoids UNIQUE constraint violations when:
+    /// - Multiple local tasks try to claim the same shared_task_id
+    /// - Network issues cause duplicate sync responses
+    /// - Concurrent sync cycles process the same task
     pub async fn set_shared_task_id<'e, E>(
         executor: E,
         id: Uuid,
         shared_task_id: Option<Uuid>,
-    ) -> Result<(), sqlx::Error>
+    ) -> Result<bool, sqlx::Error>
     where
         E: Executor<'e, Database = Sqlite>,
     {
-        sqlx::query!(
-            "UPDATE tasks SET shared_task_id = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+        // Only update if:
+        // - The target task's shared_task_id is NULL (first sync) or already equals the new value (idempotent)
+        // - No OTHER task already has this shared_task_id (prevents UNIQUE constraint violation)
+        let result = sqlx::query!(
+            r#"UPDATE tasks
+               SET shared_task_id = $2, updated_at = CURRENT_TIMESTAMP
+               WHERE id = $1
+                 AND (shared_task_id IS NULL OR shared_task_id = $2)
+                 AND NOT EXISTS (
+                     SELECT 1 FROM tasks WHERE shared_task_id = $2 AND id != $1
+                 )"#,
             id,
             shared_task_id
         )
         .execute(executor)
         .await?;
-        Ok(())
+        Ok(result.rows_affected() > 0)
     }
 
     /// Updates the shared_task_id for a task and returns the updated task.
@@ -174,7 +199,8 @@ impl Task {
     /// This is a transaction-safe variant of `clear_all_shared_task_ids_for_project`
     /// that accepts an executor trait, enabling it to participate in database transactions.
     ///
-    /// Sets `shared_task_id = NULL` for all tasks in the project that have a shared_task_id.
+    /// Sets `shared_task_id = NULL`, `remote_version = 0`, and `remote_last_synced_at = NULL`
+    /// for all tasks in the project that have a shared_task_id.
     ///
     /// Returns the number of tasks that were updated.
     pub async fn clear_all_shared_task_ids_for_project_tx<'e, E>(
@@ -186,7 +212,10 @@ impl Task {
     {
         let result = sqlx::query!(
             r#"UPDATE tasks
-               SET shared_task_id = NULL
+               SET shared_task_id = NULL,
+                   remote_version = 0,
+                   remote_last_synced_at = NULL,
+                   updated_at = CURRENT_TIMESTAMP
                WHERE project_id = $1
                  AND shared_task_id IS NOT NULL"#,
             project_id
@@ -219,9 +248,10 @@ impl Task {
     }
 
     /// Upsert a remote task from the Hive.
+    /// Returns the updated task, or the existing task if the remote version is stale.
     #[allow(clippy::too_many_arguments)]
-    pub async fn upsert_remote_task<'e, E>(
-        executor: E,
+    pub async fn upsert_remote_task(
+        pool: &SqlitePool,
         local_id: Uuid,
         project_id: Uuid,
         shared_task_id: Uuid,
@@ -234,12 +264,9 @@ impl Task {
         remote_version: i64,
         activity_at: Option<DateTime<Utc>>,
         archived_at: Option<DateTime<Utc>>,
-    ) -> Result<Self, sqlx::Error>
-    where
-        E: Executor<'e, Database = Sqlite>,
-    {
+    ) -> Result<Self, sqlx::Error> {
         let now = Utc::now();
-        sqlx::query_as!(
+        let result = sqlx::query_as!(
             Task,
             r#"INSERT INTO tasks (
                     id,
@@ -268,8 +295,9 @@ impl Task {
                     remote_version = excluded.remote_version,
                     remote_last_synced_at = excluded.remote_last_synced_at,
                     activity_at = excluded.activity_at,
-                    archived_at = excluded.archived_at,
+                    archived_at = COALESCE(excluded.archived_at, tasks.archived_at),
                     updated_at = datetime('now', 'subsec')
+                WHERE excluded.remote_version > tasks.remote_version OR tasks.remote_version IS NULL
                 RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", shared_task_id as "shared_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
                           remote_assignee_user_id as "remote_assignee_user_id: Uuid",
                           remote_assignee_name,
@@ -294,8 +322,17 @@ impl Task {
             activity_at,
             archived_at
         )
-        .fetch_one(executor)
-        .await
+        .fetch_optional(pool)
+        .await?;
+
+        // If update was skipped (stale version), return the existing task
+        if let Some(task) = result {
+            Ok(task)
+        } else {
+            Task::find_by_shared_task_id(pool, shared_task_id)
+                .await?
+                .ok_or(sqlx::Error::RowNotFound)
+        }
     }
 
     /// Update remote stream location for a task.
@@ -448,6 +485,52 @@ impl Task {
         .await
     }
 
+    /// Find tasks in swarm-linked projects that are missing `shared_task_id`.
+    ///
+    /// This is used for reconciliation: tasks that were created before a project
+    /// was linked to the swarm, or tasks that failed initial sync, won't have a
+    /// `shared_task_id`. This query finds all such tasks regardless of whether
+    /// they have attempts, so they can be synced to the Hive.
+    ///
+    /// Unlike `find_needing_sync`, this doesn't require unsynced attempts - it
+    /// finds all tasks that should have been synced but weren't.
+    pub async fn find_missing_shared_task_id(
+        pool: &SqlitePool,
+        limit: i64,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as::<_, Self>(
+            r#"SELECT
+                t.id,
+                t.project_id,
+                t.title,
+                t.description,
+                t.status,
+                t.parent_task_id,
+                t.shared_task_id,
+                t.created_at,
+                t.updated_at,
+                t.remote_assignee_user_id,
+                t.remote_assignee_name,
+                t.remote_assignee_username,
+                t.remote_version,
+                t.remote_last_synced_at,
+                t.remote_stream_node_id,
+                t.remote_stream_url,
+                t.archived_at,
+                t.activity_at
+            FROM tasks t
+            INNER JOIN projects p ON p.id = t.project_id
+            WHERE t.shared_task_id IS NULL
+              AND p.remote_project_id IS NOT NULL
+              AND p.is_remote = 0
+            ORDER BY t.created_at ASC
+            LIMIT ?"#,
+        )
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+    }
+
     /// Count orphaned tasks for a project.
     ///
     /// An orphaned task is one that has a `shared_task_id` value but the sync
@@ -469,6 +552,101 @@ impl Task {
         .fetch_one(pool)
         .await?;
         Ok(count)
+    }
+
+    /// Count tasks that have not been synced to the Hive.
+    ///
+    /// For tasks, "unsynced" means:
+    /// - Task belongs to a swarm project (project.remote_project_id IS NOT NULL)
+    /// - Task does not have a shared_task_id yet
+    ///
+    /// Note: Unlike TaskAttempt and ExecutionProcess, Task doesn't have a `hive_synced_at` field.
+    pub async fn count_unsynced(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
+        let count = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) as "count!: i64"
+               FROM tasks t
+               JOIN projects p ON t.project_id = p.id
+               WHERE t.shared_task_id IS NULL
+                 AND p.remote_project_id IS NOT NULL"#
+        )
+        .fetch_one(pool)
+        .await?;
+        Ok(count)
+    }
+
+    /// Find archived tasks that have a shared_task_id but need their archived_at pushed to Hive.
+    ///
+    /// This is used to backfill archive status to Hive for tasks that were archived before
+    /// getting a shared_task_id or before archive status was being synced to Hive.
+    ///
+    /// Returns tasks where:
+    /// - `archived_at` is NOT NULL (task is archived locally)
+    /// - `shared_task_id` is NOT NULL (task is synced to Hive)
+    /// - The task belongs to a swarm project (project.remote_project_id IS NOT NULL)
+    pub async fn find_archived_needing_hive_sync(
+        pool: &SqlitePool,
+        limit: i64,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as::<_, Self>(
+            r#"SELECT
+                t.id,
+                t.project_id,
+                t.title,
+                t.description,
+                t.status,
+                t.parent_task_id,
+                t.shared_task_id,
+                t.created_at,
+                t.updated_at,
+                t.remote_assignee_user_id,
+                t.remote_assignee_name,
+                t.remote_assignee_username,
+                t.remote_version,
+                t.remote_last_synced_at,
+                t.remote_stream_node_id,
+                t.remote_stream_url,
+                t.archived_at,
+                t.activity_at
+            FROM tasks t
+            INNER JOIN projects p ON p.id = t.project_id
+            WHERE t.archived_at IS NOT NULL
+              AND t.shared_task_id IS NOT NULL
+              AND p.remote_project_id IS NOT NULL
+            ORDER BY t.archived_at ASC
+            LIMIT ?"#,
+        )
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+    }
+
+    /// Clear sync status for all tasks in a project, triggering resync.
+    ///
+    /// This clears `shared_task_id` and `remote_version` for ALL tasks in the project,
+    /// which will trigger them to be re-synced to the Hive on the next sync cycle.
+    ///
+    /// NOTE: Unlike `clear_all_shared_task_ids_for_project` which only clears tasks that
+    /// already have a `shared_task_id`, this method updates ALL tasks in the project
+    /// regardless of their current sync state. This is intentional for force-resync
+    /// scenarios where we want to re-establish sync for the entire project.
+    ///
+    /// Returns the number of tasks that were updated.
+    pub async fn clear_hive_sync_for_project(
+        pool: &SqlitePool,
+        project_id: Uuid,
+    ) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"UPDATE tasks
+               SET shared_task_id = NULL,
+                   remote_version = 0,
+                   remote_last_synced_at = NULL,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE project_id = $1"#,
+            project_id
+        )
+        .execute(pool)
+        .await?;
+        Ok(result.rows_affected())
     }
 }
 
@@ -509,11 +687,12 @@ mod tests {
             .expect("Failed to create task");
         assert!(task.shared_task_id.is_none());
 
-        // Set shared_task_id
+        // Set shared_task_id (first time should succeed)
         let shared_task_id = Uuid::new_v4();
-        Task::set_shared_task_id(&pool, task_id, Some(shared_task_id))
+        let was_set = Task::set_shared_task_id(&pool, task_id, Some(shared_task_id))
             .await
             .expect("Set failed");
+        assert!(was_set, "First set should succeed");
 
         let updated = Task::find_by_id(&pool, task_id)
             .await
@@ -521,7 +700,30 @@ mod tests {
             .expect("Task not found");
         assert_eq!(updated.shared_task_id, Some(shared_task_id));
 
-        // Update shared_task_id
+        // Re-setting same shared_task_id should succeed (idempotent)
+        let was_set_again = Task::set_shared_task_id(&pool, task_id, Some(shared_task_id))
+            .await
+            .expect("Idempotent set failed");
+        assert!(was_set_again, "Idempotent set should succeed");
+
+        // Trying to set a different shared_task_id should fail (returns false)
+        let different_shared_id = Uuid::new_v4();
+        let was_overwritten = Task::set_shared_task_id(&pool, task_id, Some(different_shared_id))
+            .await
+            .expect("Query failed");
+        assert!(
+            !was_overwritten,
+            "Should not overwrite existing shared_task_id"
+        );
+
+        // Verify original shared_task_id is still set
+        let still_original = Task::find_by_id(&pool, task_id)
+            .await
+            .expect("Query failed")
+            .expect("Task not found");
+        assert_eq!(still_original.shared_task_id, Some(shared_task_id));
+
+        // Update shared_task_id using the explicit update method
         let new_shared_task_id = Uuid::new_v4();
         let updated = Task::update_shared_task_id(&pool, task_id, new_shared_task_id)
             .await
@@ -534,6 +736,71 @@ mod tests {
             .expect("Clear failed");
         assert!(cleared.shared_task_id.is_none());
         assert_eq!(cleared.remote_version, 0);
+    }
+
+    #[tokio::test]
+    async fn test_set_shared_task_id_conflict() {
+        let (pool, _temp_dir) = setup_test_pool().await;
+
+        // Create project
+        let project_id = Uuid::new_v4();
+        let project_data = CreateProject {
+            name: "Test Project".to_string(),
+            git_repo_path: format!("/tmp/test-repo-{}", project_id),
+            use_existing_repo: true,
+            clone_url: None,
+            setup_script: None,
+            dev_script: None,
+            cleanup_script: None,
+            copy_files: None,
+        };
+        let _project = Project::create(&pool, &project_data, project_id)
+            .await
+            .expect("Failed to create project");
+
+        // Create two tasks
+        let task1_id = Uuid::new_v4();
+        let task1_data = CreateTask::from_title_description(project_id, "Task 1".to_string(), None);
+        Task::create(&pool, &task1_data, task1_id)
+            .await
+            .expect("Failed to create task 1");
+
+        let task2_id = Uuid::new_v4();
+        let task2_data = CreateTask::from_title_description(project_id, "Task 2".to_string(), None);
+        Task::create(&pool, &task2_data, task2_id)
+            .await
+            .expect("Failed to create task 2");
+
+        // Set shared_task_id on task 1
+        let shared_task_id = Uuid::new_v4();
+        let was_set = Task::set_shared_task_id(&pool, task1_id, Some(shared_task_id))
+            .await
+            .expect("Set failed");
+        assert!(was_set, "First task should get the shared_task_id");
+
+        // Try to set the same shared_task_id on task 2 - should return false (conflict)
+        // This is the scenario that previously caused UNIQUE constraint errors
+        let was_set_on_task2 = Task::set_shared_task_id(&pool, task2_id, Some(shared_task_id))
+            .await
+            .expect("Query should not error");
+        assert!(
+            !was_set_on_task2,
+            "Second task should not get an already-claimed shared_task_id"
+        );
+
+        // Verify task 1 still has the shared_task_id
+        let task1 = Task::find_by_id(&pool, task1_id)
+            .await
+            .expect("Query failed")
+            .expect("Task 1 not found");
+        assert_eq!(task1.shared_task_id, Some(shared_task_id));
+
+        // Verify task 2 still has no shared_task_id
+        let task2 = Task::find_by_id(&pool, task2_id)
+            .await
+            .expect("Query failed")
+            .expect("Task 2 not found");
+        assert!(task2.shared_task_id.is_none());
     }
 
     #[tokio::test]
@@ -657,6 +924,150 @@ mod tests {
         assert_eq!(
             updated.remote_stream_url,
             Some("https://example.com/stream".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_upsert_preserves_local_archived_at_when_remote_is_null() {
+        let (pool, _temp_dir) = setup_test_pool().await;
+
+        // Create project
+        let project_id = Uuid::new_v4();
+        let project_data = CreateProject {
+            name: "Test Project".to_string(),
+            git_repo_path: format!("/tmp/test-repo-{}", project_id),
+            use_existing_repo: true,
+            clone_url: None,
+            setup_script: None,
+            dev_script: None,
+            cleanup_script: None,
+            copy_files: None,
+        };
+        let _project = Project::create(&pool, &project_data, project_id)
+            .await
+            .expect("Failed to create project");
+
+        let local_id = Uuid::new_v4();
+        let shared_task_id = Uuid::new_v4();
+        let archived_timestamp = Utc::now();
+
+        // Insert a task with archived_at set
+        let task = Task::upsert_remote_task(
+            &pool,
+            local_id,
+            project_id,
+            shared_task_id,
+            "Archived Task".to_string(),
+            Some("Description".to_string()),
+            TaskStatus::Done,
+            None,
+            None,
+            None,
+            1,
+            None,
+            Some(archived_timestamp),
+        )
+        .await
+        .expect("Upsert failed");
+
+        assert!(task.archived_at.is_some(), "Task should be archived");
+
+        // Now upsert with archived_at = None (simulating remote sync with NULL archived_at)
+        let updated = Task::upsert_remote_task(
+            &pool,
+            Uuid::new_v4(),
+            project_id,
+            shared_task_id,
+            "Still Archived Task".to_string(),
+            None,
+            TaskStatus::Done,
+            None,
+            None,
+            None,
+            2,
+            None,
+            None, // Remote has NULL archived_at
+        )
+        .await
+        .expect("Upsert failed");
+
+        // Should preserve the original archived_at value
+        assert_eq!(updated.id, task.id);
+        assert!(
+            updated.archived_at.is_some(),
+            "Local archived_at should be preserved when remote is NULL"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_upsert_updates_archived_at_when_remote_has_value() {
+        let (pool, _temp_dir) = setup_test_pool().await;
+
+        // Create project
+        let project_id = Uuid::new_v4();
+        let project_data = CreateProject {
+            name: "Test Project".to_string(),
+            git_repo_path: format!("/tmp/test-repo-{}", project_id),
+            use_existing_repo: true,
+            clone_url: None,
+            setup_script: None,
+            dev_script: None,
+            cleanup_script: None,
+            copy_files: None,
+        };
+        let _project = Project::create(&pool, &project_data, project_id)
+            .await
+            .expect("Failed to create project");
+
+        let local_id = Uuid::new_v4();
+        let shared_task_id = Uuid::new_v4();
+
+        // Insert a task without archived_at
+        let task = Task::upsert_remote_task(
+            &pool,
+            local_id,
+            project_id,
+            shared_task_id,
+            "Not Archived Task".to_string(),
+            Some("Description".to_string()),
+            TaskStatus::Todo,
+            None,
+            None,
+            None,
+            1,
+            None,
+            None,
+        )
+        .await
+        .expect("Upsert failed");
+
+        assert!(task.archived_at.is_none(), "Task should not be archived");
+
+        // Now upsert with a specific archived_at value from remote
+        let remote_archived_timestamp = Utc::now();
+        let updated = Task::upsert_remote_task(
+            &pool,
+            Uuid::new_v4(),
+            project_id,
+            shared_task_id,
+            "Now Archived Task".to_string(),
+            None,
+            TaskStatus::Done,
+            None,
+            None,
+            None,
+            2,
+            None,
+            Some(remote_archived_timestamp),
+        )
+        .await
+        .expect("Upsert failed");
+
+        // Should update to the new archived_at value from remote
+        assert_eq!(updated.id, task.id);
+        assert!(
+            updated.archived_at.is_some(),
+            "archived_at should be updated when remote has a value"
         );
     }
 

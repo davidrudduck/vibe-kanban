@@ -182,6 +182,26 @@ impl ConnectionManager {
         failed
     }
 
+    /// Send a message to specific nodes only.
+    ///
+    /// This is useful for targeted broadcasts (e.g., only to nodes linked to a project).
+    /// Returns a list of node IDs that failed to receive the message.
+    pub async fn send_to_nodes(&self, node_ids: &[Uuid], message: HiveMessage) -> Vec<Uuid> {
+        let inner = self.inner.read().await;
+        let mut failed = Vec::new();
+
+        for node_id in node_ids {
+            if let Some(conn) = inner.connections.get(node_id)
+                && conn.sender.send(message.clone()).await.is_err()
+            {
+                failed.push(*node_id);
+            }
+            // Note: We don't add to failed if node isn't connected - that's expected
+        }
+
+        failed
+    }
+
     /// Get a node's connection info.
     pub async fn get_connection(&self, node_id: Uuid) -> Option<NodeConnectionInfo> {
         let inner = self.inner.read().await;

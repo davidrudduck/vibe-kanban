@@ -25,6 +25,8 @@ impl ExecutionProcess {
         id: Uuid,
         status: ExecutionProcessStatus,
         exit_code: Option<i64>,
+        completion_reason: Option<&str>,
+        completion_message: Option<&str>,
     ) -> Result<(), sqlx::Error> {
         let completed_at = if matches!(status, ExecutionProcessStatus::Running) {
             None
@@ -34,11 +36,13 @@ impl ExecutionProcess {
 
         sqlx::query!(
             r#"UPDATE execution_processes
-               SET status = $1, exit_code = $2, completed_at = $3
-               WHERE id = $4"#,
+               SET status = $1, exit_code = $2, completed_at = $3, completion_reason = $4, completion_message = $5
+               WHERE id = $6"#,
             status,
             exit_code,
             completed_at,
+            completion_reason,
+            completion_message,
             id
         )
         .execute(pool)

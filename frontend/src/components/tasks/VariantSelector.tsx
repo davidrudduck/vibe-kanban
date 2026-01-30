@@ -72,15 +72,17 @@ const VariantSelectorInner = forwardRef<HTMLButtonElement, Props>(
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent>
-          {Object.entries(currentProfile).map(([variantLabel]) => (
-            <DropdownMenuItem
-              key={variantLabel}
-              onClick={() => onChange(variantLabel)}
-              className={selectedVariant === variantLabel ? 'bg-accent' : ''}
-            >
-              {variantLabel}
-            </DropdownMenuItem>
-          ))}
+          {Object.entries(currentProfile)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([variantLabel]) => (
+              <DropdownMenuItem
+                key={variantLabel}
+                onClick={() => onChange(variantLabel)}
+                className={selectedVariant === variantLabel ? 'bg-accent' : ''}
+              >
+                {variantLabel}
+              </DropdownMenuItem>
+            ))}
         </DropdownMenuContent>
       </DropdownMenu>
     );

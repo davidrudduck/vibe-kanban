@@ -44,6 +44,32 @@ const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(90);
 /// Channel buffer size for outgoing messages.
 const OUTGOING_BUFFER_SIZE: usize = 64;
 
+/// Returns the final path component of a git repository path.
+///
+/// Trims trailing '/' and '\' characters and supports both Unix and Windows separators. If the input contains no separators, or is empty, the original input is returned.
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!(extract_project_name("https://example.com/org/repo.git"), "repo.git");
+/// assert_eq!(extract_project_name("C:\\path\\to\\project\\"), "project");
+/// assert_eq!(extract_project_name("/single_component"), "single_component");
+/// assert_eq!(extract_project_name(""), "");
+/// ```
+fn extract_project_name(git_repo_path: &str) -> String {
+    let trimmed = git_repo_path.trim_end_matches(['/', '\\']);
+    let candidate = if trimmed.is_empty() {
+        git_repo_path
+    } else {
+        trimmed
+    };
+    candidate
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(candidate)
+        .to_string()
+}
+
 /// Handle a new node WebSocket connection.
 #[instrument(
     name = "node_ws.session",
@@ -255,26 +281,18 @@ pub async fn handle(
     // Clean up
     connections.unregister(auth_result.node_id).await;
 
-    // Clear any pending backfill requests for this node and reset attempts to partial
-    let cleared_attempt_ids = tracker.clear_node(auth_result.node_id).await;
-    if !cleared_attempt_ids.is_empty() {
+    // Clear in-memory backfill tracking for this node.
+    // NOTE: We intentionally do NOT reset attempts to partial here. The backfill_request_id
+    // stored in the database allows delayed responses to be processed correctly even after
+    // the in-memory tracker is cleared. The stale timeout mechanism will eventually reset
+    // attempts that truly failed.
+    let cleared_count = tracker.clear_node(auth_result.node_id).await.len();
+    if cleared_count > 0 {
         tracing::info!(
             node_id = %auth_result.node_id,
-            count = cleared_attempt_ids.len(),
-            "clearing pending backfill requests on disconnect"
+            count = cleared_count,
+            "cleared in-memory backfill tracking on disconnect"
         );
-
-        let repo = NodeTaskAttemptRepository::new(&pool);
-        for attempt_id in cleared_attempt_ids {
-            if let Err(e) = repo.reset_attempt_to_partial(attempt_id).await {
-                tracing::warn!(
-                    node_id = %auth_result.node_id,
-                    attempt_id = %attempt_id,
-                    error = %e,
-                    "failed to reset attempt to partial on disconnect"
-                );
-            }
-        }
     }
 
     // Update node status to offline
@@ -422,29 +440,28 @@ async fn wait_for_auth(
             }
         })?;
 
-    // Get ALL projects in the organization (not just this node's linked projects)
-    // This enables full visibility across the swarm
-    let org_projects = service
-        .list_organization_projects(node.organization_id)
+    // Get only swarm projects this node is linked to (not all org projects)
+    // This prevents visibility leak where nodes see other nodes' unlinked projects
+    use crate::db::swarm_projects::SwarmProjectRepository;
+    let swarm_projects = SwarmProjectRepository::list_for_node_auth(pool, node.id)
         .await
         .map_err(|e| AuthError::RegistrationFailed(e.to_string()))?;
 
     // Convert to LinkedProjectInfo with ownership info
-    let linked_projects = org_projects
+    // In the new swarm architecture, all returned projects are "owned" by this node
+    // since we only return projects the node is linked to
+    let linked_projects = swarm_projects
         .into_iter()
-        .map(|p| {
-            let is_owned = p.source_node_id == node.id;
-            LinkedProjectInfo {
-                link_id: p.link_id,
-                project_id: p.project_id,
-                local_project_id: p.local_project_id,
-                git_repo_path: p.git_repo_path,
-                default_branch: p.default_branch,
-                project_name: p.project_name,
-                source_node_id: p.source_node_id,
-                source_node_name: p.source_node_name,
-                is_owned,
-            }
+        .map(|p| LinkedProjectInfo {
+            link_id: p.link_id,
+            project_id: p.swarm_project_id, // Use swarm_project_id as project_id
+            local_project_id: p.local_project_id,
+            git_repo_path: p.git_repo_path,
+            default_branch: p.default_branch,
+            project_name: p.project_name,
+            source_node_id: p.source_node_id,
+            source_node_name: p.source_node_name,
+            is_owned: true, // Node is always linked to projects it receives
         })
         .collect();
 
@@ -743,10 +760,19 @@ async fn handle_task_progress(
     Ok(())
 }
 
-/// Handle a project link message from a node.
+/// Create a link between a node and a project, persist the link, and broadcast a ProjectSync
+/// message to all other nodes in the organization.
 ///
-/// This creates an entry in the node_projects table linking the remote project
-/// to this node's local project, then broadcasts the new link to all other nodes.
+/// This links a node's local project to a swarm project by:
+/// 1. Creating/updating the swarm_project_nodes record
+/// 2. Updating node_local_projects.swarm_project_id
+/// 3. Broadcasting the link to other nodes
+///
+/// Note: The `project_id` in LinkProjectMessage is now interpreted as `swarm_project_id`.
+///
+/// The broadcast excludes the originating node. The project name included in the broadcast is
+/// derived from the provided `git_repo_path`. Returns an error if the database operation or the
+/// broadcast fails.
 async fn handle_link_project(
     node_id: Uuid,
     organization_id: Uuid,
@@ -754,61 +780,81 @@ async fn handle_link_project(
     pool: &PgPool,
     connections: &ConnectionManager,
 ) -> Result<(), HandleError> {
-    use crate::db::projects::ProjectRepository;
-    use crate::nodes::domain::LinkProjectData;
+    use crate::db::node_local_projects::NodeLocalProjectRepository;
+    use crate::db::swarm_projects::{LinkSwarmProjectNodeData, SwarmProjectRepository};
 
-    // Validate that the project exists in the hive before attempting to link.
-    // This prevents foreign key constraint violations on node_projects.project_id.
-    let project = ProjectRepository::fetch_by_id(pool, link.project_id)
+    let swarm_project_id = link.project_id; // project_id is now swarm_project_id
+
+    // Verify the swarm project exists and belongs to this organization
+    let swarm_project = SwarmProjectRepository::find_by_id(pool, swarm_project_id)
         .await
-        .map_err(|e| HandleError::Database(e.to_string()))?;
+        .map_err(|e| HandleError::Database(e.to_string()))?
+        .ok_or_else(|| {
+            HandleError::Database(format!("swarm project {} not found", swarm_project_id))
+        })?;
 
-    if project.is_none() {
-        tracing::warn!(
-            node_id = %node_id,
-            project_id = %link.project_id,
-            local_project_id = %link.local_project_id,
-            "node tried to link non-existent project - project must be synced to hive first"
-        );
-        return Err(HandleError::InvalidProject(link.project_id));
+    if swarm_project.organization_id != organization_id {
+        return Err(HandleError::Database(format!(
+            "swarm project {} does not belong to organization {}",
+            swarm_project_id, organization_id
+        )));
     }
 
-    let project = project.unwrap();
-    let service = NodeServiceImpl::new(pool.clone());
+    // Create/update swarm_project_nodes record
+    let swarm_link = SwarmProjectRepository::link_node_pool(
+        pool,
+        LinkSwarmProjectNodeData {
+            swarm_project_id,
+            node_id,
+            local_project_id: link.local_project_id,
+            git_repo_path: link.git_repo_path.clone(),
+            os_type: None, // OS type can be added to LinkProjectMessage later if needed
+        },
+    )
+    .await
+    .map_err(|e| HandleError::Database(e.to_string()))?;
 
-    let link_data = LinkProjectData {
-        project_id: link.project_id,
-        local_project_id: link.local_project_id,
-        git_repo_path: link.git_repo_path.clone(),
-        default_branch: link.default_branch.clone(),
-    };
-
-    let node_project = service
-        .link_project(node_id, link_data)
-        .await
-        .map_err(|e| HandleError::Database(e.to_string()))?;
+    // Update node_local_projects.swarm_project_id (upserts if record doesn't exist)
+    if let Err(e) = NodeLocalProjectRepository::link_to_swarm_with_upsert(
+        pool,
+        node_id,
+        link.local_project_id,
+        swarm_project_id,
+        &link.git_repo_path,
+        &link.default_branch,
+    )
+    .await
+    {
+        tracing::warn!(
+            node_id = %node_id,
+            swarm_project_id = %swarm_project_id,
+            local_project_id = %link.local_project_id,
+            error = ?e,
+            "failed to update node_local_projects.swarm_project_id (non-fatal)"
+        );
+    }
 
     tracing::info!(
         node_id = %node_id,
-        project_id = %link.project_id,
+        swarm_project_id = %swarm_project_id,
         local_project_id = %link.local_project_id,
         git_repo_path = %link.git_repo_path,
-        "linked project to node"
+        "linked project to swarm"
     );
 
     // Broadcast the new project link to other nodes
-    // Get node info for the broadcast (project already fetched above)
+    let service = NodeServiceImpl::new(pool.clone());
     let node = service
         .get_node(node_id)
         .await
         .map_err(|e| HandleError::Database(e.to_string()))?;
 
-    let project_name = project.name;
+    let project_name = extract_project_name(&link.git_repo_path);
 
     let sync_msg = HiveMessage::ProjectSync(ProjectSyncMessage {
         message_id: Uuid::new_v4(),
-        link_id: node_project.id,
-        project_id: link.project_id,
+        link_id: swarm_link.id,
+        project_id: swarm_project_id, // This is now the swarm_project_id
         project_name,
         local_project_id: link.local_project_id,
         git_repo_path: link.git_repo_path.clone(),
@@ -819,14 +865,31 @@ async fn handle_link_project(
         is_new: true,
     });
 
-    let failed = connections
-        .broadcast_to_org_except(organization_id, node_id, sync_msg)
-        .await;
+    // Only broadcast to nodes that are linked to the same swarm project
+    let linked_nodes = SwarmProjectRepository::get_linked_node_ids(pool, swarm_project_id)
+        .await
+        .map_err(|e| HandleError::Database(e.to_string()))?;
+
+    let target_nodes: Vec<_> = linked_nodes
+        .into_iter()
+        .filter(|&id| id != node_id)
+        .collect();
+
+    if target_nodes.is_empty() {
+        tracing::debug!(
+            node_id = %node_id,
+            swarm_project_id = %swarm_project_id,
+            "no other nodes linked to swarm project, skipping broadcast"
+        );
+        return Ok(());
+    }
+
+    let failed = connections.send_to_nodes(&target_nodes, sync_msg).await;
 
     if !failed.is_empty() {
         tracing::warn!(
             node_id = %node_id,
-            project_id = %link.project_id,
+            swarm_project_id = %swarm_project_id,
             failed_count = failed.len(),
             "failed to broadcast project link to some nodes"
         );
@@ -835,18 +898,36 @@ async fn handle_link_project(
     Ok(())
 }
 
-/// Handle a project unlink message from a node.
+/// Unlinks a node's local project from its swarm project and broadcasts the removal to other nodes in the organization.
 ///
-/// This removes the entry from the node_projects table and broadcasts the
-/// removal to other nodes.
+/// This removes the swarm_project_nodes link, clears the corresponding node_local_projects.swarm_project_id when the local project is known, and — if the link existed — sends a `ProjectSync` message with `is_new = false` containing the project's name, default branch (falls back to `"main"`), and source node information to all other nodes in the same organization.
+///
+/// # Returns
+///
+/// `Ok(())` on success, `Err(HandleError)` if a database or send error occurs.
+///
+/// # Examples
+///
+/// ```no_run
+/// use uuid::Uuid;
+/// # async fn doc() {
+/// let pool = /* PgPool */ todo!();
+/// let connections = /* ConnectionManager */ todo!();
+/// let unlink = /* UnlinkProjectMessage */ todo!();
+/// handle_unlink_project(Uuid::nil(), Uuid::nil(), &unlink, &pool, &connections).await.unwrap();
+/// # }
+/// ```
 async fn handle_unlink_project(
     node_id: Uuid,
-    organization_id: Uuid,
+    _organization_id: Uuid,
     unlink: &UnlinkProjectMessage,
     pool: &PgPool,
     connections: &ConnectionManager,
 ) -> Result<(), HandleError> {
-    use crate::db::projects::ProjectRepository;
+    use crate::db::node_local_projects::NodeLocalProjectRepository;
+    use crate::db::swarm_projects::SwarmProjectRepository;
+
+    let swarm_project_id = unlink.project_id; // project_id is now swarm_project_id
 
     let service = NodeServiceImpl::new(pool.clone());
 
@@ -856,74 +937,128 @@ async fn handle_unlink_project(
         .await
         .map_err(|e| HandleError::Database(e.to_string()))?;
 
-    // Get the link info before deleting it
-    let node_projects = service
-        .list_node_projects(node_id)
+    // Find the swarm_project_nodes link to get the local_project_id
+    let link_info = SwarmProjectRepository::find_node_link(pool, swarm_project_id, node_id)
         .await
         .map_err(|e| HandleError::Database(e.to_string()))?;
 
-    let link_info = node_projects
-        .into_iter()
-        .find(|p| p.project_id == unlink.project_id);
+    // Remove the swarm_project_nodes link
+    if let Err(e) = SwarmProjectRepository::unlink_node_pool(pool, swarm_project_id, node_id).await
+    {
+        tracing::warn!(
+            node_id = %node_id,
+            swarm_project_id = %swarm_project_id,
+            error = ?e,
+            "failed to unlink swarm_project_nodes (may not exist)"
+        );
+    }
 
-    service
-        .unlink_project_for_node(node_id, unlink.project_id)
-        .await
-        .map_err(|e| HandleError::Database(e.to_string()))?;
+    // Clear node_local_projects.swarm_project_id if we know the local_project_id
+    if let Some(ref link) = link_info
+        && let Err(e) =
+            NodeLocalProjectRepository::unlink_from_swarm_pool(pool, node_id, link.local_project_id)
+                .await
+    {
+        tracing::warn!(
+            node_id = %node_id,
+            local_project_id = %link.local_project_id,
+            error = ?e,
+            "failed to clear node_local_projects.swarm_project_id (non-fatal)"
+        );
+    }
 
     tracing::info!(
         node_id = %node_id,
-        project_id = %unlink.project_id,
-        "unlinked project from node"
+        swarm_project_id = %swarm_project_id,
+        "unlinked project from swarm"
     );
 
     // Broadcast the unlink to other nodes (only if we found the link info)
     if let Some(link) = link_info {
-        let project_name = match ProjectRepository::fetch_by_id(pool, unlink.project_id).await {
-            Ok(Some(project)) => project.name,
-            _ => link
-                .git_repo_path
-                .rsplit('/')
-                .next()
-                .unwrap_or(&link.git_repo_path)
-                .to_string(),
-        };
+        let project_name = extract_project_name(&link.git_repo_path);
+
+        // Look up default_branch from node_local_projects (or use "main" as fallback)
+        let default_branch = NodeLocalProjectRepository::find_by_node_and_project(
+            pool,
+            node_id,
+            link.local_project_id,
+        )
+        .await
+        .ok()
+        .flatten()
+        .map(|nlp| nlp.default_branch)
+        .unwrap_or_else(|| "main".to_string());
 
         let sync_msg = HiveMessage::ProjectSync(ProjectSyncMessage {
             message_id: Uuid::new_v4(),
             link_id: link.id,
-            project_id: unlink.project_id,
+            project_id: swarm_project_id, // This is now the swarm_project_id
             project_name,
             local_project_id: link.local_project_id,
             git_repo_path: link.git_repo_path,
-            default_branch: link.default_branch,
+            default_branch,
             source_node_id: node_id,
             source_node_name: node.name,
             source_node_public_url: node.public_url,
             is_new: false, // false indicates removal
         });
 
-        let failed = connections
-            .broadcast_to_org_except(organization_id, node_id, sync_msg)
-            .await;
+        // Only broadcast to nodes that are still linked to this swarm project
+        // (the unlinking node was already removed at this point)
+        let linked_nodes = SwarmProjectRepository::get_linked_node_ids(pool, swarm_project_id)
+            .await
+            .unwrap_or_default();
 
-        if !failed.is_empty() {
-            tracing::warn!(
+        if linked_nodes.is_empty() {
+            tracing::debug!(
                 node_id = %node_id,
-                project_id = %unlink.project_id,
-                failed_count = failed.len(),
-                "failed to broadcast project unlink to some nodes"
+                swarm_project_id = %swarm_project_id,
+                "no other nodes linked to swarm project, skipping unlink broadcast"
             );
+        } else {
+            let failed = connections.send_to_nodes(&linked_nodes, sync_msg).await;
+
+            if !failed.is_empty() {
+                tracing::warn!(
+                    node_id = %node_id,
+                    swarm_project_id = %swarm_project_id,
+                    failed_count = failed.len(),
+                    "failed to broadcast project unlink to some nodes"
+                );
+            }
         }
     }
 
     Ok(())
 }
 
-/// Handle a node deregistration request.
+/// Deregisters a node by removing its database records and notifying the organization.
 ///
-/// This performs a hard delete of all node data and broadcasts the removal
-/// to all other nodes in the organization.
+/// Deletes the node and its related data, then broadcasts a `NodeRemoved` message to other nodes in the same organization. Any failures to notify peers are logged but do not prevent completion of the deregistration.
+///
+/// # Examples
+///
+/// ```
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// # // placeholders for required values
+/// # let pool = todo!("PgPool instance");
+/// # let connections = todo!("ConnectionManager instance");
+/// use uuid::Uuid;
+/// let node_id = Uuid::new_v4();
+/// let org_id = Uuid::new_v4();
+/// let dereg_msg = DeregisterMessage {
+///     message_id: Uuid::new_v4(),
+///     reason: Some("decommission".into()),
+/// };
+/// // Call the async function (this doc example is illustrative and uses placeholders)
+/// let _ = handle_deregister(node_id, org_id, &dereg_msg, &pool, &connections).await?;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// # Returns
+///
+/// `Ok(())` on success, or `Err(HandleError::Database(_))` if deleting the node from the database fails.
 async fn handle_deregister(
     node_id: Uuid,
     organization_id: Uuid,
@@ -940,7 +1075,7 @@ async fn handle_deregister(
 
     let service = NodeServiceImpl::new(pool.clone());
 
-    // Delete the node (cascades all related data: node_projects, task_assignments)
+    // Delete the node (cascades all related data: swarm_project_nodes, task_assignments)
     service
         .delete_node(node_id)
         .await
@@ -981,8 +1116,6 @@ enum HandleError {
     Database(String),
     #[error("failed to send message")]
     Send,
-    #[error("project {0} not found in hive")]
-    InvalidProject(Uuid),
 }
 
 /// Sanitize a string by removing null bytes (0x00).
@@ -1017,17 +1150,46 @@ async fn send_message(
     }
 }
 
-/// Handle an attempt sync message from a node.
+/// Upserts a node task attempt and, when the attempt has no `assignment_id`, tries to create a synthetic assignment for locally-started tasks.
 ///
-/// Upserts the task attempt into node_task_attempts.
-/// For locally-started tasks (without assignment_id), creates a synthetic assignment.
+/// If `attempt.assignment_id` is provided, that value is used. If it is `None`, the function looks up the shared task's `swarm_project_id`, finds the node's `swarm_project_nodes` link for that project, and attempts to create or find a synthetic assignment tied to that link. Failures to create or find a synthetic assignment are logged and do not prevent the attempt from being upserted; the attempt will be stored without an `assignment_id` in that case. The upsert writes the attempt data into the `node_task_attempts` table.
+///
+/// # Examples
+///
+/// ```
+/// # async fn example(pool: &sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+/// use uuid::Uuid;
+/// use chrono::Utc;
+/// use crate::nodes::ws::messages::AttemptSyncMessage;
+///
+/// let node_id = Uuid::new_v4();
+///
+/// let attempt = AttemptSyncMessage {
+///     attempt_id: Uuid::new_v4(),
+///     shared_task_id: Uuid::new_v4(),
+///     assignment_id: None,
+///     executor: None,
+///     executor_variant: None,
+///     branch: None,
+///     target_branch: None,
+///     container_ref: None,
+///     worktree_deleted: false,
+///     setup_completed_at: None,
+///     created_at: Utc::now(),
+///     updated_at: Utc::now(),
+/// };
+///
+/// crate::nodes::ws::session::handle_attempt_sync(node_id, &attempt, pool).await?;
+/// # Ok(())
+/// # }
+/// ```
 async fn handle_attempt_sync(
     node_id: Uuid,
     attempt: &AttemptSyncMessage,
     pool: &PgPool,
 ) -> Result<(), HandleError> {
-    use crate::db::node_projects::NodeProjectRepository;
     use crate::db::node_task_attempts::{NodeTaskAttemptRepository, UpsertNodeTaskAttempt};
+    use crate::db::swarm_projects::SwarmProjectRepository;
     use crate::db::task_assignments::TaskAssignmentRepository;
     use crate::db::tasks::SharedTaskRepository;
 
@@ -1036,7 +1198,7 @@ async fn handle_attempt_sync(
         Some(id) => Some(id),
         None => {
             // For locally-started tasks, we need to create a synthetic assignment
-            // First, find the project_id from the shared_task
+            // First, find the swarm_project_id from the shared_task
             let shared_task_repo = SharedTaskRepository::new(pool);
             let shared_task = shared_task_repo
                 .find_by_id(attempt.shared_task_id)
@@ -1044,44 +1206,54 @@ async fn handle_attempt_sync(
                 .map_err(|e| HandleError::Database(e.to_string()))?;
 
             if let Some(task) = shared_task {
-                // Find the node_project link for this project and node
-                let node_project_repo = NodeProjectRepository::new(pool);
-                let node_project = node_project_repo
-                    .find_by_node_and_project(node_id, task.project_id)
-                    .await
-                    .map_err(|e| HandleError::Database(e.to_string()))?;
+                // Find the swarm_project_nodes link for this project and node
+                // swarm_project_id is the source of truth
+                if let Some(swarm_project_id) = task.swarm_project_id {
+                    let node_link =
+                        SwarmProjectRepository::find_node_link(pool, swarm_project_id, node_id)
+                            .await
+                            .map_err(|e| HandleError::Database(e.to_string()))?;
 
-                if let Some(np) = node_project {
-                    // Create or find a synthetic assignment
-                    let assignment_repo = TaskAssignmentRepository::new(pool);
-                    match assignment_repo
-                        .create_or_find_synthetic(attempt.shared_task_id, node_id, np.id)
-                        .await
-                    {
-                        Ok(assignment) => {
-                            tracing::info!(
-                                node_id = %node_id,
-                                attempt_id = %attempt.attempt_id,
-                                assignment_id = %assignment.id,
-                                "created synthetic assignment for locally-started task"
-                            );
-                            Some(assignment.id)
+                    if let Some(link) = node_link {
+                        // Create or find a synthetic assignment
+                        // Use the swarm_project_nodes link ID as the node_project_id
+                        let assignment_repo = TaskAssignmentRepository::new(pool);
+                        match assignment_repo
+                            .create_or_find_synthetic(attempt.shared_task_id, node_id, link.id)
+                            .await
+                        {
+                            Ok(assignment) => {
+                                tracing::info!(
+                                    node_id = %node_id,
+                                    attempt_id = %attempt.attempt_id,
+                                    assignment_id = %assignment.id,
+                                    "created synthetic assignment for locally-started task"
+                                );
+                                Some(assignment.id)
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    node_id = %node_id,
+                                    attempt_id = %attempt.attempt_id,
+                                    error = %e,
+                                    "failed to create synthetic assignment, proceeding without"
+                                );
+                                None
+                            }
                         }
-                        Err(e) => {
-                            tracing::warn!(
-                                node_id = %node_id,
-                                attempt_id = %attempt.attempt_id,
-                                error = %e,
-                                "failed to create synthetic assignment, proceeding without"
-                            );
-                            None
-                        }
+                    } else {
+                        tracing::debug!(
+                            node_id = %node_id,
+                            swarm_project_id = %swarm_project_id,
+                            "no swarm_project_nodes link found for synthetic assignment"
+                        );
+                        None
                     }
                 } else {
                     tracing::debug!(
                         node_id = %node_id,
-                        project_id = %task.project_id,
-                        "no node_project link found for synthetic assignment"
+                        shared_task_id = %attempt.shared_task_id,
+                        "task has no swarm_project_id, skipping synthetic assignment"
                     );
                     None
                 }
@@ -1209,14 +1381,120 @@ async fn handle_execution_sync(
 /// Handle a logs batch message from a node.
 ///
 /// Stores the log entries in node_task_output_logs with execution_process_id.
+/// If the assignment doesn't exist yet (race condition with AttemptSync), creates
+/// a synthetic assignment using the shared_task_id.
 async fn handle_logs_batch(
     node_id: Uuid,
     logs: &LogsBatchMessage,
     pool: &PgPool,
 ) -> Result<(), HandleError> {
+    use crate::db::swarm_projects::SwarmProjectRepository;
+    use crate::db::task_assignments::TaskAssignmentRepository;
     use crate::db::task_output_logs::{CreateTaskOutputLog, TaskOutputLogRepository};
+    use crate::db::tasks::SharedTaskRepository;
 
-    let repo = TaskOutputLogRepository::new(pool);
+    // First, ensure the assignment exists. If not, try to create a synthetic one.
+    let assignment_repo = TaskAssignmentRepository::new(pool);
+    let assignment_id = match assignment_repo.find_by_id(logs.assignment_id).await {
+        Ok(Some(_)) => {
+            // Assignment exists, use it
+            logs.assignment_id
+        }
+        Ok(None) => {
+            // Assignment doesn't exist - try to create synthetic if we have shared_task_id
+            if let Some(shared_task_id) = logs.shared_task_id {
+                // Look up the task to find swarm_project_id
+                let shared_task_repo = SharedTaskRepository::new(pool);
+                let shared_task = shared_task_repo
+                    .find_by_id(shared_task_id)
+                    .await
+                    .map_err(|e| HandleError::Database(e.to_string()))?;
+
+                if let Some(task) = shared_task {
+                    if let Some(swarm_project_id) = task.swarm_project_id {
+                        // Find the node's link to this project
+                        let node_link =
+                            SwarmProjectRepository::find_node_link(pool, swarm_project_id, node_id)
+                                .await
+                                .map_err(|e| HandleError::Database(e.to_string()))?;
+
+                        if let Some(link) = node_link {
+                            // Create synthetic assignment
+                            match assignment_repo
+                                .create_or_find_synthetic(shared_task_id, node_id, link.id)
+                                .await
+                            {
+                                Ok(assignment) => {
+                                    tracing::info!(
+                                        node_id = %node_id,
+                                        original_assignment_id = %logs.assignment_id,
+                                        new_assignment_id = %assignment.id,
+                                        shared_task_id = %shared_task_id,
+                                        "created synthetic assignment for logs batch"
+                                    );
+                                    assignment.id
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        node_id = %node_id,
+                                        assignment_id = %logs.assignment_id,
+                                        error = %e,
+                                        "failed to create synthetic assignment for logs"
+                                    );
+                                    return Err(HandleError::Database(format!(
+                                        "failed to create synthetic assignment: {}",
+                                        e
+                                    )));
+                                }
+                            }
+                        } else {
+                            tracing::warn!(
+                                node_id = %node_id,
+                                swarm_project_id = %swarm_project_id,
+                                "no node link found for logs batch - cannot create assignment"
+                            );
+                            return Err(HandleError::Database(
+                                "no node link found for project".to_string(),
+                            ));
+                        }
+                    } else {
+                        // Task exists but has no swarm_project_id yet - can happen during sync races
+                        // or for legacy tasks. Log at debug level and skip this batch gracefully.
+                        tracing::debug!(
+                            node_id = %node_id,
+                            shared_task_id = %shared_task_id,
+                            "task has no swarm_project_id - skipping logs batch (will retry after task sync)"
+                        );
+                        return Ok(());
+                    }
+                } else {
+                    tracing::warn!(
+                        node_id = %node_id,
+                        shared_task_id = %shared_task_id,
+                        "shared task not found - cannot create assignment"
+                    );
+                    return Err(HandleError::Database("shared task not found".to_string()));
+                }
+            } else {
+                // No shared_task_id provided, cannot create synthetic assignment
+                tracing::warn!(
+                    node_id = %node_id,
+                    assignment_id = %logs.assignment_id,
+                    "assignment not found and no shared_task_id provided"
+                );
+                return Err(HandleError::Database(format!(
+                    "assignment {} not found and no shared_task_id provided",
+                    logs.assignment_id
+                )));
+            }
+        }
+        Err(e) => {
+            return Err(HandleError::Database(e.to_string()));
+        }
+    };
+
+    // Now insert the logs with the valid assignment_id
+    let log_repo = TaskOutputLogRepository::new(pool);
 
     for entry in &logs.entries {
         let output_type = match entry.output_type {
@@ -1226,22 +1504,23 @@ async fn handle_logs_batch(
         };
 
         // Create log with optional execution_process_id
-        repo.create_with_execution_process(
-            CreateTaskOutputLog {
-                assignment_id: logs.assignment_id,
-                output_type: output_type.to_string(),
-                content: entry.content.clone(),
-                timestamp: entry.timestamp,
-            },
-            logs.execution_process_id,
-        )
-        .await
-        .map_err(|e| HandleError::Database(e.to_string()))?;
+        log_repo
+            .create_with_execution_process(
+                CreateTaskOutputLog {
+                    assignment_id,
+                    output_type: output_type.to_string(),
+                    content: entry.content.clone(),
+                    timestamp: entry.timestamp,
+                },
+                logs.execution_process_id,
+            )
+            .await
+            .map_err(|e| HandleError::Database(e.to_string()))?;
     }
 
     tracing::trace!(
         node_id = %node_id,
-        assignment_id = %logs.assignment_id,
+        assignment_id = %assignment_id,
         execution_process_id = ?logs.execution_process_id,
         entry_count = logs.entries.len(),
         "stored logs batch from node"
@@ -1255,6 +1534,14 @@ async fn handle_logs_batch(
 // NodeMessage::LabelSync is ignored (see route_message above).
 
 /// Handle a task sync message from a node.
+///
+/// The new flow looks up the swarm project via node_local_projects → swarm_project_nodes,
+/// using the node's local_project_id to find the linked swarm_project_id.
+///
+/// Race condition handling:
+/// - If node_local_projects doesn't exist → ProjectsSync hasn't arrived, send RETRY
+/// - If node_local_projects exists but swarm_project_id is NULL → not linked, send error
+/// - If fully linked → proceed with sync
 async fn handle_task_sync(
     node_id: Uuid,
     organization_id: Uuid,
@@ -1262,7 +1549,7 @@ async fn handle_task_sync(
     pool: &PgPool,
     ws_sender: &mut futures::stream::SplitSink<WebSocket, Message>,
 ) -> Result<(), HandleError> {
-    use crate::db::projects::Project;
+    use crate::db::node_local_projects::NodeLocalProjectRepository;
     use crate::db::tasks::{SharedTaskRepository, TaskStatus, UpsertTaskFromNodeData};
 
     let status = match task_sync.status.as_str() {
@@ -1274,22 +1561,102 @@ async fn handle_task_sync(
         _ => TaskStatus::Todo,
     };
 
-    // Use runtime query to avoid sqlx cache issues
-    let project_opt: Result<Option<Project>, sqlx::Error> = sqlx::query_as(
-        "SELECT id, organization_id, name, metadata, created_at FROM projects WHERE id = $1",
+    // First check if the node_local_projects record exists
+    // This distinguishes between "ProjectsSync hasn't arrived" and "project not linked"
+    let local_project = NodeLocalProjectRepository::find_by_node_and_project(
+        pool,
+        node_id,
+        task_sync.local_project_id,
     )
-    .bind(task_sync.remote_project_id)
-    .fetch_optional(pool)
-    .await;
+    .await
+    .map_err(|e| HandleError::Database(e.to_string()))?;
 
-    let project = match project_opt {
-        Ok(Some(p)) if p.organization_id == organization_id => p,
-        _ => {
+    let local_project = match local_project {
+        Some(p) => p,
+        None => {
+            // Race condition: ProjectsSync hasn't arrived yet
+            // Tell the node to retry after its ProjectsSync completes
+            tracing::debug!(
+                node_id = %node_id,
+                local_project_id = %task_sync.local_project_id,
+                local_task_id = %task_sync.local_task_id,
+                "task sync: project not found in node_local_projects (ProjectsSync race, retry)"
+            );
             let r = TaskSyncResponseMessage {
                 local_task_id: task_sync.local_task_id,
                 shared_task_id: Uuid::nil(),
                 success: false,
-                error: Some("Project not found".to_string()),
+                error: Some(
+                    "RETRY: Project not synced yet, please retry after ProjectsSync completes"
+                        .to_string(),
+                ),
+            };
+            let _ = send_message(ws_sender, &HiveMessage::TaskSyncResponse(r)).await;
+            return Ok(());
+        }
+    };
+
+    // Check if the project is linked to a swarm project
+    let swarm_project_id = match local_project.swarm_project_id {
+        Some(id) => id,
+        None => {
+            // Project exists in node_local_projects but isn't linked to swarm
+            // This is intentional - the project needs to be linked via UI first
+            tracing::debug!(
+                node_id = %node_id,
+                local_project_id = %task_sync.local_project_id,
+                local_task_id = %task_sync.local_task_id,
+                "task sync: project not linked to swarm (link via UI first)"
+            );
+            let r = TaskSyncResponseMessage {
+                local_task_id: task_sync.local_task_id,
+                shared_task_id: Uuid::nil(),
+                success: false,
+                error: Some(
+                    "Project not linked to swarm - link it via the swarm settings UI first"
+                        .to_string(),
+                ),
+            };
+            let _ = send_message(ws_sender, &HiveMessage::TaskSyncResponse(r)).await;
+            return Ok(());
+        }
+    };
+
+    // Verify the swarm project belongs to this organization and node has a link
+    let swarm_link: Option<SwarmProjectLink> = sqlx::query_as(
+        r#"
+        SELECT
+            sp.organization_id
+        FROM swarm_project_nodes spn
+        JOIN swarm_projects sp ON spn.swarm_project_id = sp.id
+        WHERE spn.node_id = $1
+          AND spn.local_project_id = $2
+          AND spn.swarm_project_id = $3
+          AND sp.organization_id = $4
+        "#,
+    )
+    .bind(node_id)
+    .bind(task_sync.local_project_id)
+    .bind(swarm_project_id)
+    .bind(organization_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| HandleError::Database(e.to_string()))?;
+
+    let org_id = match swarm_link {
+        Some(link) => link.organization_id,
+        None => {
+            tracing::warn!(
+                node_id = %node_id,
+                local_project_id = %task_sync.local_project_id,
+                swarm_project_id = %swarm_project_id,
+                "task sync failed: swarm_project_nodes link missing or org mismatch"
+            );
+            let r = TaskSyncResponseMessage {
+                local_task_id: task_sync.local_task_id,
+                shared_task_id: Uuid::nil(),
+                success: false,
+                error: Some("Swarm project link invalid - re-link the project via UI".to_string()),
             };
             let _ = send_message(ws_sender, &HiveMessage::TaskSyncResponse(r)).await;
             return Ok(());
@@ -1303,19 +1670,28 @@ async fn handle_task_sync(
     let repo = SharedTaskRepository::new(pool);
     match repo
         .upsert_from_node(UpsertTaskFromNodeData {
-            project_id: task_sync.remote_project_id,
-            organization_id: project.organization_id,
+            swarm_project_id,
+            project_id: swarm_project_id, // Use swarm_project_id for both (backwards compat)
+            organization_id: org_id,
             origin_node_id: node_id,
+            local_task_id: task_sync.local_task_id,
             title: sanitized_title,
             description: sanitized_description,
             status,
             version: task_sync.version,
-            source_task_id: None, // Not a re-sync operation
+            owner_node_id: task_sync.owner_node_id,
+            owner_name: task_sync.owner_name.clone(),
         })
         .await
     {
-        Ok((task, _)) => {
-            tracing::info!(node_id = %node_id, shared_task_id = %task.id, "synced task");
+        Ok((task, was_created)) => {
+            tracing::info!(
+                node_id = %node_id,
+                shared_task_id = %task.id,
+                swarm_project_id = %swarm_project_id,
+                was_created = was_created,
+                "synced task from node"
+            );
             let r = TaskSyncResponseMessage {
                 local_task_id: task_sync.local_task_id,
                 shared_task_id: task.id,
@@ -1336,6 +1712,12 @@ async fn handle_task_sync(
         }
     }
     Ok(())
+}
+
+/// Helper struct for swarm project link lookup
+#[derive(sqlx::FromRow)]
+struct SwarmProjectLink {
+    organization_id: Uuid,
 }
 
 /// Handle a projects sync message from a node.
@@ -1383,20 +1765,22 @@ async fn handle_projects_sync(
     Ok(())
 }
 
-/// Broadcast a node's owned projects to all other nodes in the organization.
+/// Broadcast a node's owned projects to other nodes linked to the same swarm projects.
 ///
 /// This is called when a node connects to notify other nodes about the newly
 /// connected node's available projects. Only projects owned by this node
-/// (is_owned == true) are broadcast.
+/// (is_owned == true) are broadcast, and only to nodes linked to the same swarm project.
 async fn broadcast_node_projects(
     node_id: Uuid,
-    organization_id: Uuid,
+    _organization_id: Uuid,
     node_name: &str,
     node_public_url: Option<&str>,
     linked_projects: &[LinkedProjectInfo],
-    _pool: &PgPool,
+    pool: &PgPool,
     connections: &ConnectionManager,
 ) {
+    use crate::db::swarm_projects::SwarmProjectRepository;
+
     // Only broadcast projects owned by this node
     let owned_projects: Vec<_> = linked_projects.iter().filter(|p| p.is_owned).collect();
 
@@ -1404,7 +1788,43 @@ async fn broadcast_node_projects(
         return;
     }
 
+    let mut broadcast_count = 0;
+
     for project_info in &owned_projects {
+        // Get nodes linked to this swarm project (project_id is swarm_project_id)
+        let linked_nodes = match SwarmProjectRepository::get_linked_node_ids(
+            pool,
+            project_info.project_id,
+        )
+        .await
+        {
+            Ok(nodes) => nodes,
+            Err(e) => {
+                tracing::warn!(
+                    node_id = %node_id,
+                    project_id = %project_info.project_id,
+                    error = ?e,
+                    "failed to get linked nodes for project, skipping broadcast"
+                );
+                continue;
+            }
+        };
+
+        // Filter out the current node
+        let target_nodes: Vec<_> = linked_nodes
+            .into_iter()
+            .filter(|&id| id != node_id)
+            .collect();
+
+        if target_nodes.is_empty() {
+            tracing::debug!(
+                node_id = %node_id,
+                project_id = %project_info.project_id,
+                "no other nodes linked to swarm project, skipping broadcast"
+            );
+            continue;
+        }
+
         let sync_msg = HiveMessage::ProjectSync(ProjectSyncMessage {
             message_id: Uuid::new_v4(),
             link_id: project_info.link_id,
@@ -1419,9 +1839,8 @@ async fn broadcast_node_projects(
             is_new: true,
         });
 
-        let failed = connections
-            .broadcast_to_org_except(organization_id, node_id, sync_msg)
-            .await;
+        let failed = connections.send_to_nodes(&target_nodes, sync_msg).await;
+        broadcast_count += 1;
 
         if !failed.is_empty() {
             tracing::warn!(
@@ -1436,7 +1855,8 @@ async fn broadcast_node_projects(
     tracing::info!(
         node_id = %node_id,
         owned_project_count = owned_projects.len(),
-        "broadcast node's owned projects to organization"
+        broadcast_count = broadcast_count,
+        "broadcast node's owned projects to linked nodes"
     );
 }
 
@@ -1460,42 +1880,67 @@ async fn handle_backfill_response(
         "received backfill response from node"
     );
 
-    // Look up the attempt IDs that were tracked for this request
-    let attempt_ids = tracker.complete(response.request_id).await;
-
     let repo = NodeTaskAttemptRepository::new(pool);
+
+    // Look up the attempt IDs - first try in-memory tracker, then fall back to database
+    let attempt_ids = match tracker.complete(response.request_id).await {
+        Some(ids) => ids,
+        None => {
+            // In-memory tracker doesn't have this request - try database fallback.
+            // This handles the race condition where the node disconnects (clearing the tracker)
+            // before the delayed backfill response arrives.
+            match repo.find_by_backfill_request_id(response.request_id).await {
+                Ok(ids) if !ids.is_empty() => {
+                    tracing::info!(
+                        node_id = %node_id,
+                        request_id = %response.request_id,
+                        attempt_count = ids.len(),
+                        "using DB fallback for backfill correlation"
+                    );
+                    ids
+                }
+                Ok(_) => {
+                    // No attempts found in DB either - genuinely unknown request
+                    tracing::warn!(
+                        node_id = %node_id,
+                        request_id = %response.request_id,
+                        "no attempts found for backfill response (not in tracker or DB)"
+                    );
+                    return Ok(());
+                }
+                Err(e) => {
+                    tracing::error!(
+                        node_id = %node_id,
+                        request_id = %response.request_id,
+                        error = %e,
+                        "failed to query DB for backfill request correlation"
+                    );
+                    return Ok(());
+                }
+            }
+        }
+    };
+
+    if attempt_ids.is_empty() {
+        return Ok(());
+    }
 
     if response.success {
         // Mark each tracked attempt as complete
-        match attempt_ids {
-            Some(ids) if !ids.is_empty() => {
-                tracing::debug!(
-                    node_id = %node_id,
-                    request_id = %response.request_id,
-                    attempt_count = ids.len(),
-                    "marking tracked attempts as complete"
-                );
+        tracing::debug!(
+            node_id = %node_id,
+            request_id = %response.request_id,
+            attempt_count = attempt_ids.len(),
+            "marking tracked attempts as complete"
+        );
 
-                for attempt_id in ids {
-                    if let Err(e) = repo.mark_complete(attempt_id).await {
-                        tracing::error!(
-                            node_id = %node_id,
-                            attempt_id = %attempt_id,
-                            error = %e,
-                            "failed to mark attempt as complete"
-                        );
-                    }
-                }
-            }
-            _ => {
-                // No tracked mapping found - this could happen if:
-                // - Request was made before tracker was integrated
-                // - Tracker was cleared due to node disconnect/reconnect
-                // - Stale cleanup removed the mapping
-                tracing::warn!(
+        for attempt_id in attempt_ids {
+            if let Err(e) = repo.mark_complete(attempt_id).await {
+                tracing::error!(
                     node_id = %node_id,
-                    request_id = %response.request_id,
-                    "no tracked attempts found for backfill response"
+                    attempt_id = %attempt_id,
+                    error = %e,
+                    "failed to mark attempt as complete"
                 );
             }
         }
@@ -1509,41 +1954,21 @@ async fn handle_backfill_response(
         );
 
         // Reset tracked attempts to partial state so they can be retried
-        match attempt_ids {
-            Some(ids) if !ids.is_empty() => {
-                tracing::debug!(
-                    node_id = %node_id,
-                    request_id = %response.request_id,
-                    attempt_count = ids.len(),
-                    "resetting tracked attempts to partial"
-                );
+        tracing::debug!(
+            node_id = %node_id,
+            request_id = %response.request_id,
+            attempt_count = attempt_ids.len(),
+            "resetting tracked attempts to partial"
+        );
 
-                for attempt_id in ids {
-                    if let Err(e) = repo.reset_attempt_to_partial(attempt_id).await {
-                        tracing::error!(
-                            node_id = %node_id,
-                            attempt_id = %attempt_id,
-                            error = %e,
-                            "failed to reset attempt to partial"
-                        );
-                    }
-                }
-            }
-            _ => {
-                // No tracked mapping found - fall back to resetting all failed backfills for node
-                tracing::warn!(
+        for attempt_id in attempt_ids {
+            if let Err(e) = repo.reset_attempt_to_partial(attempt_id).await {
+                tracing::error!(
                     node_id = %node_id,
-                    request_id = %response.request_id,
-                    "no tracked attempts found, falling back to reset_failed_backfill"
+                    attempt_id = %attempt_id,
+                    error = %e,
+                    "failed to reset attempt to partial"
                 );
-
-                if let Err(e) = repo.reset_failed_backfill(node_id).await {
-                    tracing::error!(
-                        node_id = %node_id,
-                        error = %e,
-                        "failed to reset failed backfill state"
-                    );
-                }
             }
         }
     }

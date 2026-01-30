@@ -19,7 +19,6 @@ use crate::{
     AppState,
     auth::RequestContext,
     db::{
-        node_projects::NodeProjectRepository,
         organization_members,
         organizations::{MemberRole, OrganizationRepository},
         tasks::{
@@ -37,6 +36,7 @@ pub fn router() -> Router<AppState> {
         .route("/tasks/bulk", get(bulk_shared_tasks))
         .route("/tasks/by-source", get(find_by_source_task_id))
         .route("/tasks", post(create_shared_task))
+        .route("/tasks/{task_id}", get(get_shared_task))
         .route("/tasks/{task_id}", patch(update_shared_task))
         .route("/tasks/{task_id}", delete(delete_shared_task))
         .route("/tasks/{task_id}/assign", post(assign_task))
@@ -125,7 +125,7 @@ pub async fn find_by_source_task_id(
 
     let repo = SharedTaskRepository::new(pool);
     match repo
-        .find_by_source_task_id(query.project_id, query.source_node_id, query.source_task_id)
+        .find_by_source_task_id(query.source_node_id, query.source_task_id)
         .await
     {
         Ok(Some(task)) => (
@@ -142,10 +142,72 @@ pub async fn find_by_source_task_id(
     }
 }
 
+/// Get a shared task by ID.
+///
+/// Returns the task details if the caller has access to it.
 #[instrument(
-    name = "tasks.create_shared_task",
-    skip(state, ctx, payload),
-    fields(user_id = %ctx.user.id, org_id = tracing::field::Empty)
+    name = "tasks.get_shared_task",
+    skip(state, ctx),
+    fields(user_id = %ctx.user.id, task_id = %task_id)
+)]
+pub async fn get_shared_task(
+    State(state): State<AppState>,
+    Extension(ctx): Extension<RequestContext>,
+    Path(task_id): Path<Uuid>,
+) -> Response {
+    let pool = state.pool();
+
+    // Verify user has access to the task
+    if let Err(error) = ensure_task_access(pool, ctx.user.id, task_id).await {
+        return error.into_response();
+    }
+
+    let repo = SharedTaskRepository::new(pool);
+    match repo.find_by_id(task_id).await {
+        Ok(Some(task)) => (
+            StatusCode::OK,
+            Json(SharedTaskResponse { task, user: None }),
+        )
+            .into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "task not found" })),
+        )
+            .into_response(),
+        Err(error) => task_error_response(error, "failed to fetch task"),
+    }
+}
+
+/// Create a shared task for a swarm project.
+///
+/// Validates the request and caller's access, creates and persists a new shared task (or returns an existing one when both `source_task_id` and `source_node_id` match an existing task), optionally sets source-tracking information, and optionally attempts to dispatch an execution attempt when `start_attempt` is true.
+///
+/// # Returns
+///
+/// HTTP response containing the created `SharedTaskResponse` (`201 Created`) or an existing `SharedTaskResponse` (`200 OK`) when duplicate source IDs were detected.
+///
+/// # Examples
+///
+/// ```
+/// use uuid::Uuid;
+///
+/// let req = CreateSharedTaskRequest {
+///     swarm_project_id: Uuid::new_v4(),
+///     title: "Example task".to_string(),
+///     description: None,
+///     status: None,
+///     assignee_user_id: None,
+///     start_attempt: false,
+///     source_task_id: None,
+///     source_node_id: None,
+/// };
+///
+/// // In integration tests, send `req` to the HTTP handler and assert the response status and body.
+/// ```
+#[instrument(
+name = "tasks.create_shared_task",
+skip(state, ctx, payload),
+fields(user_id = %ctx.user.id, org_id = tracing::field::Empty)
 )]
 pub async fn create_shared_task(
     State(state): State<AppState>,
@@ -156,7 +218,7 @@ pub async fn create_shared_task(
     let repo = SharedTaskRepository::new(pool);
     let user_repo = UserRepository::new(pool);
     let CreateSharedTaskRequest {
-        project_id,
+        swarm_project_id,
         title,
         description,
         status,
@@ -170,7 +232,7 @@ pub async fn create_shared_task(
         return task_error_response(error, "shared task payload too large");
     }
 
-    let organization_id = match ensure_project_access(pool, ctx.user.id, project_id).await {
+    let organization_id = match ensure_project_access(pool, ctx.user.id, swarm_project_id).await {
         Ok(org_id) => {
             Span::current().record("org_id", format_args!("{org_id}"));
             org_id
@@ -180,10 +242,7 @@ pub async fn create_shared_task(
 
     // If source_task_id is provided, check for an existing task first (duplicate detection)
     if let (Some(src_task_id), Some(src_node_id)) = (source_task_id, source_node_id) {
-        match repo
-            .find_by_source_task_id(project_id, src_node_id, src_task_id)
-            .await
-        {
+        match repo.find_by_source_task_id(src_node_id, src_task_id).await {
             Ok(Some(existing)) => {
                 tracing::info!(
                     task_id = %existing.id,
@@ -221,7 +280,8 @@ pub async fn create_shared_task(
     }
 
     let data = CreateSharedTaskData {
-        project_id,
+        organization_id,
+        project_id: Some(swarm_project_id),
         title: title.clone(),
         description: description.clone(),
         status,
@@ -251,39 +311,50 @@ pub async fn create_shared_task(
 
     // Only dispatch to node if start_attempt flag is true
     if start_attempt {
-        let node_project_repo = NodeProjectRepository::new(pool);
-        if let Ok(Some(node_project)) = node_project_repo.find_by_project(project_id).await {
-            let dispatcher =
-                crate::nodes::TaskDispatcher::new(pool.clone(), state.node_connections().clone());
+        let dispatcher =
+            crate::nodes::TaskDispatcher::new(pool.clone(), state.node_connections().clone());
 
-            let task_details = TaskDetails {
-                title,
-                description,
-                executor: "CLAUDE_CODE".to_string(), // Default executor
-                executor_variant: None,
-                base_branch: node_project.default_branch.clone(),
-            };
+        // Find a connected node first to get the correct default_branch
+        match dispatcher.find_connected_node(swarm_project_id).await {
+            Ok(connected_node) => {
+                // Use the connected node's branch to ensure consistency
+                let task_details = TaskDetails {
+                    title,
+                    description,
+                    executor: "CLAUDE_CODE".to_string(), // Default executor
+                    executor_variant: None,
+                    base_branch: connected_node.default_branch.clone(),
+                };
 
-            // Attempt to dispatch - don't fail task creation if dispatch fails
-            match dispatcher
-                .assign_task(task.task.id, project_id, task_details)
-                .await
-            {
-                Ok(result) => {
-                    tracing::info!(
-                        task_id = %task.task.id,
-                        assignment_id = %result.assignment_id,
-                        node_id = %result.node_id,
-                        "task dispatched to node"
-                    );
+                // Dispatch to the same node we got the branch from to avoid drift
+                match dispatcher
+                    .assign_task_to_node(task.task.id, &connected_node, task_details)
+                    .await
+                {
+                    Ok(result) => {
+                        tracing::info!(
+                            task_id = %task.task.id,
+                            assignment_id = %result.assignment_id,
+                            node_id = %result.node_id,
+                            "task dispatched to node"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            task_id = %task.task.id,
+                            error = %e,
+                            "failed to dispatch task to node - task created but not assigned"
+                        );
+                    }
                 }
-                Err(e) => {
-                    tracing::warn!(
-                        task_id = %task.task.id,
-                        error = %e,
-                        "failed to dispatch task to node - task created but not assigned"
-                    );
-                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    task_id = %task.task.id,
+                    swarm_project_id = %swarm_project_id,
+                    error = %e,
+                    "no connected node available for dispatch, task created but not assigned"
+                );
             }
         }
     }
@@ -555,7 +626,11 @@ pub struct BulkSharedTasksResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateSharedTaskRequest {
-    pub project_id: Uuid,
+    /// The swarm project ID (from the `swarm_projects` table in the hive).
+    /// This is the ID of the swarm project to create the task in, NOT a local project ID.
+    /// Alias: `project_id` for backwards compatibility.
+    #[serde(alias = "project_id")]
+    pub swarm_project_id: Uuid,
     pub title: String,
     pub description: Option<String>,
     pub status: Option<TaskStatus>,

@@ -55,7 +55,14 @@
       "entries500": "500 entries"
     },
     "injectedLabel": "(injected)",
-    "injectedTooltip": "This message was injected into the running process"
+    "injectedTooltip": "This message was injected into the running process",
+    "userMessage": {
+      "showMore": "Show more",
+      "showLess": "Show less",
+      "expandMessage": "Expand message",
+      "collapseMessage": "Collapse message",
+      "editMessage": "Edit message"
+    }
   },
   "branchSelector": {
     "placeholder": "Select a branch",

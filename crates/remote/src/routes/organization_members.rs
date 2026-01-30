@@ -24,7 +24,7 @@ use crate::{
         invitations::{Invitation, InvitationRepository},
         organization_members::{self, MemberRole},
         organizations::OrganizationRepository,
-        projects::ProjectRepository,
+        swarm_projects::SwarmProjectRepository,
         tasks::SharedTaskRepository,
     },
 };
@@ -499,6 +499,25 @@ pub(crate) async fn ensure_member_access(
         .map_err(|err| membership_error(err, "Not a member of organization"))
 }
 
+/// Ensure the specified user has admin access to the organization.
+///
+/// # Returns
+///
+/// `Ok(())` if the user is an admin of the organization, `Err(ErrorResponse)` describing the access failure otherwise.
+///
+/// # Examples
+///
+/// ```no_run
+/// # use sqlx::PgPool;
+/// # use uuid::Uuid;
+/// # async fn example(pool: &PgPool, org_id: Uuid, user_id: Uuid) {
+/// let res = crate::routes::organization_members::ensure_admin_access(pool, org_id, user_id).await;
+/// match res {
+///     Ok(()) => println!("user is admin"),
+///     Err(e) => eprintln!("access denied: {:?}", e),
+/// }
+/// # }
+/// ```
 pub(crate) async fn ensure_admin_access(
     pool: &PgPool,
     organization_id: Uuid,
@@ -510,22 +529,50 @@ pub(crate) async fn ensure_admin_access(
         .map_err(|err| membership_error(err, "Admin access required"))
 }
 
+/// Ensures the given user has access to the swarm project and returns its organization ID.
+///
+/// Looks up the project's organization via the swarm_projects table, verifies the user is a member
+/// of that organization, and returns the organization's UUID on success. If the project is not
+/// found the function returns an ErrorResponse with status `NOT_FOUND`; if the membership check
+/// fails it returns an ErrorResponse indicating the project is not accessible; database failures
+/// produce an `INTERNAL_SERVER_ERROR`.
+///
+/// # Examples
+///
+/// ```no_run
+/// # use sqlx::PgPool;
+/// # use uuid::Uuid;
+/// # use crate::api::ensure_project_access;
+/// # async fn example(pool: &PgPool) -> Result<(), ()> {
+/// let user_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+/// let swarm_project_id = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
+/// match ensure_project_access(pool, user_id, swarm_project_id).await {
+///     Ok(org_id) => {
+///         println!("User is a member of organization {}", org_id);
+///     }
+///     Err(err_resp) => {
+///         eprintln!("Access denied: {:?}", err_resp);
+///     }
+/// }
+/// # Ok(()) }
+/// ```
 pub(crate) async fn ensure_project_access(
     pool: &PgPool,
     user_id: Uuid,
-    project_id: Uuid,
+    swarm_project_id: Uuid,
 ) -> Result<Uuid, ErrorResponse> {
-    let organization_id = ProjectRepository::organization_id(pool, project_id)
+    // Look up organization_id via swarm_projects table
+    let organization_id = SwarmProjectRepository::organization_id(pool, swarm_project_id)
         .await
         .map_err(|error| {
-            tracing::error!(?error, %project_id, "failed to load project");
+            tracing::error!(?error, %swarm_project_id, "failed to load swarm project");
             ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
         })?
         .ok_or_else(|| {
             warn!(
-                %project_id,
+                %swarm_project_id,
                 %user_id,
-                "project not found for access check"
+                "swarm project not found for access check"
             );
             ErrorResponse::new(StatusCode::NOT_FOUND, "project not found")
         })?;
@@ -537,14 +584,14 @@ pub(crate) async fn ensure_project_access(
                 tracing::error!(
                     ?error,
                     %organization_id,
-                    %project_id,
+                    %swarm_project_id,
                     "failed to authorize project membership"
                 );
             } else {
                 warn!(
                     ?err,
                     %organization_id,
-                    %project_id,
+                    %swarm_project_id,
                     %user_id,
                     "project access denied"
                 );
@@ -598,4 +645,316 @@ pub(crate) async fn ensure_task_access(
         })?;
 
     Ok(organization_id)
+}
+
+pub(crate) async fn ensure_swarm_project_access(
+    pool: &PgPool,
+    user_id: Uuid,
+    swarm_project_id: Uuid,
+) -> Result<Uuid, ErrorResponse> {
+    // Lookup organization_id from swarm_projects table
+    let organization_id = SwarmProjectRepository::organization_id(pool, swarm_project_id)
+        .await
+        .map_err(|error| {
+            tracing::error!(?error, %swarm_project_id, "failed to load swarm project");
+            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
+        })?
+        .ok_or_else(|| {
+            tracing::warn!(%swarm_project_id, %user_id, "swarm project not found for access check");
+            ErrorResponse::new(StatusCode::NOT_FOUND, "project not found")
+        })?;
+
+    // Verify user is a member of the organization
+    organization_members::assert_membership(pool, organization_id, user_id)
+        .await
+        .map_err(|err| membership_error(err, "project not accessible"))?;
+
+    Ok(organization_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ensure_swarm_project_access_signature() {
+        // This test verifies that the function exists and has the correct signature.
+        // Integration tests would require a database and proper test fixtures.
+        // The function signature is:
+        // pub(crate) async fn ensure_swarm_project_access(
+        //     pool: &PgPool,
+        //     user_id: Uuid,
+        //     swarm_project_id: Uuid,
+        // ) -> Result<Uuid, ErrorResponse>
+        // This test simply ensures the function is accessible within the module.
+        let _fn = ensure_swarm_project_access;
+        // If this compiles, the signature is correct.
+    }
+
+    #[test]
+    fn test_error_response_creation() {
+        // Test that ErrorResponse can be created with valid status codes
+        // These are used by ensure_swarm_project_access for error handling
+        let _not_found = ErrorResponse::new(StatusCode::NOT_FOUND, "project not found");
+        let _forbidden = ErrorResponse::new(StatusCode::FORBIDDEN, "project not accessible");
+        let _internal_error =
+            ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "internal server error");
+        // If creation succeeds, error handling is available
+    }
+}
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use chrono::Utc;
+    use sqlx::PgPool;
+
+    /// Helper to get database URL from environment.
+    fn database_url() -> Option<String> {
+        std::env::var("SERVER_DATABASE_URL")
+            .ok()
+            .or_else(|| std::env::var("DATABASE_URL").ok())
+    }
+
+    /// Skip test if database is not available.
+    macro_rules! skip_without_db {
+        () => {
+            if database_url().is_none() {
+                eprintln!("Skipping test: DATABASE_URL or SERVER_DATABASE_URL not set");
+                return;
+            }
+        };
+    }
+
+    /// Create a test database connection pool.
+    async fn create_pool() -> PgPool {
+        let url = database_url().expect("DATABASE_URL must be set");
+        PgPool::connect(&url)
+            .await
+            .expect("Failed to connect to database")
+    }
+
+    /// Helper to create test organization
+    async fn create_test_organization(pool: &PgPool) -> Uuid {
+        let org_id = Uuid::new_v4();
+        let now = Utc::now();
+
+        sqlx::query(
+            r#"
+            INSERT INTO organizations (id, name, slug, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(org_id)
+        .bind(format!("Test Org {}", org_id))
+        .bind(format!(
+            "test-org-{}",
+            org_id.to_string()[..8].to_lowercase()
+        ))
+        .bind(now)
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("Failed to create test organization");
+
+        org_id
+    }
+
+    /// Helper to create test user
+    async fn create_test_user(pool: &PgPool) -> Uuid {
+        let user_id = Uuid::new_v4();
+        let now = Utc::now();
+
+        sqlx::query(
+            r#"
+            INSERT INTO users (id, email, username, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(user_id)
+        .bind(format!(
+            "test-{}@example.com",
+            user_id.to_string()[..8].to_lowercase()
+        ))
+        .bind(format!("test_{}", user_id.to_string()[..8].to_lowercase()))
+        .bind(now)
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("Failed to create test user");
+
+        user_id
+    }
+
+    /// Helper to add user to organization
+    async fn add_user_to_org(pool: &PgPool, user_id: Uuid, org_id: Uuid) {
+        let now = Utc::now();
+
+        sqlx::query(
+            r#"
+            INSERT INTO organization_member_metadata (organization_id, user_id, role, joined_at)
+            VALUES ($1, $2, $3, $4)
+            "#,
+        )
+        .bind(org_id)
+        .bind(user_id)
+        .bind("member")
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("Failed to add user to organization");
+    }
+
+    /// Helper to create test swarm project
+    async fn create_test_swarm_project(pool: &PgPool, org_id: Uuid) -> Uuid {
+        let swarm_project_id = Uuid::new_v4();
+        let now = Utc::now();
+
+        sqlx::query(
+            r#"
+            INSERT INTO swarm_projects (id, organization_id, name, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(swarm_project_id)
+        .bind(org_id)
+        .bind(format!("Test Swarm Project {}", swarm_project_id))
+        .bind(now)
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("Failed to create test swarm project");
+
+        swarm_project_id
+    }
+
+    /// Cleanup helper - remove test organization and its members
+    async fn cleanup_org(pool: &PgPool, org_id: Uuid) {
+        let _ = sqlx::query(
+            r#"
+            DELETE FROM organization_member_metadata
+            WHERE organization_id = $1
+            "#,
+        )
+        .bind(org_id)
+        .execute(pool)
+        .await;
+
+        let _ = sqlx::query(
+            r#"
+            DELETE FROM swarm_projects
+            WHERE organization_id = $1
+            "#,
+        )
+        .bind(org_id)
+        .execute(pool)
+        .await;
+
+        let _ = sqlx::query(
+            r#"
+            DELETE FROM organizations
+            WHERE id = $1
+            "#,
+        )
+        .bind(org_id)
+        .execute(pool)
+        .await;
+    }
+
+    /// Cleanup helper - remove test user
+    async fn cleanup_user(pool: &PgPool, user_id: Uuid) {
+        let _ = sqlx::query(
+            r#"
+            DELETE FROM users
+            WHERE id = $1
+            "#,
+        )
+        .bind(user_id)
+        .execute(pool)
+        .await;
+    }
+
+    /// Test: ensure_swarm_project_access succeeds when user has membership
+    #[tokio::test]
+    async fn test_ensure_swarm_project_access_success() {
+        skip_without_db!();
+
+        let pool = create_pool().await;
+        let org_id = create_test_organization(&pool).await;
+        let user_id = create_test_user(&pool).await;
+        add_user_to_org(&pool, user_id, org_id).await;
+        let swarm_project_id = create_test_swarm_project(&pool, org_id).await;
+
+        let result = ensure_swarm_project_access(&pool, user_id, swarm_project_id).await;
+
+        assert!(
+            result.is_ok(),
+            "ensure_swarm_project_access should succeed for organization member"
+        );
+        assert_eq!(
+            result.unwrap(),
+            org_id,
+            "Should return the correct organization_id"
+        );
+
+        // Cleanup
+        cleanup_org(&pool, org_id).await;
+        cleanup_user(&pool, user_id).await;
+    }
+
+    /// Test: ensure_swarm_project_access returns NOT_FOUND for non-existent swarm project
+    #[tokio::test]
+    async fn test_ensure_swarm_project_access_not_found() {
+        skip_without_db!();
+
+        let pool = create_pool().await;
+        let user_id = create_test_user(&pool).await;
+        let nonexistent_swarm_project_id = Uuid::new_v4();
+
+        let result =
+            ensure_swarm_project_access(&pool, user_id, nonexistent_swarm_project_id).await;
+
+        assert!(
+            result.is_err(),
+            "ensure_swarm_project_access should fail for non-existent swarm project"
+        );
+        let error = result.unwrap_err();
+        assert_eq!(
+            error.status(),
+            StatusCode::NOT_FOUND,
+            "Should return 404 Not Found for non-existent swarm project"
+        );
+
+        // Cleanup
+        cleanup_user(&pool, user_id).await;
+    }
+
+    /// Test: ensure_swarm_project_access returns FORBIDDEN when user lacks organization membership
+    #[tokio::test]
+    async fn test_ensure_swarm_project_access_forbidden() {
+        skip_without_db!();
+
+        let pool = create_pool().await;
+        let org_id = create_test_organization(&pool).await;
+        let user_id = create_test_user(&pool).await;
+        // Note: user is NOT added to organization
+        let swarm_project_id = create_test_swarm_project(&pool, org_id).await;
+
+        let result = ensure_swarm_project_access(&pool, user_id, swarm_project_id).await;
+
+        assert!(
+            result.is_err(),
+            "ensure_swarm_project_access should fail for user without organization membership"
+        );
+        let error = result.unwrap_err();
+        assert_eq!(
+            error.status(),
+            StatusCode::FORBIDDEN,
+            "Should return 403 Forbidden for user lacking organization membership"
+        );
+
+        // Cleanup
+        cleanup_org(&pool, org_id).await;
+        cleanup_user(&pool, user_id).await;
+    }
 }

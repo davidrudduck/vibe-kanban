@@ -80,43 +80,68 @@ User adds message
 | `crates/local-deployment/src/container.rs:1542` | `inject_message()` implementation |
 | `crates/executors/src/executors/claude/protocol.rs` | `ProtocolPeer` stdin management |
 
-## Visual Indicator
+## User Message Card Design
 
-Injected messages include `metadata: { injected: true }` which the frontend uses to display a visual indicator distinguishing them from regular user messages.
+All user messages (both initial and injected) now use a consistent green-styled card format with the following features:
 
-### How It Works
+### Visual Design
 
-1. **Backend**: When a message is injected, the backend sets `metadata.injected = true` on the resulting log entry
-2. **Type Export**: The `NormalizedEntry` struct exports `metadata` as `Record<string, unknown> | null` to TypeScript
-3. **Frontend Detection**: The `UserMessage` component checks `metadata?.injected === true`
-4. **Display**: Injected messages show an "(injected)" label above the message content
+- **Border**: `border-green-400/40`
+- **Header Background**: `bg-green-50 dark:bg-green-950/20`
+- **Header Text**: `text-green-700 dark:text-green-300`
+- **Content Background**: `bg-green-50 dark:bg-green-950/10`
+- **Content Text**: Markdown-rendered with proper syntax highlighting
 
-### Implementation
+### Card Layout
+
+```text
+┌─────────────────────────────────────────┐
+│ ClaudeCode / opus                    ▼  │  ← Header (executor/variant + chevron)
+├─────────────────────────────────────────┤
+│ Please fix the bug in auth.ts           │  ← Content (markdown rendered)
+│ and run the tests afterwards.           │
+└─────────────────────────────────────────┘
+```
+
+### Collapsible Long Messages
+
+Messages longer than 5 lines are automatically collapsed by default:
+
+- **Collapsed State**: Shows first 5 lines with "..." suffix
+- **Expand/Collapse**: Chevron button in header (rotates on toggle)
+- **State Persistence**: Uses `useExpandable` store keyed by `user-message:{executionProcessId}`
+
+#### Implementation
 
 ```typescript
 // frontend/src/components/NormalizedConversation/UserMessage.tsx
-const isInjected = metadata?.injected === true;
+const LINE_LIMIT = 5;
+const lineCount = content.split('\n').length;
+const needsCollapse = lineCount > LINE_LIMIT;
 
-return (
-  <div>
-    {isInjected && (
-      <span className="text-xs text-muted-foreground mb-1 block">
-        (injected)
-      </span>
-    )}
-    {/* message content */}
-  </div>
+const [expanded, toggle] = useExpandable(
+  `user-message:${executionProcessId}`,
+  !needsCollapse  // Default: expanded if short, collapsed if long
 );
+
+const displayContent = needsCollapse && !expanded
+  ? content.split('\n').slice(0, LINE_LIMIT).join('\n') + '...'
+  : content;
 ```
 
-### User Experience
+### Executor Context Display
 
-| Message Type | Display |
-|--------------|---------|
-| Regular user message | No indicator |
-| Injected message | "(injected)" label in muted text above content |
+The card header shows the executor and variant that was used:
 
-This helps users distinguish between messages they typed manually and messages that were injected into a running process when reviewing conversation history.
+```typescript
+const executor = taskAttempt?.executor;
+const variant = taskAttempt?.executor_variant;
+
+// Header displays: "ClaudeCode / opus" or just "ClaudeCode" if no variant
+<span>{executor}{variant && ` / ${variant}`}</span>
+```
+
+This helps users understand which agent configuration was active when the message was sent.
 
 ## API Endpoints
 
@@ -219,6 +244,47 @@ async fn inject_message(
 ```
 
 The peer lookup uses a concurrent `DashMap` keyed by `execution_process_id`.
+
+### EntryIndexProvider Sharing
+
+**Problem:** When a message is injected, new output from the executor appeared **above** the injected message instead of **below** it in chronological order.
+
+**Root Cause:** The `EntryIndexProvider` created during `normalize_logs()` was never stored/shared with `inject_message()`. When injection occurred, a NEW provider was created by scanning the message store, causing index collisions with the normalisation task's provider.
+
+**Solution:** Share the same `EntryIndexProvider` instance between `normalize_logs()` and `inject_message()`:
+
+1. **Container creates provider**: Before calling `normalize_logs()`, the container service creates an `EntryIndexProvider` and stores it
+2. **Pass to normalize_logs**: The provider is passed as a parameter to the executor's `normalize_logs()` method
+3. **Reuse in inject_message**: When injecting a message, `inject_message()` retrieves the stored provider instead of creating a new one
+
+#### Implementation
+
+```rust
+// crates/services/src/services/container.rs
+if let Some(executor) = ExecutorConfigs::get_cached().get_coding_agent(executor_profile_id) {
+    // Create and store the provider FIRST
+    let entry_index_provider = executors::logs::utils::EntryIndexProvider::start_from(&msg_store);
+    self.store_entry_index_provider(execution_process.id, entry_index_provider.clone()).await;
+
+    // Pass the same provider to normalize_logs
+    let handle = executor.normalize_logs(msg_store, &worktree_path, entry_index_provider);
+    self.store_normalization_handle(execution_process.id, handle).await;
+}
+```
+
+```rust
+// crates/local-deployment/src/container.rs (inject_message)
+let index_provider = self.get_entry_index_provider(&execution_process_id).await
+    .unwrap_or_else(|| {
+        tracing::warn!(
+            execution_process_id = %execution_process_id,
+            "Entry index provider not found, creating fallback"
+        );
+        EntryIndexProvider::start_from(msg_store)
+    });
+```
+
+This ensures that all log entries (both from normal execution and injected messages) use consistent, non-colliding indices, maintaining correct chronological order in the conversation view.
 
 ### Message Format
 

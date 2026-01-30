@@ -22,6 +22,7 @@
 //! - Task 007: Await normalization handles before finalization
 
 use executors::executors::{BaseCodingAgent, StandardCodingAgentExecutor};
+use executors::logs::utils::EntryIndexProvider;
 use executors::profile::{ExecutorConfigs, ExecutorProfileId};
 use serde_json::json;
 use sqlx::SqlitePool;
@@ -203,7 +204,8 @@ async fn test_normalization_completes_before_finalization() {
 
     // Start normalization task (fire-and-forget currently)
     let worktree_path = PathBuf::from("/");
-    executor.normalize_logs(msg_store.clone(), &worktree_path);
+    let entry_index = EntryIndexProvider::start_from(&msg_store);
+    executor.normalize_logs(msg_store.clone(), &worktree_path, entry_index);
 
     // Push multiple Claude assistant messages as stdout
     // These should be normalized into JsonPatch entries
@@ -261,7 +263,8 @@ async fn test_normalization_timeout() {
 
     // Start normalization
     let worktree_path = PathBuf::from("/");
-    executor.normalize_logs(msg_store.clone(), &worktree_path);
+    let entry_index = EntryIndexProvider::start_from(&msg_store);
+    executor.normalize_logs(msg_store.clone(), &worktree_path, entry_index);
 
     // Push a large number of messages to stress test normalization
     for i in 0..50 {
@@ -341,7 +344,8 @@ async fn test_fast_execution_no_lost_logs() {
 
     // Start normalization - now returns JoinHandle<()> per Task 006
     let worktree_path = PathBuf::from("/");
-    let norm_handle = executor.normalize_logs(msg_store.clone(), &worktree_path);
+    let entry_index = EntryIndexProvider::start_from(&msg_store);
+    let norm_handle = executor.normalize_logs(msg_store.clone(), &worktree_path, entry_index);
 
     // Simulate a very fast execution: single message, immediate finish
     let msg = claude_assistant_message("Quick response.", "msg_001");
@@ -388,7 +392,11 @@ async fn test_normalization_empty_input() {
 
     // Start normalization
     let worktree_path = PathBuf::from("/");
-    executor.normalize_logs(msg_store.clone(), &worktree_path);
+    executor.normalize_logs(
+        msg_store.clone(),
+        &worktree_path,
+        EntryIndexProvider::start_from(&msg_store),
+    );
 
     // No stdout pushed - just finish
     msg_store.push_finished();
@@ -418,7 +426,8 @@ async fn test_normalization_malformed_input() {
 
     // Start normalization
     let worktree_path = PathBuf::from("/");
-    executor.normalize_logs(msg_store.clone(), &worktree_path);
+    let entry_index = EntryIndexProvider::start_from(&msg_store);
+    executor.normalize_logs(msg_store.clone(), &worktree_path, entry_index);
 
     // Push mix of valid and invalid input
     msg_store.push_stdout("not valid json at all");

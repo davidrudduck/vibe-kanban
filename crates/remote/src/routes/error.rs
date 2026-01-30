@@ -5,7 +5,7 @@ use axum::{
 };
 use serde_json::json;
 
-use crate::db::{identity_errors::IdentityError, projects::ProjectError, tasks::SharedTaskError};
+use crate::db::{identity_errors::IdentityError, tasks::SharedTaskError};
 
 #[derive(Debug)]
 pub struct ErrorResponse {
@@ -20,6 +20,11 @@ impl ErrorResponse {
             message: message.into(),
         }
     }
+
+    #[allow(dead_code)]
+    pub fn status(&self) -> StatusCode {
+        self.status
+    }
 }
 
 impl IntoResponse for ErrorResponse {
@@ -28,6 +33,27 @@ impl IntoResponse for ErrorResponse {
     }
 }
 
+/// Convert a `SharedTaskError` into an HTTP `Response` with an appropriate status code and JSON error body.
+///
+/// The `context` string is forwarded to identity error handling and included in log messages for internal errors.
+///
+/// # Parameters
+///
+/// - `context`: A short context message used when delegating to identity error handling and when logging internal errors.
+///
+/// # Returns
+///
+/// An `axum::response::Response` whose status code and JSON body (`{ "error": "<message>" }`) correspond to the provided `SharedTaskError`.
+///
+/// # Examples
+///
+/// ```
+/// use axum::http::StatusCode;
+/// use crate::db::SharedTaskError;
+///
+/// let resp = crate::handlers::task_error_response(SharedTaskError::NotFound, "fetch_shared_task");
+/// assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+/// ```
 pub(crate) fn task_error_response(error: SharedTaskError, context: &str) -> Response {
     let response = match error {
         SharedTaskError::NotFound => (
@@ -47,16 +73,6 @@ pub(crate) fn task_error_response(error: SharedTaskError, context: &str) -> Resp
                 "error": "title and description cannot exceed 50 KiB combined"
             })),
         ),
-        SharedTaskError::Project(ProjectError::Conflict(message)) => {
-            (StatusCode::CONFLICT, Json(json!({ "error": message })))
-        }
-        SharedTaskError::Project(err) => {
-            tracing::error!(?err, "{context}", context = context);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "internal server error" })),
-            )
-        }
         SharedTaskError::Identity(err) => return identity_error_response(err, context),
         SharedTaskError::Serialization(err) => {
             tracing::error!(?err, "{context}", context = context);

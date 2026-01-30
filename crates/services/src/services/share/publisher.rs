@@ -10,7 +10,7 @@
 
 use db::{
     DBService,
-    models::{project::Project, task::Task},
+    models::{project::Project, task::Task, task_attempt::TaskAttempt},
 };
 use remote::routes::tasks::{
     CreateSharedTaskRequest, DeleteSharedTaskRequest, UpdateSharedTaskRequest,
@@ -32,10 +32,28 @@ impl SharePublisher {
         Self { db, client }
     }
 
-    /// Share a task to the Hive.
+    /// Shares a local task to the Hive and links the local task to the created remote task.
     ///
-    /// The `assignee_user_id` is optional - if provided, the task will be assigned to that user.
-    /// If not provided, the task will be shared without an assignee.
+    /// The `assignee_user_id` is optional; if provided, the remote task will be assigned to that user.
+    ///
+    /// # Returns
+    ///
+    /// The `Uuid` of the created remote shared task.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `ShareError` if the task or project cannot be found, the task is already shared, or the remote operation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use uuid::Uuid;
+    /// # use futures::executor::block_on;
+    /// # async fn example(publisher: &crate::SharePublisher, task_id: Uuid) {
+    /// let remote_id = publisher.share_task(task_id, None).await.unwrap();
+    /// assert!(remote_id != Uuid::nil());
+    /// # }
+    /// ```
     pub async fn share_task(
         &self,
         task_id: Uuid,
@@ -60,7 +78,7 @@ impl SharePublisher {
         };
 
         let payload = CreateSharedTaskRequest {
-            project_id: remote_project_id,
+            swarm_project_id: remote_project_id,
             title: task.title.clone(),
             description: task.description.clone(),
             status: Some(status::to_remote(&task.status)),
@@ -74,6 +92,15 @@ impl SharePublisher {
 
         // Link the local task to the Hive task
         Task::set_shared_task_id(&self.db.pool, task.id, Some(remote_task.task.id)).await?;
+
+        // Reset attempt sync status so attempts get re-synced with the correct shared_task_id
+        if let Err(e) = TaskAttempt::clear_hive_sync_for_task(&self.db.pool, task.id).await {
+            tracing::warn!(
+                error = ?e,
+                task_id = %task.id,
+                "failed to reset attempt sync status after creating shared task"
+            );
+        }
 
         Ok(remote_task.task.id)
     }

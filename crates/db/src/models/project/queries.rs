@@ -114,6 +114,13 @@ impl Project {
         .await
     }
 
+    /// Find a LOCAL project by its git repo path.
+    ///
+    /// This only searches local projects (is_remote = 0), not remote projects
+    /// synced from other nodes. This is the correct behavior because:
+    /// - Local projects have exclusive access to files at their git_repo_path
+    /// - Remote projects' paths are informational (files live on the source node)
+    /// - Multiple nodes can have projects at the same path
     pub async fn find_by_git_repo_path(
         pool: &SqlitePool,
         git_repo_path: &str,
@@ -144,13 +151,60 @@ impl Project {
                       github_open_prs as "github_open_prs!: i32",
                       github_last_synced_at as "github_last_synced_at: DateTime<Utc>"
                FROM projects
-               WHERE git_repo_path = $1"#,
+               WHERE git_repo_path = $1 AND is_remote = 0"#,
             git_repo_path
         )
         .fetch_optional(pool)
         .await
     }
 
+    /// Find a REMOTE project by its path and source node.
+    ///
+    /// Used during remote project sync to find existing entries from a specific node.
+    /// The combination of (git_repo_path, source_node_id) is unique for remote projects.
+    pub async fn find_remote_by_path_and_node(
+        pool: &SqlitePool,
+        git_repo_path: &str,
+        source_node_id: Uuid,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            Project,
+            r#"SELECT id as "id!: Uuid",
+                      name,
+                      git_repo_path,
+                      setup_script,
+                      dev_script,
+                      cleanup_script,
+                      copy_files,
+                      parallel_setup_script as "parallel_setup_script!: bool",
+                      remote_project_id as "remote_project_id: Uuid",
+                      created_at as "created_at!: DateTime<Utc>",
+                      updated_at as "updated_at!: DateTime<Utc>",
+                      is_remote as "is_remote!: bool",
+                      source_node_id as "source_node_id: Uuid",
+                      source_node_name,
+                      source_node_public_url,
+                      source_node_status,
+                      remote_last_synced_at as "remote_last_synced_at: DateTime<Utc>",
+                      github_enabled as "github_enabled!: bool",
+                      github_owner,
+                      github_repo,
+                      github_open_issues as "github_open_issues!: i32",
+                      github_open_prs as "github_open_prs!: i32",
+                      github_last_synced_at as "github_last_synced_at: DateTime<Utc>"
+               FROM projects
+               WHERE git_repo_path = $1 AND is_remote = 1 AND source_node_id = $2"#,
+            git_repo_path,
+            source_node_id
+        )
+        .fetch_optional(pool)
+        .await
+    }
+
+    /// Find a LOCAL project by path, excluding a specific ID.
+    ///
+    /// Used during project updates to check for path conflicts with other local projects.
+    /// Only checks local projects since remote project paths are informational.
     pub async fn find_by_git_repo_path_excluding_id(
         pool: &SqlitePool,
         git_repo_path: &str,
@@ -182,7 +236,7 @@ impl Project {
                       github_open_prs as "github_open_prs!: i32",
                       github_last_synced_at as "github_last_synced_at: DateTime<Utc>"
                FROM projects
-               WHERE git_repo_path = $1 AND id != $2"#,
+               WHERE git_repo_path = $1 AND id != $2 AND is_remote = 0"#,
             git_repo_path,
             exclude_id
         )

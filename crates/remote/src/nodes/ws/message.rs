@@ -379,8 +379,8 @@ pub enum TaskProgressType {
 
 /// Link a project from node to hive.
 ///
-/// Sent by the node when a user links a local project to a remote project.
-/// This creates an entry in the hive's node_projects table.
+/// Sent by the node when a user links a local project to a swarm project.
+/// This creates an entry in the hive's swarm_project_nodes table.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LinkProjectMessage {
     /// The remote project ID (from the hive's projects table)
@@ -401,7 +401,7 @@ fn default_branch() -> String {
 /// Unlink a project from the hive.
 ///
 /// Sent by the node when a user unlinks a local project.
-/// This removes the entry from the hive's node_projects table.
+/// This removes the entry from the hive's swarm_project_nodes table.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnlinkProjectMessage {
     /// The remote project ID to unlink
@@ -542,8 +542,13 @@ pub struct LogEntry {
 /// The execution_process_id links logs to a specific process run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogsBatchMessage {
-    /// Assignment ID for routing
+    /// Assignment ID for routing.
+    /// For locally-started tasks without hive dispatch, this may be the attempt_id.
     pub assignment_id: Uuid,
+    /// Shared task ID in the hive (required for creating synthetic assignments).
+    /// This enables the hive to create an assignment if one doesn't exist yet.
+    #[serde(default)]
+    pub shared_task_id: Option<Uuid>,
     /// Execution process ID these logs belong to (optional for backwards compatibility)
     pub execution_process_id: Option<Uuid>,
     /// Batch of log entries
@@ -609,14 +614,17 @@ pub struct LabelSyncBroadcastMessage {
 ///
 /// Sent by nodes to create or update a shared task on the hive.
 /// This allows locally-started tasks to be visible across the swarm.
+///
+/// The hive uses `local_project_id` to look up the swarm project via
+/// `node_local_projects` → `swarm_project_nodes` → `swarm_projects`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskSyncMessage {
     /// The local task ID on the node
     pub local_task_id: Uuid,
     /// The shared task ID on the Hive (None for new tasks)
     pub shared_task_id: Option<Uuid>,
-    /// The remote project ID (required for task creation)
-    pub remote_project_id: Uuid,
+    /// The local project ID on the node (hive looks up swarm_project_id via node_local_projects)
+    pub local_project_id: Uuid,
     /// Task title
     pub title: String,
     /// Task description
@@ -627,6 +635,10 @@ pub struct TaskSyncMessage {
     pub version: i64,
     /// Whether this is an update to an existing task (vs new task)
     pub is_update: bool,
+    /// Node currently owning/working on this task
+    pub owner_node_id: Option<Uuid>,
+    /// Name of the owner node
+    pub owner_name: Option<String>,
     /// When the task was created locally
     pub created_at: DateTime<Utc>,
     /// When the task was last updated locally

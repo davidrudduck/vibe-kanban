@@ -159,6 +159,7 @@ export function ProjectTasks() {
 
   const {
     projectId,
+    project,
     isLoading: projectLoading,
     error: projectError,
   } = useProject();
@@ -183,9 +184,20 @@ export function ProjectTasks() {
 
   // Filter state from URL params
   const showArchived = searchParams.get('archived') === 'on';
+  // Use REST API polling for remote projects OR swarm-linked projects
+  // WebSocket only returns local tasks, but swarm-linked projects need merged local+hive tasks
+  const isSwarmLinked = !!project?.remote_project_id;
+  const useRestApi = project?.is_remote || isSwarmLinked;
+
   const projectTasksOptions: UseProjectTasksOptions = useMemo(
-    () => ({ includeArchived: showArchived, sortDirections }),
-    [showArchived, sortDirections]
+    () => ({
+      includeArchived: showArchived,
+      sortDirections,
+      // For remote or swarm-linked projects, use REST API polling instead of WebSocket
+      // since WebSocket only returns local tasks
+      isRemote: useRestApi,
+    }),
+    [showArchived, sortDirections, useRestApi]
   );
 
   const {
@@ -726,6 +738,8 @@ export function ProjectTasks() {
         selectedTaskId={selectedTask?.id}
         projectId={projectId!}
         className="h-full"
+        sortDirections={sortDirections}
+        onSortToggle={toggleDirection}
       />
     ) : (
       <div className="w-full h-full overflow-x-auto overflow-y-auto overscroll-x-contain">

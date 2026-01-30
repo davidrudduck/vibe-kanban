@@ -6,11 +6,14 @@ use backon::{ExponentialBuilder, Retryable};
 use chrono::Duration as ChronoDuration;
 use remote::{
     activity::ActivityResponse,
-    nodes::{
-        Node, NodeApiKey, NodeExecutionProcess, NodeLocalProjectInfo, NodeProject, NodeTaskAttempt,
-    },
+    db::swarm_projects::SwarmProjectNode,
+    nodes::{Node, NodeApiKey, NodeLocalProjectInfo, NodeTaskAttempt},
     routes::{
         labels::{SetTaskLabelsRequest, TaskLabelsResponse},
+        nodes::{
+            GetAttemptLogsResponse, ListSwarmProjectTasksResponse,
+            ListTaskAttemptsBySharedTaskResponse,
+        },
         projects::ListProjectNodesResponse,
         swarm_labels::{ListSwarmLabelsResponse, MergeLabelsResult, SwarmLabelResponse},
         swarm_projects::{
@@ -122,20 +125,37 @@ struct ApiErrorResponse {
     error: String,
 }
 
-/// Response from the Hive for getting a single node task attempt.
-#[derive(Debug, Clone, Deserialize)]
-pub struct NodeTaskAttemptResponse {
-    pub attempt: NodeTaskAttempt,
-    pub executions: Vec<NodeExecutionProcess>,
-    /// Whether all executions are in a terminal state (complete/failed/killed)
-    pub is_complete: bool,
+// Re-export the NodeTaskAttemptResponse from the remote crate for backwards compatibility
+pub use remote::routes::nodes::NodeTaskAttemptResponse;
+
+/// Authentication mode for the RemoteClient.
+///
+/// The client can authenticate either via OAuth (user login with JWT tokens)
+/// or via a static API key (for node-to-hive sync operations).
+#[derive(Clone)]
+pub enum AuthMode {
+    /// OAuth-based authentication with automatic token refresh.
+    /// Used for user-initiated operations.
+    OAuth(AuthContext),
+    /// Static API key authentication.
+    /// Used for node sync operations that don't require user login.
+    ApiKey(String),
+}
+
+impl std::fmt::Debug for AuthMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OAuth(_) => f.write_str("AuthMode::OAuth(<context>)"),
+            Self::ApiKey(_) => f.write_str("AuthMode::ApiKey(<redacted>)"),
+        }
+    }
 }
 
 /// HTTP client for the remote OAuth server with automatic retries.
 pub struct RemoteClient {
     base: Url,
     http: Client,
-    auth_context: AuthContext,
+    auth_mode: AuthMode,
 }
 
 impl std::fmt::Debug for RemoteClient {
@@ -143,7 +163,7 @@ impl std::fmt::Debug for RemoteClient {
         f.debug_struct("RemoteClient")
             .field("base", &self.base)
             .field("http", &self.http)
-            .field("auth_context", &"<present>")
+            .field("auth_mode", &self.auth_mode)
             .finish()
     }
 }
@@ -153,7 +173,7 @@ impl Clone for RemoteClient {
         Self {
             base: self.base.clone(),
             http: self.http.clone(),
-            auth_context: self.auth_context.clone(),
+            auth_mode: self.auth_mode.clone(),
         }
     }
 }
@@ -162,7 +182,22 @@ impl RemoteClient {
     const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
     const TOKEN_REFRESH_LEEWAY_SECS: i64 = 20;
 
+    /// Creates a new RemoteClient with OAuth-based authentication.
+    ///
+    /// This is used for user-initiated operations that require login.
     pub fn new(base_url: &str, auth_context: AuthContext) -> Result<Self, RemoteClientError> {
+        Self::new_with_auth_mode(base_url, AuthMode::OAuth(auth_context))
+    }
+
+    /// Creates a new RemoteClient with API key authentication.
+    ///
+    /// This is used for node sync operations that don't require user login.
+    /// The API key is passed directly in the Authorization header.
+    pub fn new_with_api_key(base_url: &str, api_key: String) -> Result<Self, RemoteClientError> {
+        Self::new_with_auth_mode(base_url, AuthMode::ApiKey(api_key))
+    }
+
+    fn new_with_auth_mode(base_url: &str, auth_mode: AuthMode) -> Result<Self, RemoteClientError> {
         let base = Url::parse(base_url).map_err(|e| RemoteClientError::Url(e.to_string()))?;
         let http = Client::builder()
             .timeout(Self::REQUEST_TIMEOUT)
@@ -172,76 +207,96 @@ impl RemoteClient {
         Ok(Self {
             base,
             http,
-            auth_context,
+            auth_mode,
         })
     }
 
     /// Returns a valid access token, refreshing when it's about to expire.
+    ///
+    /// For OAuth mode, this handles automatic token refresh.
+    /// For API key mode, this simply returns the key.
     fn require_token(
         &self,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<String, RemoteClientError>> + Send + '_>,
     > {
         Box::pin(async move {
-            let leeway = ChronoDuration::seconds(Self::TOKEN_REFRESH_LEEWAY_SECS);
-            let creds = self.auth_context.get_credentials().await.ok_or_else(|| {
-                debug!("no credentials found in auth context");
-                RemoteClientError::Auth
-            })?;
-
-            if let Some(token) = creds.access_token.as_ref()
-                && !creds.expires_soon(leeway)
-            {
-                return Ok(token.clone());
-            }
-
-            // Token is missing or expiring soon, need to refresh
-            debug!(
-                expires_at = ?creds.expires_at,
-                has_access_token = creds.access_token.is_some(),
-                "access token expired or expiring soon, attempting refresh"
-            );
-
-            let refreshed = {
-                let _refresh_guard = self.auth_context.refresh_guard().await;
-                let latest = self
-                    .auth_context
-                    .get_credentials()
-                    .await
-                    .ok_or(RemoteClientError::Auth)?;
-                if let Some(token) = latest.access_token.as_ref()
-                    && !latest.expires_soon(leeway)
-                {
-                    debug!("another task already refreshed the token");
-                    return Ok(token.clone());
+            match &self.auth_mode {
+                AuthMode::ApiKey(key) => {
+                    // API key auth: just return the key directly
+                    Ok(key.clone())
                 }
-
-                self.refresh_credentials(&latest).await
-            };
-
-            match refreshed {
-                Ok(updated) => {
-                    debug!(
-                        expires_at = ?updated.expires_at,
-                        "token refresh succeeded"
-                    );
-                    updated.access_token.ok_or(RemoteClientError::Auth)
-                }
-                Err(RemoteClientError::Auth) => {
-                    warn!("token refresh failed with auth error, clearing credentials");
-                    let _ = self.auth_context.clear_credentials().await;
-                    Err(RemoteClientError::Auth)
-                }
-                Err(err) => {
-                    warn!(error = %err, "token refresh failed with non-auth error");
-                    Err(err)
+                AuthMode::OAuth(auth_context) => {
+                    // OAuth auth: handle token refresh
+                    self.require_oauth_token(auth_context).await
                 }
             }
         })
     }
 
+    /// Helper for OAuth token handling with automatic refresh.
+    async fn require_oauth_token(
+        &self,
+        auth_context: &AuthContext,
+    ) -> Result<String, RemoteClientError> {
+        let leeway = ChronoDuration::seconds(Self::TOKEN_REFRESH_LEEWAY_SECS);
+        let creds = auth_context.get_credentials().await.ok_or_else(|| {
+            debug!("no credentials found in auth context");
+            RemoteClientError::Auth
+        })?;
+
+        if let Some(token) = creds.access_token.as_ref()
+            && !creds.expires_soon(leeway)
+        {
+            return Ok(token.clone());
+        }
+
+        // Token is missing or expiring soon, need to refresh
+        debug!(
+            expires_at = ?creds.expires_at,
+            has_access_token = creds.access_token.is_some(),
+            "access token expired or expiring soon, attempting refresh"
+        );
+
+        let refreshed = {
+            let _refresh_guard = auth_context.refresh_guard().await;
+            let latest = auth_context
+                .get_credentials()
+                .await
+                .ok_or(RemoteClientError::Auth)?;
+            if let Some(token) = latest.access_token.as_ref()
+                && !latest.expires_soon(leeway)
+            {
+                debug!("another task already refreshed the token");
+                return Ok(token.clone());
+            }
+
+            self.refresh_credentials(auth_context, &latest).await
+        };
+
+        match refreshed {
+            Ok(updated) => {
+                debug!(
+                    expires_at = ?updated.expires_at,
+                    "token refresh succeeded"
+                );
+                updated.access_token.ok_or(RemoteClientError::Auth)
+            }
+            Err(RemoteClientError::Auth) => {
+                warn!("token refresh failed with auth error, clearing credentials");
+                let _ = auth_context.clear_credentials().await;
+                Err(RemoteClientError::Auth)
+            }
+            Err(err) => {
+                warn!(error = %err, "token refresh failed with non-auth error");
+                Err(err)
+            }
+        }
+    }
+
     async fn refresh_credentials(
         &self,
+        auth_context: &AuthContext,
         creds: &Credentials,
     ) -> Result<Credentials, RemoteClientError> {
         debug!("sending token refresh request to hive");
@@ -265,7 +320,7 @@ impl RemoteClient {
             refresh_token,
             expires_at: Some(expires_at),
         };
-        self.auth_context
+        auth_context
             .save_credentials(&new_creds)
             .await
             .map_err(|e| RemoteClientError::Storage(e.to_string()))?;
@@ -290,6 +345,9 @@ impl RemoteClient {
     }
 
     /// Returns a valid access token for use-cases like maintaining a websocket connection.
+    ///
+    /// For OAuth mode, this returns (and potentially refreshes) the JWT access token.
+    /// For API key mode, this returns the static API key.
     pub async fn access_token(&self) -> Result<String, RemoteClientError> {
         self.require_token().await
     }
@@ -688,12 +746,17 @@ impl RemoteClient {
     }
 
     /// Fetches bulk snapshot of shared tasks for a project.
+    ///
+    /// Uses the `/v1/sync/nodes/tasks/bulk` endpoint which requires API key auth,
+    /// allowing nodes to sync tasks without requiring user login.
     pub async fn fetch_bulk_snapshot(
         &self,
         project_id: Uuid,
     ) -> Result<BulkSharedTasksResponse, RemoteClientError> {
-        self.get_authed(&format!("/v1/tasks/bulk?project_id={project_id}"))
-            .await
+        self.get_authed(&format!(
+            "/v1/sync/nodes/tasks/bulk?project_id={project_id}"
+        ))
+        .await
     }
 
     /// Sets the executing node for a shared task.
@@ -714,6 +777,23 @@ impl RemoteClient {
         self.patch_authed::<Value, _>(&format!("/v1/tasks/{task_id}/executing-node"), &request)
             .await?;
         Ok(())
+    }
+
+    /// Gets a shared task by ID from the Hive.
+    ///
+    /// Used for cross-node task viewing when a task isn't found locally.
+    pub async fn get_shared_task(
+        &self,
+        task_id: Uuid,
+    ) -> Result<remote::db::tasks::SharedTask, RemoteClientError> {
+        // Use sync endpoint for API key auth (doesn't require OAuth login)
+        // Use regular endpoint for OAuth auth (requires user session)
+        let path = match &self.auth_mode {
+            AuthMode::ApiKey(_) => format!("/v1/sync/swarm/tasks/{task_id}"),
+            AuthMode::OAuth(_) => format!("/v1/tasks/{task_id}"),
+        };
+        let response: SharedTaskResponse = self.get_authed(&path).await?;
+        Ok(response.task)
     }
 
     /// Finds a shared task by its source task ID and source node ID.
@@ -737,6 +817,15 @@ impl RemoteClient {
         }
     }
 
+    /// Gets labels for a shared task.
+    pub async fn get_task_labels(
+        &self,
+        task_id: Uuid,
+    ) -> Result<TaskLabelsResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/tasks/{task_id}/labels"))
+            .await
+    }
+
     /// Sets labels for a shared task.
     ///
     /// Replaces all existing labels with the provided set.
@@ -757,9 +846,14 @@ impl RemoteClient {
     // =====================
 
     /// Lists all nodes for an organization.
+    ///
+    /// Uses `/v1/nodes` for OAuth auth (user-facing) or `/v1/sync/nodes` for API key auth (node sync).
     pub async fn list_nodes(&self, org_id: Uuid) -> Result<Vec<Node>, RemoteClientError> {
-        self.get_authed(&format!("/v1/nodes?organization_id={org_id}"))
-            .await
+        let path = match &self.auth_mode {
+            AuthMode::OAuth(_) => format!("/v1/nodes?organization_id={org_id}"),
+            AuthMode::ApiKey(_) => format!("/v1/sync/nodes?organization_id={org_id}"),
+        };
+        self.get_authed(&path).await
     }
 
     /// Gets a specific node by ID.
@@ -773,23 +867,57 @@ impl RemoteClient {
     }
 
     /// Lists local projects synced from a node.
+    ///
+    /// Uses `/v1/nodes` for OAuth auth (user-facing) or `/v1/sync/nodes` for API key auth (node sync).
     pub async fn list_node_projects(
         &self,
         node_id: Uuid,
     ) -> Result<Vec<NodeLocalProjectInfo>, RemoteClientError> {
-        self.get_authed(&format!("/v1/nodes/{node_id}/projects"))
-            .await
+        let path = match &self.auth_mode {
+            AuthMode::OAuth(_) => format!("/v1/nodes/{node_id}/projects"),
+            AuthMode::ApiKey(_) => format!("/v1/sync/nodes/{node_id}/projects"),
+        };
+        self.get_authed(&path).await
     }
 
-    /// Lists projects linked to a node that are also linked to a swarm project.
-    /// Only swarm-linked projects are returned - unlinked projects are excluded.
-    /// Use this for syncing projects to other nodes.
+    /// Returns the swarm-linked projects for a given node.
+    ///
+    /// Only projects that are linked to a swarm project are included; projects that exist on the node but are not swarm-linked are excluded.
+    ///
+    /// Uses `/v1/nodes` for OAuth auth (user-facing) or `/v1/sync/nodes` for API key auth (node sync).
+    ///
+    /// # Parameters
+    ///
+    /// - `node_id`: the UUID of the node to list linked swarm projects for.
+    ///
+    /// # Returns
+    ///
+    /// A `Vec<SwarmProjectNode>` containing the swarm-linked project records for the node. Returns an empty vector if no linked projects are found.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use uuid::Uuid;
+    /// # use remote::RemoteClient;
+    /// # use remote::auth::AuthContext;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let auth = AuthContext::new(/* ... */);
+    /// let client = RemoteClient::new("https://api.example.com", auth)?;
+    /// let node_id = Uuid::parse_str("00000000-0000-0000-0000-000000000000")?;
+    /// let projects = client.list_linked_node_projects(node_id).await?;
+    /// // `projects` is a Vec<SwarmProjectNode>; it may be empty.
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn list_linked_node_projects(
         &self,
         node_id: Uuid,
-    ) -> Result<Vec<NodeProject>, RemoteClientError> {
-        self.get_authed(&format!("/v1/nodes/{node_id}/projects/linked"))
-            .await
+    ) -> Result<Vec<SwarmProjectNode>, RemoteClientError> {
+        let path = match &self.auth_mode {
+            AuthMode::OAuth(_) => format!("/v1/nodes/{node_id}/projects/linked"),
+            AuthMode::ApiKey(_) => format!("/v1/sync/nodes/{node_id}/projects/linked"),
+        };
+        self.get_authed(&path).await
     }
 
     /// Lists task attempts for a shared task.
@@ -870,14 +998,24 @@ impl RemoteClient {
     // =====================
 
     /// Lists all swarm projects for an organization.
+    ///
+    /// When using API key auth (node sync), this uses the `/v1/sync/swarm/projects`
+    /// endpoint which doesn't require user OAuth login. The organization is inferred
+    /// from the API key.
+    ///
+    /// When using OAuth auth (user operations), this uses `/v1/swarm/projects`
+    /// which requires the organization_id parameter.
     pub async fn list_swarm_projects(
         &self,
         organization_id: Uuid,
     ) -> Result<ListSwarmProjectsResponse, RemoteClientError> {
-        self.get_authed(&format!(
-            "/v1/swarm/projects?organization_id={organization_id}"
-        ))
-        .await
+        // Use sync endpoint for API key auth (doesn't require OAuth login)
+        // Use regular endpoint for OAuth auth (requires user session)
+        let path = match &self.auth_mode {
+            AuthMode::ApiKey(_) => "/v1/sync/swarm/projects".to_string(),
+            AuthMode::OAuth(_) => format!("/v1/swarm/projects?organization_id={organization_id}"),
+        };
+        self.get_authed(&path).await
     }
 
     /// Gets a specific swarm project by ID.
@@ -885,8 +1023,13 @@ impl RemoteClient {
         &self,
         project_id: Uuid,
     ) -> Result<SwarmProjectResponse, RemoteClientError> {
-        self.get_authed(&format!("/v1/swarm/projects/{project_id}"))
-            .await
+        // Use sync endpoint for API key auth (doesn't require OAuth login)
+        // Use regular endpoint for OAuth auth (requires user session)
+        let path = match &self.auth_mode {
+            AuthMode::ApiKey(_) => format!("/v1/sync/swarm/projects/{project_id}"),
+            AuthMode::OAuth(_) => format!("/v1/swarm/projects/{project_id}"),
+        };
+        self.get_authed(&path).await
     }
 
     /// Creates a new swarm project.
@@ -955,6 +1098,92 @@ impl RemoteClient {
         node_id: Uuid,
     ) -> Result<(), RemoteClientError> {
         self.delete_authed(&format!("/v1/swarm/projects/{project_id}/nodes/{node_id}"))
+            .await
+    }
+
+    // =====================
+    // Swarm Data Read APIs (for cross-node viewing)
+    // =====================
+
+    /// Lists all tasks for a swarm project.
+    ///
+    /// Used by nodes to fetch tasks from the Hive for swarm projects they don't own.
+    /// Uses the `/v1/sync/` endpoint which requires API key auth.
+    pub async fn list_swarm_project_tasks(
+        &self,
+        swarm_project_id: Uuid,
+    ) -> Result<ListSwarmProjectTasksResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/sync/swarm/projects/{swarm_project_id}/tasks"))
+            .await
+    }
+
+    /// Lists all task attempts for a shared task.
+    ///
+    /// Used by nodes to fetch attempts from the Hive for cross-node viewing.
+    /// Uses the `/v1/sync/` endpoint which requires API key auth.
+    pub async fn list_swarm_task_attempts(
+        &self,
+        shared_task_id: Uuid,
+    ) -> Result<ListTaskAttemptsBySharedTaskResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/sync/swarm/tasks/{shared_task_id}/attempts"))
+            .await
+    }
+
+    /// Gets a single task attempt with execution details.
+    ///
+    /// Used by nodes to fetch attempt details from the Hive for cross-node viewing.
+    /// Uses the `/v1/sync/` endpoint which requires API key auth.
+    pub async fn get_swarm_attempt(
+        &self,
+        attempt_id: Uuid,
+    ) -> Result<NodeTaskAttemptResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/sync/swarm/attempts/{attempt_id}"))
+            .await
+    }
+
+    /// Gets logs for a task attempt.
+    ///
+    /// Used by nodes to fetch logs from the Hive for cross-node viewing.
+    /// Uses the `/v1/sync/` endpoint which requires API key auth.
+    pub async fn get_swarm_attempt_logs(
+        &self,
+        attempt_id: Uuid,
+        limit: Option<i64>,
+        cursor: Option<i64>,
+        direction: Option<&str>,
+    ) -> Result<GetAttemptLogsResponse, RemoteClientError> {
+        let mut path = format!(
+            "/v1/sync/swarm/attempts/{attempt_id}/logs?limit={}",
+            limit.unwrap_or(1000)
+        );
+        if let Some(c) = cursor {
+            path.push_str(&format!("&cursor={c}"));
+        }
+        if let Some(d) = direction {
+            path.push_str(&format!("&direction={d}"));
+        }
+        self.get_authed(&path).await
+    }
+
+    /// Gets statuses for multiple nodes by their IDs.
+    ///
+    /// Used by nodes to sync source_node_status for remote projects.
+    /// Returns current status and public_url for each node.
+    /// Uses the `/v1/sync/` endpoint which requires API key auth.
+    pub async fn get_node_statuses(
+        &self,
+        node_ids: &[Uuid],
+    ) -> Result<GetNodeStatusesResponse, RemoteClientError> {
+        if node_ids.is_empty() {
+            return Ok(GetNodeStatusesResponse { nodes: vec![] });
+        }
+
+        let ids_param = node_ids
+            .iter()
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        self.get_authed(&format!("/v1/sync/nodes/status?ids={ids_param}"))
             .await
     }
 
@@ -1215,6 +1444,24 @@ pub struct LinkSwarmProjectNodeRequest {
     pub git_repo_path: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub os_type: Option<String>,
+}
+
+// =====================
+// Node Status Types
+// =====================
+
+/// Response for a single node's status
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeStatusInfo {
+    pub id: Uuid,
+    pub status: String,
+    pub public_url: Option<String>,
+}
+
+/// Response for batch node status query
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetNodeStatusesResponse {
+    pub nodes: Vec<NodeStatusInfo>,
 }
 
 // =====================

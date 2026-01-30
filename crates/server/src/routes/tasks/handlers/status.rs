@@ -417,8 +417,14 @@ pub async fn assign_task(
 /// Used by the archive dialog to show the user how many subtasks will be affected.
 pub async fn get_task_children(
     Extension(task): Extension<Task>,
+    remote_ctx: Option<Extension<crate::middleware::RemoteTaskContext>>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<Vec<Task>>>, ApiError> {
+    // Remote tasks don't have local children - return empty
+    if remote_ctx.is_some() {
+        return Ok(ResponseJson(ApiResponse::success(vec![])));
+    }
+
     let children = Task::find_children_by_parent_id(&deployment.db().pool, task.id).await?;
     Ok(ResponseJson(ApiResponse::success(children)))
 }

@@ -8,10 +8,13 @@ import {
   Clock,
   Cog,
   ArrowLeft,
+  Unplug,
+  XCircle,
 } from 'lucide-react';
 import { executionProcessesApi } from '@/lib/api';
 import { ProfileVariantBadge } from '@/components/common/ProfileVariantBadge.tsx';
 import { useExecutionProcesses } from '@/hooks/useExecutionProcesses';
+import { useTaskAttempt } from '@/hooks/useTaskAttempt';
 import ProcessLogsViewer from './ProcessLogsViewer';
 import type { ExecutionProcessStatus, ExecutionProcess } from 'shared/types';
 
@@ -24,6 +27,7 @@ interface ProcessesTabProps {
 
 function ProcessesTab({ attemptId }: ProcessesTabProps) {
   const { t } = useTranslation('tasks');
+  const { data: attempt } = useTaskAttempt(attemptId);
   const {
     executionProcesses,
     executionProcessesById,
@@ -69,6 +73,40 @@ function ProcessesTab({ attemptId }: ProcessesTabProps) {
         return 'bg-gray-50 border-gray-200 text-gray-800';
       default:
         return 'bg-gray-50 border-gray-200 text-gray-800';
+    }
+  };
+
+  const getCompletionReasonIcon = (reason: string | undefined) => {
+    switch (reason) {
+      case 'result_success':
+        return <CheckCircle className="h-3 w-3 text-green-600" />;
+      case 'result_error':
+        return <XCircle className="h-3 w-3 text-red-600" />;
+      case 'eof':
+        return <Unplug className="h-3 w-3 text-amber-600" />;
+      case 'killed':
+        return <Square className="h-3 w-3 text-gray-600" />;
+      case 'error':
+        return <AlertCircle className="h-3 w-3 text-red-600" />;
+      default:
+        return null;
+    }
+  };
+
+  const getCompletionReasonColor = (reason: string | undefined) => {
+    switch (reason) {
+      case 'result_success':
+        return 'bg-green-50 border-green-200 text-green-700';
+      case 'result_error':
+        return 'bg-red-50 border-red-200 text-red-700';
+      case 'eof':
+        return 'bg-amber-50 border-amber-200 text-amber-700';
+      case 'killed':
+        return 'bg-gray-50 border-gray-200 text-gray-700';
+      case 'error':
+        return 'bg-red-50 border-red-200 text-red-700';
+      default:
+        return 'bg-gray-50 border-gray-200 text-gray-600';
     }
   };
 
@@ -232,6 +270,18 @@ function ProcessesTab({ attemptId }: ProcessesTabProps) {
                           })}
                         </p>
                       )}
+                      {process.completion_reason && (
+                        <span
+                          className={`inline-flex items-center gap-1 mt-1 px-2 py-0.5 text-xs font-medium border rounded-full ${getCompletionReasonColor(process.completion_reason)}`}
+                          title={process.completion_message || undefined}
+                        >
+                          {getCompletionReasonIcon(process.completion_reason)}
+                          {t(
+                            `processes.completionReason.${process.completion_reason}`,
+                            { defaultValue: process.completion_reason }
+                          )}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="mt-3 text-xs text-muted-foreground">
@@ -271,7 +321,10 @@ function ProcessesTab({ attemptId }: ProcessesTabProps) {
           </div>
           <div className="flex-1">
             {selectedProcess ? (
-              <ProcessLogsViewer processId={selectedProcess.id} />
+              <ProcessLogsViewer
+                processId={selectedProcess.id}
+                assignmentId={attempt?.hive_assignment_id}
+              />
             ) : loadingProcessId === selectedProcessId ? (
               <div className="text-center text-muted-foreground">
                 <p>{t('processes.loadingDetails')}</p>

@@ -53,6 +53,8 @@ pub struct LocalDeployment {
     share_sync_handle: Arc<Mutex<Option<RemoteSyncHandle>>>,
     share_config: Option<ShareConfig>,
     remote_client: Result<RemoteClient, RemoteClientNotConfigured>,
+    /// API key-based client for node operations (available even when not logged in via OAuth)
+    node_auth_client: Option<RemoteClient>,
     auth_context: AuthContext,
     oauth_handoffs: Arc<RwLock<HashMap<Uuid, PendingHandoff>>>,
     /// Node runner context (if connected to a hive) - provides state access and message sending
@@ -75,6 +77,26 @@ struct PendingHandoff {
 
 #[async_trait]
 impl Deployment for LocalDeployment {
+    /// Creates and initializes a LocalDeployment with all core services, background tasks, and optional
+    /// remote/hive integrations configured from environment and persisted config.
+    ///
+    /// The function performs startup work such as loading and persisting configuration, initializing
+    /// the database (with event hooks), image and filesystem services, auth context, optional remote
+    /// clients (OAuth and API-key-based), node runner (when configured), and starts background tasks
+    /// like orphaned image cleanup and node cache synchronization when applicable.
+    ///
+    /// # Returns
+    ///
+    /// A fully initialized `LocalDeployment` on success.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// let deployment = LocalDeployment::new().await.unwrap();
+    /// assert!(!deployment.user_id().is_empty());
+    /// # });
+    /// ```
     async fn new() -> Result<Self, DeploymentError> {
         // Load config and OAuth credentials in parallel for faster startup
         let config_path = config_path();
@@ -166,8 +188,9 @@ impl Deployment for LocalDeployment {
             .ok()
             .or_else(|| option_env!("VK_SHARED_API_BASE").map(|s| s.to_string()));
 
-        let remote_client = match api_base {
-            Some(url) => match RemoteClient::new(&url, auth_context.clone()) {
+        // Create OAuth-based remote client for user-initiated operations (frontend)
+        let remote_client = match &api_base {
+            Some(url) => match RemoteClient::new(url, auth_context.clone()) {
                 Ok(client) => {
                     tracing::info!("Remote client initialized with URL: {}", url);
                     Ok(client)
@@ -182,6 +205,25 @@ impl Deployment for LocalDeployment {
                 Err(RemoteClientNotConfigured)
             }
         };
+
+        // Create API key-based remote client for node sync operations (no user login required)
+        // This allows nodes to sync with the hive even when no user is logged in
+        let node_auth_client: Option<RemoteClient> =
+            match (api_base.as_ref(), std::env::var("VK_NODE_API_KEY").ok()) {
+                (Some(url), Some(api_key)) => {
+                    match RemoteClient::new_with_api_key(url, api_key) {
+                        Ok(client) => {
+                            tracing::info!("Node auth client initialized for hive sync");
+                            Some(client)
+                        }
+                        Err(e) => {
+                            tracing::error!(?e, "failed to create node auth client");
+                            None
+                        }
+                    }
+                }
+                _ => None,
+            };
 
         let share_publisher = remote_client
             .as_ref()
@@ -242,14 +284,16 @@ impl Deployment for LocalDeployment {
                     tracing::info!("node proxy client enabled for remote project operations");
                 }
 
-                // Pass the container and remote_client to spawn_node_runner to enable
-                // task execution and remote project sync
+                // Pass the container and node_auth_client to spawn_node_runner to enable
+                // task execution and remote project sync.
+                // Use node_auth_client (API key auth) instead of remote_client (OAuth auth)
+                // so sync can happen without requiring user login.
                 (
                     spawn_node_runner(
                         node_config,
                         db.clone(),
                         Some(container.clone()),
-                        remote_client.clone().ok(),
+                        node_auth_client.clone(),
                     ),
                     validator,
                     proxy_client,
@@ -294,6 +338,7 @@ impl Deployment for LocalDeployment {
             share_sync_handle: share_sync_handle.clone(),
             share_config: share_config.clone(),
             remote_client,
+            node_auth_client,
             auth_context,
             oauth_handoffs,
             node_runner_context,
@@ -486,6 +531,15 @@ impl LocalDeployment {
     /// Get the node proxy client for proxying requests to remote nodes.
     pub fn node_proxy_client(&self) -> &NodeProxyClient {
         &self.node_proxy_client
+    }
+
+    /// Get the API key-based remote client for node operations.
+    ///
+    /// This client uses the VK_NODE_API_KEY for authentication and is available
+    /// even when no user is logged in via OAuth. Use this for hive operations
+    /// that don't require user-specific permissions.
+    pub fn node_auth_client(&self) -> Option<&RemoteClient> {
+        self.node_auth_client.as_ref()
     }
 
     /// Get direct access to the local container service.

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, Suspense, lazy } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -12,43 +12,24 @@ import {
   ChevronDown,
   Search,
   X,
-  Loader2,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-
-// Lazy load settings components to improve initial load time
-const GeneralSettings = lazy(() =>
-  import('./GeneralSettings').then((m) => ({ default: m.GeneralSettings }))
-);
-const ProjectSettings = lazy(() =>
-  import('./ProjectSettings').then((m) => ({ default: m.ProjectSettings }))
-);
-const OrganizationSettings = lazy(() =>
-  import('./OrganizationSettings').then((m) => ({
-    default: m.OrganizationSettings,
-  }))
-);
-const SwarmSettings = lazy(() =>
-  import('./SwarmSettings').then((m) => ({ default: m.SwarmSettings }))
-);
-const AgentSettings = lazy(() =>
-  import('./AgentSettings').then((m) => ({ default: m.AgentSettings }))
-);
-const McpSettings = lazy(() =>
-  import('./McpSettings').then((m) => ({ default: m.McpSettings }))
-);
-const SystemSettings = lazy(() =>
-  import('./SystemSettings').then((m) => ({ default: m.SystemSettings }))
-);
+import { GeneralSettings } from './GeneralSettings';
+import { ProjectSettings } from './ProjectSettings';
+import { OrganizationSettings } from './OrganizationSettings';
+import { SwarmSettings } from './SwarmSettings';
+import { AgentSettings } from './AgentSettings';
+import { McpSettings } from './McpSettings';
+import { SystemSettings } from './SystemSettings';
 
 interface SettingsSection {
   id: string;
   path: string;
   icon: LucideIcon;
-  component: React.LazyExoticComponent<React.ComponentType>;
+  component: React.ComponentType;
 }
 
 const settingsSections: SettingsSection[] = [
@@ -96,14 +77,6 @@ const settingsSections: SettingsSection[] = [
   },
 ];
 
-function LoadingFallback() {
-  return (
-    <div className="flex items-center justify-center py-12">
-      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-    </div>
-  );
-}
-
 interface AccordionItemProps {
   section: SettingsSection;
   isExpanded: boolean;
@@ -112,6 +85,16 @@ interface AccordionItemProps {
   description: string;
 }
 
+/**
+ * Render a single settings accordion item with a header and animated collapsible content.
+ *
+ * @param section - Settings section metadata (`id`, `path`, `icon`, and `component`) used to render the icon and content.
+ * @param isExpanded - Whether the section is currently expanded.
+ * @param onToggle - Invoked when the section header is clicked to toggle expansion.
+ * @param title - Visible title text for the section header.
+ * @param description - Visible description text displayed under the title in the header.
+ * @returns The rendered accordion item JSX element containing the header button and animated content area.
+ */
 function AccordionItem({
   section,
   isExpanded,
@@ -169,9 +152,7 @@ function AccordionItem({
             className="overflow-hidden"
           >
             <div className="px-4 pb-4">
-              <Suspense fallback={<LoadingFallback />}>
-                <Component />
-              </Suspense>
+              <Component />
             </div>
           </motion.div>
         )}

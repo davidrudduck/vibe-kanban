@@ -11,7 +11,7 @@ use axum::{
 use db::models::{
     image::TaskImage,
     project::Project,
-    task::{CreateTask, Task, TaskWithAttemptStatus, UpdateTask},
+    task::{CreateTask, Task, TaskStatus, TaskWithAttemptStatus, UpdateTask},
     task_attempt::{CreateTaskAttempt, TaskAttempt, TaskAttemptError},
 };
 use deployment::Deployment;
@@ -24,6 +24,7 @@ use utils::response::ApiResponse;
 use uuid::Uuid;
 
 use super::remote::{create_remote_task, delete_remote_task, update_remote_task};
+use crate::middleware::RemoteTaskNeeded;
 use crate::routes::tasks::types::{CreateAndStartTaskRequest, TaskQuery};
 use crate::{DeploymentImpl, error::ApiError};
 
@@ -35,21 +36,391 @@ pub async fn get_tasks(
     State(deployment): State<DeploymentImpl>,
     Query(query): Query<TaskQuery>,
 ) -> Result<ResponseJson<ApiResponse<Vec<TaskWithAttemptStatus>>>, ApiError> {
-    let tasks = Task::find_by_project_id_with_attempt_status(
-        &deployment.db().pool,
-        query.project_id,
-        query.include_archived,
-    )
-    .await?;
+    use std::collections::HashMap;
+
+    let pool = &deployment.db().pool;
+    let project_id = query.project_id;
+
+    // Step 1: Try to find the project locally (by ID or by remote_project_id)
+    let project = match Project::find_by_id(pool, project_id).await? {
+        Some(p) => Some(p),
+        None => Project::find_by_remote_project_id(pool, project_id).await?,
+    };
+
+    // Step 2: If project exists locally and is NOT remote, fetch tasks from local DB
+    // For swarm-linked projects, we also need to fetch from Hive and merge
+    if let Some(ref project) = project
+        && !project.is_remote
+    {
+        let local_tasks =
+            Task::find_by_project_id_with_attempt_status(pool, project.id, query.include_archived)
+                .await?;
+
+        // Step 2a: If not swarm-linked, return local tasks only
+        let Some(remote_project_id) = project.remote_project_id else {
+            return Ok(ResponseJson(ApiResponse::success(local_tasks)));
+        };
+
+        // Step 2b: For swarm-linked projects, also fetch from Hive and merge
+        // This enables cross-node task visibility
+        let remote_client = match deployment.node_auth_client().cloned() {
+            Some(c) => c,
+            None => match deployment.remote_client() {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::warn!(
+                        project_id = %project_id,
+                        remote_project_id = %remote_project_id,
+                        error = %e,
+                        "Remote client unavailable, returning local tasks only"
+                    );
+                    return Ok(ResponseJson(ApiResponse::success(local_tasks)));
+                }
+            },
+        };
+
+        let remote_tasks = match remote_client
+            .list_swarm_project_tasks(remote_project_id)
+            .await
+        {
+            Ok(response) => response.tasks,
+            Err(e) => {
+                tracing::warn!(
+                    remote_project_id = %remote_project_id,
+                    error = %e,
+                    "Failed to fetch tasks from Hive, returning local tasks only"
+                );
+                return Ok(ResponseJson(ApiResponse::success(local_tasks)));
+            }
+        };
+
+        // Step 2c: Merge local + remote tasks, deduplicating by shared_task_id
+        // For swarm projects: Hive status takes precedence for core task fields (status, assignee)
+        // while local task provides the detailed execution info (attempt status, executor, etc.)
+        let mut task_map: HashMap<Uuid, TaskWithAttemptStatus> = HashMap::new();
+
+        // Add local tasks first
+        for task in local_tasks {
+            // Key by shared_task_id if available, otherwise by id
+            let key = task.task.shared_task_id.unwrap_or(task.task.id);
+            task_map.insert(key, task);
+        }
+
+        // Process remote tasks - either add new or update existing with Hive's authoritative data
+        for shared_task in remote_tasks {
+            // Skip archived tasks if not requested
+            if !query.include_archived && shared_task.archived_at.is_some() {
+                continue;
+            }
+
+            let hive_status = match shared_task.status {
+                remote::db::tasks::TaskStatus::Todo => TaskStatus::Todo,
+                remote::db::tasks::TaskStatus::InProgress => TaskStatus::InProgress,
+                remote::db::tasks::TaskStatus::InReview => TaskStatus::InReview,
+                remote::db::tasks::TaskStatus::Done => TaskStatus::Done,
+                remote::db::tasks::TaskStatus::Cancelled => TaskStatus::Cancelled,
+            };
+
+            if let Some(existing) = task_map.get_mut(&shared_task.id) {
+                // Task exists locally - update with Hive's authoritative fields
+                // The Hive is the source of truth for status, assignee, and version
+                // because other nodes may have updated these fields
+
+                // Only update if Hive has a newer or equal version to avoid stale data
+                if shared_task.version >= existing.task.remote_version {
+                    // Update status from Hive (this is the core fix - Hive status takes precedence)
+                    existing.task.status = hive_status.clone();
+
+                    // Update assignee info from Hive
+                    existing.task.remote_assignee_user_id = shared_task.assignee_user_id;
+                    existing.task.remote_assignee_name = shared_task.assignee_name.clone();
+                    existing.task.remote_assignee_username = shared_task.assignee_username.clone();
+
+                    // Update version and sync timestamp
+                    existing.task.remote_version = shared_task.version;
+                    existing.task.remote_last_synced_at = shared_task.shared_at;
+
+                    // Update archived status
+                    existing.task.archived_at = shared_task.archived_at;
+
+                    // Update stream node info for remote log access
+                    existing.task.remote_stream_node_id = shared_task
+                        .executing_node_id
+                        .or(shared_task.owner_node_id);
+
+                    // Update activity_at if Hive has it (for time-in-column tracking)
+                    if shared_task.activity_at.is_some() {
+                        existing.task.activity_at = shared_task.activity_at;
+                    }
+
+                    // Update has_in_progress_attempt based on Hive status
+                    existing.has_in_progress_attempt =
+                        existing.has_in_progress_attempt || hive_status == TaskStatus::InProgress;
+                }
+            } else {
+                // Task is new from Hive - add it
+                let is_in_progress = hive_status == TaskStatus::InProgress;
+
+                task_map.insert(
+                    shared_task.id,
+                    TaskWithAttemptStatus {
+                        task: Task {
+                            id: shared_task.id,
+                            project_id: project.id, // Map to local project ID
+                            title: shared_task.title,
+                            description: shared_task.description,
+                            status: hive_status,
+                            shared_task_id: Some(shared_task.id),
+                            remote_version: shared_task.version,
+                            parent_task_id: None,
+                            archived_at: shared_task.archived_at,
+                            created_at: shared_task.created_at,
+                            updated_at: shared_task.updated_at,
+                            remote_assignee_user_id: shared_task.assignee_user_id,
+                            remote_assignee_name: shared_task.assignee_name,
+                            remote_assignee_username: shared_task.assignee_username,
+                            remote_last_synced_at: shared_task.shared_at,
+                            remote_stream_node_id: shared_task
+                                .executing_node_id
+                                .or(shared_task.owner_node_id),
+                            remote_stream_url: None,
+                            activity_at: shared_task.activity_at,
+                        },
+                        has_in_progress_attempt: is_in_progress,
+                        has_merged_attempt: false,
+                        last_attempt_failed: false,
+                        executor: String::new(),
+                        latest_execution_started_at: None,
+                        latest_execution_completed_at: None,
+                        source_node_name: project.source_node_name.clone(),
+                    },
+                );
+            }
+        }
+
+        // Convert back to Vec and sort by activity_at (with created_at fallback) DESC
+        // This preserves the same ordering as local-only queries which use COALESCE(activity_at, created_at)
+        let mut merged: Vec<TaskWithAttemptStatus> = task_map.into_values().collect();
+        merged.sort_by(|a, b| {
+            let a_key = a.task.activity_at.unwrap_or(a.task.created_at);
+            let b_key = b.task.activity_at.unwrap_or(b.task.created_at);
+            b_key.cmp(&a_key)
+        });
+
+        tracing::debug!(
+            project_id = %project_id,
+            remote_project_id = %remote_project_id,
+            task_count = merged.len(),
+            "Returning hybrid local+remote tasks"
+        );
+
+        return Ok(ResponseJson(ApiResponse::success(merged)));
+    }
+
+    // Step 3: Project not found locally or is remote - fetch from Hive only
+    // Use remote_project_id if we have a local stub, otherwise use the requested project_id
+    let hive_project_id = project
+        .and_then(|p| p.remote_project_id)
+        .unwrap_or(project_id);
+
+    // Prefer node_auth_client (API key auth) - works even without user login
+    // Fall back to remote_client (OAuth) for non-node deployments
+    let remote_client = match deployment.node_auth_client().cloned() {
+        Some(c) => c,
+        None => deployment.remote_client().map_err(|e| {
+            tracing::warn!(
+                project_id = %project_id,
+                hive_project_id = %hive_project_id,
+                error = %e,
+                "No remote client available for project tasks lookup"
+            );
+            ApiError::BadGateway("No remote client available".into())
+        })?,
+    };
+
+    let response = remote_client
+        .list_swarm_project_tasks(hive_project_id)
+        .await
+        .map_err(|e| {
+            if e.is_not_found() {
+                ApiError::NotFound(format!("Project {} not found", project_id))
+            } else {
+                ApiError::RemoteClient(e)
+            }
+        })?;
+
+    // Convert SharedTask to TaskWithAttemptStatus for frontend compatibility
+    // Filter by archived status to match local behavior
+    let tasks: Vec<TaskWithAttemptStatus> = response
+        .tasks
+        .into_iter()
+        .filter(|t| query.include_archived || t.archived_at.is_none())
+        .map(|shared_task| {
+            // Convert remote TaskStatus to local TaskStatus
+            let status = match shared_task.status {
+                remote::db::tasks::TaskStatus::Todo => TaskStatus::Todo,
+                remote::db::tasks::TaskStatus::InProgress => TaskStatus::InProgress,
+                remote::db::tasks::TaskStatus::InReview => TaskStatus::InReview,
+                remote::db::tasks::TaskStatus::Done => TaskStatus::Done,
+                remote::db::tasks::TaskStatus::Cancelled => TaskStatus::Cancelled,
+            };
+            let is_in_progress = status == TaskStatus::InProgress;
+
+            TaskWithAttemptStatus {
+                task: Task {
+                    // Use shared_task.id so downstream handlers can use it for Hive lookups
+                    id: shared_task.id,
+                    project_id: shared_task.swarm_project_id.unwrap_or(project_id),
+                    title: shared_task.title,
+                    description: shared_task.description,
+                    status,
+                    shared_task_id: Some(shared_task.id),
+                    remote_version: shared_task.version,
+                    parent_task_id: None,
+                    archived_at: shared_task.archived_at,
+                    created_at: shared_task.created_at,
+                    updated_at: shared_task.updated_at,
+                    // Set remote stream info based on owner/executing node
+                    remote_assignee_user_id: shared_task.assignee_user_id,
+                    remote_assignee_name: shared_task.assignee_name.clone(),
+                    remote_assignee_username: shared_task.assignee_username.clone(),
+                    remote_last_synced_at: shared_task.shared_at,
+                    remote_stream_node_id: shared_task
+                        .executing_node_id
+                        .or(shared_task.owner_node_id),
+                    remote_stream_url: None,
+                    activity_at: shared_task.activity_at,
+                },
+                has_in_progress_attempt: is_in_progress,
+                has_merged_attempt: false,
+                last_attempt_failed: false,
+                executor: String::new(),
+                latest_execution_started_at: None,
+                latest_execution_completed_at: None,
+                source_node_name: None, // Remote-only tasks don't have local project info
+            }
+        })
+        .collect();
 
     Ok(ResponseJson(ApiResponse::success(tasks)))
 }
 
 pub async fn get_task(
-    Extension(task): Extension<Task>,
-    State(_deployment): State<DeploymentImpl>,
+    local_task: Option<Extension<Task>>,
+    remote_needed: Option<Extension<RemoteTaskNeeded>>,
+    State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<Task>>, ApiError> {
-    Ok(ResponseJson(ApiResponse::success(task)))
+    // If we have a local task, return it
+    if let Some(Extension(task)) = local_task {
+        return Ok(ResponseJson(ApiResponse::success(task)));
+    }
+
+    // If task not found locally, try Hive fallback
+    if let Some(Extension(remote)) = remote_needed {
+        // Prefer node_auth_client (API key auth) - works even without user login
+        // Fall back to remote_client (OAuth) for non-node deployments
+        let client = match deployment.node_auth_client().cloned() {
+            Some(c) => c,
+            None => deployment.remote_client().map_err(|e| {
+                tracing::warn!(
+                    task_id = %remote.task_id,
+                    error = %e,
+                    "No remote client available for task lookup"
+                );
+                ApiError::BadGateway("No remote client available".into())
+            })?,
+        };
+
+        // Try to get the task from Hive
+        match client.get_shared_task(remote.task_id).await {
+            Ok(shared_task) => {
+                // Require swarm_project_id - can't construct a valid Task without it
+                let swarm_project_id = match shared_task.swarm_project_id {
+                    Some(id) => id,
+                    None => {
+                        tracing::warn!(
+                            task_id = %shared_task.id,
+                            "Shared task missing swarm_project_id"
+                        );
+                        return Err(ApiError::BadGateway(
+                            "Shared task missing swarm_project_id".into(),
+                        ));
+                    }
+                };
+
+                // Try to find a local project that maps to this Hive project
+                // This ensures consistency with get_tasks which maps remote tasks to local project IDs
+                let project_id = match Project::find_by_remote_project_id(
+                    &deployment.db().pool,
+                    swarm_project_id,
+                )
+                .await
+                {
+                    Ok(Some(local_project)) => local_project.id,
+                    Ok(None) => swarm_project_id, // Fallback to Hive project ID
+                    Err(e) => {
+                        tracing::warn!(
+                            swarm_project_id = %swarm_project_id,
+                            error = %e,
+                            "Failed to map swarm_project_id to local project"
+                        );
+                        swarm_project_id
+                    }
+                };
+
+                // Convert SharedTask to local Task format
+                let status = match shared_task.status {
+                    remote::db::tasks::TaskStatus::Todo => TaskStatus::Todo,
+                    remote::db::tasks::TaskStatus::InProgress => TaskStatus::InProgress,
+                    remote::db::tasks::TaskStatus::InReview => TaskStatus::InReview,
+                    remote::db::tasks::TaskStatus::Done => TaskStatus::Done,
+                    remote::db::tasks::TaskStatus::Cancelled => TaskStatus::Cancelled,
+                };
+
+                let task = Task {
+                    id: shared_task.id,
+                    project_id,
+                    title: shared_task.title,
+                    description: shared_task.description,
+                    status,
+                    shared_task_id: Some(shared_task.id),
+                    remote_version: shared_task.version,
+                    parent_task_id: None,
+                    archived_at: shared_task.archived_at,
+                    created_at: shared_task.created_at,
+                    updated_at: shared_task.updated_at,
+                    remote_assignee_user_id: shared_task.assignee_user_id,
+                    remote_assignee_name: shared_task.assignee_name,
+                    remote_assignee_username: shared_task.assignee_username,
+                    remote_last_synced_at: shared_task.shared_at,
+                    remote_stream_node_id: shared_task
+                        .executing_node_id
+                        .or(shared_task.owner_node_id),
+                    remote_stream_url: None,
+                    activity_at: shared_task.activity_at,
+                };
+                return Ok(ResponseJson(ApiResponse::success(task)));
+            }
+            Err(e) => {
+                if e.is_not_found() {
+                    tracing::debug!(
+                        task_id = %remote.task_id,
+                        "Task not found on Hive"
+                    );
+                    // Fall through to NotFound below
+                } else {
+                    tracing::warn!(
+                        task_id = %remote.task_id,
+                        error = %e,
+                        "Failed to fetch task from Hive"
+                    );
+                    return Err(ApiError::RemoteClient(e));
+                }
+            }
+        }
+    }
+
+    Err(ApiError::NotFound("Task not found".to_string()))
 }
 
 // ============================================================================
@@ -226,6 +597,13 @@ pub async fn create_task_and_start(
 
     let attempt_id = Uuid::new_v4();
 
+    // Get current node_id for tracking attempt origin (for swarm hybrid queries)
+    let origin_node_id = if let Some(ctx) = deployment.node_runner_context() {
+        ctx.node_id().await
+    } else {
+        None
+    };
+
     // Determine branch name and parent worktree info based on use_parent_worktree flag
     let (git_branch_name, parent_container_ref) = if payload.use_parent_worktree.unwrap_or(false) {
         // Validate task has parent
@@ -268,6 +646,7 @@ pub async fn create_task_and_start(
             executor: payload.executor_profile_id.executor,
             base_branch: payload.base_branch.clone(),
             branch: git_branch_name,
+            origin_node_id,
         },
         attempt_id,
         task.id,
@@ -306,6 +685,7 @@ pub async fn create_task_and_start(
         executor: task_attempt.executor,
         latest_execution_started_at: None, // Will be populated after first execution
         latest_execution_completed_at: None,
+        source_node_name: None, // Not needed for start_attempt response
     })))
 }
 

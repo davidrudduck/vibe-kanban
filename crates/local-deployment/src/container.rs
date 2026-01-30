@@ -28,7 +28,7 @@ use db::{
 };
 use deployment::{DeploymentError, RemoteClientNotConfigured};
 use executors::{
-    actions::{Executable, ExecutorAction},
+    actions::{Executable, ExecutorAction, SpawnContext},
     approvals::{ExecutorApprovalService, NoopExecutorApprovalService},
     executors::{
         BaseCodingAgent, ExecutorExitResult, ExecutorExitSignal, claude::protocol::ProtocolPeer,
@@ -468,6 +468,9 @@ impl LocalContainerService {
 
             let status_result: std::io::Result<std::process::ExitStatus>;
 
+            // Track completion reason from executor exit signal
+            let mut completion_reason: Option<executors::executors::SessionCompletionReason> = None;
+
             // Wait for process to exit, or exit signal from executor
             tokio::select! {
                 // Exit signal with result.
@@ -493,10 +496,16 @@ impl LocalContainerService {
                         }
                     }
 
-                    // Map the exit result to appropriate exit status
-                    status_result = match exit_result {
-                        Ok(ExecutorExitResult::Success) => Ok(success_exit_status()),
-                        Ok(ExecutorExitResult::Failure) => Ok(failure_exit_status()),
+                    // Map the exit result to appropriate exit status and capture completion reason
+                    status_result = match &exit_result {
+                        Ok(ExecutorExitResult::Success { reason }) => {
+                            completion_reason = Some(reason.clone());
+                            Ok(success_exit_status())
+                        }
+                        Ok(ExecutorExitResult::Failure { reason }) => {
+                            completion_reason = Some(reason.clone());
+                            Ok(failure_exit_status())
+                        }
                         Err(_) => Ok(success_exit_status()), // Channel closed, assume success
                     };
                 }
@@ -519,12 +528,30 @@ impl LocalContainerService {
                 Err(_) => (None, ExecutionProcessStatus::Failed),
             };
 
+            // Extract completion_reason and completion_message for database storage
+            let (reason_str, message_str): (Option<&str>, Option<String>) = match &completion_reason
+            {
+                Some(reason) => {
+                    let reason_str = reason.as_str();
+                    let message = match reason {
+                        executors::executors::SessionCompletionReason::Error { message } => {
+                            Some(message.clone())
+                        }
+                        _ => None,
+                    };
+                    (Some(reason_str), message)
+                }
+                None => (None, None),
+            };
+
             if !ExecutionProcess::was_stopped(&db.pool, exec_id).await
                 && let Err(e) = ExecutionProcess::update_completion(
                     &db.pool,
                     exec_id,
                     status.clone(),
                     exit_code,
+                    reason_str,
+                    message_str.as_deref(),
                 )
                 .await
             {
@@ -1310,6 +1337,14 @@ impl ContainerService for LocalContainerService {
         self.take_normalization_handle(exec_id).await
     }
 
+    async fn get_entry_index_provider(&self, exec_id: &Uuid) -> Option<EntryIndexProvider> {
+        self.get_entry_index_provider(exec_id).await
+    }
+
+    async fn store_entry_index_provider(&self, exec_id: Uuid, provider: EntryIndexProvider) {
+        self.store_entry_index_provider(exec_id, provider).await
+    }
+
     fn instance_id(&self) -> &str {
         &self.instance_id
     }
@@ -1482,10 +1517,17 @@ impl ContainerService for LocalContainerService {
                 _ => Arc::new(NoopExecutorApprovalService {}),
             };
 
+        // Create SpawnContext with IDs from task_attempt and execution_process
+        let spawn_context = SpawnContext {
+            task_attempt_id: task_attempt.id,
+            task_id: task_attempt.task_id,
+            execution_process_id: execution_process.id,
+        };
+
         // Create the child and stream, add to execution tracker with timeout
         let mut spawned = tokio::time::timeout(
             Duration::from_secs(30),
-            executor_action.spawn(&current_dir, approvals_service),
+            executor_action.spawn(&current_dir, approvals_service, spawn_context),
         )
         .await
         .map_err(|_| {
@@ -1550,8 +1592,22 @@ impl ContainerService for LocalContainerService {
             None
         };
 
-        ExecutionProcess::update_completion(&self.db.pool, execution_process.id, status, exit_code)
-            .await?;
+        // User manually stopped the execution
+        let completion_reason = if status == ExecutionProcessStatus::Killed {
+            Some("killed")
+        } else {
+            None
+        };
+
+        ExecutionProcess::update_completion(
+            &self.db.pool,
+            execution_process.id,
+            status,
+            exit_code,
+            completion_reason,
+            None, // No completion message for manual stops
+        )
+        .await?;
 
         // Kill the child process and remove from the store
         const LOCK_TIMEOUT: Duration = Duration::from_secs(5);
@@ -1861,17 +1917,16 @@ impl ContainerService for LocalContainerService {
                 && let Some(msg_store) = msg_stores.get(&execution_process_id)
             {
                 // Get or create entry index provider for this execution
-                let index_provider =
-                    match self.get_entry_index_provider(&execution_process_id).await {
-                        Some(provider) => provider,
-                        None => {
-                            // Create new provider by scanning current history
-                            let provider = EntryIndexProvider::start_from(msg_store);
-                            self.store_entry_index_provider(execution_process_id, provider.clone())
-                                .await;
-                            provider
-                        }
-                    };
+                let index_provider = self
+                    .get_entry_index_provider(&execution_process_id)
+                    .await
+                    .unwrap_or_else(|| {
+                        tracing::warn!(
+                            execution_process_id = %execution_process_id,
+                            "Entry index provider not found, creating fallback"
+                        );
+                        EntryIndexProvider::start_from(msg_store)
+                    });
 
                 let entry = NormalizedEntry {
                     timestamp: Some(Utc::now().to_rfc3339()),

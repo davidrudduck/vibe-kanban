@@ -55,9 +55,30 @@ pub struct HiveSyncConfig {
 }
 
 impl Default for HiveSyncConfig {
+    /// Creates a HiveSyncConfig populated with sensible defaults for the Hive sync service.
+    ///
+    /// Defaults:
+    /// - `sync_interval`: 30 seconds
+    /// - `max_tasks_per_batch`: 50
+    /// - `max_attempts_per_batch`: 50
+    /// - `max_executions_per_batch`: 100
+    /// - `max_logs_per_batch`: 500
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let cfg = HiveSyncConfig::default();
+    /// assert_eq!(cfg.sync_interval, std::time::Duration::from_secs(30));
+    /// assert_eq!(cfg.max_tasks_per_batch, 50);
+    /// assert_eq!(cfg.max_attempts_per_batch, 50);
+    /// assert_eq!(cfg.max_executions_per_batch, 100);
+    /// assert_eq!(cfg.max_logs_per_batch, 500);
+    /// ```
     fn default() -> Self {
         Self {
-            sync_interval: Duration::from_secs(5),
+            // 30 seconds is appropriate for project/task sync
+            // Active execution (logs/attempts) happens more frequently via direct messages
+            sync_interval: Duration::from_secs(30),
             max_tasks_per_batch: 50,
             max_attempts_per_batch: 50,
             max_executions_per_batch: 100,
@@ -168,15 +189,22 @@ impl HiveSyncService {
     /// Sync tasks that need a shared_task_id to the Hive.
     ///
     /// This finds tasks that:
-    /// 1. Have unsynced attempts (attempts without hive_synced_at)
-    /// 2. Don't have a shared_task_id
-    /// 3. Belong to projects with a remote_project_id
+    /// 1. Don't have a shared_task_id
+    /// 2. Belong to local projects (not remote) with a remote_project_id (linked to swarm)
     ///
-    /// For each such task, we send a TaskSync message to the Hive.
+    /// This includes:
+    /// - Tasks created before the project was linked to swarm
+    /// - Tasks that failed initial sync
+    /// - Tasks without any attempts yet
+    ///
+    /// For each such task, we send a TaskSync message to the Hive with the
+    /// local_project_id. The Hive looks up the swarm_project_id via node_local_projects.
     /// The Hive will respond with a TaskSyncResponse containing the shared_task_id.
     async fn sync_tasks(&self) -> Result<usize, HiveSyncError> {
-        // Find tasks that need syncing: have unsynced attempts but no shared_task_id
-        let tasks = Task::find_needing_sync(&self.pool, self.config.max_tasks_per_batch).await?;
+        // Find ALL tasks in swarm-linked projects that are missing shared_task_id
+        // This captures tasks created before project was linked, failed syncs, etc.
+        let tasks =
+            Task::find_missing_shared_task_id(&self.pool, self.config.max_tasks_per_batch).await?;
 
         if tasks.is_empty() {
             return Ok(0);
@@ -185,7 +213,7 @@ impl HiveSyncService {
         let mut synced_count = 0;
 
         for task in &tasks {
-            // Look up the project to get remote_project_id
+            // Look up the project to check if it's linked to swarm
             let project = match Project::find_by_id(&self.pool, task.project_id).await? {
                 Some(p) => p,
                 None => {
@@ -198,18 +226,15 @@ impl HiveSyncService {
                 }
             };
 
-            // Skip if project isn't linked to hive
-            let remote_project_id = match project.remote_project_id {
-                Some(id) => id,
-                None => {
-                    debug!(
-                        task_id = %task.id,
-                        project_id = %task.project_id,
-                        "Skipping task sync - project not linked to Hive"
-                    );
-                    continue;
-                }
-            };
+            // Skip if project isn't linked to swarm (remote_project_id is set when linked)
+            if project.remote_project_id.is_none() {
+                debug!(
+                    task_id = %task.id,
+                    project_id = %task.project_id,
+                    "Skipping task sync - project not linked to swarm"
+                );
+                continue;
+            }
 
             // Serialize status to string
             let status = serde_json::to_value(&task.status)
@@ -217,15 +242,20 @@ impl HiveSyncService {
                 .and_then(|v| v.as_str().map(|s| s.to_string()))
                 .unwrap_or_else(|| "todo".to_string());
 
+            // Send local_project_id - the hive looks up swarm_project_id via node_local_projects
             let message = TaskSyncMessage {
                 local_task_id: task.id,
                 shared_task_id: task.shared_task_id,
-                remote_project_id,
+                local_project_id: task.project_id,  // Send LOCAL project ID, not remote
                 title: task.title.clone(),
                 description: task.description.clone(),
                 status,
                 version: 1, // Initial version for new sync
                 is_update: task.shared_task_id.is_some(),
+                // Owner fields are set by the hive based on which node is executing
+                // TODO: Add owner_node_id and owner_name to local Task model
+                owner_node_id: None,
+                owner_name: None,
                 created_at: task.created_at,
                 updated_at: task.updated_at,
             };
@@ -240,7 +270,7 @@ impl HiveSyncService {
             info!(
                 task_id = %task.id,
                 title = %task.title,
-                remote_project_id = %remote_project_id,
+                local_project_id = %task.project_id,
                 "Sent task sync to Hive"
             );
         }
@@ -424,25 +454,50 @@ impl HiveSyncService {
                     }
                 };
 
-            // Get the assignment_id from the attempt
-            // For locally-started tasks, this will be None and we skip log sync
-            // The Hive will create a synthetic assignment when it receives the AttemptSync
-            let assignment_id = match attempt.hive_assignment_id {
-                Some(id) => id,
+            // Get the assignment_id and shared_task_id from the attempt
+            // For locally-started tasks, use attempt.id as assignment_id and include shared_task_id
+            // so the Hive can create a synthetic assignment if needed
+            let (assignment_id, shared_task_id) = match attempt.hive_assignment_id {
+                Some(id) => {
+                    // Hive-dispatched task - use the real assignment_id
+                    (id, None)
+                }
                 None => {
-                    debug!(
-                        execution_id = %execution_id,
-                        attempt_id = %attempt.id,
-                        "Skipping log sync - no Hive assignment (locally-started task)"
-                    );
-                    // Mark these logs as synced anyway to prevent retry spam
-                    // They will be synced once the attempt gets a hive_assignment_id
-                    // via AttemptSync -> synthetic assignment creation
-                    for log in batch_logs {
-                        synced_ids.push(log.id);
-                        synced_count += 1;
+                    // Locally-started task - look up shared_task_id from the task
+                    let task = match Task::find_by_id(&self.pool, attempt.task_id).await? {
+                        Some(t) => t,
+                        None => {
+                            debug!(
+                                execution_id = %execution_id,
+                                task_id = %attempt.task_id,
+                                "Skipping log sync - task not found"
+                            );
+                            continue;
+                        }
+                    };
+
+                    match task.shared_task_id {
+                        Some(shared_id) => {
+                            // Use attempt.id as assignment_id (Hive will create synthetic assignment)
+                            debug!(
+                                execution_id = %execution_id,
+                                attempt_id = %attempt.id,
+                                shared_task_id = %shared_id,
+                                "Syncing logs for locally-started task with shared_task_id"
+                            );
+                            (attempt.id, Some(shared_id))
+                        }
+                        None => {
+                            // Don't mark as synced - shared_task_id may arrive via TaskSync later.
+                            // Logs will be retried on subsequent sync cycles until the task is linked.
+                            debug!(
+                                execution_id = %execution_id,
+                                attempt_id = %attempt.id,
+                                "Skipping log sync - no shared_task_id yet (waiting for TaskSync)"
+                            );
+                            continue;
+                        }
                     }
-                    continue;
                 }
             };
 
@@ -457,7 +512,8 @@ impl HiveSyncService {
                 .collect();
 
             let message = LogsBatchMessage {
-                assignment_id, // Now using the real assignment_id from the attempt
+                assignment_id,
+                shared_task_id,
                 execution_process_id: Some(execution_id),
                 entries,
                 compressed: false,

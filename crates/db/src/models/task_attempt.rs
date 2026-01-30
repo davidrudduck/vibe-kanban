@@ -54,6 +54,10 @@ pub struct TaskAttempt {
     /// NULL for locally-started tasks until a synthetic assignment is created.
     #[ts(optional)]
     pub hive_assignment_id: Option<Uuid>,
+    /// The node ID that created this attempt. NULL for legacy data (treated as local).
+    /// Used for hybrid local+Hive queries: local attempts are always queried from local DB.
+    #[ts(optional)]
+    pub origin_node_id: Option<Uuid>,
 }
 
 /// GitHub PR creation parameters
@@ -91,6 +95,10 @@ pub struct CreateTaskAttempt {
     pub executor: BaseCodingAgent,
     pub base_branch: String,
     pub branch: String,
+    /// The node ID creating this attempt. None for non-swarm or legacy operations.
+    #[ts(optional)]
+    #[serde(default)]
+    pub origin_node_id: Option<Uuid>,
 }
 
 impl TaskAttempt {
@@ -117,7 +125,8 @@ impl TaskAttempt {
                               created_at AS "created_at!: DateTime<Utc>",
                               updated_at AS "updated_at!: DateTime<Utc>",
                               hive_synced_at AS "hive_synced_at: DateTime<Utc>",
-                              hive_assignment_id AS "hive_assignment_id: Uuid"
+                              hive_assignment_id AS "hive_assignment_id: Uuid",
+                              origin_node_id AS "origin_node_id: Uuid"
                        FROM task_attempts
                        WHERE task_id = $1
                        ORDER BY created_at DESC"#,
@@ -139,7 +148,8 @@ impl TaskAttempt {
                               created_at AS "created_at!: DateTime<Utc>",
                               updated_at AS "updated_at!: DateTime<Utc>",
                               hive_synced_at AS "hive_synced_at: DateTime<Utc>",
-                              hive_assignment_id AS "hive_assignment_id: Uuid"
+                              hive_assignment_id AS "hive_assignment_id: Uuid",
+                              origin_node_id AS "origin_node_id: Uuid"
                        FROM task_attempts
                        ORDER BY created_at DESC"#
             )
@@ -172,7 +182,8 @@ impl TaskAttempt {
                        ta.created_at        AS "created_at!: DateTime<Utc>",
                        ta.updated_at        AS "updated_at!: DateTime<Utc>",
                        ta.hive_synced_at    AS "hive_synced_at: DateTime<Utc>",
-                       ta.hive_assignment_id AS "hive_assignment_id: Uuid"
+                       ta.hive_assignment_id AS "hive_assignment_id: Uuid",
+                       ta.origin_node_id    AS "origin_node_id: Uuid"
                FROM    task_attempts ta
                JOIN    tasks t ON ta.task_id = t.id
                JOIN    projects p ON t.project_id = p.id
@@ -247,7 +258,8 @@ impl TaskAttempt {
                        created_at        AS "created_at!: DateTime<Utc>",
                        updated_at        AS "updated_at!: DateTime<Utc>",
                        hive_synced_at    AS "hive_synced_at: DateTime<Utc>",
-                       hive_assignment_id AS "hive_assignment_id: Uuid"
+                       hive_assignment_id AS "hive_assignment_id: Uuid",
+                       origin_node_id    AS "origin_node_id: Uuid"
                FROM    task_attempts
                WHERE   id = $1"#,
             id
@@ -270,7 +282,8 @@ impl TaskAttempt {
                        created_at        AS "created_at!: DateTime<Utc>",
                        updated_at        AS "updated_at!: DateTime<Utc>",
                        hive_synced_at    AS "hive_synced_at: DateTime<Utc>",
-                       hive_assignment_id AS "hive_assignment_id: Uuid"
+                       hive_assignment_id AS "hive_assignment_id: Uuid",
+                       origin_node_id    AS "origin_node_id: Uuid"
                FROM    task_attempts
                WHERE   rowid = $1"#,
             rowid
@@ -389,9 +402,9 @@ impl TaskAttempt {
         // Insert the record into the database
         Ok(sqlx::query_as!(
             TaskAttempt,
-            r#"INSERT INTO task_attempts (id, task_id, container_ref, branch, target_branch, executor, worktree_deleted, setup_completed_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-               RETURNING id as "id!: Uuid", task_id as "task_id!: Uuid", container_ref, branch, target_branch, executor as "executor!",  worktree_deleted as "worktree_deleted!: bool", setup_completed_at as "setup_completed_at: DateTime<Utc>", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", hive_assignment_id as "hive_assignment_id: Uuid""#,
+            r#"INSERT INTO task_attempts (id, task_id, container_ref, branch, target_branch, executor, worktree_deleted, setup_completed_at, origin_node_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+               RETURNING id as "id!: Uuid", task_id as "task_id!: Uuid", container_ref, branch, target_branch, executor as "executor!",  worktree_deleted as "worktree_deleted!: bool", setup_completed_at as "setup_completed_at: DateTime<Utc>", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", hive_assignment_id as "hive_assignment_id: Uuid", origin_node_id as "origin_node_id: Uuid""#,
             id,
             task_id,
             Option::<String>::None, // Container isn't known yet
@@ -399,7 +412,8 @@ impl TaskAttempt {
             data.base_branch, // Target branch is same as base branch during creation
             data.executor,
             false, // worktree_deleted is false during creation
-            Option::<DateTime<Utc>>::None // setup_completed_at is None during creation
+            Option::<DateTime<Utc>>::None, // setup_completed_at is None during creation
+            data.origin_node_id // origin_node_id for tracking which node created this attempt
         )
         .fetch_one(pool)
         .await?)
@@ -471,7 +485,14 @@ impl TaskAttempt {
                       t.project_id as "project_id!: Uuid"
                FROM task_attempts ta
                JOIN tasks t ON ta.task_id = t.id
-               WHERE ta.container_ref = ?"#,
+               LEFT JOIN execution_processes ep ON ep.task_attempt_id = ta.id
+                   AND ep.status = 'running'
+               WHERE ta.container_ref = ?
+               ORDER BY
+                   CASE WHEN ep.id IS NOT NULL THEN 0 ELSE 1 END,
+                   ep.started_at DESC,
+                   ta.created_at DESC
+               LIMIT 1"#,
             container_ref
         )
         .fetch_optional(pool)
@@ -566,7 +587,8 @@ impl TaskAttempt {
                        created_at        AS "created_at!: DateTime<Utc>",
                        updated_at        AS "updated_at!: DateTime<Utc>",
                        hive_synced_at    AS "hive_synced_at: DateTime<Utc>",
-                       hive_assignment_id AS "hive_assignment_id: Uuid"
+                       hive_assignment_id AS "hive_assignment_id: Uuid",
+                       origin_node_id    AS "origin_node_id: Uuid"
                FROM    task_attempts
                WHERE   hive_synced_at IS NULL
                ORDER BY created_at ASC
@@ -575,6 +597,17 @@ impl TaskAttempt {
         )
         .fetch_all(pool)
         .await
+    }
+
+    /// Count task attempts that have not been synced to the Hive.
+    /// Useful for monitoring sync status.
+    pub async fn count_unsynced(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"SELECT COUNT(*) as "count!" FROM task_attempts WHERE hive_synced_at IS NULL"#
+        )
+        .fetch_one(pool)
+        .await?;
+        Ok(result.count)
     }
 
     /// Mark a task attempt as synced to the Hive.
@@ -651,7 +684,8 @@ impl TaskAttempt {
                        created_at        AS "created_at!: DateTime<Utc>",
                        updated_at        AS "updated_at!: DateTime<Utc>",
                        hive_synced_at    AS "hive_synced_at: DateTime<Utc>",
-                       hive_assignment_id AS "hive_assignment_id: Uuid"
+                       hive_assignment_id AS "hive_assignment_id: Uuid",
+                       origin_node_id    AS "origin_node_id: Uuid"
                FROM    task_attempts
                WHERE   hive_assignment_id = $1"#,
             assignment_id
@@ -679,14 +713,26 @@ impl TaskAttempt {
         Ok(result.rows_affected())
     }
 
-    /// Clear hive_synced_at for all task attempts in a project (transaction-safe).
+    /// Clears the stored Hive sync timestamp for all task attempts belonging to a project.
     ///
-    /// Transaction-safe variant that accepts an executor trait, enabling it to participate
-    /// in database transactions.
+    /// Sets `hive_synced_at` to `NULL` for every `task_attempts` row whose parent `task` references the provided `project_id`.
     ///
-    /// Sets `hive_synced_at = NULL` for all task attempts belonging to tasks in the project.
+    /// # Returns
     ///
-    /// Returns the number of task attempts that were updated.
+    /// The number of task attempt rows that were updated.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use sqlx::SqlitePool;
+    /// # use uuid::Uuid;
+    /// # async fn example(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    /// let project_id = Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap();
+    /// let updated = crate::models::task_attempt::TaskAttempt::clear_hive_sync_for_project_tx(pool, project_id).await?;
+    /// println!("Updated {} rows", updated);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn clear_hive_sync_for_project_tx<'e, E>(
         executor: E,
         project_id: Uuid,
@@ -705,5 +751,144 @@ impl TaskAttempt {
         .execute(executor)
         .await?;
         Ok(result.rows_affected())
+    }
+
+    /// Clear hive_synced_at for all attempts of a specific task.
+    /// This triggers re-sync of attempts when the task's shared_task_id changes.
+    pub async fn clear_hive_sync_for_task(
+        pool: &SqlitePool,
+        task_id: Uuid,
+    ) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"UPDATE task_attempts
+               SET hive_synced_at = NULL
+               WHERE task_id = $1"#,
+            task_id
+        )
+        .execute(pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Remove the task attempt record with the given ID from the database.
+    ///
+    /// This is intended for cleanup of failed or partially created attempts (for example, when worktree creation fails).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # async fn example(pool: &sqlx::SqlitePool, id: uuid::Uuid) -> Result<(), sqlx::Error> {
+    /// TaskAttempt::delete(pool, id).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<(), sqlx::Error> {
+        sqlx::query!("DELETE FROM task_attempts WHERE id = $1", id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::execution_process::{
+        CreateExecutionProcess, ExecutionProcess, ExecutionProcessRunReason,
+    };
+    use crate::models::project::{CreateProject, Project};
+    use crate::models::task::{CreateTask, Task};
+    use crate::test_utils::create_test_pool;
+    use executors::actions::{
+        ExecutorAction, ExecutorActionType, coding_agent_initial::CodingAgentInitialRequest,
+    };
+    use executors::executors::BaseCodingAgent;
+    use executors::profile::ExecutorProfileId;
+
+    #[tokio::test]
+    async fn test_resolve_container_ref_prioritizes_running_process() {
+        let (pool, _temp_dir) = create_test_pool().await;
+
+        // Create project
+        let project_data = CreateProject {
+            name: "test-project".to_string(),
+            git_repo_path: "/tmp/test-repo".to_string(),
+            use_existing_repo: true,
+            clone_url: None,
+            setup_script: None,
+            dev_script: None,
+            cleanup_script: None,
+            copy_files: None,
+        };
+        let project = Project::create(&pool, &project_data, Uuid::new_v4())
+            .await
+            .unwrap();
+
+        // Create task
+        let task_data = CreateTask {
+            project_id: project.id,
+            title: "test-task".to_string(),
+            description: None,
+            status: None,
+            parent_task_id: None,
+            image_ids: None,
+            shared_task_id: None,
+        };
+        let task = Task::create(&pool, &task_data, Uuid::new_v4())
+            .await
+            .unwrap();
+
+        // Create two attempts with same container_ref
+        let attempt_data = CreateTaskAttempt {
+            executor: BaseCodingAgent::ClaudeCode,
+            base_branch: "main".to_string(),
+            branch: "feature-1".to_string(),
+            origin_node_id: None,
+        };
+        let attempt1 = TaskAttempt::create(&pool, &attempt_data, Uuid::new_v4(), task.id)
+            .await
+            .unwrap();
+        let attempt2 = TaskAttempt::create(&pool, &attempt_data, Uuid::new_v4(), task.id)
+            .await
+            .unwrap();
+
+        // Set same container_ref for both attempts
+        let container_ref = "/tmp/shared-worktree";
+        TaskAttempt::update_container_ref(&pool, attempt1.id, container_ref)
+            .await
+            .unwrap();
+        TaskAttempt::update_container_ref(&pool, attempt2.id, container_ref)
+            .await
+            .unwrap();
+
+        // Create running execution_process for attempt2
+        let initial_request = CodingAgentInitialRequest {
+            prompt: "test prompt".to_string(),
+            executor_profile_id: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
+        };
+        let exec_data = CreateExecutionProcess {
+            task_attempt_id: attempt2.id,
+            executor_action: ExecutorAction::new(
+                ExecutorActionType::CodingAgentInitialRequest(initial_request),
+                None,
+            ),
+            run_reason: ExecutionProcessRunReason::CodingAgent,
+        };
+        ExecutionProcess::create(&pool, &exec_data, Uuid::new_v4(), None, None)
+            .await
+            .unwrap();
+
+        // Resolve should return attempt2 (has running process)
+        let (resolved_attempt_id, resolved_task_id, resolved_project_id) =
+            TaskAttempt::resolve_container_ref(&pool, container_ref)
+                .await
+                .unwrap();
+
+        assert_eq!(
+            resolved_attempt_id, attempt2.id,
+            "Should resolve to attempt with running process"
+        );
+        assert_eq!(resolved_task_id, task.id);
+        assert_eq!(resolved_project_id, project.id);
     }
 }

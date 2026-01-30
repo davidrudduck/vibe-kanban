@@ -274,8 +274,23 @@ impl ActivityProcessor {
     // Task event processing
     // =========================================================================
 
-    /// Process a task.created or task.updated event from the Hive.
-    /// This syncs the task's version and metadata to keep local state fresh.
+    /// Syncs a Hive task create/update event into the local database.
+    ///
+    /// Parses the event payload and upserts the corresponding local task record (creating or updating)
+    /// to reflect Hive's title, description, status, assignee, archived state, and remote version.
+    /// If the payload is missing or cannot be parsed, or if the Hive task has no `project_id` or
+    /// there is no matching local project, the function logs the condition and returns success without
+    /// performing any upsert.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// // Illustrative example; types and setup are omitted for brevity.
+    /// # async fn doc_example(processor: &ActivityProcessor, tx: &mut Transaction<'_, Sqlite>, event: ActivityEvent) -> Result<(), ShareError> {
+    /// processor.process_task_upsert_event(tx, &event).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     async fn process_task_upsert_event(
         &self,
         tx: &mut Transaction<'_, Sqlite>,
@@ -305,13 +320,25 @@ impl ActivityProcessor {
         let hive_task = task_payload.task;
         let hive_user = task_payload.user;
 
+        // Get the project_id (skip if not set - task has no legacy project link)
+        let remote_project_id = match hive_task.project_id {
+            Some(id) => id,
+            None => {
+                debug!(
+                    shared_task_id = %hive_task.id,
+                    "Skipping task sync - task has no project_id"
+                );
+                return Ok(());
+            }
+        };
+
         // Find the local project for this remote project
         let local_project =
-            match Project::find_by_remote_project_id(tx.as_mut(), hive_task.project_id).await? {
+            match Project::find_by_remote_project_id(tx.as_mut(), remote_project_id).await? {
                 Some(p) => p,
                 None => {
                     debug!(
-                        remote_project_id = %hive_task.project_id,
+                        remote_project_id = %remote_project_id,
                         shared_task_id = %hive_task.id,
                         "Skipping task sync - no local project for remote project"
                     );
@@ -343,8 +370,9 @@ impl ActivityProcessor {
         };
 
         // Upsert the task - this updates remote_version and other metadata
+        // Note: Uses pool directly (not transaction) to support stale version fallback
         Task::upsert_remote_task(
-            tx.as_mut(),
+            &self.db.pool,
             Uuid::new_v4(), // local_id - only used for new tasks
             local_project.id,
             hive_task.id, // shared_task_id

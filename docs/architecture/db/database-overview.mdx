@@ -146,6 +146,36 @@ The PostgreSQL hive database is the source of truth for:
 - ElectricSQL compatibility for real-time sync
 - Proven reliability for production workloads
 
+## Project Tables
+
+### Table Relationships
+
+| Table | Purpose | Status |
+|-------|---------|--------|
+| `swarm_projects` | Explicitly shared projects across swarm nodes | **Canonical source of truth** |
+| `projects` | Legacy hive-level projects | **Deprecated** |
+| `node_local_projects` | Inventory of all node projects | For discovery/linking |
+
+### Migration from projects to swarm_projects
+
+The system is transitioning from the legacy `projects` table to `swarm_projects` as the canonical source:
+
+**Activity Tracking:**
+- Activity events now have a `swarm_project_id` column linking to `swarm_projects`
+- The `project_id` column is retained for backward compatibility
+- API consumers should migrate to using `swarm_project_id` parameter
+
+**Access Control:**
+- Swarm project access is verified via organization membership
+- Uses `SwarmProjectRepository::organization_id()` for lookups
+- Replaces legacy project access checks
+
+**Task Management:**
+- Tasks are now linked to swarm projects via `shared_tasks.swarm_project_id`
+- Activity counters track swarm project metrics
+
+See the [Activity API documentation](../../api/activity.md) for implementation details and migration guidance.
+
 ## Related Documentation
 
 - [SQLite Local Schema](./sqlite-local-schema.mdx) - Complete local database schema

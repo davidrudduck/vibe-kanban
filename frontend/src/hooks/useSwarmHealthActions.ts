@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { projectsApi } from '@/lib/api/projects';
 import { useProjectMutations } from './useProjectMutations';
 import type { UnlinkSwarmRequest } from 'shared/types';
@@ -19,7 +19,7 @@ export function useSwarmHealthActions(options?: UseSwarmHealthActionsOptions) {
   const [isFixing, setIsFixing] = useState(false);
   const { unlinkFromSwarm } = useProjectMutations();
 
-  const fixAllIssues = async (): Promise<FixAllResult> => {
+  const fixAllIssues = useCallback(async (): Promise<FixAllResult> => {
     setIsFixing(true);
     const result: FixAllResult = {
       successCount: 0,
@@ -78,7 +78,7 @@ export function useSwarmHealthActions(options?: UseSwarmHealthActionsOptions) {
     } finally {
       setIsFixing(false);
     }
-  };
+  }, [options, unlinkFromSwarm]);
 
   return {
     fixAllIssues,

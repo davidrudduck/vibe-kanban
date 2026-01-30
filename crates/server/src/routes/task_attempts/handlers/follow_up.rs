@@ -30,6 +30,27 @@ use crate::{
     proxy::check_remote_task_attempt_proxy,
 };
 
+/// Starts a follow-up CodingAgent execution for a task attempt, handling remote proxying, worktree preparation, retry/reset logic, prompt image handling, task-variable expansion, session selection, and execution start.
+///
+/// This function will:
+/// - Proxy the request to a remote node when the task attempt is remote.
+/// - Ensure the task attempt worktree exists (recreate for cold starts).
+/// - Resolve the executor profile and project, and auto-unarchive the task if needed.
+/// - For retry requests, validate the target process, optionally reset the worktree to a prior commit (best-effort with timeout), stop running processes, and drop later processes.
+/// - Determine the session to use (respecting executor profile `no_context`), process images referenced by the prompt, expand task and system variables in the prompt, and choose the appropriate follow-up vs initial CodingAgent action.
+/// - Start execution via the container and clear relevant drafts.
+///
+/// # Returns
+///
+/// An `ApiResponse` containing the started `ExecutionProcess` on success.
+///
+/// # Examples
+///
+/// ```
+/// // Example (illustrative; types and setup omitted):
+/// // let resp = follow_up(task_attempt_ext, remote_ctx_opt, State(deployment), Json(payload)).await?;
+/// // assert!(resp.is_success());
+/// ```
 pub async fn follow_up(
     Extension(task_attempt): Extension<TaskAttempt>,
     remote_ctx: Option<Extension<RemoteTaskAttemptContext>>,
@@ -106,6 +127,45 @@ pub async fn follow_up(
         .parent_project(pool)
         .await?
         .ok_or(SqlxError::RowNotFound)?;
+
+    // Check if the selected executor profile has no_context enabled (needed before retry logic)
+    let executor_configs = ExecutorConfigs::get_cached();
+    let coding_agent = executor_configs.get_coding_agent_or_default(&executor_profile_id);
+    let skip_context = coding_agent.no_context();
+
+    // Check if model changed (would cause context loss)
+    let model_changed = {
+        let previous_agent = executor_configs.get_coding_agent_or_default(&initial_executor_profile_id);
+        let current_agent = coding_agent;
+        let previous_model = previous_agent.model();
+        let current_model = current_agent.model();
+        previous_model != current_model
+    };
+
+    if model_changed {
+        tracing::info!(
+            task_attempt_id = %task_attempt.id,
+            previous_variant = ?initial_executor_profile_id.variant,
+            current_variant = ?executor_profile_id.variant,
+            "Model changed between sessions, starting fresh to avoid context incompatibility"
+        );
+    }
+
+    // For retries, get session ID BEFORE dropping processes to preserve context
+    let pre_retry_session_id = if let Some(proc_id) = payload.retry_process_id {
+        if !skip_context {
+            ExecutionProcess::find_session_id_before_process(
+                &deployment.db().pool,
+                task_attempt.id,
+                proc_id,
+            )
+            .await?
+        } else {
+            None
+        }
+    } else {
+        None
+    };
 
     // If retry settings provided, perform replace-logic before proceeding
     if let Some(proc_id) = payload.retry_process_id {
@@ -195,14 +255,15 @@ pub async fn follow_up(
         let _ = Draft::clear_after_send(pool, task_attempt.id, DraftType::Retry).await;
     }
 
-    // Check if the selected executor profile has no_context enabled
-    let executor_configs = ExecutorConfigs::get_cached();
-    let coding_agent = executor_configs.get_coding_agent_or_default(&executor_profile_id);
-    let skip_context = coding_agent.no_context();
-
-    // If no_context is enabled, skip session lookup and start fresh
-    let latest_session_id = if skip_context {
+    // Determine session ID to use:
+    // 1. If skip_context is enabled, start fresh (None)
+    // 2. If model changed, start fresh (None) to avoid context incompatibility
+    // 3. If we have a pre_retry_session_id from before dropping, use it
+    // 4. Otherwise, find the latest session ID from remaining processes
+    let latest_session_id = if skip_context || model_changed {
         None
+    } else if let Some(session_id) = pre_retry_session_id {
+        Some(session_id)
     } else {
         ExecutionProcess::find_latest_session_id_by_task_attempt(
             &deployment.db().pool,
@@ -219,7 +280,7 @@ pub async fn follow_up(
 
     // Expand task variables ($VAR and ${VAR} syntax) in follow-up prompt
     let prompt = {
-        let variables = TaskVariable::get_variable_map(&deployment.db().pool, task.id)
+        let variables = TaskVariable::get_variable_map_with_system(&deployment.db().pool, task.id)
             .await
             .unwrap_or_else(|e| {
                 tracing::warn!(task_id = %task.id, error = ?e, "Failed to fetch task variables for follow-up");

@@ -502,6 +502,86 @@ impl TaskServer {
         self
     }
 
+    /// Fetch context by task attempt ID (direct lookup).
+    /// Used when VK_ATTEMPT_ID environment variable is available.
+    async fn fetch_context_by_attempt_id(&self, attempt_id: Uuid) -> Option<McpContext> {
+        let url = self.url(&format!("/api/task-attempts/{}", attempt_id));
+
+        let response = tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            self.client.get(&url).send(),
+        )
+        .await
+        .ok()?
+        .ok()?;
+
+        if !response.status().is_success() {
+            return None;
+        }
+
+        let api_response: ApiResponseEnvelope<TaskAttempt> = response.json().await.ok()?;
+
+        if !api_response.success {
+            return None;
+        }
+
+        let attempt = api_response.data?;
+
+        // Load task to get project_id
+        let task_url = self.url(&format!("/api/tasks/{}", attempt.task_id));
+        let task_response = tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            self.client.get(&task_url).send(),
+        )
+        .await
+        .ok()?
+        .ok()?;
+
+        if !task_response.status().is_success() {
+            return None;
+        }
+
+        let task_api_response: ApiResponseEnvelope<Task> = task_response.json().await.ok()?;
+
+        if !task_api_response.success {
+            return None;
+        }
+
+        let task = task_api_response.data?;
+
+        // Load project
+        let project_url = self.url(&format!("/api/projects/{}", task.project_id));
+        let project_response = tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            self.client.get(&project_url).send(),
+        )
+        .await
+        .ok()?
+        .ok()?;
+
+        if !project_response.status().is_success() {
+            return None;
+        }
+
+        let project_api_response: ApiResponseEnvelope<Project> = project_response.json().await.ok()?;
+
+        if !project_api_response.success {
+            return None;
+        }
+
+        let _project = project_api_response.data?;
+
+        Some(McpContext {
+            project_id: task.project_id,
+            task_id: task.id,
+            task_title: task.title,
+            attempt_id: attempt.id,
+            attempt_branch: attempt.branch,
+            attempt_target_branch: attempt.target_branch,
+            executor: attempt.executor,
+        })
+    }
+
     /// Fetch context for a specific path by looking up the task attempt
     /// that has this path as its container_ref.
     async fn fetch_context_for_path(&self, path: &str) -> Option<McpContext> {
@@ -617,10 +697,20 @@ impl TaskServer {
         &self,
         Parameters(GetContextRequest { cwd }): Parameters<GetContextRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        // Fetch context for the provided working directory path
+        // Layer 1: Direct lookup if env var available
+        if let Ok(attempt_id_str) = std::env::var("VK_ATTEMPT_ID") {
+            if let Ok(attempt_id) = Uuid::parse_str(&attempt_id_str) {
+                if let Some(ctx) = self.fetch_context_by_attempt_id(attempt_id).await {
+                    return TaskServer::success(&ctx);
+                }
+            }
+        }
+
+        // Layer 2: Fallback to cwd-based resolution
         if let Some(ctx) = self.fetch_context_for_path(&cwd).await {
             return TaskServer::success(&ctx);
         }
+
         TaskServer::err(
             &format!(
                 "No task attempt found for path: {}. Ensure you're in a vibe-kanban task attempt worktree.",
@@ -635,11 +725,22 @@ impl TaskServer {
         &self,
         Parameters(GetContextRequest { cwd }): Parameters<GetContextRequest>,
     ) -> Result<CallToolResult, ErrorData> {
+        // Layer 1: Direct return if env var available
+        if let Ok(task_id_str) = std::env::var("VK_TASK_ID") {
+            if let Ok(task_id) = Uuid::parse_str(&task_id_str) {
+                return TaskServer::success(&TaskIdResponse {
+                    task_id: task_id.to_string(),
+                });
+            }
+        }
+
+        // Layer 2: Fallback to cwd-based resolution
         if let Some(ctx) = self.fetch_context_for_path(&cwd).await {
             return TaskServer::success(&TaskIdResponse {
                 task_id: ctx.task_id.to_string(),
             });
         }
+
         TaskServer::err(
             &format!(
                 "No task attempt found for path: {}. Ensure you're in a vibe-kanban task attempt worktree.",
@@ -654,11 +755,24 @@ impl TaskServer {
         &self,
         Parameters(GetContextRequest { cwd }): Parameters<GetContextRequest>,
     ) -> Result<CallToolResult, ErrorData> {
+        // Layer 1: Direct lookup if env var available
+        if let Ok(attempt_id_str) = std::env::var("VK_ATTEMPT_ID") {
+            if let Ok(attempt_id) = Uuid::parse_str(&attempt_id_str) {
+                if let Some(ctx) = self.fetch_context_by_attempt_id(attempt_id).await {
+                    return TaskServer::success(&ProjectIdResponse {
+                        project_id: ctx.project_id.to_string(),
+                    });
+                }
+            }
+        }
+
+        // Layer 2: Fallback to cwd-based resolution
         if let Some(ctx) = self.fetch_context_for_path(&cwd).await {
             return TaskServer::success(&ProjectIdResponse {
                 project_id: ctx.project_id.to_string(),
             });
         }
+
         TaskServer::err(
             &format!(
                 "No task attempt found for path: {}. Ensure you're in a vibe-kanban task attempt worktree.",

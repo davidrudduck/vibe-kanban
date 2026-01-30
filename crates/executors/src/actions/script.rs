@@ -8,7 +8,7 @@ use ts_rs::TS;
 use workspace_utils::shell::get_shell_command;
 
 use crate::{
-    actions::Executable,
+    actions::{Executable, SpawnContext},
     approvals::ExecutorApprovalService,
     executors::{ExecutorError, SpawnedChild},
 };
@@ -39,6 +39,7 @@ impl Executable for ScriptRequest {
         &self,
         current_dir: &Path,
         _approvals: Arc<dyn ExecutorApprovalService>,
+        _context: SpawnContext,
     ) -> Result<SpawnedChild, ExecutorError> {
         let (shell_cmd, shell_arg) = get_shell_command();
         let mut command = Command::new(shell_cmd);

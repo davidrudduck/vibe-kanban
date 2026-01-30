@@ -20,7 +20,7 @@ mod electric_proxy;
 mod error;
 mod identity;
 pub mod labels;
-mod nodes;
+pub mod nodes;
 mod oauth;
 pub(crate) mod organization_members;
 mod organizations;
@@ -32,6 +32,24 @@ pub mod swarm_templates;
 pub mod tasks;
 mod tokens;
 
+/// Builds the application router configured with v1 public, protected, and node-sync routes, middleware, and a single-page-app static-file fallback.
+///
+/// The router mounts:
+/// - public v1 endpoints (health, oauth, public tokens, nodes API key endpoints, relay, etc.)
+/// - protected v1 endpoints guarded by a session requirement
+/// - node sync routes that accept OAuth JWT or API key authentication
+/// - permissive CORS, HTTP tracing, and request-id propagation/generation
+/// - a ServeDir fallback that serves the SPA index.html from /srv/static
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use crate::routes::router;
+/// use crate::AppState;
+///
+/// let state: AppState = unimplemented!();
+/// let app_router = router(state);
+/// ```
 pub fn router(state: AppState) -> Router {
     let trace_layer = TraceLayer::new_for_http()
         .make_span_with(|request: &Request<_>| {
@@ -65,7 +83,6 @@ pub fn router(state: AppState) -> Router {
     let v1_protected = Router::<AppState>::new()
         .merge(identity::router())
         .merge(activity::router())
-        .merge(projects::router())
         .merge(swarm_projects::router())
         .merge(swarm_labels::router())
         .merge(swarm_templates::router())
@@ -82,6 +99,11 @@ pub fn router(state: AppState) -> Router {
             require_session,
         ));
 
+    // Node sync routes that require API key authentication
+    // These are used by nodes for background sync operations without requiring user login
+    // Mounted at /v1/sync/* to separate from user-facing /v1/* routes
+    let v1_node_sync = nodes::node_sync_router(state.clone());
+
     let static_dir = "/srv/static";
     let spa =
         ServeDir::new(static_dir).fallback(ServeFile::new(format!("{static_dir}/index.html")));
@@ -89,6 +111,7 @@ pub fn router(state: AppState) -> Router {
     Router::<AppState>::new()
         .nest("/v1", v1_public)
         .nest("/v1", v1_protected)
+        .nest("/v1/sync", v1_node_sync)
         .fallback_service(spa)
         .layer(CorsLayer::permissive())
         .layer(trace_layer)

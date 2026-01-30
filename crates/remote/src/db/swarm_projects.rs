@@ -93,6 +93,7 @@ pub struct SwarmProjectWithNodesRow {
     pub updated_at: DateTime<Utc>,
     pub linked_nodes_count: i64,
     pub linked_node_names: Vec<String>,
+    pub linked_node_ids: Vec<Uuid>,
     pub hive_project_ids: Vec<Uuid>,
     pub task_count_todo: i64,
     pub task_count_in_progress: i64,
@@ -108,6 +109,8 @@ pub struct SwarmProjectWithNodes {
     pub project: SwarmProject,
     pub linked_nodes_count: i64,
     pub linked_node_names: Vec<String>,
+    /// The node IDs linked to this swarm project (for routing/dispatch)
+    pub linked_node_ids: Vec<Uuid>,
     /// The hive project IDs linked to this swarm project (for task count lookup)
     pub hive_project_ids: Vec<Uuid>,
     pub task_counts: SwarmTaskCounts,
@@ -127,6 +130,7 @@ impl From<SwarmProjectWithNodesRow> for SwarmProjectWithNodes {
             },
             linked_nodes_count: row.linked_nodes_count,
             linked_node_names: row.linked_node_names,
+            linked_node_ids: row.linked_node_ids,
             hive_project_ids: row.hive_project_ids,
             task_counts: SwarmTaskCounts {
                 todo: row.task_count_todo,
@@ -241,46 +245,47 @@ impl SwarmProjectRepository {
         Ok(records)
     }
 
-    /// List all swarm projects for an organization with linked nodes count and task counts.
+    /// Lists swarm projects for an organization, including the count and names of linked nodes and per-status task counts.
+    ///
+    /// The returned entries include the SwarmProject data plus:
+    /// - `linked_nodes_count`: number of node links
+    /// - `linked_node_names`: array of linked node names (unique)
+    /// - `linked_node_ids`: array of linked node IDs (for routing/dispatch)
+    /// - `hive_project_ids`: an empty UUID array (reserved field)
+    /// - per-status task counts: `task_count_todo`, `task_count_in_progress`, `task_count_in_review`, `task_count_done`, `task_count_cancelled`
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # async fn doc_example(pool: &sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    /// use uuid::Uuid;
+    /// let org_id = Uuid::new_v4();
+    /// let projects = crate::db::swarm_projects::SwarmProjectRepository::list_with_nodes_count(pool, org_id).await?;
+    /// // Each returned item contains project info and aggregated counts
+    /// assert!(projects.iter().all(|p| p.project.organization_id == org_id));
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn list_with_nodes_count(
         pool: &PgPool,
         organization_id: Uuid,
     ) -> Result<Vec<SwarmProjectWithNodes>, SwarmProjectError> {
         let records = sqlx::query_as::<_, SwarmProjectWithNodesRow>(
             r#"
-            WITH swarm_hive_projects AS (
-                -- Get hive project IDs for each swarm project
-                SELECT
-                    spn.swarm_project_id,
-                    np.project_id as hive_project_id
-                FROM swarm_project_nodes spn
-                INNER JOIN node_projects np
-                    ON np.node_id = spn.node_id
-                    AND np.local_project_id = spn.local_project_id
-            ),
-            task_counts AS (
+            WITH task_counts AS (
                 -- Count tasks by status for each swarm project
                 -- Note: PostgreSQL enum uses hyphens (in-progress, in-review)
                 SELECT
-                    shp.swarm_project_id,
+                    st.swarm_project_id,
                     COUNT(*) FILTER (WHERE st.status = 'todo') as todo,
                     COUNT(*) FILTER (WHERE st.status = 'in-progress') as in_progress,
                     COUNT(*) FILTER (WHERE st.status = 'in-review') as in_review,
                     COUNT(*) FILTER (WHERE st.status = 'done') as done,
                     COUNT(*) FILTER (WHERE st.status = 'cancelled') as cancelled
-                FROM swarm_hive_projects shp
-                LEFT JOIN shared_tasks st
-                    ON st.project_id = shp.hive_project_id
-                    AND st.deleted_at IS NULL
-                GROUP BY shp.swarm_project_id
-            ),
-            hive_ids AS (
-                -- Aggregate hive project IDs for each swarm project
-                SELECT
-                    swarm_project_id,
-                    ARRAY_AGG(DISTINCT hive_project_id) as hive_project_ids
-                FROM swarm_hive_projects
-                GROUP BY swarm_project_id
+                FROM shared_tasks st
+                WHERE st.deleted_at IS NULL
+                    AND st.swarm_project_id IS NOT NULL
+                GROUP BY st.swarm_project_id
             )
             SELECT
                 sp.id,
@@ -292,7 +297,8 @@ impl SwarmProjectRepository {
                 sp.updated_at,
                 COUNT(spn.id)::bigint AS linked_nodes_count,
                 COALESCE(ARRAY_AGG(DISTINCT n.name) FILTER (WHERE n.name IS NOT NULL), ARRAY[]::text[]) AS linked_node_names,
-                COALESCE(hi.hive_project_ids, ARRAY[]::uuid[]) AS hive_project_ids,
+                COALESCE(ARRAY_AGG(DISTINCT spn.node_id) FILTER (WHERE spn.node_id IS NOT NULL), ARRAY[]::uuid[]) AS linked_node_ids,
+                ARRAY[]::uuid[] AS hive_project_ids,
                 COALESCE(tc.todo, 0)::bigint AS task_count_todo,
                 COALESCE(tc.in_progress, 0)::bigint AS task_count_in_progress,
                 COALESCE(tc.in_review, 0)::bigint AS task_count_in_review,
@@ -302,9 +308,8 @@ impl SwarmProjectRepository {
             LEFT JOIN swarm_project_nodes spn ON sp.id = spn.swarm_project_id
             LEFT JOIN nodes n ON spn.node_id = n.id
             LEFT JOIN task_counts tc ON sp.id = tc.swarm_project_id
-            LEFT JOIN hive_ids hi ON sp.id = hi.swarm_project_id
             WHERE sp.organization_id = $1
-            GROUP BY sp.id, tc.todo, tc.in_progress, tc.in_review, tc.done, tc.cancelled, hi.hive_project_ids
+            GROUP BY sp.id, tc.todo, tc.in_progress, tc.in_review, tc.done, tc.cancelled
             ORDER BY sp.created_at DESC
             "#,
         )
@@ -586,6 +591,30 @@ impl SwarmProjectRepository {
         Ok(())
     }
 
+    /// Unlink a node from a swarm project (pool version, no transaction).
+    pub async fn unlink_node_pool(
+        pool: &PgPool,
+        swarm_project_id: Uuid,
+        node_id: Uuid,
+    ) -> Result<(), SwarmProjectError> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM swarm_project_nodes
+            WHERE swarm_project_id = $1 AND node_id = $2
+            "#,
+        )
+        .bind(swarm_project_id)
+        .bind(node_id)
+        .execute(pool)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(SwarmProjectError::LinkNotFound);
+        }
+
+        Ok(())
+    }
+
     /// List all node links for a swarm project.
     pub async fn list_nodes(
         pool: &PgPool,
@@ -657,6 +686,70 @@ impl SwarmProjectRepository {
         Ok(record)
     }
 
+    /// Link a node project to a swarm project (pool version, no transaction).
+    ///
+    /// Creates or updates the swarm_project_nodes record.
+    pub async fn link_node_pool(
+        pool: &PgPool,
+        data: LinkSwarmProjectNodeData,
+    ) -> Result<SwarmProjectNode, SwarmProjectError> {
+        let record = sqlx::query_as::<_, SwarmProjectNode>(
+            r#"
+            WITH inserted AS (
+                INSERT INTO swarm_project_nodes (
+                    swarm_project_id,
+                    node_id,
+                    local_project_id,
+                    git_repo_path,
+                    os_type
+                )
+                VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT (node_id, local_project_id)
+                DO UPDATE SET
+                    swarm_project_id = EXCLUDED.swarm_project_id,
+                    git_repo_path = EXCLUDED.git_repo_path,
+                    os_type = EXCLUDED.os_type
+                RETURNING *
+            )
+            SELECT
+                i.id,
+                i.swarm_project_id,
+                i.node_id,
+                n.name as node_name,
+                i.local_project_id,
+                COALESCE(
+                    nlp.name,
+                    SUBSTRING(i.git_repo_path FROM '[^/]+$')
+                ) as project_name,
+                i.git_repo_path,
+                i.os_type,
+                i.linked_at
+            FROM inserted i
+            JOIN nodes n ON i.node_id = n.id
+            LEFT JOIN node_local_projects nlp ON i.node_id = nlp.node_id
+                AND i.local_project_id = nlp.local_project_id
+            "#,
+        )
+        .bind(data.swarm_project_id)
+        .bind(data.node_id)
+        .bind(data.local_project_id)
+        .bind(data.git_repo_path)
+        .bind(data.os_type)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| {
+            if let sqlx::Error::Database(ref db_err) = e {
+                let constraint = db_err.constraint();
+                if constraint == Some("swarm_project_nodes_swarm_project_id_node_id_key") {
+                    return SwarmProjectError::LinkAlreadyExists;
+                }
+            }
+            SwarmProjectError::Database(e)
+        })?;
+
+        Ok(record)
+    }
+
     /// List all swarm project links for a node.
     pub async fn list_by_node(
         pool: &PgPool,
@@ -709,6 +802,148 @@ impl SwarmProjectRepository {
         .await?;
 
         Ok(result)
+    }
+
+    /// Check if a swarm project exists by ID.
+    pub async fn exists(pool: &PgPool, id: Uuid) -> Result<bool, SwarmProjectError> {
+        let result = sqlx::query_scalar::<_, bool>(
+            r#"SELECT EXISTS(SELECT 1 FROM swarm_projects WHERE id = $1)"#,
+        )
+        .bind(id)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(result)
+    }
+}
+
+/// Info about a swarm project link for auth response.
+/// This is used to tell a node what swarm projects it's linked to.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct SwarmProjectAuthInfo {
+    pub link_id: Uuid,
+    pub swarm_project_id: Uuid,
+    pub local_project_id: Uuid,
+    pub git_repo_path: String,
+    pub default_branch: String,
+    pub project_name: String,
+    pub source_node_id: Uuid,
+    pub source_node_name: String,
+}
+
+/// Info about a node linked to a swarm project, for task dispatch purposes.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct SwarmProjectNodeForDispatch {
+    pub link_id: Uuid,
+    pub swarm_project_id: Uuid,
+    pub node_id: Uuid,
+    pub node_name: String,
+    pub local_project_id: Uuid,
+    pub git_repo_path: String,
+    pub default_branch: String,
+}
+
+impl SwarmProjectRepository {
+    /// Get all node IDs linked to a swarm project (for broadcast targeting).
+    ///
+    /// This is used to send ProjectSync messages only to nodes that are linked
+    /// to the same swarm project, rather than broadcasting to the entire organization.
+    pub async fn get_linked_node_ids(
+        pool: &PgPool,
+        swarm_project_id: Uuid,
+    ) -> Result<Vec<Uuid>, SwarmProjectError> {
+        let node_ids = sqlx::query_scalar::<_, Uuid>(
+            r#"SELECT node_id FROM swarm_project_nodes WHERE swarm_project_id = $1"#,
+        )
+        .bind(swarm_project_id)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(node_ids)
+    }
+
+    /// Fetches all nodes linked to a swarm project for task dispatch.
+    ///
+    /// Returns a vector of link records including link id, node id and name, local project id,
+    /// git repository path, and the node's default branch (falls back to `"main"`). Results are
+    /// ordered by the link creation time (oldest first).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use uuid::Uuid;
+    /// // construct or obtain a PgPool named `pool`
+    /// let pool = unimplemented!();
+    /// let swarm_project_id = Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap();
+    ///
+    /// let nodes = tokio::runtime::Runtime::new().unwrap().block_on(async {
+    ///     SwarmProjectRepository::find_nodes_for_dispatch(&pool, swarm_project_id).await
+    /// }).unwrap();
+    ///
+    /// // `nodes` is a Vec<SwarmProjectNodeForDispatch>
+    /// ```
+    pub async fn find_nodes_for_dispatch(
+        pool: &PgPool,
+        swarm_project_id: Uuid,
+    ) -> Result<Vec<SwarmProjectNodeForDispatch>, SwarmProjectError> {
+        let records = sqlx::query_as::<_, SwarmProjectNodeForDispatch>(
+            r#"
+            SELECT
+                spn.id as link_id,
+                spn.swarm_project_id,
+                spn.node_id,
+                n.name as node_name,
+                spn.local_project_id,
+                spn.git_repo_path,
+                COALESCE(nlp.default_branch, 'main') as default_branch
+            FROM swarm_project_nodes spn
+            JOIN nodes n ON spn.node_id = n.id
+            LEFT JOIN node_local_projects nlp ON spn.node_id = nlp.node_id
+                AND spn.local_project_id = nlp.local_project_id
+            WHERE spn.swarm_project_id = $1
+            ORDER BY spn.linked_at ASC
+            "#,
+        )
+        .bind(swarm_project_id)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(records)
+    }
+
+    /// List swarm projects a node is linked to (for auth response).
+    ///
+    /// Returns all swarm projects the specified node is linked to via swarm_project_nodes.
+    /// This replaces the old list_by_organization which leaked all projects.
+    pub async fn list_for_node_auth(
+        pool: &PgPool,
+        node_id: Uuid,
+    ) -> Result<Vec<SwarmProjectAuthInfo>, SwarmProjectError> {
+        let records = sqlx::query_as::<_, SwarmProjectAuthInfo>(
+            r#"
+            SELECT
+                spn.id as link_id,
+                spn.swarm_project_id,
+                spn.local_project_id,
+                spn.git_repo_path,
+                COALESCE(nlp.default_branch, 'main') as default_branch,
+                COALESCE(nlp.name, sp.name, SUBSTRING(spn.git_repo_path FROM '[^/]+$')) as project_name,
+                spn.node_id as source_node_id,
+                n.name as source_node_name
+            FROM swarm_project_nodes spn
+            JOIN swarm_projects sp ON spn.swarm_project_id = sp.id
+            JOIN nodes n ON spn.node_id = n.id
+            LEFT JOIN node_local_projects nlp ON spn.node_id = nlp.node_id
+                AND spn.local_project_id = nlp.local_project_id
+            WHERE spn.node_id = $1
+            ORDER BY spn.linked_at DESC
+            "#,
+        )
+        .bind(node_id)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(records)
     }
 }
 

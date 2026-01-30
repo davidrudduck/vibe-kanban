@@ -2,6 +2,7 @@ use axum::{
     Json, Router,
     extract::{Extension, Path, Query, State},
     http::{HeaderMap, StatusCode},
+    middleware,
     response::{IntoResponse, Response},
     routing::{delete, get, post},
 };
@@ -13,12 +14,14 @@ use uuid::Uuid;
 use super::organization_members::ensure_member_access;
 use crate::{
     AppState,
-    auth::RequestContext,
-    db::organizations::{MemberRole, OrganizationRepository},
+    auth::{NodeAuthContext, RequestContext, require_node_api_key},
+    db::{
+        organizations::{MemberRole, OrganizationRepository},
+        swarm_projects::{SwarmProjectNode, SwarmProjectRepository},
+    },
     nodes::{
-        CreateNodeApiKey, HeartbeatPayload, LinkProjectData, MergeNodesResult, Node, NodeApiKey,
-        NodeError, NodeExecutionProcess, NodeProject, NodeRegistration, NodeServiceImpl,
-        NodeTaskAttempt,
+        CreateNodeApiKey, HeartbeatPayload, MergeNodesResult, Node, NodeApiKey, NodeError,
+        NodeExecutionProcess, NodeRegistration, NodeServiceImpl, NodeTaskAttempt,
     },
 };
 
@@ -29,16 +32,19 @@ const API_KEY_HEADER: &str = "x-api-key";
 // Router Setup
 // ============================================================================
 
-/// Routes that require API key authentication (for nodes)
+/// Creates the HTTP routes that require API key authentication for node operations.
+///
+/// # Examples
+///
+/// ```
+/// let router = api_key_router();
+/// // router now contains POST /nodes/register and POST /nodes/{node_id}/heartbeat
+/// ```
 pub fn api_key_router() -> Router<AppState> {
     Router::new()
         .route("/nodes/register", post(register_node))
         .route("/nodes/{node_id}/heartbeat", post(heartbeat))
-        .route("/nodes/{node_id}/projects", post(link_project))
-        .route(
-            "/nodes/{node_id}/projects/{link_id}",
-            delete(unlink_project_by_id),
-        )
+    // Legacy project linking endpoints removed - use WebSocket LinkProject/UnlinkProject messages instead
 }
 
 /// Routes that require user JWT authentication
@@ -48,6 +54,7 @@ pub fn protected_router() -> Router<AppState> {
         .route("/nodes/api-keys", get(list_api_keys))
         .route("/nodes/api-keys/{key_id}", delete(revoke_api_key))
         .route("/nodes/api-keys/{key_id}/unblock", post(unblock_api_key))
+        // User-facing node endpoints (JWT auth for frontend)
         .route("/nodes", get(list_nodes))
         .route("/nodes/{node_id}", get(get_node))
         .route("/nodes/{node_id}", delete(delete_node))
@@ -77,6 +84,41 @@ pub fn protected_router() -> Router<AppState> {
             "/nodes/task-attempts/{attempt_id}",
             get(get_node_task_attempt),
         )
+}
+
+/// Routes for node sync operations that require API key authentication.
+///
+/// These endpoints are used by nodes to sync projects and other data headlessly.
+/// Architecture: One hive = one swarm = one organization.
+/// Sync operations use API key auth only (no OAuth fallback needed).
+pub fn node_sync_router(state: AppState) -> Router<AppState> {
+    Router::new()
+        .route("/nodes", get(list_nodes_sync))
+        .route("/nodes/status", get(get_node_statuses_sync))
+        .route("/nodes/{node_id}/projects", get(list_node_projects_sync))
+        .route(
+            "/nodes/{node_id}/projects/linked",
+            get(list_linked_node_projects_sync),
+        )
+        .route("/nodes/tasks/bulk", get(bulk_tasks_for_node_sync))
+        .route("/swarm/projects", get(list_swarm_projects_sync))
+        .route("/swarm/projects/{project_id}", get(get_swarm_project_sync))
+        // Swarm data read endpoints (for cross-node viewing)
+        .route(
+            "/swarm/projects/{project_id}/tasks",
+            get(list_swarm_project_tasks_sync),
+        )
+        .route(
+            "/swarm/tasks/{shared_task_id}/attempts",
+            get(list_task_attempts_sync),
+        )
+        .route("/swarm/tasks/{task_id}", get(get_task_sync))
+        .route("/swarm/attempts/{attempt_id}", get(get_attempt_sync))
+        .route(
+            "/swarm/attempts/{attempt_id}/logs",
+            get(get_attempt_logs_sync),
+        )
+        .layer(middleware::from_fn_with_state(state, require_node_api_key))
 }
 
 // ============================================================================
@@ -187,13 +229,41 @@ pub async fn revoke_api_key(
 #[derive(Debug, Serialize)]
 pub struct RegisterNodeResponse {
     pub node: Node,
-    pub linked_projects: Vec<NodeProject>,
+    pub linked_projects: Vec<SwarmProjectNode>,
 }
 
+/// Registers or updates a node using the provided API key and node registration payload.
+///
+/// On success returns a 200 OK response containing the registered `Node` and any swarm projects
+/// linked to that node. On failure returns an appropriate error response (authentication,
+/// authorization, validation, or database errors).
+///
+/// # Examples
+///
+/// ```
+/// # use axum::http::HeaderMap;
+/// # use axum::extract::State;
+/// # use axum::Json;
+/// # use uuid::Uuid;
+/// # use crate::routes::nodes::{register_node, NodeRegistration};
+/// # // The following is illustrative and requires an application `AppState` and running runtime.
+/// # #[tokio::test]
+/// # async fn example_register_node_call() {
+/// let state = /* obtain AppState */ todo!();
+/// let mut headers = HeaderMap::new();
+/// headers.insert("x-api-key", "example-key".parse().unwrap());
+/// let payload = NodeRegistration {
+///     machine_id: "machine-123".into(),
+///     ..Default::default()
+/// };
+/// let response = register_node(State(state), headers, Json(payload)).await;
+/// // Inspect `response` for status and body
+/// # }
+/// ```
 #[instrument(
-    name = "nodes.register",
-    skip(state, headers, payload),
-    fields(machine_id = %payload.machine_id)
+name = "nodes.register",
+skip(state, headers, payload),
+fields(machine_id = %payload.machine_id)
 )]
 pub async fn register_node(
     State(state): State<AppState>,
@@ -217,11 +287,16 @@ pub async fn register_node(
         .await
     {
         Ok(node) => {
-            // Get linked projects
-            let linked_projects = service
-                .list_node_projects(node.id)
-                .await
-                .unwrap_or_default();
+            // Get linked swarm projects for this node
+            let linked_projects = match SwarmProjectRepository::list_by_node(pool, node.id).await {
+                Ok(projects) => projects,
+                Err(e) => {
+                    return node_error_response(
+                        NodeError::Database(e.to_string()),
+                        "failed to fetch linked projects for registered node",
+                    );
+                }
+            };
 
             (
                 StatusCode::OK,
@@ -236,10 +311,24 @@ pub async fn register_node(
     }
 }
 
+/// Handle a node heartbeat request authenticated by an API key.
+///
+/// Validates the incoming API key from the `x-api-key` header, invokes the node service heartbeat
+/// for the given `node_id` with the provided payload, and returns an HTTP response:
+/// - 204 No Content on success
+/// - a mapped error response on failure
+///
+/// # Examples
+///
+/// ```no_run
+/// // Illustrative usage within an HTTP handler test environment:
+/// // let resp = heartbeat(State(app_state), headers, Path(node_id), Json(payload)).await;
+/// // assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+/// ```
 #[instrument(
-    name = "nodes.heartbeat",
-    skip(state, headers, payload),
-    fields(node_id = %node_id)
+name = "nodes.heartbeat",
+skip(state, headers, payload),
+fields(node_id = %node_id)
 )]
 pub async fn heartbeat(
     State(state): State<AppState>,
@@ -260,63 +349,6 @@ pub async fn heartbeat(
     match service.heartbeat(node_id, payload).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => node_error_response(error, "failed to process heartbeat"),
-    }
-}
-
-// ============================================================================
-// Project Linking (API Key Auth)
-// ============================================================================
-
-#[instrument(
-    name = "nodes.link_project",
-    skip(state, headers, payload),
-    fields(node_id = %node_id, project_id = %payload.project_id)
-)]
-pub async fn link_project(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(node_id): Path<Uuid>,
-    Json(payload): Json<LinkProjectData>,
-) -> Response {
-    let pool = state.pool();
-    let service = NodeServiceImpl::new(pool.clone());
-
-    // Validate API key
-    if let Err(response) = extract_and_validate_api_key(&service, &headers).await {
-        return response;
-    }
-
-    match service.link_project(node_id, payload).await {
-        Ok(link) => (StatusCode::CREATED, Json(link)).into_response(),
-        Err(error) => node_error_response(error, "failed to link project"),
-    }
-}
-
-#[instrument(
-    name = "nodes.unlink_project",
-    skip(state, headers),
-    fields(node_id = %node_id, link_id = %link_id)
-)]
-pub async fn unlink_project_by_id(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path((node_id, link_id)): Path<(Uuid, Uuid)>,
-) -> Response {
-    let pool = state.pool();
-    let service = NodeServiceImpl::new(pool.clone());
-
-    // Validate API key
-    if let Err(response) = extract_and_validate_api_key(&service, &headers).await {
-        return response;
-    }
-
-    let _ = node_id; // We could verify the link belongs to this node
-
-    // For now, just delete by project_id from the link
-    // In the future we should verify the link belongs to the node
-    match service.unlink_project(link_id).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => node_error_response(error, "failed to unlink project"),
     }
 }
 
@@ -374,10 +406,28 @@ pub async fn get_node(
     }
 }
 
+/// Deletes the specified node when the requesting user has admin access to the node's organization.
+///
+/// Verifies the node exists, enforces that the requester is an organization admin, and removes the node
+/// (which cascades related swarm_project_nodes and task_assignments). Returns an HTTP response
+/// representing the outcome.
+///
+/// # Returns
+///
+/// `204 No Content` on successful deletion; otherwise an appropriate error status and JSON error message
+/// (e.g., `404` if the node is not found, `403` if the requester lacks admin access, `500` for internal errors).
+///
+/// # Examples
+///
+/// ```
+/// // This handler is intended to be mounted in an Axum router:
+/// // router.delete("/nodes/:id", delete_node);
+/// let _ = "delete_node handler";
+/// ```
 #[instrument(
-    name = "nodes.delete",
-    skip(state, ctx),
-    fields(user_id = %ctx.user.id, node_id = %node_id)
+name = "nodes.delete",
+skip(state, ctx),
+fields(user_id = %ctx.user.id, node_id = %node_id)
 )]
 pub async fn delete_node(
     State(state): State<AppState>,
@@ -423,7 +473,7 @@ pub async fn delete_node(
         }
     }
 
-    // Delete the node (cascades node_projects, task_assignments)
+    // Delete the node (cascades swarm_project_nodes, task_assignments)
     match service.delete_node(node_id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => node_error_response(error, "failed to delete node"),
@@ -473,6 +523,312 @@ pub async fn list_linked_node_projects(
     match service.list_linked_node_projects(node_id).await {
         Ok(projects) => (StatusCode::OK, Json(projects)).into_response(),
         Err(error) => node_error_response(error, "failed to list linked node projects"),
+    }
+}
+
+// ============================================================================
+// Node Sync (API Key Auth Only)
+// ============================================================================
+
+/// List nodes in the organization.
+///
+/// Simplified sync endpoint - uses API key's organization directly.
+/// Architecture: One hive = one swarm = one organization.
+#[instrument(name = "nodes.list_sync", skip(state, node_ctx))]
+pub async fn list_nodes_sync(
+    State(state): State<AppState>,
+    Extension(node_ctx): Extension<NodeAuthContext>,
+) -> Response {
+    let service = NodeServiceImpl::new(state.pool().clone());
+
+    match service.list_nodes(node_ctx.organization_id).await {
+        Ok(nodes) => (StatusCode::OK, Json(nodes)).into_response(),
+        Err(error) => node_error_response(error, "failed to list nodes"),
+    }
+}
+
+/// Query parameters for getting node statuses
+#[derive(Debug, Deserialize)]
+pub struct GetNodeStatusesQuery {
+    /// Comma-separated list of node IDs
+    pub ids: String,
+}
+
+/// Response for node status query
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NodeStatusInfo {
+    pub id: Uuid,
+    pub status: String,
+    pub public_url: Option<String>,
+}
+
+/// Response for batch node status query
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetNodeStatusesResponse {
+    pub nodes: Vec<NodeStatusInfo>,
+}
+
+/// Get statuses for multiple nodes by their IDs.
+///
+/// Used by nodes to sync source_node_status for remote projects.
+/// Accepts a comma-separated list of node IDs and returns their current statuses.
+/// Results are scoped to the caller's organization for security.
+#[instrument(name = "nodes.get_statuses_sync", skip(state, node_ctx, query))]
+pub async fn get_node_statuses_sync(
+    State(state): State<AppState>,
+    Extension(node_ctx): Extension<NodeAuthContext>,
+    Query(query): Query<GetNodeStatusesQuery>,
+) -> Response {
+    use crate::db::nodes::NodeRepository;
+
+    // Parse the comma-separated IDs
+    let node_ids: Vec<Uuid> = query
+        .ids
+        .split(',')
+        .filter_map(|s| Uuid::parse_str(s.trim()).ok())
+        .collect();
+
+    if node_ids.is_empty() {
+        return (
+            StatusCode::OK,
+            Json(GetNodeStatusesResponse { nodes: vec![] }),
+        )
+            .into_response();
+    }
+
+    let repo = NodeRepository::new(state.pool());
+    // Scope query to caller's organization to prevent cross-org access
+    match repo.get_statuses_by_ids(node_ctx.organization_id, &node_ids).await {
+        Ok(statuses) => {
+            let nodes: Vec<NodeStatusInfo> = statuses
+                .into_iter()
+                .map(|(id, status, public_url)| NodeStatusInfo {
+                    id,
+                    status: status.to_string(),
+                    public_url,
+                })
+                .collect();
+            (StatusCode::OK, Json(GetNodeStatusesResponse { nodes })).into_response()
+        }
+        Err(e) => {
+            tracing::error!(?e, "failed to get node statuses");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "failed to get node statuses" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// List all local projects for a node.
+///
+/// Simplified sync endpoint - uses API key auth only.
+#[instrument(
+    name = "nodes.list_projects_sync",
+    skip(state, _node_ctx),
+    fields(node_id = %node_id)
+)]
+pub async fn list_node_projects_sync(
+    State(state): State<AppState>,
+    Extension(_node_ctx): Extension<NodeAuthContext>,
+    Path(node_id): Path<Uuid>,
+) -> Response {
+    let service = NodeServiceImpl::new(state.pool().clone());
+
+    match service.list_node_local_projects(node_id).await {
+        Ok(projects) => (StatusCode::OK, Json(projects)).into_response(),
+        Err(NodeError::NodeNotFound) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Node not found" })),
+        )
+            .into_response(),
+        Err(error) => node_error_response(error, "failed to list node projects"),
+    }
+}
+
+/// List linked projects for a node.
+///
+/// Simplified sync endpoint - uses API key auth only.
+#[instrument(
+    name = "nodes.list_linked_projects_sync",
+    skip(state, _node_ctx),
+    fields(node_id = %node_id)
+)]
+pub async fn list_linked_node_projects_sync(
+    State(state): State<AppState>,
+    Extension(_node_ctx): Extension<NodeAuthContext>,
+    Path(node_id): Path<Uuid>,
+) -> Response {
+    let service = NodeServiceImpl::new(state.pool().clone());
+
+    match service.list_linked_node_projects(node_id).await {
+        Ok(projects) => (StatusCode::OK, Json(projects)).into_response(),
+        Err(NodeError::NodeNotFound) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Node not found" })),
+        )
+            .into_response(),
+        Err(error) => node_error_response(error, "failed to list linked node projects"),
+    }
+}
+
+/// List swarm projects with task counts for node sync.
+///
+/// Uses API key's organization directly. Returns all swarm projects
+/// in the organization with their task counts (todo, in_progress, etc.).
+#[instrument(name = "nodes.list_swarm_projects_sync", skip(state, node_ctx))]
+pub async fn list_swarm_projects_sync(
+    State(state): State<AppState>,
+    Extension(node_ctx): Extension<NodeAuthContext>,
+) -> Response {
+    use super::swarm_projects::ListSwarmProjectsResponse;
+
+    match SwarmProjectRepository::list_with_nodes_count(state.pool(), node_ctx.organization_id)
+        .await
+    {
+        Ok(projects) => {
+            (StatusCode::OK, Json(ListSwarmProjectsResponse { projects })).into_response()
+        }
+        Err(error) => {
+            tracing::error!(?error, "failed to list swarm projects for sync");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "failed to list swarm projects" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// Get a single swarm project by ID for node sync.
+///
+/// Uses API key's organization to verify access. Returns the project
+/// if it belongs to the same organization as the authenticated node.
+#[instrument(
+    name = "nodes.get_swarm_project_sync",
+    skip(state, node_ctx),
+    fields(project_id = %project_id)
+)]
+pub async fn get_swarm_project_sync(
+    State(state): State<AppState>,
+    Extension(node_ctx): Extension<NodeAuthContext>,
+    Path(project_id): Path<Uuid>,
+) -> Response {
+    use super::swarm_projects::SwarmProjectResponse;
+
+    match SwarmProjectRepository::find_by_id(state.pool(), project_id).await {
+        Ok(Some(project)) => {
+            // Verify project belongs to the same organization as the node's API key
+            if project.organization_id != node_ctx.organization_id {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({ "error": "swarm project not found" })),
+                )
+                    .into_response();
+            }
+            (StatusCode::OK, Json(SwarmProjectResponse { project })).into_response()
+        }
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "swarm project not found" })),
+        )
+            .into_response(),
+        Err(error) => {
+            tracing::error!(?error, "failed to get swarm project for sync");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "failed to get swarm project" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+// ============================================================================
+// Bulk Task Sync (API Key Auth Only)
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct BulkTasksSyncQuery {
+    pub project_id: Uuid,
+}
+
+/// Response for bulk task sync operations.
+/// Same format as the user-facing `/tasks/bulk` endpoint.
+#[derive(Debug, Serialize)]
+pub struct BulkSharedTasksSyncResponse {
+    pub tasks: Vec<crate::db::tasks::SharedTaskActivityPayload>,
+    pub deleted_task_ids: Vec<Uuid>,
+    pub latest_seq: Option<i64>,
+}
+
+/// Fetch tasks in bulk for node sync operations.
+///
+/// Simplified sync endpoint - uses API key auth only.
+/// Verifies project exists, then fetches tasks.
+#[instrument(
+    name = "nodes.bulk_tasks_sync",
+    skip(state, _node_ctx, query),
+    fields(project_id = %query.project_id)
+)]
+pub async fn bulk_tasks_for_node_sync(
+    State(state): State<AppState>,
+    Extension(_node_ctx): Extension<NodeAuthContext>,
+    Query(query): Query<BulkTasksSyncQuery>,
+) -> Response {
+    use crate::db::tasks::{SharedTaskError, SharedTaskRepository};
+
+    let pool = state.pool();
+
+    // Verify project exists
+    match SwarmProjectRepository::exists(pool, query.project_id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "project not found" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!(?e, "failed to check project existence");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal server error" })),
+            )
+                .into_response();
+        }
+    }
+
+    // Fetch tasks
+    let repo = SharedTaskRepository::new(pool);
+    match repo.bulk_fetch(query.project_id).await {
+        Ok(snapshot) => (
+            StatusCode::OK,
+            Json(BulkSharedTasksSyncResponse {
+                tasks: snapshot.tasks,
+                deleted_task_ids: snapshot.deleted_task_ids,
+                latest_seq: snapshot.latest_seq,
+            }),
+        )
+            .into_response(),
+        Err(SharedTaskError::Database(err)) => {
+            tracing::error!(?err, "failed to load shared task snapshot");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "failed to load shared tasks" })),
+            )
+                .into_response()
+        }
+        Err(other) => {
+            tracing::error!(?other, "failed to load shared task snapshot");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "failed to load shared tasks" })),
+            )
+                .into_response()
+        }
     }
 }
 
@@ -1018,7 +1374,7 @@ pub async fn get_connection_info(
 // Task Attempts (User JWT Auth)
 // ============================================================================
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ListTaskAttemptsBySharedTaskResponse {
     pub attempts: Vec<NodeTaskAttempt>,
 }
@@ -1078,13 +1434,25 @@ pub async fn list_task_attempts_by_shared_task(
     }
 }
 
+/// Node information for cross-node proxy routing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeInfo {
+    pub id: Uuid,
+    pub name: String,
+    pub public_url: Option<String>,
+    pub status: String,
+}
+
 /// Response for getting a single node task attempt
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeTaskAttemptResponse {
     pub attempt: NodeTaskAttempt,
     pub executions: Vec<NodeExecutionProcess>,
     /// Whether all executions are in a terminal state (complete/failed/killed)
     pub is_complete: bool,
+    /// Node information for cross-node proxy routing
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_info: Option<NodeInfo>,
 }
 
 /// Get a single task attempt by ID.
@@ -1199,10 +1567,31 @@ pub async fn get_node_task_attempt(
         .iter()
         .all(|e| matches!(e.status.as_str(), "completed" | "failed" | "killed"));
 
+    // Fetch node info for cross-node proxy routing
+    use crate::db::nodes::NodeRepository;
+    let node_repo = NodeRepository::new(pool);
+    let node_info = match node_repo.find_by_id(attempt.node_id).await {
+        Ok(Some(node)) => Some(NodeInfo {
+            id: node.id,
+            name: node.name,
+            public_url: node.public_url,
+            status: node.status.to_string(),
+        }),
+        Ok(None) => {
+            tracing::warn!(node_id = %attempt.node_id, "Node not found for attempt");
+            None
+        }
+        Err(e) => {
+            tracing::warn!(?e, node_id = %attempt.node_id, "Failed to fetch node info");
+            None
+        }
+    };
+
     let response = NodeTaskAttemptResponse {
         attempt,
         executions,
         is_complete,
+        node_info,
     };
 
     (StatusCode::OK, Json(response)).into_response()
@@ -1290,4 +1679,483 @@ fn node_error_response(error: NodeError, context: &str) -> Response {
     };
 
     (status, Json(json!({ "error": message }))).into_response()
+}
+
+// ============================================================================
+// Swarm Data Read (API Key Auth Only)
+// ============================================================================
+
+/// Response for listing shared tasks for a swarm project.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ListSwarmProjectTasksResponse {
+    pub tasks: Vec<crate::db::tasks::SharedTask>,
+}
+
+/// List all tasks for a swarm project.
+///
+/// Used by remote nodes to fetch tasks for swarm projects they don't own.
+/// Includes denormalized assignee metadata (name, username) for cross-node display.
+#[instrument(
+    name = "nodes.list_swarm_project_tasks_sync",
+    skip(state, node_ctx),
+    fields(project_id = %project_id)
+)]
+pub async fn list_swarm_project_tasks_sync(
+    State(state): State<AppState>,
+    Extension(node_ctx): Extension<NodeAuthContext>,
+    Path(project_id): Path<Uuid>,
+) -> Response {
+    use crate::db::tasks::SharedTaskRepository;
+    use crate::db::users::fetch_users_by_ids;
+    use std::collections::HashMap;
+
+    let pool = state.pool();
+
+    // Verify project exists and belongs to caller's organization
+    match SwarmProjectRepository::find_by_id(pool, project_id).await {
+        Ok(Some(project)) => {
+            // Security: ensure caller can only access their own organization's projects
+            if project.organization_id != node_ctx.organization_id {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({ "error": "project not found" })),
+                )
+                    .into_response();
+            }
+        }
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "project not found" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!(?e, "failed to check project existence");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal server error" })),
+            )
+                .into_response();
+        }
+    }
+
+    // Fetch tasks for this swarm project
+    let repo = SharedTaskRepository::new(pool);
+    let tasks = match repo.find_by_swarm_project_id(project_id).await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!(?e, "failed to list tasks for swarm project");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "failed to list tasks" })),
+            )
+                .into_response();
+        }
+    };
+
+    // Collect unique assignee user IDs for batch fetch
+    let assignee_ids: Vec<Uuid> = tasks
+        .iter()
+        .filter_map(|t| t.assignee_user_id)
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+
+    // Fetch user data for assignees in one batch
+    let users_map: HashMap<Uuid, crate::db::users::UserData> = if !assignee_ids.is_empty() {
+        match fetch_users_by_ids(pool, &assignee_ids).await {
+            Ok(users) => users.into_iter().map(|u| (u.id, u)).collect(),
+            Err(e) => {
+                tracing::warn!(?e, "Failed to fetch assignee user data, returning tasks without metadata");
+                HashMap::new()
+            }
+        }
+    } else {
+        HashMap::new()
+    };
+
+    // Enrich tasks with assignee metadata and activity_at
+    let enriched_tasks: Vec<_> = tasks
+        .into_iter()
+        .map(|task| {
+            let user = task.assignee_user_id.and_then(|id| users_map.get(&id));
+            // Use updated_at as activity_at since we don't have a dedicated column yet
+            let activity_at = task.updated_at;
+            task.with_assignee_info(user).with_activity_at(Some(activity_at))
+        })
+        .collect();
+
+    (
+        StatusCode::OK,
+        Json(ListSwarmProjectTasksResponse { tasks: enriched_tasks }),
+    )
+        .into_response()
+}
+
+/// List task attempts for a shared task (API key auth).
+///
+/// Used by remote nodes to fetch attempts for swarm tasks via the Hive.
+#[instrument(
+    name = "nodes.list_task_attempts_sync",
+    skip(state, node_ctx),
+    fields(shared_task_id = %shared_task_id)
+)]
+pub async fn list_task_attempts_sync(
+    State(state): State<AppState>,
+    Extension(node_ctx): Extension<NodeAuthContext>,
+    Path(shared_task_id): Path<Uuid>,
+) -> Response {
+    use crate::db::tasks::SharedTaskRepository;
+
+    let pool = state.pool();
+
+    // Validate that the task belongs to the same organization as the API key
+    let task_repo = SharedTaskRepository::new(pool);
+    match task_repo.find_by_id(shared_task_id).await {
+        Ok(Some(task)) => {
+            if task.organization_id != node_ctx.organization_id {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({ "error": "task not found" })),
+                )
+                    .into_response();
+            }
+        }
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "task not found" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!(?e, "failed to fetch task for org validation");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal server error" })),
+            )
+                .into_response();
+        }
+    }
+
+    let service = NodeServiceImpl::new(pool.clone());
+
+    match service
+        .list_task_attempts_by_shared_task(shared_task_id)
+        .await
+    {
+        Ok(attempts) => {
+            let response = ListTaskAttemptsBySharedTaskResponse { attempts };
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(error) => node_error_response(error, "failed to list task attempts"),
+    }
+}
+
+/// Get a single shared task by ID (API key auth).
+///
+/// Used by remote nodes to fetch task details for cross-node viewing.
+#[instrument(
+    name = "nodes.get_task_sync",
+    skip(state, node_ctx),
+    fields(task_id = %task_id)
+)]
+pub async fn get_task_sync(
+    State(state): State<AppState>,
+    Extension(node_ctx): Extension<NodeAuthContext>,
+    Path(task_id): Path<Uuid>,
+) -> Response {
+    use crate::db::tasks::SharedTaskRepository;
+
+    let pool = state.pool();
+    let repo = SharedTaskRepository::new(pool);
+
+    match repo.find_by_id(task_id).await {
+        Ok(Some(task)) => {
+            // Validate that the task belongs to the same organization as the API key
+            if task.organization_id != node_ctx.organization_id {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({ "error": "task not found" })),
+                )
+                    .into_response();
+            }
+            (
+                StatusCode::OK,
+                Json(crate::routes::tasks::SharedTaskResponse { task, user: None }),
+            )
+                .into_response()
+        }
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "task not found" })),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!(?e, "failed to fetch shared task");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal server error" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// Get a single task attempt by ID (API key auth).
+///
+/// Used by remote nodes to fetch attempt details for cross-node viewing.
+#[instrument(
+    name = "nodes.get_attempt_sync",
+    skip(state, node_ctx),
+    fields(attempt_id = %attempt_id)
+)]
+pub async fn get_attempt_sync(
+    State(state): State<AppState>,
+    Extension(node_ctx): Extension<NodeAuthContext>,
+    Path(attempt_id): Path<Uuid>,
+) -> Response {
+    use crate::db::node_execution_processes::NodeExecutionProcessRepository;
+    use crate::db::node_task_attempts::NodeTaskAttemptRepository;
+    use crate::db::tasks::SharedTaskRepository;
+
+    let pool = state.pool();
+
+    // Get the attempt
+    let attempt_repo = NodeTaskAttemptRepository::new(pool);
+    let attempt = match attempt_repo.find_by_id(attempt_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "task attempt not found" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!(?e, "failed to fetch task attempt");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal server error" })),
+            )
+                .into_response();
+        }
+    };
+
+    // Validate organization ownership via the shared task
+    let task_repo = SharedTaskRepository::new(pool);
+    match task_repo.find_by_id(attempt.shared_task_id).await {
+        Ok(Some(task)) => {
+            if task.organization_id != node_ctx.organization_id {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({ "error": "task attempt not found" })),
+                )
+                    .into_response();
+            }
+        }
+        Ok(None) => {
+            tracing::warn!(
+                attempt_id = %attempt_id,
+                shared_task_id = %attempt.shared_task_id,
+                "attempt references non-existent shared task"
+            );
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "task attempt not found" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!(?e, "failed to fetch shared task for org validation");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal server error" })),
+            )
+                .into_response();
+        }
+    }
+
+    // Get the execution processes for this attempt
+    let exec_repo = NodeExecutionProcessRepository::new(pool);
+    let executions = match exec_repo.find_by_attempt_id(attempt_id).await {
+        Ok(execs) => execs,
+        Err(e) => {
+            tracing::error!(?e, "failed to fetch execution processes");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal server error" })),
+            )
+                .into_response();
+        }
+    };
+
+    // Determine if the attempt is complete (all executions in terminal state)
+    let is_complete = executions
+        .iter()
+        .all(|e| matches!(e.status.as_str(), "completed" | "failed" | "killed"));
+
+    // Fetch node info for cross-node proxy routing
+    use crate::db::nodes::NodeRepository;
+    let node_repo = NodeRepository::new(pool);
+    let node_info = match node_repo.find_by_id(attempt.node_id).await {
+        Ok(Some(node)) => Some(NodeInfo {
+            id: node.id,
+            name: node.name,
+            public_url: node.public_url,
+            status: node.status.to_string(),
+        }),
+        Ok(None) => {
+            tracing::warn!(node_id = %attempt.node_id, "Node not found for attempt");
+            None
+        }
+        Err(e) => {
+            tracing::warn!(?e, node_id = %attempt.node_id, "Failed to fetch node info");
+            None
+        }
+    };
+
+    let response = NodeTaskAttemptResponse {
+        attempt,
+        executions,
+        is_complete,
+        node_info,
+    };
+
+    (StatusCode::OK, Json(response)).into_response()
+}
+
+/// Query parameters for paginated log retrieval
+#[derive(Debug, Deserialize)]
+pub struct GetAttemptLogsQuery {
+    /// Maximum number of logs to return
+    #[serde(default = "default_log_limit")]
+    pub limit: i64,
+    /// Cursor for pagination (entry ID)
+    pub cursor: Option<i64>,
+    /// Direction: "forward" (oldest first) or "backward" (newest first)
+    #[serde(default)]
+    pub direction: Option<String>,
+}
+
+fn default_log_limit() -> i64 {
+    1000
+}
+
+/// Response for paginated log retrieval
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetAttemptLogsResponse {
+    pub entries: Vec<utils::unified_log::LogEntry>,
+    pub next_cursor: Option<i64>,
+    pub has_more: bool,
+    pub total_count: Option<i64>,
+}
+
+/// Get logs for a task attempt (API key auth).
+///
+/// Used by remote nodes to fetch logs for cross-node viewing.
+#[instrument(
+    name = "nodes.get_attempt_logs_sync",
+    skip(state, _node_ctx, query),
+    fields(attempt_id = %attempt_id)
+)]
+pub async fn get_attempt_logs_sync(
+    State(state): State<AppState>,
+    Extension(_node_ctx): Extension<NodeAuthContext>,
+    Path(attempt_id): Path<Uuid>,
+    Query(query): Query<GetAttemptLogsQuery>,
+) -> Response {
+    use crate::db::node_task_attempts::NodeTaskAttemptRepository;
+    use crate::db::task_output_logs::TaskOutputLogRepository;
+    use utils::unified_log::Direction;
+
+    let pool = state.pool();
+
+    // Verify the attempt exists
+    let attempt_repo = NodeTaskAttemptRepository::new(pool);
+    let attempt = match attempt_repo.find_by_id(attempt_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "task attempt not found" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!(?e, "failed to fetch task attempt");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal server error" })),
+            )
+                .into_response();
+        }
+    };
+
+    // Logs are stored by assignment_id, which may be linked to the attempt
+    // First try the direct assignment_id, then fall back to looking up by local_attempt_id
+    let assignment_id = match attempt.assignment_id {
+        Some(id) => id,
+        None => {
+            // Try to find assignment by looking up via local_attempt_id
+            use crate::db::task_assignments::TaskAssignmentRepository;
+            let assignment_repo = TaskAssignmentRepository::new(pool);
+            match assignment_repo.find_by_local_attempt_id(attempt_id).await {
+                Ok(Some(assignment)) => assignment.id,
+                Ok(None) => {
+                    // No assignment found, return empty logs
+                    return (
+                        StatusCode::OK,
+                        Json(GetAttemptLogsResponse {
+                            entries: vec![],
+                            next_cursor: None,
+                            has_more: false,
+                            total_count: Some(0),
+                        }),
+                    )
+                        .into_response();
+                }
+                Err(e) => {
+                    tracing::error!(?e, "failed to look up assignment by local_attempt_id");
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "error": "internal server error" })),
+                    )
+                        .into_response();
+                }
+            }
+        }
+    };
+
+    // Parse direction
+    let direction = match query.direction.as_deref() {
+        Some("forward") => Direction::Forward,
+        _ => Direction::Backward, // Default to newest first
+    };
+
+    // Fetch paginated logs
+    let log_repo = TaskOutputLogRepository::new(pool);
+    match log_repo
+        .find_paginated_with_count(assignment_id, query.cursor, query.limit, direction)
+        .await
+    {
+        Ok(paginated) => {
+            let response = GetAttemptLogsResponse {
+                entries: paginated.entries,
+                next_cursor: paginated.next_cursor,
+                has_more: paginated.has_more,
+                total_count: paginated.total_count,
+            };
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(e) => {
+            tracing::error!(?e, "failed to fetch attempt logs");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "failed to fetch logs" })),
+            )
+                .into_response()
+        }
+    }
 }

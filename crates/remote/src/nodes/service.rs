@@ -7,8 +7,8 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::domain::{
-    CreateNodeApiKey, HeartbeatPayload, LinkProjectData, Node, NodeApiKey, NodeProject,
-    NodeRegistration, NodeStatus, NodeTaskAssignment, NodeTaskAttempt, UpdateAssignmentData,
+    CreateNodeApiKey, HeartbeatPayload, Node, NodeApiKey, NodeRegistration, NodeStatus,
+    NodeTaskAssignment, NodeTaskAttempt, UpdateAssignmentData,
 };
 
 /// Type alias for registration data (used by WebSocket session)
@@ -16,9 +16,9 @@ pub type RegisterNode = NodeRegistration;
 use crate::db::{
     node_api_keys::{NodeApiKeyError, NodeApiKeyRepository},
     node_local_projects::{NodeLocalProjectError, NodeLocalProjectRepository},
-    node_projects::{NodeProjectError, NodeProjectRepository},
     node_task_attempts::{NodeTaskAttemptError, NodeTaskAttemptRepository},
     nodes::{NodeDbError, NodeRepository},
+    swarm_projects::{SwarmProjectError, SwarmProjectNode, SwarmProjectRepository},
     task_assignments::{TaskAssignmentError, TaskAssignmentRepository},
 };
 
@@ -91,6 +91,27 @@ impl From<NodeDbError> for NodeError {
 }
 
 impl From<NodeApiKeyError> for NodeError {
+    /// Converts a `NodeApiKeyError` into the corresponding `NodeError`.
+    ///
+    /// The mapping preserves the semantic meaning of each variant:
+    /// - `NotFound` -> `ApiKeyNotFound`
+    /// - `Revoked` -> `ApiKeyRevoked`
+    /// - `Blocked(reason)` -> `ApiKeyBlocked(reason)`
+    /// - `AlreadyBound` -> `ApiKeyAlreadyBound`
+    /// - `Database(e)` -> `Database(e.to_string())`
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use uuid::Uuid;
+    /// // construct an example variant
+    /// let api_err = crate::nodes::NodeApiKeyError::NotFound;
+    /// let node_err: crate::nodes::NodeError = api_err.into();
+    /// match node_err {
+    ///     crate::nodes::NodeError::ApiKeyNotFound => {},
+    ///     _ => panic!("unexpected mapping"),
+    /// }
+    /// ```
     fn from(err: NodeApiKeyError) -> Self {
         match err {
             NodeApiKeyError::NotFound => NodeError::ApiKeyNotFound,
@@ -102,16 +123,35 @@ impl From<NodeApiKeyError> for NodeError {
     }
 }
 
-impl From<NodeProjectError> for NodeError {
-    fn from(err: NodeProjectError) -> Self {
+impl From<SwarmProjectError> for NodeError {
+    /// Convert a `SwarmProjectError` into the corresponding `NodeError`.
+    ///
+    /// Maps each `SwarmProjectError` variant to an appropriate `NodeError` variant,
+    /// preserving database error messages where present.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use uuid::Uuid;
+    /// // example variants; adjust imports to actual module paths in real code
+    /// let ne: crate::nodes::service::NodeError = crate::swarm_projects::SwarmProjectError::NotFound.into();
+    /// assert!(matches!(ne, crate::nodes::service::NodeError::ProjectNotInHive));
+    /// ```
+    fn from(err: SwarmProjectError) -> Self {
         match err {
-            NodeProjectError::NotFound => NodeError::NodeProjectNotFound,
-            NodeProjectError::ProjectAlreadyLinked => NodeError::ProjectAlreadyLinked,
-            NodeProjectError::LocalProjectAlreadyLinked => {
-                NodeError::Database("local project already linked".to_string())
+            SwarmProjectError::NotFound => NodeError::ProjectNotInHive,
+            SwarmProjectError::NameConflict => {
+                NodeError::Database("swarm project name already exists".to_string())
             }
-            NodeProjectError::ProjectNotInHive => NodeError::ProjectNotInHive,
-            NodeProjectError::Database(e) => NodeError::Database(e.to_string()),
+            SwarmProjectError::LinkAlreadyExists => NodeError::ProjectAlreadyLinked,
+            SwarmProjectError::LinkNotFound => NodeError::NodeProjectNotFound,
+            SwarmProjectError::InvalidMetadata => {
+                NodeError::Database("invalid metadata".to_string())
+            }
+            SwarmProjectError::CannotMergeSelf => {
+                NodeError::Database("cannot merge project with itself".to_string())
+            }
+            SwarmProjectError::Database(e) => NodeError::Database(e.to_string()),
         }
     }
 }
@@ -472,24 +512,39 @@ impl NodeServiceImpl {
         Ok(repo.delete(node_id).await?)
     }
 
-    /// Merge one node into another.
+    /// Merge one node into another within the same organization, moving swarm project links and local projects, rebinding eligible API keys, and deleting the source node.
     ///
-    /// This operation:
-    /// 1. Moves all projects from source node to target node
-    /// 2. Rebinds any API keys from source to target
-    /// 3. Deletes the source node
+    /// Returns a `MergeNodesResult` summarizing the merge (source and target IDs, number of projects moved, and number of keys rebound).
     ///
-    /// Returns a summary of the merge operation.
+    /// # Examples
+    ///
+    /// ```
+    /// use uuid::Uuid;
+    ///
+    /// # async fn _example(service: &crate::nodes::NodeServiceImpl) {
+    /// let source = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+    /// let target = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
+    /// let result = service.merge_nodes(source, target).await.unwrap();
+    /// assert_eq!(result.source_node_id, source);
+    /// assert_eq!(result.target_node_id, target);
+    /// println!("moved {} projects, rebound {} keys", result.projects_moved, result.keys_rebound);
+    /// # }
+    /// ```
     pub async fn merge_nodes(
         &self,
         source_node_id: Uuid,
         target_node_id: Uuid,
     ) -> Result<MergeNodesResult, NodeError> {
-        let node_repo = NodeRepository::new(&self.pool);
-        let project_repo = NodeProjectRepository::new(&self.pool);
-        let key_repo = NodeApiKeyRepository::new(&self.pool);
+        // Guard against merging a node into itself
+        if source_node_id == target_node_id {
+            return Err(NodeError::Database(
+                "Cannot merge a node into itself".to_string(),
+            ));
+        }
 
-        // Verify both nodes exist
+        let node_repo = NodeRepository::new(&self.pool);
+
+        // Verify both nodes exist (outside transaction for early fail)
         let source = node_repo
             .find_by_id(source_node_id)
             .await?
@@ -514,27 +569,121 @@ impl NodeServiceImpl {
             "Merging nodes"
         );
 
-        // Move all projects from source to target
-        let projects_moved = project_repo
-            .bulk_update_node_id(source_node_id, target_node_id)
-            .await?;
+        // Start transaction for atomic merge operation
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| NodeError::Database(e.to_string()))?;
+
+        // Move swarm project links from source to target (skip conflicts)
+        // Links where target already has same swarm_project_id are deleted
+        let swarm_links_moved = sqlx::query_scalar::<_, i64>(
+            r#"
+            WITH moved AS (
+                UPDATE swarm_project_nodes
+                SET node_id = $2
+                WHERE node_id = $1
+                AND swarm_project_id NOT IN (
+                    SELECT swarm_project_id FROM swarm_project_nodes WHERE node_id = $2
+                )
+                RETURNING 1
+            )
+            SELECT COUNT(*) FROM moved
+            "#,
+        )
+        .bind(source_node_id)
+        .bind(target_node_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| NodeError::Database(e.to_string()))?;
+
+        // Delete remaining source links (conflicts with target)
+        sqlx::query(
+            r#"
+            DELETE FROM swarm_project_nodes
+            WHERE node_id = $1
+            "#,
+        )
+        .bind(source_node_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| NodeError::Database(e.to_string()))?;
+
+        // Move local project records from source to target (skip conflicts)
+        // Also clear swarm_project_id for projects where the swarm link was deleted
+        // (to avoid orphaned references)
+        let local_projects_moved = sqlx::query_scalar::<_, i64>(
+            r#"
+            WITH moved AS (
+                UPDATE node_local_projects
+                SET node_id = $2,
+                    -- Keep swarm_project_id only when target has a matching link;
+                    -- otherwise clear it to avoid orphaned references
+                    swarm_project_id = CASE
+                        WHEN swarm_project_id IN (
+                            SELECT swarm_project_id FROM swarm_project_nodes WHERE node_id = $2
+                        ) THEN swarm_project_id
+                        ELSE NULL
+                    END
+                WHERE node_id = $1
+                AND local_project_id NOT IN (
+                    SELECT local_project_id FROM node_local_projects WHERE node_id = $2
+                )
+                RETURNING 1
+            )
+            SELECT COUNT(*) FROM moved
+            "#,
+        )
+        .bind(source_node_id)
+        .bind(target_node_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| NodeError::Database(e.to_string()))?;
+
+        // Delete remaining source local projects (conflicts with target)
+        sqlx::query(
+            r#"
+            DELETE FROM node_local_projects
+            WHERE node_id = $1
+            "#,
+        )
+        .bind(source_node_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| NodeError::Database(e.to_string()))?;
+
+        let projects_moved = (swarm_links_moved + local_projects_moved) as u64;
 
         info!(
             source_id = %source_node_id,
             target_id = %target_node_id,
-            projects_moved = projects_moved,
+            swarm_links_moved = swarm_links_moved,
+            local_projects_moved = local_projects_moved,
             "Moved projects to target node"
         );
 
         // Rebind any API keys from source to target
-        let source_keys = key_repo.find_by_node_id(source_node_id).await?;
-        let keys_rebound = source_keys.len();
-
-        for key in source_keys {
-            key_repo
-                .update_node_binding(key.id, target_node_id, true)
-                .await?;
-        }
+        let keys_rebound = sqlx::query_scalar::<_, i64>(
+            r#"
+            WITH updated AS (
+                UPDATE node_api_keys
+                SET node_id = $2,
+                    takeover_count = 0,
+                    takeover_window_start = NULL
+                WHERE node_id = $1
+                AND revoked_at IS NULL
+                AND blocked_at IS NULL
+                RETURNING 1
+            )
+            SELECT COUNT(*) FROM updated
+            "#,
+        )
+        .bind(source_node_id)
+        .bind(target_node_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| NodeError::Database(e.to_string()))?;
 
         info!(
             source_id = %source_node_id,
@@ -544,7 +693,16 @@ impl NodeServiceImpl {
         );
 
         // Delete the source node
-        node_repo.delete(source_node_id).await?;
+        sqlx::query("DELETE FROM nodes WHERE id = $1")
+            .bind(source_node_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| NodeError::Database(e.to_string()))?;
+
+        // Commit the transaction
+        tx.commit()
+            .await
+            .map_err(|e| NodeError::Database(e.to_string()))?;
 
         info!(
             source_id = %source_node_id,
@@ -560,7 +718,22 @@ impl NodeServiceImpl {
         })
     }
 
-    /// Update a node's status (used by WebSocket session)
+    /// Update a node's status (used by WebSocket session).
+    ///
+    /// Updates the stored heartbeat/status for the node identified by `node_id`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use uuid::Uuid;
+    /// # use crate::nodes::{NodeServiceImpl, NodeStatus};
+    /// # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    /// let svc = NodeServiceImpl::new(/* pool */);
+    /// svc.update_node_status(Uuid::new_v4(), NodeStatus::Online).await?;
+    /// # Ok(()) }
+    /// ```
+    ///
+    /// Returns `Ok(())` on success, or a `NodeError` if the update fails.
     pub async fn update_node_status(
         &self,
         node_id: Uuid,
@@ -571,57 +744,46 @@ impl NodeServiceImpl {
     }
 
     // =========================================================================
-    // Project Linking
+    // Project Linking (via Swarm Projects)
     // =========================================================================
 
-    /// Link a project to a node
-    pub async fn link_project(
-        &self,
-        node_id: Uuid,
-        data: LinkProjectData,
-    ) -> Result<NodeProject, NodeError> {
-        let repo = NodeProjectRepository::new(&self.pool);
-        Ok(repo
-            .create(
-                node_id,
-                data.project_id,
-                data.local_project_id,
-                &data.git_repo_path,
-                &data.default_branch,
-            )
-            .await?)
-    }
-
-    /// Get a project link by project ID
-    pub async fn get_project_link(
-        &self,
-        project_id: Uuid,
-    ) -> Result<Option<NodeProject>, NodeError> {
-        let repo = NodeProjectRepository::new(&self.pool);
-        Ok(repo.find_by_project(project_id).await?)
-    }
-
-    /// List all project links for a node
-    pub async fn list_node_projects(&self, node_id: Uuid) -> Result<Vec<NodeProject>, NodeError> {
-        let repo = NodeProjectRepository::new(&self.pool);
-        Ok(repo.list_by_node(node_id).await?)
-    }
-
-    /// List project links for a node that are linked to a swarm project.
-    /// Only projects in `swarm_project_nodes` are returned - unlinked projects are excluded.
-    /// Use this for syncing projects to other nodes (only swarm-linked projects should sync).
+    /// List swarm projects linked to a node.
+    ///
+    /// Returns the `SwarmProjectNode` records that represent links between the given node and swarm projects;
+    /// these links indicate which projects should be considered for cross-node syncing.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use uuid::Uuid;
+    /// // let svc: NodeServiceImpl = /* obtain service instance */;
+    /// // let node_id = Uuid::parse_str("...").unwrap();
+    /// // let projects = futures::executor::block_on(svc.list_linked_node_projects(node_id)).unwrap();
+    /// // assert!(projects.iter().all(|p| p.node_id == node_id));
+    /// ```
     pub async fn list_linked_node_projects(
         &self,
         node_id: Uuid,
-    ) -> Result<Vec<NodeProject>, NodeError> {
-        let repo = NodeProjectRepository::new(&self.pool);
-        Ok(repo.list_linked_by_node(node_id).await?)
+    ) -> Result<Vec<SwarmProjectNode>, NodeError> {
+        Ok(SwarmProjectRepository::list_by_node(&self.pool, node_id).await?)
     }
 
-    /// List all local projects for a node with swarm project info.
+    /// List local projects for a node, including their linked swarm project information.
     ///
-    /// Returns all projects synced from the node, including whether each project
-    /// is linked to a swarm project. Used by the swarm settings UI.
+    /// Returns each project owned by the node along with metadata indicating whether and how
+    /// that project is linked to a swarm project. Intended for use by the swarm settings UI.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use uuid::Uuid;
+    /// # async fn example(svc: &crate::nodes::service::NodeServiceImpl) -> Result<(), Box<dyn std::error::Error>> {
+    /// let node_id = Uuid::new_v4();
+    /// let projects = svc.list_node_local_projects(node_id).await?;
+    /// println!("found {} projects", projects.len());
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn list_node_local_projects(
         &self,
         node_id: Uuid,
@@ -629,40 +791,69 @@ impl NodeServiceImpl {
         Ok(NodeLocalProjectRepository::list_by_node_with_swarm_info(&self.pool, node_id).await?)
     }
 
-    /// List all projects in an organization with ownership info.
+    /// Unlink a node from a swarm project and clear the swarm association on the corresponding node-local project.
     ///
-    /// Returns all projects linked to any node in the organization,
-    /// with information about which node owns each project.
-    pub async fn list_organization_projects(
-        &self,
-        organization_id: Uuid,
-    ) -> Result<Vec<crate::db::node_projects::OrgProjectInfo>, NodeError> {
-        let repo = NodeProjectRepository::new(&self.pool);
-        Ok(repo.list_by_organization(organization_id).await?)
-    }
-
-    /// Update project sync status
-    pub async fn update_project_sync(&self, link_id: Uuid, status: &str) -> Result<(), NodeError> {
-        let repo = NodeProjectRepository::new(&self.pool);
-        Ok(repo.update_sync_status(link_id, status).await?)
-    }
-
-    /// Unlink a project from its node (by project ID only)
-    pub async fn unlink_project(&self, project_id: Uuid) -> Result<(), NodeError> {
-        let repo = NodeProjectRepository::new(&self.pool);
-        Ok(repo.delete_by_project(project_id).await?)
-    }
-
-    /// Unlink a project from a specific node.
+    /// This operation is performed inside a database transaction so both the swarm link removal and the
+    /// clearing of `swarm_project_id` on the node-local project succeed or fail together.
     ///
-    /// This method verifies that the node owns the project link before deleting.
-    pub async fn unlink_project_for_node(
+    /// # Errors
+    ///
+    /// Returns `NodeError::NodeProjectNotFound` if no swarm link exists for the given `node_id` and
+    /// `swarm_project_id`. Other `NodeError::Database` or repository-level errors may be returned on
+    /// failure.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// #[tokio::test]
+    /// async fn unlink_example() {
+    ///     // Service setup omitted; replace `todo!()` with a real instance in tests.
+    ///     let svc: crate::nodes::service::NodeServiceImpl = todo!();
+    ///     let node_id = uuid::Uuid::new_v4();
+    ///     let swarm_project_id = uuid::Uuid::new_v4();
+    ///     let _ = svc.unlink_swarm_project(node_id, swarm_project_id).await;
+    /// }
+    /// ```
+    pub async fn unlink_swarm_project(
         &self,
         node_id: Uuid,
-        project_id: Uuid,
+        swarm_project_id: Uuid,
     ) -> Result<(), NodeError> {
-        let repo = NodeProjectRepository::new(&self.pool);
-        Ok(repo.delete_by_node_and_project(node_id, project_id).await?)
+        // Start transaction for atomic unlink (includes the lookup to avoid TOCTOU)
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| NodeError::Database(e.to_string()))?;
+
+        // Get the link to find local_project_id (inside transaction to avoid race)
+        let local_project_id: Option<Uuid> = sqlx::query_scalar(
+            r#"
+            SELECT local_project_id
+            FROM swarm_project_nodes
+            WHERE swarm_project_id = $1 AND node_id = $2
+            "#,
+        )
+        .bind(swarm_project_id)
+        .bind(node_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| NodeError::Database(e.to_string()))?;
+
+        let local_project_id = local_project_id.ok_or(NodeError::NodeProjectNotFound)?;
+
+        // Unlink from swarm_project_nodes
+        SwarmProjectRepository::unlink_node(&mut tx, swarm_project_id, node_id).await?;
+
+        // Clear swarm_project_id from node_local_projects
+        NodeLocalProjectRepository::unlink_from_swarm(&mut tx, node_id, local_project_id).await?;
+
+        // Commit
+        tx.commit()
+            .await
+            .map_err(|e| NodeError::Database(e.to_string()))?;
+
+        Ok(())
     }
 
     // =========================================================================

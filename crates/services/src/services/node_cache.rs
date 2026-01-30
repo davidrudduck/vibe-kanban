@@ -36,9 +36,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use db::models::{
-    cached_node::{CachedNode, CachedNodeCapabilities, CachedNodeInput, CachedNodeStatus},
-    project::Project,
+use db::models::cached_node::{
+    CachedNode, CachedNodeCapabilities, CachedNodeInput, CachedNodeStatus,
 };
 use remote::nodes::Node;
 use sqlx::SqlitePool;
@@ -56,12 +55,16 @@ const DEFAULT_SYNC_INTERVAL: Duration = Duration::from_secs(300);
 ///
 /// This is a stateless function that can be called from anywhere.
 /// It fetches nodes and projects from the remote API and caches them locally.
+///
+/// If `current_node_id` is provided, projects from that node will NOT be synced
+/// as remote entries (since they are local projects, not remote ones).
 pub async fn sync_organization(
     pool: &SqlitePool,
     remote_client: &RemoteClient,
     organization_id: Uuid,
+    current_node_id: Option<Uuid>,
 ) -> Result<SyncStats, NodeCacheSyncError> {
-    let syncer = NodeCacheSyncer::new(pool, remote_client, organization_id);
+    let syncer = NodeCacheSyncer::new(pool, remote_client, organization_id, current_node_id);
     syncer.sync().await
 }
 
@@ -96,7 +99,7 @@ pub async fn sync_all_organizations(
     let mut results = Vec::with_capacity(orgs.organizations.len());
 
     for org in orgs.organizations {
-        match sync_organization(pool, remote_client, org.id).await {
+        match sync_organization(pool, remote_client, org.id, None).await {
             Ok(stats) => {
                 info!(
                     organization_id = %org.id,
@@ -124,14 +127,22 @@ struct NodeCacheSyncer<'a> {
     pool: &'a SqlitePool,
     remote_client: &'a RemoteClient,
     organization_id: Uuid,
+    /// If set, skip syncing projects from this node (they're local, not remote)
+    current_node_id: Option<Uuid>,
 }
 
 impl<'a> NodeCacheSyncer<'a> {
-    fn new(pool: &'a SqlitePool, remote_client: &'a RemoteClient, organization_id: Uuid) -> Self {
+    fn new(
+        pool: &'a SqlitePool,
+        remote_client: &'a RemoteClient,
+        organization_id: Uuid,
+        current_node_id: Option<Uuid>,
+    ) -> Self {
         Self {
             pool,
             remote_client,
             organization_id,
+            current_node_id,
         }
     }
 
@@ -186,13 +197,18 @@ impl<'a> NodeCacheSyncer<'a> {
             }
 
             // Fetch and sync projects for this node
-            match self.sync_node_projects(&node).await {
-                Ok(project_stats) => {
-                    stats.projects_synced += project_stats.0;
-                    stats.projects_removed += project_stats.1;
-                }
-                Err(e) => {
-                    warn!(node_id = %node_id, error = %e, "failed to sync projects for node");
+            // Skip syncing projects from our own node - those are local, not remote
+            if Some(node_id) == self.current_node_id {
+                debug!(node_id = %node_id, "skipping project sync for current node (local projects)");
+            } else {
+                match self.sync_node_projects(&node).await {
+                    Ok(project_stats) => {
+                        stats.projects_synced += project_stats.0;
+                        stats.projects_removed += project_stats.1;
+                    }
+                    Err(e) => {
+                        warn!(node_id = %node_id, error = %e, "failed to sync projects for node");
+                    }
                 }
             }
         }
@@ -206,151 +222,22 @@ impl<'a> NodeCacheSyncer<'a> {
         Ok(stats)
     }
 
-    /// Sync projects for a specific node into the unified projects table.
-    /// Only syncs projects that are linked to a swarm project - unlinked projects stay local.
+    /// DEPRECATED: Remote project sync is disabled.
+    ///
+    /// We now fetch swarm projects directly from the Hive instead of caching
+    /// remote project entries locally. This eliminates UNIQUE constraint violations
+    /// and stale data issues.
+    ///
+    /// # Returns
+    ///
+    /// Always returns `(0, 0)` - no projects synced or removed.
+    #[allow(clippy::unused_async)]
     async fn sync_node_projects(&self, node: &Node) -> Result<(usize, usize), NodeCacheSyncError> {
-        // Only fetch projects that are linked to a swarm project.
-        // Unlinked projects are local-only and should not sync to other nodes.
-        let projects = self
-            .remote_client
-            .list_linked_node_projects(node.id)
-            .await
-            .map_err(NodeCacheSyncError::Remote)?;
-
-        debug!(node_id = %node.id, project_count = projects.len(), "fetched swarm-linked projects for node");
-
-        let mut synced_count = 0;
-        let mut synced_remote_project_ids = Vec::with_capacity(projects.len());
-
-        for project in projects {
-            synced_remote_project_ids.push(project.project_id);
-
-            // Convert node status to string for storage (needed for both update and insert paths)
-            let node_status_str = match node.status {
-                remote::nodes::NodeStatus::Pending => "pending",
-                remote::nodes::NodeStatus::Online => "online",
-                remote::nodes::NodeStatus::Offline => "offline",
-                remote::nodes::NodeStatus::Busy => "busy",
-                remote::nodes::NodeStatus::Draining => "draining",
-            }
-            .to_string();
-
-            // Check if ANY project already exists with this git_repo_path.
-            // This handles:
-            // 1. A node shares the same repo path as a local project
-            // 2. Multiple remote nodes have the same repo path (e.g., same repo cloned on different machines)
-            // 3. Existing remote projects that need their remote_project_id updated
-            if let Some(existing) =
-                Project::find_by_git_repo_path(self.pool, &project.git_repo_path)
-                    .await
-                    .map_err(NodeCacheSyncError::Database)?
-            {
-                if !existing.is_remote {
-                    debug!(
-                        git_repo_path = %project.git_repo_path,
-                        remote_project_id = %project.project_id,
-                        local_project_id = %existing.id,
-                        "skipping remote project upsert - local project exists with same path"
-                    );
-                } else if existing.remote_project_id.is_none() {
-                    // Existing remote project without remote_project_id - update it!
-                    // This fixes legacy data that was synced before remote_project_id was properly set.
-                    if let Err(e) = Project::update_remote_project_link(
-                        self.pool,
-                        existing.id,
-                        project.project_id,
-                        Some(node_status_str.clone()),
-                    )
-                    .await
-                    {
-                        warn!(
-                            existing_id = %existing.id,
-                            remote_project_id = %project.project_id,
-                            error = %e,
-                            "failed to update remote_project_id on existing project"
-                        );
-                    } else {
-                        debug!(
-                            existing_id = %existing.id,
-                            remote_project_id = %project.project_id,
-                            "updated remote_project_id on existing remote project"
-                        );
-                    }
-                } else {
-                    // Already has remote_project_id, just update the status
-                    if let Err(e) = Project::update_remote_sync_status(
-                        self.pool,
-                        existing.id,
-                        Some(node_status_str.clone()),
-                    )
-                    .await
-                    {
-                        warn!(
-                            existing_id = %existing.id,
-                            error = %e,
-                            "failed to update sync status on existing project"
-                        );
-                    }
-                    debug!(
-                        git_repo_path = %project.git_repo_path,
-                        remote_project_id = %project.project_id,
-                        existing_remote_project_id = ?existing.remote_project_id,
-                        existing_source_node_id = ?existing.source_node_id,
-                        "updated sync status - path already synced from another node"
-                    );
-                }
-                synced_count += 1;
-                continue;
-            }
-
-            // Extract project name from git repo path
-            let project_name = std::path::Path::new(&project.git_repo_path)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("Unknown")
-                .to_string();
-
-            match Project::upsert_remote_project(
-                self.pool,
-                Uuid::new_v4(), // local_id for new projects
-                project.project_id,
-                project_name.clone(),
-                project.git_repo_path.clone(),
-                node.id,
-                node.name.clone(),
-                node.public_url.clone(),
-                Some(node_status_str.clone()),
-            )
-            .await
-            {
-                Ok(cached) => {
-                    debug!(
-                        cached_id = %cached.id,
-                        project_name = %cached.name,
-                        source_node_id = ?cached.source_node_id,
-                        "successfully synced remote project to unified table"
-                    );
-                    synced_count += 1;
-                }
-                Err(e) => {
-                    tracing::error!(
-                        node_id = %node.id,
-                        project_id = %project.project_id,
-                        error = %e,
-                        "failed to upsert remote project"
-                    );
-                    return Err(NodeCacheSyncError::Database(e));
-                }
-            }
-        }
-
-        // Remove stale remote projects (those no longer in the hive for this specific node)
-        // Filter by source_node_id to avoid accidentally deleting projects from other nodes
-        let removed =
-            Project::delete_stale_remote_projects(self.pool, node.id, &synced_remote_project_ids)
-                .await?;
-
-        Ok((synced_count, removed as usize))
+        debug!(
+            node_id = %node.id,
+            "remote project sync disabled - using hive directly"
+        );
+        Ok((0, 0))
     }
 
     /// Convert a remote Node to a CachedNodeInput

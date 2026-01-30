@@ -7,7 +7,7 @@ use axum::{
 };
 use axum_extra::headers::{Authorization, HeaderMapExt, authorization::Bearer};
 use chrono::{DateTime, Utc};
-use tracing::warn;
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -17,13 +17,30 @@ use crate::{
         identity_errors::IdentityError,
         users::{User, UserRepository},
     },
+    nodes::NodeServiceImpl,
 };
 
+/// Context for user-authenticated requests (via OAuth JWT).
 #[derive(Clone)]
 pub struct RequestContext {
     pub user: User,
     pub session_id: Uuid,
     pub access_token_expires_at: DateTime<Utc>,
+}
+
+/// Context for node-authenticated requests (via API key).
+///
+/// Used when a node makes REST API calls using its API key instead of
+/// user OAuth tokens. This allows nodes to sync without requiring user login.
+#[derive(Clone)]
+#[allow(dead_code)] // Fields reserved for future authorization checks
+pub struct NodeAuthContext {
+    /// The organization ID from the validated API key
+    pub organization_id: Uuid,
+    /// The node ID bound to this API key (if any)
+    pub node_id: Option<Uuid>,
+    /// The API key ID used for authentication
+    pub api_key_id: Uuid,
 }
 
 pub async fn require_session(
@@ -108,4 +125,47 @@ pub async fn require_session(
     }
 
     next.run(req).await
+}
+
+/// Middleware that requires node API key authentication only.
+///
+/// This is the simplified auth middleware for sync endpoints. It validates
+/// API keys directly without OAuth fallback. Used for headless node sync
+/// operations where user login is not required.
+///
+/// Architecture: One hive = one swarm = one organization.
+/// Sync operations use API key auth only.
+pub async fn require_node_api_key(
+    State(state): State<AppState>,
+    mut req: Request<Body>,
+    next: Next,
+) -> Response {
+    let bearer = match req.headers().typed_get::<Authorization<Bearer>>() {
+        Some(Authorization(token)) => token.token().to_owned(),
+        None => return StatusCode::UNAUTHORIZED.into_response(),
+    };
+
+    let service = NodeServiceImpl::new(state.pool().clone());
+    match service.validate_api_key(&bearer).await {
+        Ok(api_key) => {
+            debug!(
+                api_key_id = %api_key.id,
+                organization_id = %api_key.organization_id,
+                "Node API key authentication successful"
+            );
+
+            let node_ctx = NodeAuthContext {
+                organization_id: api_key.organization_id,
+                node_id: api_key.node_id,
+                api_key_id: api_key.id,
+            };
+
+            req.extensions_mut().insert(node_ctx);
+            next.run(req).await
+        }
+        Err(e) => {
+            debug!(?e, "Node API key validation failed");
+            StatusCode::UNAUTHORIZED.into_response()
+        }
+    }
 }

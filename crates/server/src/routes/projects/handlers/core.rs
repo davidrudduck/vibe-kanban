@@ -19,7 +19,11 @@ use services::services::{
 use utils::{api::projects::RemoteProject, path::expand_tilde, response::ApiResponse};
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError, middleware::RemoteProjectContext};
+use crate::{
+    DeploymentImpl,
+    error::ApiError,
+    middleware::{RemoteProjectContext, SwarmProjectNeeded},
+};
 
 use super::super::types::{
     OpenEditorRequest, OpenEditorResponse, OrphanedProject, OrphanedProjectsResponse,
@@ -41,9 +45,81 @@ pub async fn get_projects(
 }
 
 pub async fn get_project(
-    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+    local_project: Option<Extension<Project>>,
+    swarm_needed: Option<Extension<SwarmProjectNeeded>>,
 ) -> Result<ResponseJson<ApiResponse<Project>>, ApiError> {
-    Ok(ResponseJson(ApiResponse::success(project)))
+    // If we have a local project, return it directly
+    if let Some(Extension(project)) = local_project {
+        return Ok(ResponseJson(ApiResponse::success(project)));
+    }
+
+    // If we have a SwarmProjectNeeded marker, try to fetch from Hive
+    if let Some(Extension(swarm)) = swarm_needed {
+        // Prefer node_auth_client (API key auth) - works even without user login
+        // Fall back to remote_client (OAuth) for non-node deployments
+        let client = match deployment.node_auth_client().cloned() {
+            Some(c) => c,
+            None => match deployment.remote_client() {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::warn!(
+                        project_id = %swarm.project_id,
+                        error = ?e,
+                        "No remote client available for swarm project lookup"
+                    );
+                    return Err(ApiError::BadGateway("No remote client available".into()));
+                }
+            },
+        };
+        let response = client
+            .get_swarm_project(swarm.project_id)
+            .await
+            .map_err(|e| {
+                tracing::warn!(
+                    project_id = %swarm.project_id,
+                    error = ?e,
+                    "Failed to fetch swarm project from Hive"
+                );
+                if e.is_not_found() {
+                    ApiError::NotFound("Project not found".into())
+                } else {
+                    ApiError::RemoteClient(e)
+                }
+            })?;
+
+        // Convert SwarmProject to Project for display
+        let swarm_project = response.project;
+        let project = Project {
+            id: swarm_project.id,
+            name: swarm_project.name,
+            git_repo_path: std::path::PathBuf::new(),
+            setup_script: None,
+            dev_script: None,
+            cleanup_script: None,
+            copy_files: None,
+            parallel_setup_script: false,
+            remote_project_id: Some(swarm_project.id),
+            created_at: swarm_project.created_at,
+            updated_at: swarm_project.updated_at,
+            is_remote: true,
+            source_node_id: None,
+            source_node_name: None,
+            source_node_public_url: None,
+            source_node_status: None,
+            remote_last_synced_at: None,
+            github_enabled: false,
+            github_owner: None,
+            github_repo: None,
+            github_open_issues: 0,
+            github_open_prs: 0,
+            github_last_synced_at: None,
+        };
+        return Ok(ResponseJson(ApiResponse::success(project)));
+    }
+
+    // Neither local project nor swarm marker - should not happen, but handle gracefully
+    Err(ApiError::NotFound("Project not found".into()))
 }
 
 /// Get sync health status for a project.
@@ -94,10 +170,21 @@ pub async fn get_project_sync_health(
 }
 
 pub async fn get_project_branches(
-    Extension(project): Extension<Project>,
+    local_project: Option<Extension<Project>>,
     remote_ctx: Option<Extension<RemoteProjectContext>>,
+    swarm_needed: Option<Extension<SwarmProjectNeeded>>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<Vec<GitBranch>>>, ApiError> {
+    // If no local project and this is a swarm-only project, return empty branches
+    // (swarm-only projects don't have local git repos on this node)
+    let Some(Extension(project)) = local_project else {
+        if swarm_needed.is_some() {
+            tracing::debug!("Swarm-only project, returning empty branches list");
+            return Ok(ResponseJson(ApiResponse::success(vec![])));
+        }
+        return Err(ApiError::NotFound("Project not found".to_string()));
+    };
+
     // LOCAL-FIRST: If we have a valid local git repo, use it directly
     // This handles the case where a project exists on multiple nodes and this node has a local copy
     if !project.git_repo_path.as_os_str().is_empty()

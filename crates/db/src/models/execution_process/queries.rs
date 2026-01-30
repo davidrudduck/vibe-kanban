@@ -17,7 +17,7 @@ impl ExecutionProcess {
             ExecutionProcess,
             r#"SELECT id as "id!: Uuid", task_attempt_id as "task_attempt_id!: Uuid", run_reason as "run_reason!: ExecutionProcessRunReason", executor_action as "executor_action!: sqlx::types::Json<ExecutorActionField>", before_head_commit,
                       after_head_commit, status as "status!: ExecutionProcessStatus", exit_code, dropped, pid, started_at as "started_at!: DateTime<Utc>", completed_at as "completed_at?: DateTime<Utc>",
-                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", server_instance_id
+                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", server_instance_id, completion_reason, completion_message
                FROM execution_processes WHERE id = ?"#,
             id
         )
@@ -31,7 +31,7 @@ impl ExecutionProcess {
             ExecutionProcess,
             r#"SELECT id as "id!: Uuid", task_attempt_id as "task_attempt_id!: Uuid", run_reason as "run_reason!: ExecutionProcessRunReason", executor_action as "executor_action!: sqlx::types::Json<ExecutorActionField>", before_head_commit,
                       after_head_commit, status as "status!: ExecutionProcessStatus", exit_code, dropped, pid, started_at as "started_at!: DateTime<Utc>", completed_at as "completed_at?: DateTime<Utc>",
-                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", server_instance_id
+                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", server_instance_id, completion_reason, completion_message
                FROM execution_processes WHERE rowid = ?"#,
             rowid
         )
@@ -62,7 +62,9 @@ impl ExecutionProcess {
                       created_at      as "created_at!: DateTime<Utc>",
                       updated_at      as "updated_at!: DateTime<Utc>",
                       hive_synced_at  as "hive_synced_at: DateTime<Utc>",
-                      server_instance_id
+                      server_instance_id,
+                      completion_reason,
+                      completion_message
                FROM execution_processes
                WHERE task_attempt_id = ?
                  AND (? OR dropped = FALSE)
@@ -80,7 +82,7 @@ impl ExecutionProcess {
             ExecutionProcess,
             r#"SELECT id as "id!: Uuid", task_attempt_id as "task_attempt_id!: Uuid", run_reason as "run_reason!: ExecutionProcessRunReason", executor_action as "executor_action!: sqlx::types::Json<ExecutorActionField>", before_head_commit,
                       after_head_commit, status as "status!: ExecutionProcessStatus", exit_code, dropped, pid, started_at as "started_at!: DateTime<Utc>", completed_at as "completed_at?: DateTime<Utc>",
-                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", server_instance_id
+                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", server_instance_id, completion_reason, completion_message
                FROM execution_processes WHERE status = 'running' ORDER BY created_at ASC"#,
         )
         .fetch_all(pool)
@@ -97,7 +99,7 @@ impl ExecutionProcess {
             ExecutionProcess,
             r#"SELECT id as "id!: Uuid", task_attempt_id as "task_attempt_id!: Uuid", run_reason as "run_reason!: ExecutionProcessRunReason", executor_action as "executor_action!: sqlx::types::Json<ExecutorActionField>", before_head_commit,
                       after_head_commit, status as "status!: ExecutionProcessStatus", exit_code, dropped, pid, started_at as "started_at!: DateTime<Utc>", completed_at as "completed_at?: DateTime<Utc>",
-                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", server_instance_id
+                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", server_instance_id, completion_reason, completion_message
                FROM execution_processes WHERE status = 'running' AND server_instance_id = ? ORDER BY created_at ASC"#,
             instance_id
         )
@@ -135,7 +137,7 @@ impl ExecutionProcess {
             ExecutionProcess,
             r#"SELECT ep.id as "id!: Uuid", ep.task_attempt_id as "task_attempt_id!: Uuid", ep.run_reason as "run_reason!: ExecutionProcessRunReason", ep.executor_action as "executor_action!: sqlx::types::Json<ExecutorActionField>",
                       ep.before_head_commit, ep.after_head_commit, ep.status as "status!: ExecutionProcessStatus", ep.exit_code,
-                      ep.dropped, ep.pid, ep.started_at as "started_at!: DateTime<Utc>", ep.completed_at as "completed_at?: DateTime<Utc>", ep.created_at as "created_at!: DateTime<Utc>", ep.updated_at as "updated_at!: DateTime<Utc>", ep.hive_synced_at as "hive_synced_at: DateTime<Utc>", ep.server_instance_id
+                      ep.dropped, ep.pid, ep.started_at as "started_at!: DateTime<Utc>", ep.completed_at as "completed_at?: DateTime<Utc>", ep.created_at as "created_at!: DateTime<Utc>", ep.updated_at as "updated_at!: DateTime<Utc>", ep.hive_synced_at as "hive_synced_at: DateTime<Utc>", ep.server_instance_id, ep.completion_reason, ep.completion_message
                FROM execution_processes ep
                JOIN task_attempts ta ON ep.task_attempt_id = ta.id
                JOIN tasks t ON ta.task_id = t.id
@@ -171,7 +173,9 @@ impl ExecutionProcess {
             created_at as "created_at!: DateTime<Utc>",
             updated_at as "updated_at!: DateTime<Utc>",
             hive_synced_at as "hive_synced_at: DateTime<Utc>",
-            server_instance_id
+            server_instance_id,
+            completion_reason,
+            completion_message
         FROM execution_processes
         WHERE status = 'running'
           AND run_reason = 'devserver'
@@ -190,7 +194,7 @@ impl ExecutionProcess {
             ExecutionProcess,
             r#"SELECT id as "id!: Uuid", task_attempt_id as "task_attempt_id!: Uuid", run_reason as "run_reason!: ExecutionProcessRunReason", executor_action as "executor_action!: sqlx::types::Json<ExecutorActionField>", before_head_commit,
                       after_head_commit, status as "status!: ExecutionProcessStatus", exit_code, dropped, pid, started_at as "started_at!: DateTime<Utc>", completed_at as "completed_at?: DateTime<Utc>",
-                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", server_instance_id
+                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", server_instance_id, completion_reason, completion_message
                FROM execution_processes WHERE status = 'running' AND pid IS NOT NULL ORDER BY created_at ASC"#,
         )
         .fetch_all(pool)
@@ -262,7 +266,7 @@ impl ExecutionProcess {
             ExecutionProcess,
             r#"SELECT id as "id!: Uuid", task_attempt_id as "task_attempt_id!: Uuid", run_reason as "run_reason!: ExecutionProcessRunReason", executor_action as "executor_action!: sqlx::types::Json<ExecutorActionField>", before_head_commit,
                       after_head_commit, status as "status!: ExecutionProcessStatus", exit_code, dropped, pid, started_at as "started_at!: DateTime<Utc>", completed_at as "completed_at?: DateTime<Utc>",
-                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", server_instance_id
+                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", server_instance_id, completion_reason, completion_message
                FROM execution_processes
                WHERE task_attempt_id = ? AND run_reason = ? AND dropped = FALSE
                ORDER BY created_at DESC LIMIT 1"#,
@@ -283,7 +287,7 @@ impl ExecutionProcess {
             ExecutionProcess,
             r#"SELECT id as "id!: Uuid", task_attempt_id as "task_attempt_id!: Uuid", run_reason as "run_reason!: ExecutionProcessRunReason", executor_action as "executor_action!: sqlx::types::Json<ExecutorActionField>", before_head_commit,
                       after_head_commit, status as "status!: ExecutionProcessStatus", exit_code, dropped, pid, started_at as "started_at!: DateTime<Utc>", completed_at as "completed_at?: DateTime<Utc>",
-                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", server_instance_id
+                      created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", server_instance_id, completion_reason, completion_message
                FROM execution_processes
                WHERE task_attempt_id = ? AND dropped = FALSE
                ORDER BY created_at DESC LIMIT 1"#,
@@ -311,7 +315,7 @@ impl ExecutionProcess {
                     after_head_commit, status, exit_code, pid, started_at, completed_at, created_at, updated_at, server_instance_id
                 ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, ?, ?, ?) RETURNING
                     id as "id!: Uuid", task_attempt_id as "task_attempt_id!: Uuid", run_reason as "run_reason!: ExecutionProcessRunReason", executor_action as "executor_action!: sqlx::types::Json<ExecutorActionField>", before_head_commit,
-                    after_head_commit, status as "status!: ExecutionProcessStatus", exit_code, dropped, pid, started_at as "started_at!: DateTime<Utc>", completed_at as "completed_at?: DateTime<Utc>", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", server_instance_id"#,
+                    after_head_commit, status as "status!: ExecutionProcessStatus", exit_code, dropped, pid, started_at as "started_at!: DateTime<Utc>", completed_at as "completed_at?: DateTime<Utc>", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", hive_synced_at as "hive_synced_at: DateTime<Utc>", server_instance_id, completion_reason, completion_message"#,
             process_id,
             data.task_attempt_id,
             data.run_reason,
@@ -454,5 +458,203 @@ impl ExecutionProcess {
             task_attempt,
             task,
         })
+    }
+
+    /// Find the session ID from the process immediately before a target process.
+    ///
+    /// This query finds the most recent execution process that:
+    /// - Belongs to the same task attempt
+    /// - Has run_reason = 'codingagent'
+    /// - Is not dropped
+    /// - Has an associated session ID
+    /// - Was created before the target process
+    ///
+    /// Used for resuming Claude Code sessions when retrying a failed process.
+    pub async fn find_session_id_before_process(
+        pool: &SqlitePool,
+        task_attempt_id: Uuid,
+        process_id: Uuid,
+    ) -> Result<Option<String>, sqlx::Error> {
+        let result = sqlx::query_scalar!(
+            r#"SELECT es.session_id
+               FROM execution_processes ep
+               JOIN executor_sessions es ON ep.id = es.execution_process_id
+               WHERE ep.task_attempt_id = ?
+                 AND ep.run_reason = 'codingagent'
+                 AND ep.dropped = FALSE
+                 AND es.session_id IS NOT NULL
+                 AND ep.created_at < (SELECT created_at FROM execution_processes WHERE id = ?)
+               ORDER BY ep.created_at DESC
+               LIMIT 1"#,
+            task_attempt_id,
+            process_id
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        // Flatten Option<Option<String>> to Option<String>
+        Ok(result.flatten())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::create_test_pool;
+    use uuid::Uuid;
+
+    async fn create_test_project(pool: &SqlitePool) -> Uuid {
+        let id = Uuid::new_v4();
+        sqlx::query(
+            r#"INSERT INTO projects (id, name, git_repo_path)
+               VALUES ($1, 'Test Project', '/tmp/test')"#,
+        )
+        .bind(id)
+        .execute(pool)
+        .await
+        .expect("create project");
+        id
+    }
+
+    async fn create_test_task(pool: &SqlitePool, project_id: Uuid) -> Uuid {
+        let id = Uuid::new_v4();
+        sqlx::query(
+            r#"INSERT INTO tasks (id, project_id, title, status)
+               VALUES ($1, $2, 'Test Task', 'inprogress')"#,
+        )
+        .bind(id)
+        .bind(project_id)
+        .execute(pool)
+        .await
+        .expect("create task");
+        id
+    }
+
+    async fn create_test_attempt(pool: &SqlitePool, task_id: Uuid) -> Uuid {
+        let id = Uuid::new_v4();
+        sqlx::query(
+            r#"INSERT INTO task_attempts (id, task_id, executor, branch, target_branch, container_ref)
+               VALUES ($1, $2, 'CLAUDE_CODE', 'test-branch', 'main', '/tmp/test-worktree')"#,
+        )
+        .bind(id)
+        .bind(task_id)
+        .execute(pool)
+        .await
+        .expect("create attempt");
+        id
+    }
+
+    async fn create_execution_with_session(
+        pool: &SqlitePool,
+        attempt_id: Uuid,
+        session_id: Option<&str>,
+        dropped: bool,
+    ) -> Uuid {
+        let exec_id = Uuid::new_v4();
+        sqlx::query(
+            r#"INSERT INTO execution_processes (id, task_attempt_id, status, run_reason, executor_action)
+               VALUES ($1, $2, 'completed', 'codingagent', '{}')"#,
+        )
+        .bind(exec_id)
+        .bind(attempt_id)
+        .execute(pool)
+        .await
+        .expect("create execution");
+
+        if dropped {
+            sqlx::query("UPDATE execution_processes SET dropped = TRUE WHERE id = $1")
+                .bind(exec_id)
+                .execute(pool)
+                .await
+                .expect("mark dropped");
+        }
+
+        if let Some(sid) = session_id {
+            let session_record_id = Uuid::new_v4();
+            sqlx::query(
+                r#"INSERT INTO executor_sessions (id, execution_process_id, task_attempt_id, session_id)
+                   VALUES ($1, $2, $3, $4)"#,
+            )
+            .bind(session_record_id)
+            .bind(exec_id)
+            .bind(attempt_id)
+            .bind(sid)
+            .execute(pool)
+            .await
+            .expect("create session");
+        }
+
+        exec_id
+    }
+
+    #[tokio::test]
+    async fn test_find_session_id_before_process_returns_previous_session() {
+        let (pool, _temp_dir) = create_test_pool().await;
+        let project_id = create_test_project(&pool).await;
+        let task_id = create_test_task(&pool, project_id).await;
+        let attempt_id = create_test_attempt(&pool, task_id).await;
+
+        // Create P1 with session
+        let _p1 =
+            create_execution_with_session(&pool, attempt_id, Some("session-abc"), false).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+        // Create P2 (target)
+        let p2 = create_execution_with_session(&pool, attempt_id, Some("session-def"), false).await;
+
+        // Should find P1's session
+        let result = ExecutionProcess::find_session_id_before_process(&pool, attempt_id, p2)
+            .await
+            .expect("query should succeed");
+
+        assert_eq!(result, Some("session-abc".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_find_session_id_before_process_returns_none_for_first() {
+        let (pool, _temp_dir) = create_test_pool().await;
+        let project_id = create_test_project(&pool).await;
+        let task_id = create_test_task(&pool, project_id).await;
+        let attempt_id = create_test_attempt(&pool, task_id).await;
+
+        // Create only P1 with session
+        let p1 =
+            create_execution_with_session(&pool, attempt_id, Some("session-first"), false).await;
+
+        // Should return None (no process before P1)
+        let result = ExecutionProcess::find_session_id_before_process(&pool, attempt_id, p1)
+            .await
+            .expect("query should succeed");
+
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_find_session_id_before_process_skips_dropped() {
+        let (pool, _temp_dir) = create_test_pool().await;
+        let project_id = create_test_project(&pool).await;
+        let task_id = create_test_task(&pool, project_id).await;
+        let attempt_id = create_test_attempt(&pool, task_id).await;
+
+        // Create P1 with session (not dropped)
+        let _p1 =
+            create_execution_with_session(&pool, attempt_id, Some("session-one"), false).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+        // Create P2 with session (DROPPED)
+        let _p2 =
+            create_execution_with_session(&pool, attempt_id, Some("session-dropped"), true).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+        // Create P3 (target)
+        let p3 =
+            create_execution_with_session(&pool, attempt_id, Some("session-three"), false).await;
+
+        // Should find P1's session (skipping dropped P2)
+        let result = ExecutionProcess::find_session_id_before_process(&pool, attempt_id, p3)
+            .await
+            .expect("query should succeed");
+
+        assert_eq!(result, Some("session-one".to_string()));
     }
 }

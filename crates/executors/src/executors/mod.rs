@@ -15,9 +15,10 @@ use ts_rs::TS;
 use workspace_utils::msg_store::MsgStore;
 
 use crate::executors::claude::protocol::ProtocolPeer;
+use crate::logs::utils::EntryIndexProvider;
 
 use crate::{
-    actions::ExecutorAction,
+    actions::{ExecutorAction, SpawnContext},
     approvals::ExecutorApprovalService,
     command::CommandBuildError,
     executors::{
@@ -37,6 +38,7 @@ pub mod droid;
 pub mod gemini;
 pub mod opencode;
 pub mod qwen;
+pub mod session_index;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -187,6 +189,21 @@ impl CodingAgent {
             Self::Droid(c) => c.no_context.unwrap_or(false),
         }
     }
+
+    /// Get the model name if configured, or None for default model
+    pub fn model(&self) -> Option<&str> {
+        match self {
+            Self::ClaudeCode(c) => c.model.as_deref(),
+            Self::Amp(_) => None,
+            Self::Gemini(c) => c.model.as_deref(),
+            Self::Codex(c) => c.model.as_deref(),
+            Self::Opencode(c) => c.model.as_deref(),
+            Self::CursorAgent(c) => c.model.as_deref(),
+            Self::QwenCode(_) => None,
+            Self::Copilot(c) => c.model.as_deref(),
+            Self::Droid(c) => c.model.as_deref(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -212,7 +229,12 @@ impl AvailabilityInfo {
 pub trait StandardCodingAgentExecutor {
     fn use_approvals(&mut self, _approvals: Arc<dyn ExecutorApprovalService>) {}
 
-    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError>;
+    async fn spawn(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        context: SpawnContext,
+    ) -> Result<SpawnedChild, ExecutorError>;
     async fn spawn_follow_up(
         &self,
         current_dir: &Path,
@@ -223,6 +245,7 @@ pub trait StandardCodingAgentExecutor {
         &self,
         _raw_logs_event_store: Arc<MsgStore>,
         _worktree_path: &Path,
+        _entry_index_provider: EntryIndexProvider,
     ) -> JoinHandle<()>;
 
     // MCP configuration methods
@@ -246,13 +269,87 @@ pub trait StandardCodingAgentExecutor {
     }
 }
 
+/// Reason why an executor session completed
+#[derive(Debug, Clone, Default)]
+pub enum SessionCompletionReason {
+    /// Session ended with a Result message (normal completion)
+    ResultMessage {
+        is_error: bool,
+        subtype: Option<String>,
+        duration_ms: Option<u64>,
+        num_turns: Option<u32>,
+    },
+    /// Session ended with EOF without a Result message (abnormal)
+    #[default]
+    EofWithoutResult,
+    /// Session was killed by user
+    Killed,
+    /// Session ended due to an error
+    Error { message: String },
+}
+
+impl SessionCompletionReason {
+    /// Returns a short string identifier for the completion reason
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SessionCompletionReason::ResultMessage { is_error: true, .. } => "result_error",
+            SessionCompletionReason::ResultMessage {
+                is_error: false, ..
+            } => "result_success",
+            SessionCompletionReason::EofWithoutResult => "eof",
+            SessionCompletionReason::Killed => "killed",
+            SessionCompletionReason::Error { .. } => "error",
+        }
+    }
+}
+
 /// Result communicated through the exit signal
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum ExecutorExitResult {
     /// Process completed successfully (exit code 0)
-    Success,
+    Success { reason: SessionCompletionReason },
     /// Process should be marked as failed (non-zero exit)
-    Failure,
+    Failure { reason: SessionCompletionReason },
+}
+
+impl ExecutorExitResult {
+    /// Create a success result with the given completion reason
+    pub fn success(reason: SessionCompletionReason) -> Self {
+        ExecutorExitResult::Success { reason }
+    }
+
+    /// Create a success result with default reason (EOF)
+    pub fn success_default() -> Self {
+        ExecutorExitResult::Success {
+            reason: SessionCompletionReason::EofWithoutResult,
+        }
+    }
+
+    /// Create a failure result with the given completion reason
+    pub fn failure(reason: SessionCompletionReason) -> Self {
+        ExecutorExitResult::Failure { reason }
+    }
+
+    /// Create a failure result with default reason (EOF)
+    pub fn failure_default() -> Self {
+        ExecutorExitResult::Failure {
+            reason: SessionCompletionReason::EofWithoutResult,
+        }
+    }
+
+    /// Get the completion reason
+    pub fn reason(&self) -> &SessionCompletionReason {
+        match self {
+            ExecutorExitResult::Success { reason } | ExecutorExitResult::Failure { reason } => {
+                reason
+            }
+        }
+    }
+
+    /// Check if this is a success result
+    pub fn is_success(&self) -> bool {
+        matches!(self, ExecutorExitResult::Success { .. })
+    }
 }
 
 /// Optional exit notification from an executor.

@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 use super::log_migration;
 use super::node_proxy_client::{NodeProxyClient, NodeProxyError};
+use super::remote_client::{RemoteClient, RemoteClientError};
 
 /// Error type for unified log service operations.
 #[derive(Debug, Error)]
@@ -22,8 +23,14 @@ pub enum LogServiceError {
     #[error("Remote proxy error: {0}")]
     RemoteProxy(#[from] NodeProxyError),
 
+    #[error("Remote client error: {0}")]
+    RemoteClient(#[from] RemoteClientError),
+
     #[error("Execution not found: {0}")]
     ExecutionNotFound(Uuid),
+
+    #[error("Remote logs not available for this attempt")]
+    RemoteLogsNotAvailable,
 
     #[error("Invalid execution location")]
     InvalidLocation,
@@ -158,31 +165,69 @@ impl LogService for LocalLogService {
     }
 }
 
-/// Remote log service using node proxy client.
+/// Remote log service using Hive API.
 ///
-/// This service retrieves logs from a remote node via HTTP proxy requests.
-/// It's used when viewing executions that are running on other nodes.
-#[derive(Debug, Clone)]
+/// This service retrieves logs from the Hive for cross-node viewing.
+/// Logs are fetched by attempt_id (task_attempt.id) from the Hive's
+/// centralized log storage.
+#[derive(Clone)]
 pub struct RemoteLogService {
-    #[allow(dead_code)] // Will be used in Session 4 when REST endpoint is implemented
+    #[allow(dead_code)] // Kept for potential future node-to-node proxying
     proxy_client: NodeProxyClient,
+    /// Remote client for Hive API access
+    remote_client: Option<RemoteClient>,
+}
+
+impl std::fmt::Debug for RemoteLogService {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RemoteLogService")
+            .field("proxy_client", &self.proxy_client)
+            .field("remote_client", &self.remote_client.as_ref().map(|_| "<RemoteClient>"))
+            .finish()
+    }
 }
 
 impl RemoteLogService {
     /// Create a new RemoteLogService.
-    pub fn new(proxy_client: NodeProxyClient) -> Self {
-        Self { proxy_client }
+    pub fn new(proxy_client: NodeProxyClient, remote_client: Option<RemoteClient>) -> Self {
+        Self { proxy_client, remote_client }
     }
-}
 
-/// API response wrapper for remote log requests.
-/// Will be used in Session 4 when REST endpoint is implemented.
-#[derive(Debug, serde::Deserialize)]
-#[allow(dead_code)] // Will be used in Session 4 when REST endpoint is implemented
-struct ApiResponse<T> {
-    success: bool,
-    data: Option<T>,
-    message: Option<String>,
+    /// Check if remote log fetching is enabled.
+    pub fn is_enabled(&self) -> bool {
+        self.remote_client.is_some()
+    }
+
+    /// Fetch logs from Hive for the given attempt.
+    ///
+    /// Note: The Hive API uses attempt_id, not execution_id.
+    /// The caller must map execution_id → attempt_id before calling this.
+    pub async fn get_logs_for_attempt(
+        &self,
+        attempt_id: Uuid,
+        cursor: Option<i64>,
+        limit: i64,
+        direction: Direction,
+    ) -> Result<PaginatedLogs, LogServiceError> {
+        let client = self.remote_client.as_ref()
+            .ok_or(LogServiceError::RemoteLogsNotAvailable)?;
+
+        let direction_str = match direction {
+            Direction::Forward => "forward",
+            Direction::Backward => "backward",
+        };
+
+        let response = client
+            .get_swarm_attempt_logs(attempt_id, Some(limit), cursor, Some(direction_str))
+            .await?;
+
+        Ok(PaginatedLogs {
+            entries: response.entries,
+            next_cursor: response.next_cursor,
+            has_more: response.has_more,
+            total_count: response.total_count,
+        })
+    }
 }
 
 #[async_trait]
@@ -190,33 +235,30 @@ impl LogService for RemoteLogService {
     async fn get_logs_paginated(
         &self,
         execution_id: Uuid,
-        cursor: Option<i64>,
-        limit: i64,
-        direction: Direction,
+        _cursor: Option<i64>,
+        _limit: i64,
+        _direction: Direction,
     ) -> Result<PaginatedLogs, LogServiceError> {
-        // Build the remote API path with query parameters (for documentation/future use)
-        let _direction_str = match direction {
-            Direction::Forward => "forward",
-            Direction::Backward => "backward",
-        };
-
-        let _path = match cursor {
-            Some(c) => format!(
-                "/logs/{}?limit={}&cursor={}&direction={}",
-                execution_id, limit, c, _direction_str
-            ),
-            None => format!(
-                "/logs/{}?limit={}&direction={}",
-                execution_id, limit, _direction_str
-            ),
-        };
-
-        // Note: In a real implementation, we would need the target node ID and URL.
-        // For now, this is a placeholder that will be completed in Session 4
-        // when we add the REST endpoint and proper routing.
+        // Note: This method receives execution_id but the Hive API uses attempt_id.
+        // The UnifiedLogService is responsible for mapping execution_id → attempt_id
+        // and calling get_logs_for_attempt() directly.
         //
-        // The UnifiedLogService will handle determining which node to call.
-        Err(LogServiceError::InvalidLocation)
+        // If called directly with execution_id, we cannot proceed without the mapping.
+        // This implementation exists for trait compliance but the actual remote log
+        // fetching should go through UnifiedLogService.get_remote_logs_for_attempt().
+        tracing::warn!(
+            execution_id = %execution_id,
+            "RemoteLogService::get_logs_paginated called with execution_id; \
+             for remote logs, use UnifiedLogService.get_remote_logs_for_attempt() instead"
+        );
+
+        // Return empty result rather than error for graceful degradation
+        Ok(PaginatedLogs {
+            entries: Vec::new(),
+            next_cursor: None,
+            has_more: false,
+            total_count: Some(0),
+        })
     }
 
     async fn get_execution_status(
@@ -275,7 +317,19 @@ impl UnifiedLogService {
     pub fn new(pool: SqlitePool, proxy_client: NodeProxyClient) -> Self {
         Self {
             local_service: LocalLogService::new(pool),
-            remote_service: RemoteLogService::new(proxy_client),
+            remote_service: RemoteLogService::new(proxy_client, None),
+        }
+    }
+
+    /// Create a new UnifiedLogService with remote client for Hive access.
+    pub fn with_remote_client(
+        pool: SqlitePool,
+        proxy_client: NodeProxyClient,
+        remote_client: Option<RemoteClient>,
+    ) -> Self {
+        Self {
+            local_service: LocalLogService::new(pool),
+            remote_service: RemoteLogService::new(proxy_client, remote_client),
         }
     }
 
@@ -348,6 +402,34 @@ impl UnifiedLogService {
     pub fn remote(&self) -> &RemoteLogService {
         &self.remote_service
     }
+
+    /// Check if remote log fetching is enabled.
+    pub fn is_remote_enabled(&self) -> bool {
+        self.remote_service.is_enabled()
+    }
+
+    /// Get logs for a remote attempt from the Hive.
+    ///
+    /// This method fetches logs directly from the Hive by attempt_id.
+    /// Use this when you know the attempt is remote (e.g., origin_node_id is set
+    /// and differs from the current node).
+    ///
+    /// # Arguments
+    /// * `attempt_id` - The task_attempt.id to fetch logs for
+    /// * `cursor` - Optional cursor for pagination
+    /// * `limit` - Maximum entries to return
+    /// * `direction` - Forward (oldest first) or Backward (newest first)
+    pub async fn get_remote_logs_for_attempt(
+        &self,
+        attempt_id: Uuid,
+        cursor: Option<i64>,
+        limit: i64,
+        direction: Direction,
+    ) -> Result<PaginatedLogs, LogServiceError> {
+        self.remote_service
+            .get_logs_for_attempt(attempt_id, cursor, limit, direction)
+            .await
+    }
 }
 
 #[cfg(test)]
@@ -409,9 +491,10 @@ mod tests {
     #[test]
     fn test_remote_log_service_creation() {
         let proxy_client = NodeProxyClient::disabled();
-        let service = RemoteLogService::new(proxy_client);
+        let service = RemoteLogService::new(proxy_client, None);
         // Just verify it compiles and the service is created
         let _ = format!("{:?}", service);
+        assert!(!service.is_enabled());
     }
 
     #[test]

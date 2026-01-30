@@ -384,7 +384,10 @@ async fn create_remote_project(
     .expect("Failed to create remote project")
 }
 
+// DEPRECATED: Remote project caching is disabled.
+// We now fetch swarm projects directly from the Hive.
 #[tokio::test]
+#[ignore = "remote project caching is deprecated - we now fetch from hive directly"]
 async fn test_delete_stale_remote_projects_bulk_delete() {
     let (pool, _temp_dir) = setup_test_pool().await;
 
@@ -434,6 +437,7 @@ async fn test_delete_stale_remote_projects_bulk_delete() {
 }
 
 #[tokio::test]
+#[ignore = "remote project caching is deprecated - we now fetch from hive directly"]
 async fn test_delete_stale_remote_projects_empty_active_list_noop() {
     let (pool, _temp_dir) = setup_test_pool().await;
 
@@ -475,6 +479,7 @@ async fn test_delete_stale_remote_projects_empty_active_list_noop() {
 }
 
 #[tokio::test]
+#[ignore = "remote project caching is deprecated - we now fetch from hive directly"]
 async fn test_delete_stale_remote_projects_only_affects_remote() {
     let (pool, _temp_dir) = setup_test_pool().await;
 

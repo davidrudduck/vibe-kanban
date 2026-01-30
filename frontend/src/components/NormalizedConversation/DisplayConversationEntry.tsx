@@ -8,6 +8,7 @@ import {
   type NormalizedEntryType,
   type TaskWithAttemptStatus,
   type JsonValue,
+  type ExecutionProcess,
 } from 'shared/types.ts';
 import type { ProcessStartPayload } from '@/types/logs';
 import FileChangeRenderer from './FileChangeRenderer';
@@ -36,15 +37,20 @@ import UserMessage from './UserMessage';
 import PendingApprovalEntry from './PendingApprovalEntry';
 import PendingQuestionEntry from './PendingQuestionEntry';
 import { NextActionCard } from './NextActionCard';
+import { ResultMessageCard } from './ResultMessageCard';
 import { cn } from '@/lib/utils';
 import { useRetryUi } from '@/contexts/RetryUiContext';
+import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesContext';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { isMarkdownFile } from '@/utils/fileHelpers';
+import {
+  shouldShowViewButton,
+  getFilePreviewRouting,
+} from '@/utils/fileHelpers';
 import { useFileViewer } from '@/contexts/FileViewerContext';
 
 type Props = {
@@ -57,6 +63,25 @@ type Props = {
 };
 
 type FileEditAction = Extract<ActionType, { action: 'file_edit' }>;
+
+/**
+ * Extract executor variant from execution process data.
+ * Only CodingAgentInitialRequest and CodingAgentFollowUpRequest types have variants.
+ * Returns null if no variant is present.
+ *
+ * Currently used for displaying executor variant in UserMessage headers when available.
+ */
+const getExecutorVariant = (execProcess?: ExecutionProcess): string | null => {
+  if (!execProcess?.executor_action?.typ) return null;
+  const typ = execProcess.executor_action.typ;
+  if (
+    typ.type === 'CodingAgentInitialRequest' ||
+    typ.type === 'CodingAgentFollowUpRequest'
+  ) {
+    return typ.executor_profile_id?.variant ?? null;
+  }
+  return null;
+};
 
 const renderJson = (v: JsonValue) => (
   <pre className="whitespace-pre-wrap">{JSON.stringify(v, null, 2)}</pre>
@@ -431,15 +456,6 @@ const PlanPresentationCard: React.FC<{
   );
 };
 
-/**
- * Extract relative path within ~/.claude/ directory from a full path.
- * Returns null if path is not within ~/.claude/.
- */
-function getClaudeRelativePath(path: string): string | null {
-  const match = path.match(/\.claude\/(.+)$/);
-  return match ? match[1] : null;
-}
-
 const ToolCallCard: React.FC<{
   entry: NormalizedEntry | ProcessStartPayload;
   expansionKey: string;
@@ -496,29 +512,15 @@ const ToolCallCard: React.FC<{
   // File read with path detection for view file link
   const isFileRead = actionType?.action === 'file_read';
   const fileReadPath = isFileRead ? actionType.path : null;
-  const claudeRelativePath = fileReadPath
-    ? getClaudeRelativePath(fileReadPath)
-    : null;
 
   // Show view button for .claude/ files or any markdown file
-  const showViewButton =
-    fileReadPath && (claudeRelativePath || isMarkdownFile(fileReadPath));
+  const showViewButton = fileReadPath && shouldShowViewButton(fileReadPath);
 
   const handleViewFile = () => {
-    if (!fileReadPath || !showViewButton) return;
-
-    if (claudeRelativePath) {
-      // Claude file - use relativePath
-      openFile({
-        path: fileReadPath,
-        relativePath: claudeRelativePath,
-      });
-    } else if (attemptId) {
-      // Worktree file - use attemptId
-      openFile({
-        path: fileReadPath,
-        attemptId,
-      });
+    if (!fileReadPath) return;
+    const routing = getFilePreviewRouting({ path: fileReadPath, attemptId });
+    if (routing) {
+      openFile(routing);
     }
   };
 
@@ -781,6 +783,7 @@ function DisplayConversationEntry({
   task,
 }: Props) {
   const { t } = useTranslation('common');
+  const { executionProcessesByIdAll } = useExecutionProcessesContext();
   const isNormalizedEntry = (
     entry: NormalizedEntry | ProcessStartPayload
   ): entry is NormalizedEntry => 'entry_type' in entry;
@@ -821,7 +824,11 @@ function DisplayConversationEntry({
         content={entry.content}
         executionProcessId={executionProcessId}
         taskAttempt={taskAttempt}
-        metadata={entry.metadata}
+        executorVariant={getExecutorVariant(
+          executionProcessId
+            ? executionProcessesByIdAll[executionProcessId]
+            : undefined
+        )}
       />
     );
   }
@@ -1036,6 +1043,21 @@ function DisplayConversationEntry({
         durationSeconds={Number(endEntry.duration_seconds)}
         status={endEntry.status}
       />
+    );
+  }
+
+  if (entry.entry_type.type === 'result_message') {
+    return (
+      <div className="px-4 py-2 text-sm">
+        <ResultMessageCard
+          content={entry.content}
+          isError={entry.entry_type.is_error}
+          subtype={entry.entry_type.subtype}
+          durationMs={Number(entry.entry_type.duration_ms)}
+          numTurns={Number(entry.entry_type.num_turns)}
+          totalCostUsd={entry.entry_type.total_cost_usd ?? undefined}
+        />
+      </div>
     );
   }
 

@@ -344,7 +344,11 @@ latest_execution_started_at: Date | null,
 /**
  * Latest execution completion timestamp for sorting (codingagent only, non-dropped)
  */
-latest_execution_completed_at: Date | null, id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_task_id: string | null, shared_task_id: string | null, created_at: string, updated_at: string, remote_assignee_user_id: string | null, remote_assignee_name: string | null, remote_assignee_username: string | null, remote_version: bigint, remote_last_synced_at: string | null, remote_stream_node_id: string | null, remote_stream_url: string | null, 
+latest_execution_completed_at: Date | null,
+/**
+ * Node name where this task originated (for swarm display)
+ */
+source_node_name: string | null, id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_task_id: string | null, shared_task_id: string | null, created_at: string, updated_at: string, remote_assignee_user_id: string | null, remote_assignee_name: string | null, remote_assignee_username: string | null, remote_version: bigint, remote_last_synced_at: string | null, remote_stream_node_id: string | null, remote_stream_url: string | null, 
 /**
  * Timestamp when task was archived. NULL means not archived.
  */
@@ -807,7 +811,12 @@ hive_synced_at?: string,
  * The assignment ID from the Hive for tasks dispatched by the Hive.
  * NULL for locally-started tasks until a synthetic assignment is created.
  */
-hive_assignment_id?: string, };
+hive_assignment_id?: string, 
+/**
+ * The node ID that created this attempt. NULL for legacy data (treated as local).
+ * Used for hybrid local+Hive queries: local attempts are always queried from local DB.
+ */
+origin_node_id?: string, };
 
 export type ExecutionProcess = { id: string, task_attempt_id: string, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, 
 /**
@@ -831,7 +840,20 @@ pid: bigint | null, started_at: string, completed_at: string | null, created_at:
 /**
  * When this execution process was last synced to the Hive. NULL means not yet synced.
  */
-hive_synced_at?: string, };
+hive_synced_at?: string, 
+/**
+ * The server instance that spawned this process. Used for instance-scoped
+ * process cleanup on shutdown (so cargo watch restarts don't kill other instances' processes).
+ */
+server_instance_id?: string, 
+/**
+ * Why the session completed: "result_success", "result_error", "eof", "killed", "error"
+ */
+completion_reason?: string, 
+/**
+ * Additional details about completion (e.g., error message)
+ */
+completion_message?: string, };
 
 export enum ExecutionProcessStatus { running = "running", completed = "completed", failed = "failed", killed = "killed" }
 
@@ -871,7 +893,7 @@ export type CommandRunResult = { exit_status: CommandExitStatus | null, output: 
 
 export type NormalizedEntry = { timestamp: string | null, entry_type: NormalizedEntryType, content: string, metadata: Record<string, unknown> | null, };
 
-export type NormalizedEntryType = { "type": "user_message" } | { "type": "user_feedback", denied_tool: string, } | { "type": "assistant_message" } | { "type": "tool_use", tool_name: string, action_type: ActionType, status: ToolStatus, } | { "type": "system_message" } | { "type": "error_message", error_type: NormalizedEntryError, } | { "type": "thinking" } | { "type": "loading" } | { "type": "next_action", failed: boolean, execution_processes: number, needs_setup: boolean, } | { "type": "execution_start", process_id: string, process_name: string, started_at: string, } | { "type": "execution_end", process_id: string, process_name: string, started_at: string, ended_at: string, duration_seconds: bigint, status: string, };
+export type NormalizedEntryType = { "type": "user_message" } | { "type": "user_feedback", denied_tool: string, } | { "type": "assistant_message" } | { "type": "tool_use", tool_name: string, action_type: ActionType, status: ToolStatus, } | { "type": "system_message" } | { "type": "error_message", error_type: NormalizedEntryError, } | { "type": "thinking" } | { "type": "loading" } | { "type": "next_action", failed: boolean, execution_processes: number, needs_setup: boolean, } | { "type": "execution_start", process_id: string, process_name: string, started_at: string, } | { "type": "execution_end", process_id: string, process_name: string, started_at: string, ended_at: string, duration_seconds: bigint, status: string, } | { "type": "result_message", subtype: string, duration_ms: bigint, num_turns: bigint, total_cost_usd: number | null, is_error: boolean, };
 
 export type FileChange = { "action": "write", content: string, } | { "action": "delete" } | { "action": "rename", new_path: string, } | { "action": "edit", 
 /**
@@ -1314,3 +1336,47 @@ deleted: bigint,
  * The cutoff in days used for the purge.
  */
 older_than_days: bigint, };
+
+export type SyncStatusResponse = { 
+/**
+ * Number of tasks not yet synced to Hive.
+ */
+unsynced_tasks: bigint, 
+/**
+ * Number of task attempts not yet synced to Hive.
+ */
+unsynced_attempts: bigint, 
+/**
+ * Number of execution processes not yet synced to Hive.
+ */
+unsynced_executions: bigint, 
+/**
+ * Number of log entries not yet synced to Hive.
+ */
+unsynced_logs: bigint, 
+/**
+ * Whether this node is connected to the Hive.
+ */
+is_connected: boolean, 
+/**
+ * Current node ID (if connected to Hive).
+ */
+node_id: string | null, };
+
+export type ForceResyncResult = { 
+/**
+ * Number of tasks cleared for resync.
+ */
+tasks_cleared: bigint, 
+/**
+ * Number of attempts cleared for resync.
+ */
+attempts_cleared: bigint, 
+/**
+ * Number of executions cleared for resync.
+ */
+executions_cleared: bigint, 
+/**
+ * Number of log entries cleared for resync.
+ */
+logs_cleared: bigint, };

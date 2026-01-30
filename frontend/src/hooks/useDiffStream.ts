@@ -58,6 +58,7 @@ export const useDiffStream = (
     'direct' | 'relay' | null
   >(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
 
   // Fetch connection info for remote streams
   useEffect(() => {
@@ -131,11 +132,30 @@ export const useDiffStream = (
           return `${wsProtocol}//${directUrl.host}/api/task-attempts/${remoteAttemptId}/diff/ws?${params.toString()}`;
         } catch {
           // Invalid URL, fall through to relay
+          console.error(
+            'Invalid direct_url for remote stream:',
+            connectionInfo.direct_url
+          );
         }
       }
 
-      // For now, return undefined if no direct URL - relay not yet implemented
-      // TODO: Implement relay streaming via hive
+      // Try relay URL if direct connection not available
+      if (connectionInfo.relay_url) {
+        try {
+          const relayUrl = new URL(connectionInfo.relay_url);
+          const wsProtocol = relayUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+          // Relay endpoints use a different path structure
+          return `${wsProtocol}//${relayUrl.host}${relayUrl.pathname}?${params.toString()}`;
+        } catch {
+          console.error(
+            'Invalid relay_url for remote stream:',
+            connectionInfo.relay_url
+          );
+        }
+      }
+
+      // No valid connection method available - this is a configuration issue
+      // The error will be shown to the user via the error state
       return undefined;
     }
 
@@ -150,6 +170,17 @@ export const useDiffStream = (
       return query;
     }
   }, [attemptId, statsOnly, remoteInfo, connectionInfo]);
+
+  // Set connection error when we have remote info and connection info but no valid endpoint
+  useEffect(() => {
+    if (remoteInfo && connectionInfo && !endpoint) {
+      setConnectionError(
+        'Unable to connect to remote node. The node may be offline or unreachable.'
+      );
+    } else {
+      setConnectionError(null);
+    }
+  }, [remoteInfo, connectionInfo, endpoint]);
 
   const initialData = useCallback(
     (): DiffStreamEvent => ({
@@ -174,8 +205,8 @@ export const useDiffStream = (
       .map((entry) => entry.content);
   }, [data?.entries]);
 
-  // Combine errors - fetch error takes precedence
-  const error = fetchError || wsError;
+  // Combine errors - fetch error takes precedence, then connection error, then ws error
+  const error = fetchError || connectionError || wsError;
 
   return { diffs, error, connectionType: remoteInfo ? connectionType : null };
 };

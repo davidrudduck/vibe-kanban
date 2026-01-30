@@ -92,6 +92,12 @@ impl<C: ContainerService + Sync> AssignmentHandler<C> {
         // Parse the executor from the assignment
         let executor = parse_executor(&assignment.task.executor)?;
 
+        // Get current node_id for tracking attempt origin
+        let origin_node_id = {
+            let state = self.node_state.read().await;
+            state.node_id
+        };
+
         // Create a task attempt
         let attempt_id = Uuid::new_v4();
         let branch_name = self
@@ -105,6 +111,7 @@ impl<C: ContainerService + Sync> AssignmentHandler<C> {
                 executor,
                 base_branch: assignment.task.base_branch.clone(),
                 branch: branch_name,
+                origin_node_id,
             },
             attempt_id,
             task.id,

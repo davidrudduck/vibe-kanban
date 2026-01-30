@@ -99,6 +99,19 @@ pub trait ContainerService {
     /// Used to await normalization completion before signaling finished.
     async fn take_normalization_handle(&self, exec_id: &Uuid) -> Option<JoinHandle<()>>;
 
+    /// Get an entry index provider for log message injection.
+    async fn get_entry_index_provider(
+        &self,
+        exec_id: &Uuid,
+    ) -> Option<executors::logs::utils::EntryIndexProvider>;
+
+    /// Store an entry index provider for log message injection.
+    async fn store_entry_index_provider(
+        &self,
+        exec_id: Uuid,
+        provider: executors::logs::utils::EntryIndexProvider,
+    );
+
     /// Get the server instance ID. Used to tag execution processes for
     /// instance-scoped cleanup on shutdown.
     fn instance_id(&self) -> &str;
@@ -259,7 +272,9 @@ pub trait ContainerService {
                 &self.db().pool,
                 process.id,
                 ExecutionProcessStatus::Failed,
-                None, // No exit code for orphaned processes
+                None,        // No exit code for orphaned processes
+                Some("eof"), // Orphaned processes ended without proper completion
+                None,        // No message
             )
             .await
             {
@@ -662,12 +677,16 @@ pub trait ContainerService {
                 ExecutorActionType::CodingAgentInitialRequest(request) => {
                     let executor = ExecutorConfigs::get_cached()
                         .get_coding_agent_or_default(&request.executor_profile_id);
-                    executor.normalize_logs(temp_store.clone(), &current_dir);
+                    let entry_index_provider =
+                        executors::logs::utils::EntryIndexProvider::start_from(&temp_store);
+                    executor.normalize_logs(temp_store.clone(), &current_dir, entry_index_provider);
                 }
                 ExecutorActionType::CodingAgentFollowUpRequest(request) => {
                     let executor = ExecutorConfigs::get_cached()
                         .get_coding_agent_or_default(&request.executor_profile_id);
-                    executor.normalize_logs(temp_store.clone(), &current_dir);
+                    let entry_index_provider =
+                        executors::logs::utils::EntryIndexProvider::start_from(&temp_store);
+                    executor.normalize_logs(temp_store.clone(), &current_dir, entry_index_provider);
                 }
                 _ => {
                     tracing::debug!(
@@ -844,6 +863,34 @@ pub trait ContainerService {
         })
     }
 
+    /// Starts a new execution attempt for a task attempt, creating the worktree unless skipped and wiring setup scripts, coding agent requests, and optional cleanup actions.
+    ///
+    /// The function ensures the container/worktree exists (unless `skip_worktree_creation` is true), resolves the latest task attempt, expands image paths and task variables in the prompt, and then starts one or more executions:
+    /// - If the project defines a setup script and it is configured to run in parallel, the setup script is started independently and the coding-agent initial request is started immediately.
+    /// - If the setup script is sequential, the setup script is started with the coding-agent initial request chained as the next action.
+    /// - If there is no setup script, the coding-agent initial request is started directly.
+    /// On success returns the started `ExecutionProcess`.
+    ///
+    /// # Parameters
+    ///
+    /// - `task_attempt`: The task attempt to run; the function will refresh this record from the database before starting.
+    /// - `executor_profile_id`: Identifier of the executor profile to use for the coding-agent initial request.
+    /// - `skip_worktree_creation`: When true, do not create the worktree/container (useful for shared or pre-created worktrees).
+    ///
+    /// # Returns
+    ///
+    /// `ExecutionProcess` representing the started execution on success.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # // Pseudocode example; replace `svc`, `task_attempt`, and `profile_id` with real values from your environment.
+    /// # async fn example(svc: &impl ContainerService, task_attempt: &TaskAttempt, profile_id: ExecutorProfileId) -> Result<(), ContainerError> {
+    /// let exec = svc.start_attempt(task_attempt, profile_id, false).await?;
+    /// assert_eq!(exec.task_attempt_id, task_attempt.id);
+    /// # Ok(())
+    /// # }
+    /// ```
     async fn start_attempt(
         &self,
         task_attempt: &TaskAttempt,
@@ -884,7 +931,7 @@ pub trait ContainerService {
         // Expand task variables ($VAR and ${VAR} syntax) in the prompt
         let prompt = {
             // Get resolved variables for this task (including inherited from parent chain)
-            let variables = TaskVariable::get_variable_map(&self.db().pool, task.id)
+            let variables = TaskVariable::get_variable_map_with_system(&self.db().pool, task.id)
                 .await
                 .unwrap_or_else(|e| {
                     tracing::warn!(task_id = %task.id, error = ?e, "Failed to fetch task variables");
@@ -1093,6 +1140,8 @@ pub trait ContainerService {
                 execution_process.id,
                 ExecutionProcessStatus::Failed,
                 None,
+                Some("error"),                  // Execution failed to start
+                Some(&start_error.to_string()), // Include error message
             )
             .await
             {
@@ -1156,8 +1205,18 @@ pub trait ContainerService {
             if let Some(executor) =
                 ExecutorConfigs::get_cached().get_coding_agent(executor_profile_id)
             {
-                let handle = executor
-                    .normalize_logs(msg_store, &self.task_attempt_to_current_dir(task_attempt));
+                // Create and store the provider FIRST
+                let entry_index_provider =
+                    executors::logs::utils::EntryIndexProvider::start_from(&msg_store);
+                self.store_entry_index_provider(execution_process.id, entry_index_provider.clone())
+                    .await;
+
+                // Pass the same provider to normalize_logs
+                let handle = executor.normalize_logs(
+                    msg_store,
+                    &self.task_attempt_to_current_dir(task_attempt),
+                    entry_index_provider,
+                );
                 self.store_normalization_handle(execution_process.id, handle)
                     .await;
             } else {

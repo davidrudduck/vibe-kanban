@@ -23,11 +23,12 @@ use self::{
     types::PermissionMode,
 };
 use crate::{
+    actions::SpawnContext,
     approvals::ExecutorApprovalService,
     command::{CmdOverrides, CommandBuilder, CommandParts, apply_overrides},
     executors::{
         AppendPrompt, AvailabilityInfo, ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
-        codex::client::LogWriter,
+        codex::client::LogWriter, session_index,
     },
     logs::{
         ActionType, FileChange, NormalizedEntry, NormalizedEntryError, NormalizedEntryType,
@@ -40,9 +41,9 @@ use crate::{
 
 fn base_command(claude_code_router: bool) -> &'static str {
     if claude_code_router {
-        "npx -y @musistudio/claude-code-router@2.0.0 code"
+        "npx -y @musistudio/claude-code-router@latest code"
     } else {
-        "npx -y @anthropic-ai/claude-code@2.0.74"
+        "npx -y @anthropic-ai/claude-code@latest"
     }
 }
 
@@ -169,10 +170,15 @@ impl StandardCodingAgentExecutor for ClaudeCode {
         self.approvals_service = Some(approvals);
     }
 
-    async fn spawn(&self, current_dir: &Path, prompt: &str) -> Result<SpawnedChild, ExecutorError> {
+    async fn spawn(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        context: SpawnContext,
+    ) -> Result<SpawnedChild, ExecutorError> {
         let command_builder = self.build_command_builder().await;
         let command_parts = command_builder.build_initial()?;
-        self.spawn_internal(current_dir, prompt, command_parts)
+        self.spawn_internal(current_dir, prompt, command_parts, context)
             .await
     }
 
@@ -182,13 +188,29 @@ impl StandardCodingAgentExecutor for ClaudeCode {
         prompt: &str,
         session_id: &str,
     ) -> Result<SpawnedChild, ExecutorError> {
+        // Repair sessions-index.json if needed
+        if let Err(e) = session_index::repair_sessions_index(current_dir).await {
+            tracing::warn!(error = %e, "Failed to repair sessions index, continuing");
+        }
+
         let command_builder = self.build_command_builder().await;
         let command_parts = command_builder.build_follow_up(&[
             "--fork-session".to_string(),
             "--resume".to_string(),
             session_id.to_string(),
         ])?;
-        self.spawn_internal(current_dir, prompt, command_parts)
+
+        // TEMPORARY: Create placeholder context for follow-up spawns
+        // Follow-up sessions inherit the parent's environment variables,
+        // so these placeholders won't be used in practice
+        use uuid::Uuid;
+        let placeholder_context = SpawnContext {
+            task_attempt_id: Uuid::nil(),
+            task_id: Uuid::nil(),
+            execution_process_id: Uuid::nil(),
+        };
+
+        self.spawn_internal(current_dir, prompt, command_parts, placeholder_context)
             .await
     }
 
@@ -196,9 +218,8 @@ impl StandardCodingAgentExecutor for ClaudeCode {
         &self,
         msg_store: Arc<MsgStore>,
         current_dir: &Path,
+        entry_index_provider: EntryIndexProvider,
     ) -> tokio::task::JoinHandle<()> {
-        let entry_index_provider = EntryIndexProvider::start_from(&msg_store);
-
         // Process stdout logs (Claude's JSON output)
         let stdout_handle = ClaudeLogProcessor::process_logs(
             msg_store.clone(),
@@ -246,6 +267,7 @@ impl ClaudeCode {
         current_dir: &Path,
         prompt: &str,
         command_parts: CommandParts,
+        context: SpawnContext,
     ) -> Result<SpawnedChild, ExecutorError> {
         let (program_path, args) = command_parts.into_resolved().await?;
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
@@ -271,6 +293,15 @@ impl ClaudeCode {
         command.env_remove("npm_config__jsr_registry");
         command.env_remove("npm_config_verify_deps_before_run");
         command.env_remove("npm_config_globalconfig");
+
+        // Set VK context environment variables for MCP tools
+        command
+            .env("VK_ATTEMPT_ID", context.task_attempt_id.to_string())
+            .env("VK_TASK_ID", context.task_id.to_string())
+            .env(
+                "VK_EXECUTION_PROCESS_ID",
+                context.execution_process_id.to_string(),
+            );
 
         let mut child = command.group_spawn()?;
         let child_stdout = child.inner().stdout.take().ok_or_else(|| {
@@ -1152,12 +1183,16 @@ impl ClaudeLogProcessor {
                 ClaudeStreamEvent::Unknown => {}
             },
             ClaudeJson::Result {
+                subtype,
                 is_error,
+                duration_ms,
+                num_turns,
+                total_cost_usd,
                 result,
                 error,
                 ..
             } => {
-                // Extract content from result or error field and display as a normal message
+                // Extract content from result or error field
                 let content = if let Some(err) = error {
                     err.clone()
                 } else if let Some(res) = result {
@@ -1169,25 +1204,23 @@ impl ClaudeLogProcessor {
                     String::new()
                 };
 
-                // Only create an entry if there's actual content to show
-                if !content.is_empty() {
-                    let entry_type = if is_error.unwrap_or(false) {
-                        NormalizedEntryType::ErrorMessage {
-                            error_type: NormalizedEntryError::Other,
-                        }
-                    } else {
-                        NormalizedEntryType::AssistantMessage
-                    };
-
-                    let entry = NormalizedEntry {
-                        timestamp: None,
-                        entry_type,
-                        content,
-                        metadata: None,
-                    };
-                    let idx = entry_index_provider.next();
-                    patches.push(ConversationPatch::add_normalized_entry(idx, entry));
-                }
+                // Create ResultMessage entry (distinct from AssistantMessage)
+                let entry = NormalizedEntry {
+                    timestamp: None,
+                    entry_type: NormalizedEntryType::ResultMessage {
+                        subtype: subtype.clone().unwrap_or_else(|| "unknown".to_string()),
+                        duration_ms: duration_ms.unwrap_or(0),
+                        num_turns: num_turns.map(|n| n as u64).unwrap_or(0),
+                        total_cost_usd: *total_cost_usd,
+                        is_error: is_error.unwrap_or(false),
+                    },
+                    content,
+                    metadata: Some(
+                        serde_json::to_value(claude_json).unwrap_or(serde_json::Value::Null),
+                    ),
+                };
+                let idx = entry_index_provider.next();
+                patches.push(ConversationPatch::add_normalized_entry(idx, entry));
             }
             ClaudeJson::ApprovalResponse {
                 call_id: _,
@@ -1592,6 +1625,12 @@ pub enum ClaudeJson {
         error: Option<String>,
         #[serde(default, alias = "sessionId")]
         session_id: Option<String>,
+        #[serde(default, alias = "durationMs")]
+        duration_ms: Option<u64>,
+        #[serde(default, alias = "numTurns")]
+        num_turns: Option<u32>,
+        #[serde(default, alias = "totalCostUsd")]
+        total_cost_usd: Option<f64>,
     },
     #[serde(rename = "approval_response")]
     ApprovalResponse {
@@ -2126,7 +2165,8 @@ mod tests {
         msg_store.push_finished();
 
         // Start normalization (this spawns async task)
-        executor.normalize_logs(msg_store.clone(), &current_dir);
+        let entry_index = EntryIndexProvider::start_from(&msg_store);
+        executor.normalize_logs(msg_store.clone(), &current_dir, entry_index);
 
         // Give some time for async processing
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;

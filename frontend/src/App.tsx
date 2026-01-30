@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';
+import { Loader2 } from 'lucide-react';
 import i18n from '@/i18n';
 import { Projects } from '@/pages/Projects';
 import { ProjectTasks } from '@/pages/ProjectTasks';
@@ -11,16 +12,45 @@ import { Processes } from '@/pages/Processes';
 import { NormalLayout } from '@/components/layout/NormalLayout';
 import { useAuth } from '@/hooks';
 
-import {
-  AgentSettings,
-  GeneralSettings,
-  McpSettings,
-  OrganizationSettings,
-  ProjectSettings,
-  SettingsLayout,
-  SwarmSettings,
-  SystemSettings,
-} from '@/pages/settings/';
+// Keep SettingsLayout as static import (small, needed for route structure)
+import { SettingsLayout } from '@/pages/settings/';
+
+// Lazy load settings pages for code splitting
+const GeneralSettings = lazy(() =>
+  import('@/pages/settings/GeneralSettings').then((m) => ({
+    default: m.GeneralSettings,
+  }))
+);
+const ProjectSettings = lazy(() =>
+  import('@/pages/settings/ProjectSettings').then((m) => ({
+    default: m.ProjectSettings,
+  }))
+);
+const OrganizationSettings = lazy(() =>
+  import('@/pages/settings/OrganizationSettings').then((m) => ({
+    default: m.OrganizationSettings,
+  }))
+);
+const SwarmSettings = lazy(() =>
+  import('@/pages/settings/SwarmSettings').then((m) => ({
+    default: m.SwarmSettings,
+  }))
+);
+const AgentSettings = lazy(() =>
+  import('@/pages/settings/AgentSettings').then((m) => ({
+    default: m.AgentSettings,
+  }))
+);
+const McpSettings = lazy(() =>
+  import('@/pages/settings/McpSettings').then((m) => ({
+    default: m.McpSettings,
+  }))
+);
+const SystemSettings = lazy(() =>
+  import('@/pages/settings/SystemSettings').then((m) => ({
+    default: m.SystemSettings,
+  }))
+);
 import { UserSystemProvider, useUserSystem } from '@/components/ConfigProvider';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { FontProvider } from '@/components/FontProvider';
@@ -38,6 +68,14 @@ import { OnboardingDialog } from '@/components/dialogs/global/OnboardingDialog';
 import { ReleaseNotesDialog } from '@/components/dialogs/global/ReleaseNotesDialog';
 import { ClickedElementsProvider } from './contexts/ClickedElementsProvider';
 import NiceModal from '@ebay/nice-modal-react';
+
+function SettingsLoadingFallback() {
+  return (
+    <div className="flex items-center justify-center py-12">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
 
 function AppContent() {
   const { config, updateAndSaveConfig } = useUserSystem();
@@ -122,16 +160,62 @@ function AppContent() {
                         index
                         element={<Navigate to="general" replace />}
                       />
-                      <Route path="general" element={<GeneralSettings />} />
-                      <Route path="projects" element={<ProjectSettings />} />
+                      <Route
+                        path="general"
+                        element={
+                          <Suspense fallback={<SettingsLoadingFallback />}>
+                            <GeneralSettings />
+                          </Suspense>
+                        }
+                      />
+                      <Route
+                        path="projects"
+                        element={
+                          <Suspense fallback={<SettingsLoadingFallback />}>
+                            <ProjectSettings />
+                          </Suspense>
+                        }
+                      />
                       <Route
                         path="organizations"
-                        element={<OrganizationSettings />}
+                        element={
+                          <Suspense fallback={<SettingsLoadingFallback />}>
+                            <OrganizationSettings />
+                          </Suspense>
+                        }
                       />
-                      <Route path="swarm" element={<SwarmSettings />} />
-                      <Route path="agents" element={<AgentSettings />} />
-                      <Route path="mcp" element={<McpSettings />} />
-                      <Route path="system" element={<SystemSettings />} />
+                      <Route
+                        path="swarm"
+                        element={
+                          <Suspense fallback={<SettingsLoadingFallback />}>
+                            <SwarmSettings />
+                          </Suspense>
+                        }
+                      />
+                      <Route
+                        path="agents"
+                        element={
+                          <Suspense fallback={<SettingsLoadingFallback />}>
+                            <AgentSettings />
+                          </Suspense>
+                        }
+                      />
+                      <Route
+                        path="mcp"
+                        element={
+                          <Suspense fallback={<SettingsLoadingFallback />}>
+                            <McpSettings />
+                          </Suspense>
+                        }
+                      />
+                      <Route
+                        path="system"
+                        element={
+                          <Suspense fallback={<SettingsLoadingFallback />}>
+                            <SystemSettings />
+                          </Suspense>
+                        }
+                      />
                     </Route>
                     <Route
                       path="/mcp-servers"

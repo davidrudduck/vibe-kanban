@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use db::DBService;
-use db::models::{label::Label, project::Project, task::Task, task::TaskStatus};
+use db::models::{label::Label, project::Project, task::Task, task::TaskStatus, task_attempt::TaskAttempt};
 use remote::db::tasks::TaskStatus as RemoteTaskStatus;
 use sqlx::SqlitePool;
 use tokio::sync::{RwLock, mpsc};
@@ -677,6 +677,20 @@ pub fn spawn_node_runner<C: ContainerService + Sync + Send + 'static>(
                         tracing::warn!(error = ?e, "Failed to sync remote projects on connect");
                     }
 
+                    // Sync remote_project_id for owned projects from hive
+                    match sync_owned_project_ids_from_hive(&db.pool, &linked_projects).await {
+                        Ok(count) if count > 0 => {
+                            tracing::info!(
+                                count,
+                                "Synced remote_project_id from hive for owned projects"
+                            );
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            tracing::warn!(error = ?e, "Failed to sync owned project IDs from hive");
+                        }
+                    }
+
                     // Auto-link local projects that have remote_project_id but aren't registered with hive
                     if let Err(e) =
                         auto_link_local_projects(&db.pool, &command_tx, &linked_projects).await
@@ -692,6 +706,14 @@ pub fn spawn_node_runner<C: ContainerService + Sync + Send + 'static>(
                             label_count = swarm_labels.len(),
                             "Synced swarm labels from hive"
                         );
+                    }
+
+                    // Sync node statuses from hive for remote projects
+                    // This ensures source_node_status is up-to-date and not stale
+                    if let Some(ref client) = remote_client {
+                        if let Err(e) = sync_node_statuses(&db.pool, client).await {
+                            tracing::warn!(error = ?e, "Failed to sync node statuses from hive");
+                        }
                     }
                 }
                 Some(HiveEvent::TaskAssigned(assignment)) => {
@@ -733,25 +755,53 @@ pub fn spawn_node_runner<C: ContainerService + Sync + Send + 'static>(
                 Some(HiveEvent::TaskSyncResponse(response)) => {
                     if response.success {
                         // Update the local task with the shared_task_id
-                        if let Err(e) = Task::set_shared_task_id(
+                        match Task::set_shared_task_id(
                             &db.pool,
                             response.local_task_id,
                             Some(response.shared_task_id),
                         )
                         .await
                         {
-                            tracing::error!(
-                                error = ?e,
-                                local_task_id = %response.local_task_id,
-                                shared_task_id = %response.shared_task_id,
-                                "failed to update task with shared_task_id"
-                            );
-                        } else {
-                            tracing::info!(
-                                local_task_id = %response.local_task_id,
-                                shared_task_id = %response.shared_task_id,
-                                "updated local task with shared_task_id"
-                            );
+                            Ok(true) => {
+                                tracing::info!(
+                                    local_task_id = %response.local_task_id,
+                                    shared_task_id = %response.shared_task_id,
+                                    "updated local task with shared_task_id"
+                                );
+                                // Reset attempt sync status so attempts get re-synced with the correct shared_task_id
+                                match TaskAttempt::clear_hive_sync_for_task(&db.pool, response.local_task_id).await {
+                                    Ok(count) if count > 0 => {
+                                        tracing::info!(
+                                            local_task_id = %response.local_task_id,
+                                            count = count,
+                                            "reset hive sync status for task attempts (will re-sync with correct shared_task_id)"
+                                        );
+                                    }
+                                    Ok(_) => {} // No attempts to reset
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            error = ?e,
+                                            local_task_id = %response.local_task_id,
+                                            "failed to reset attempt sync status"
+                                        );
+                                    }
+                                }
+                            }
+                            Ok(false) => {
+                                tracing::warn!(
+                                    local_task_id = %response.local_task_id,
+                                    shared_task_id = %response.shared_task_id,
+                                    "skipped setting shared_task_id (already set or conflict)"
+                                );
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    error = ?e,
+                                    local_task_id = %response.local_task_id,
+                                    shared_task_id = %response.shared_task_id,
+                                    "failed to update task with shared_task_id"
+                                );
+                            }
                         }
                     }
                 }
@@ -888,7 +938,11 @@ async fn sync_remote_projects(
     current_node_id: Uuid,
 ) -> Result<(), NodeRunnerError> {
     // 1. Sync organization from hive - this directly upserts remote projects into unified Project table
-    if let Err(e) = node_cache::sync_organization(pool, remote_client, organization_id).await {
+    // Pass current_node_id to skip syncing our own projects as remote entries (they're local)
+    if let Err(e) =
+        node_cache::sync_organization(pool, remote_client, organization_id, Some(current_node_id))
+            .await
+    {
         tracing::warn!(error = ?e, "Failed to sync organization from hive");
     }
 
@@ -1050,6 +1104,59 @@ async fn auto_link_local_projects(
     Ok(())
 }
 
+/// Sync remote_project_id for owned projects from hive auth response.
+///
+/// When a node connects, the hive sends linked_projects with swarm_project_id
+/// for each project this node owns. This updates local projects to set
+/// remote_project_id accordingly, enabling by-remote-id proxy requests.
+async fn sync_owned_project_ids_from_hive(
+    pool: &SqlitePool,
+    linked_projects: &[LinkedProjectInfo],
+) -> Result<usize, NodeRunnerError> {
+    let mut updated_count = 0;
+
+    for project_info in linked_projects {
+        if !project_info.is_owned {
+            continue;
+        }
+
+        let local_project = match Project::find_by_id(pool, project_info.local_project_id).await? {
+            Some(p) => p,
+            None => {
+                tracing::warn!(
+                    local_project_id = %project_info.local_project_id,
+                    "Owned project not found locally"
+                );
+                continue;
+            }
+        };
+
+        let needs_update = local_project
+            .remote_project_id
+            .map(|id| id != project_info.project_id)
+            .unwrap_or(true);
+
+        if needs_update {
+            Project::set_remote_project_id(
+                pool,
+                project_info.local_project_id,
+                Some(project_info.project_id),
+            )
+            .await?;
+
+            tracing::info!(
+                local_project_id = %project_info.local_project_id,
+                remote_project_id = %project_info.project_id,
+                project_name = %local_project.name,
+                "Synced remote_project_id from hive"
+            );
+            updated_count += 1;
+        }
+    }
+
+    Ok(updated_count)
+}
+
 /// Sync swarm labels from hive to local database.
 ///
 /// This is called on connection to populate the local label cache with
@@ -1123,6 +1230,61 @@ async fn sync_swarm_labels(
     Ok(())
 }
 
+/// Sync node statuses from hive for all remote projects.
+///
+/// This is called on connection to ensure source_node_status is up-to-date
+/// and not stale. Without this sync, remote task attempts would fail with
+/// "Remote node offline" errors even when the node is actually online.
+async fn sync_node_statuses(
+    pool: &SqlitePool,
+    remote_client: &RemoteClient,
+) -> Result<(), NodeRunnerError> {
+    // Get all unique source node IDs from remote projects
+    let source_node_ids = Project::get_remote_source_node_ids(pool).await?;
+
+    if source_node_ids.is_empty() {
+        return Ok(());
+    }
+
+    // Fetch current statuses from hive
+    let response = remote_client
+        .get_node_statuses(&source_node_ids)
+        .await
+        .map_err(|e| NodeRunnerError::SyncError(format!("Failed to fetch node statuses: {}", e)))?;
+
+    // Update local projects with current statuses
+    let mut updated_count = 0;
+    for node_info in response.nodes {
+        let rows_affected = Project::update_node_status_by_source_node_id(
+            pool,
+            node_info.id,
+            &node_info.status,
+            node_info.public_url.as_deref(),
+        )
+        .await?;
+
+        if rows_affected > 0 {
+            updated_count += rows_affected;
+            tracing::debug!(
+                node_id = %node_info.id,
+                status = %node_info.status,
+                public_url = ?node_info.public_url,
+                "Updated source_node_status for remote projects"
+            );
+        }
+    }
+
+    if updated_count > 0 {
+        tracing::info!(
+            updated_count,
+            node_count = source_node_ids.len(),
+            "Synced node statuses from hive"
+        );
+    }
+
+    Ok(())
+}
+
 /// Upsert a single swarm label from a broadcast message.
 async fn upsert_swarm_label(
     pool: &SqlitePool,
@@ -1182,10 +1344,17 @@ fn build_execution_sync_message(
 }
 
 /// Build a LogsBatchMessage from log entries for an execution.
+///
+/// # Arguments
+/// * `logs` - The log entries to include
+/// * `execution_id` - The execution process ID
+/// * `assignment_id` - The assignment ID (may be attempt_id for locally-started tasks)
+/// * `shared_task_id` - The shared task ID (enables synthetic assignment creation on hive)
 fn build_logs_batch_message(
     logs: &[db::models::log_entry::DbLogEntry],
     execution_id: Uuid,
     assignment_id: Uuid,
+    shared_task_id: Uuid,
 ) -> super::hive_client::LogsBatchMessage {
     use super::hive_client::{SyncLogEntry, TaskOutputType};
 
@@ -1204,6 +1373,7 @@ fn build_logs_batch_message(
 
     super::hive_client::LogsBatchMessage {
         assignment_id,
+        shared_task_id: Some(shared_task_id),
         execution_process_id: Some(execution_id),
         entries,
         compressed: false,
@@ -1247,13 +1417,17 @@ pub async fn handle_backfill_attempt(
         .await?
         .ok_or_else(|| NodeRunnerError::SyncError(format!("task {} not found", attempt.task_id)))?;
 
-    // Get shared_task_id, required for sync
-    let shared_task_id = task.shared_task_id.ok_or_else(|| {
-        NodeRunnerError::SyncError(format!(
-            "task {} has no shared_task_id, cannot backfill",
-            task.id
-        ))
-    })?;
+    // Get shared_task_id, required for sync. If the task has no shared_task_id,
+    // it means the project is no longer linked to the hive (e.g., after a reset migration).
+    // This is not an error - we just can't backfill this attempt.
+    let Some(shared_task_id) = task.shared_task_id else {
+        tracing::debug!(
+            task_id = %task.id,
+            attempt_id = %attempt_id,
+            "skipping backfill: task has no shared_task_id (project not linked to hive)"
+        );
+        return Ok(0);
+    };
 
     match backfill_type {
         BackfillType::FullAttempt => {
@@ -1296,6 +1470,7 @@ pub async fn handle_backfill_attempt(
                         &logs,
                         exec.id,
                         attempt.hive_assignment_id.unwrap_or(attempt_id),
+                        shared_task_id,
                     );
                     command_tx
                         .send(NodeMessage::LogsBatch(logs_msg))
@@ -1340,6 +1515,7 @@ pub async fn handle_backfill_attempt(
                         &logs,
                         exec.id,
                         attempt.hive_assignment_id.unwrap_or(attempt_id),
+                        shared_task_id,
                     );
                     command_tx
                         .send(NodeMessage::LogsBatch(logs_msg))
@@ -1512,7 +1688,7 @@ mod backfill_tests {
     }
 
     #[tokio::test]
-    async fn test_backfill_attempt_without_shared_task_id_returns_error() {
+    async fn test_backfill_attempt_without_shared_task_id_returns_ok_zero() {
         use super::super::hive_client::BackfillType;
 
         let (pool, _temp) = db::test_utils::create_test_pool().await;
@@ -1553,16 +1729,16 @@ mod backfill_tests {
         .await
         .expect("Failed to create task attempt");
 
-        // Try to backfill - should fail because no shared_task_id
+        // Try to backfill - should succeed but return 0 (graceful skip)
+        // This allows the hive to mark the backfill request as complete and stop retrying
         let result =
             handle_backfill_attempt(&pool, &tx, attempt_id, &BackfillType::FullAttempt, None).await;
 
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(
-            err.to_string().contains("shared_task_id"),
-            "Expected error about shared_task_id, got: {}",
-            err
+        assert!(result.is_ok(), "Expected Ok, got {:?}", result);
+        assert_eq!(
+            result.unwrap(),
+            0,
+            "Should return 0 when task has no shared_task_id (graceful skip)"
         );
     }
 

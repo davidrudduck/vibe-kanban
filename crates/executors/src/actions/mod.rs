@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+use uuid::Uuid;
 
 use crate::{
     actions::{
@@ -16,6 +17,13 @@ use crate::{
 pub mod coding_agent_follow_up;
 pub mod coding_agent_initial;
 pub mod script;
+
+#[derive(Debug, Clone)]
+pub struct SpawnContext {
+    pub task_attempt_id: Uuid,
+    pub task_id: Uuid,
+    pub execution_process_id: Uuid,
+}
 
 #[enum_dispatch]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
@@ -71,6 +79,7 @@ pub trait Executable {
         &self,
         current_dir: &Path,
         approvals: Arc<dyn ExecutorApprovalService>,
+        context: SpawnContext,
     ) -> Result<SpawnedChild, ExecutorError>;
 }
 
@@ -80,7 +89,8 @@ impl Executable for ExecutorAction {
         &self,
         current_dir: &Path,
         approvals: Arc<dyn ExecutorApprovalService>,
+        context: SpawnContext,
     ) -> Result<SpawnedChild, ExecutorError> {
-        self.typ.spawn(current_dir, approvals).await
+        self.typ.spawn(current_dir, approvals, context).await
     }
 }
