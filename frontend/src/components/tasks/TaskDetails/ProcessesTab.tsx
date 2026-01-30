@@ -14,6 +14,7 @@ import {
 import { executionProcessesApi } from '@/lib/api';
 import { ProfileVariantBadge } from '@/components/common/ProfileVariantBadge.tsx';
 import { useExecutionProcesses } from '@/hooks/useExecutionProcesses';
+import { useTaskAttempt } from '@/hooks/useTaskAttempt';
 import ProcessLogsViewer from './ProcessLogsViewer';
 import type { ExecutionProcessStatus, ExecutionProcess } from 'shared/types';
 
@@ -26,6 +27,7 @@ interface ProcessesTabProps {
 
 function ProcessesTab({ attemptId }: ProcessesTabProps) {
   const { t } = useTranslation('tasks');
+  const { data: attempt } = useTaskAttempt(attemptId);
   const {
     executionProcesses,
     executionProcessesById,
@@ -319,7 +321,10 @@ function ProcessesTab({ attemptId }: ProcessesTabProps) {
           </div>
           <div className="flex-1">
             {selectedProcess ? (
-              <ProcessLogsViewer processId={selectedProcess.id} />
+              <ProcessLogsViewer
+                processId={selectedProcess.id}
+                assignmentId={attempt?.hive_assignment_id}
+              />
             ) : loadingProcessId === selectedProcessId ? (
               <div className="text-center text-muted-foreground">
                 <p>{t('processes.loadingDetails')}</p>
