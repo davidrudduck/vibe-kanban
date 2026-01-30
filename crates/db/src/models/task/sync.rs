@@ -299,6 +299,7 @@ impl Task {
                     activity_at = excluded.activity_at,
                     archived_at = COALESCE(excluded.archived_at, tasks.archived_at),
                     updated_at = datetime('now', 'subsec')
+                WHERE excluded.remote_version > tasks.remote_version OR tasks.remote_version IS NULL
                 RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_task_id as "parent_task_id: Uuid", shared_task_id as "shared_task_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>",
                           remote_assignee_user_id as "remote_assignee_user_id: Uuid",
                           remote_assignee_name,
