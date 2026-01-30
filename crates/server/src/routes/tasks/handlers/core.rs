@@ -192,6 +192,7 @@ pub async fn get_tasks(
                         executor: String::new(),
                         latest_execution_started_at: None,
                         latest_execution_completed_at: None,
+                        source_node_name: project.source_node_name.clone(),
                     },
                 );
             }
@@ -281,14 +282,14 @@ pub async fn get_tasks(
                     updated_at: shared_task.updated_at,
                     // Set remote stream info based on owner/executing node
                     remote_assignee_user_id: shared_task.assignee_user_id,
-                    remote_assignee_name: None,
-                    remote_assignee_username: None,
+                    remote_assignee_name: shared_task.assignee_name.clone(),
+                    remote_assignee_username: shared_task.assignee_username.clone(),
                     remote_last_synced_at: shared_task.shared_at,
                     remote_stream_node_id: shared_task
                         .executing_node_id
                         .or(shared_task.owner_node_id),
                     remote_stream_url: None,
-                    activity_at: None,
+                    activity_at: shared_task.activity_at,
                 },
                 has_in_progress_attempt: is_in_progress,
                 has_merged_attempt: false,
@@ -296,6 +297,7 @@ pub async fn get_tasks(
                 executor: String::new(),
                 latest_execution_started_at: None,
                 latest_execution_completed_at: None,
+                source_node_name: None, // Remote-only tasks don't have local project info
             }
         })
         .collect();
@@ -388,14 +390,14 @@ pub async fn get_task(
                     created_at: shared_task.created_at,
                     updated_at: shared_task.updated_at,
                     remote_assignee_user_id: shared_task.assignee_user_id,
-                    remote_assignee_name: None,
-                    remote_assignee_username: None,
+                    remote_assignee_name: shared_task.assignee_name,
+                    remote_assignee_username: shared_task.assignee_username,
                     remote_last_synced_at: shared_task.shared_at,
                     remote_stream_node_id: shared_task
                         .executing_node_id
                         .or(shared_task.owner_node_id),
                     remote_stream_url: None,
-                    activity_at: None,
+                    activity_at: shared_task.activity_at,
                 };
                 return Ok(ResponseJson(ApiResponse::success(task)));
             }
@@ -683,6 +685,7 @@ pub async fn create_task_and_start(
         executor: task_attempt.executor,
         latest_execution_started_at: None, // Will be populated after first execution
         latest_execution_completed_at: None,
+        source_node_name: None, // Not needed for start_attempt response
     })))
 }
 

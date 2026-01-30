@@ -87,6 +87,7 @@ function createMockTask(
     remote_assignee_name: null,
     remote_assignee_username: null,
     remote_version: BigInt(0),
+    source_node_name: null,
     remote_last_synced_at: null,
     remote_stream_node_id: null,
     remote_stream_url: null,
