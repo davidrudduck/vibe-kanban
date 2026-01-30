@@ -24,6 +24,8 @@ reviews:
     - "!**/*.min.js"
     - "!**/*.min.css"
     - "!**/migrations/*.sql"
+    - "!.omc/**"
+    - "!.claude/**"
   # Auto-review on PR open and updates
   auto_review:
     enabled: true
