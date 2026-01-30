@@ -1,5 +1,6 @@
 // useConversationHistory.ts
 import {
+  BaseCodingAgent,
   CommandExitStatus,
   ExecutionProcess,
   ExecutionProcessStatus,
@@ -781,11 +782,83 @@ export const useConversationHistory = ({
     [executionProcessesRaw]
   );
 
+  /**
+   * Load logs for a remote attempt via the Hive.
+   * This is used when origin_node_id is set (attempt executed on different node).
+   */
+  const loadRemoteAttemptLogs = useCallback(async (): Promise<boolean> => {
+    try {
+      const result = await logsApi.getByAttemptId(attempt.id, {
+        limit: effectiveLimit,
+        direction: 'backward',
+      });
+
+      if (result.entries.length === 0) {
+        return false;
+      }
+
+      // Reverse entries to chronological order
+      const chronologicalEntries = [...result.entries].reverse();
+
+      // Convert to patches - use attempt.id as a synthetic execution process id
+      const patches = logEntriesToPatches(chronologicalEntries, attempt.id);
+      const entriesWithKey = patches.map((p, idx) => ({
+        ...p,
+        patchKey: `${attempt.id}:${idx}`,
+        executionProcessId: attempt.id,
+      })) as PatchTypeWithKey[];
+
+      // Create a synthetic execution process state for remote logs
+      mergeIntoDisplayed((state) => {
+        state[attempt.id] = {
+          executionProcess: {
+            id: attempt.id,
+            created_at: attempt.created_at,
+            updated_at: attempt.updated_at,
+            executor_action: {
+              typ: {
+                type: 'CodingAgentInitialRequest',
+                prompt: '',
+                executor_profile_id: {
+                  executor: attempt.executor as BaseCodingAgent,
+                  variant: null,
+                },
+              },
+              next_action: null,
+            },
+          },
+          entries: entriesWithKey,
+        };
+      });
+
+      return true;
+    } catch (err) {
+      console.warn('Error loading remote attempt logs:', err);
+      return false;
+    }
+  }, [attempt.id, attempt.created_at, attempt.updated_at, attempt.executor, effectiveLimit]);
+
   // Initial load when attempt changes
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // Waiting for execution processes to load
+      // Check if this is a remote attempt (executed on a different node)
+      const isRemoteAttempt = !!attempt.origin_node_id;
+
+      // For remote attempts with no local execution processes, load from Hive
+      if (isRemoteAttempt && executionProcesses?.current.length === 0) {
+        if (loadedInitialEntries.current) return;
+
+        const loaded = await loadRemoteAttemptLogs();
+        if (cancelled) return;
+        if (loaded) {
+          emitEntries(displayedExecutionProcesses.current, 'initial', false);
+          loadedInitialEntries.current = true;
+        }
+        return;
+      }
+
+      // Waiting for execution processes to load (local attempts)
       if (
         executionProcesses?.current.length === 0 ||
         loadedInitialEntries.current
@@ -816,8 +889,10 @@ export const useConversationHistory = ({
     };
   }, [
     attempt.id,
+    attempt.origin_node_id,
     idListKey,
     loadInitialEntries,
+    loadRemoteAttemptLogs,
     loadRemainingEntriesInBatches,
     emitEntries,
   ]); // include idListKey so new processes trigger reload
