@@ -801,12 +801,14 @@ export const useConversationHistory = ({
       const chronologicalEntries = [...result.entries].reverse();
 
       // Convert to patches - use attempt.id as a synthetic execution process id
-      const patches = logEntriesToPatches(chronologicalEntries, attempt.id);
-      const entriesWithKey = patches.map((p, idx) => ({
-        ...p,
-        patchKey: `${attempt.id}:${idx}`,
-        executionProcessId: attempt.id,
-      })) as PatchTypeWithKey[];
+      // logEntriesToPatches already adds patchKey and executionProcessId
+      const entriesWithKey = logEntriesToPatches(chronologicalEntries, attempt.id);
+
+      // Validate executor against BaseCodingAgent enum
+      const validExecutors = Object.values(BaseCodingAgent);
+      const executor = validExecutors.includes(attempt.executor as BaseCodingAgent)
+        ? (attempt.executor as BaseCodingAgent)
+        : BaseCodingAgent.CLAUDE_CODE; // Default fallback
 
       // Create a synthetic execution process state for remote logs
       mergeIntoDisplayed((state) => {
@@ -820,7 +822,7 @@ export const useConversationHistory = ({
                 type: 'CodingAgentInitialRequest',
                 prompt: '',
                 executor_profile_id: {
-                  executor: attempt.executor as BaseCodingAgent,
+                  executor,
                   variant: null,
                 },
               },

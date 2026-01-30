@@ -14,6 +14,23 @@ export interface LogsPaginationParams {
   direction?: Direction;
 }
 
+/**
+ * Build query string from pagination parameters.
+ */
+const buildPaginationQueryString = (params?: LogsPaginationParams): string => {
+  const queryParams = new URLSearchParams();
+  if (params?.limit !== undefined) {
+    queryParams.set('limit', params.limit.toString());
+  }
+  if (params?.cursor !== undefined) {
+    queryParams.set('cursor', params.cursor.toString());
+  }
+  if (params?.direction !== undefined) {
+    queryParams.set('direction', params.direction);
+  }
+  return queryParams.toString();
+};
+
 export const logsApi = {
   /**
    * Get paginated logs for an execution process.
@@ -26,17 +43,7 @@ export const logsApi = {
     executionId: string,
     params?: LogsPaginationParams
   ): Promise<PaginatedLogs> => {
-    const queryParams = new URLSearchParams();
-    if (params?.limit !== undefined) {
-      queryParams.set('limit', params.limit.toString());
-    }
-    if (params?.cursor !== undefined) {
-      queryParams.set('cursor', params.cursor.toString());
-    }
-    if (params?.direction !== undefined) {
-      queryParams.set('direction', params.direction);
-    }
-    const queryString = queryParams.toString();
+    const queryString = buildPaginationQueryString(params);
     const url = queryString
       ? `/api/logs/${executionId}?${queryString}`
       : `/api/logs/${executionId}`;
@@ -69,17 +76,7 @@ export const logsApi = {
     attemptId: string,
     params?: LogsPaginationParams
   ): Promise<PaginatedLogs> => {
-    const queryParams = new URLSearchParams();
-    if (params?.limit !== undefined) {
-      queryParams.set('limit', params.limit.toString());
-    }
-    if (params?.cursor !== undefined) {
-      queryParams.set('cursor', params.cursor.toString());
-    }
-    if (params?.direction !== undefined) {
-      queryParams.set('direction', params.direction);
-    }
-    const queryString = queryParams.toString();
+    const queryString = buildPaginationQueryString(params);
     const url = queryString
       ? `/api/logs/attempt/${attemptId}?${queryString}`
       : `/api/logs/attempt/${attemptId}`;
