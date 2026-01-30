@@ -24,6 +24,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use db::models::execution_process::ExecutionProcess;
+use db::models::label::Label;
 use db::models::log_entry::DbLogEntry;
 use db::models::project::Project;
 use db::models::task::Task;
@@ -242,7 +243,25 @@ impl HiveSyncService {
                 .and_then(|v| v.as_str().map(|s| s.to_string()))
                 .unwrap_or_else(|| "todo".to_string());
 
+            // Fetch labels for this task and collect their shared_label_ids
+            // Only include labels that have been synced to the hive (have shared_label_id)
+            let label_ids: Vec<Uuid> = match Label::find_by_task_id(&self.pool, task.id).await {
+                Ok(labels) => labels
+                    .into_iter()
+                    .filter_map(|l| l.shared_label_id)
+                    .collect(),
+                Err(e) => {
+                    debug!(
+                        task_id = %task.id,
+                        error = ?e,
+                        "Failed to fetch labels for task, syncing without labels"
+                    );
+                    Vec::new()
+                }
+            };
+
             // Send local_project_id - the hive looks up swarm_project_id via node_local_projects
+            // Owner fields are set by the hive based on which node sent the message
             let message = TaskSyncMessage {
                 local_task_id: task.id,
                 shared_task_id: task.shared_task_id,
@@ -252,12 +271,12 @@ impl HiveSyncService {
                 status,
                 version: 1, // Initial version for new sync
                 is_update: task.shared_task_id.is_some(),
-                // Owner fields are set by the hive based on which node is executing
-                // TODO: Add owner_node_id and owner_name to local Task model
+                // Owner fields are set by the hive based on which node sent the sync message
                 owner_node_id: None,
                 owner_name: None,
                 created_at: task.created_at,
                 updated_at: task.updated_at,
+                label_ids,
             };
 
             if let Err(e) = self.command_tx.send(NodeMessage::TaskSync(message)).await {
