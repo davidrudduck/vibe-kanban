@@ -76,6 +76,8 @@ pub struct TaskWithAttemptStatus {
     /// Latest execution completion timestamp for sorting (codingagent only, non-dropped)
     #[ts(type = "Date | null")]
     pub latest_execution_completed_at: Option<DateTime<Utc>>,
+    /// Node name where this task originated (for swarm display)
+    pub source_node_name: Option<String>,
 }
 
 impl std::ops::Deref for TaskWithAttemptStatus {

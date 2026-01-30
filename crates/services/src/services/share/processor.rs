@@ -370,8 +370,9 @@ impl ActivityProcessor {
         };
 
         // Upsert the task - this updates remote_version and other metadata
+        // Note: Uses pool directly (not transaction) to support stale version fallback
         Task::upsert_remote_task(
-            tx.as_mut(),
+            &self.db.pool,
             Uuid::new_v4(), // local_id - only used for new tasks
             local_project.id,
             hive_task.id, // shared_task_id

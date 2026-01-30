@@ -83,9 +83,12 @@ impl Task {
       AND ep.run_reason = 'codingagent'
       AND ep.dropped = FALSE
       AND ep.completed_at IS NOT NULL
-  )                                 AS "latest_execution_completed_at: DateTime<Utc>"
+  )                                 AS "latest_execution_completed_at: DateTime<Utc>",
+
+  p.source_node_name
 
 FROM tasks t
+LEFT JOIN projects p ON p.id = t.project_id
 WHERE t.project_id = $1
   AND (t.archived_at IS NULL OR $2)
 ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
@@ -124,6 +127,7 @@ ORDER BY COALESCE(t.activity_at, t.created_at) DESC"#,
                 executor: rec.executor,
                 latest_execution_started_at: rec.latest_execution_started_at,
                 latest_execution_completed_at: rec.latest_execution_completed_at,
+                source_node_name: rec.source_node_name,
             })
             .collect();
 

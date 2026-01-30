@@ -192,6 +192,7 @@ pub async fn get_tasks(
                         executor: String::new(),
                         latest_execution_started_at: None,
                         latest_execution_completed_at: None,
+                        source_node_name: project.source_node_name.clone(),
                     },
                 );
             }
@@ -296,6 +297,7 @@ pub async fn get_tasks(
                 executor: String::new(),
                 latest_execution_started_at: None,
                 latest_execution_completed_at: None,
+                source_node_name: None, // Remote-only tasks don't have local project info
             }
         })
         .collect();
@@ -683,6 +685,7 @@ pub async fn create_task_and_start(
         executor: task_attempt.executor,
         latest_execution_started_at: None, // Will be populated after first execution
         latest_execution_completed_at: None,
+        source_node_name: None, // Not needed for start_attempt response
     })))
 }
 
