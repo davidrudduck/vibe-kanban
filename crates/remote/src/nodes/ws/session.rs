@@ -1679,17 +1679,41 @@ async fn handle_task_sync(
             description: sanitized_description,
             status,
             version: task_sync.version,
-            owner_node_id: task_sync.owner_node_id,
+            owner_node_id: task_sync.owner_node_id.or(Some(node_id)),
             owner_name: task_sync.owner_name.clone(),
         })
         .await
     {
         Ok((task, was_created)) => {
+            // Sync labels if provided
+            if !task_sync.label_ids.is_empty() {
+                use crate::db::labels::LabelRepository;
+                let label_repo = LabelRepository::new(pool);
+                if let Err(e) = label_repo
+                    .set_task_labels(task.id, &task_sync.label_ids)
+                    .await
+                {
+                    tracing::warn!(
+                        shared_task_id = %task.id,
+                        label_count = task_sync.label_ids.len(),
+                        error = ?e,
+                        "failed to sync task labels (task sync succeeded)"
+                    );
+                } else {
+                    tracing::debug!(
+                        shared_task_id = %task.id,
+                        label_count = task_sync.label_ids.len(),
+                        "synced task labels"
+                    );
+                }
+            }
+
             tracing::info!(
                 node_id = %node_id,
                 shared_task_id = %task.id,
                 swarm_project_id = %swarm_project_id,
                 was_created = was_created,
+                label_count = task_sync.label_ids.len(),
                 "synced task from node"
             );
             let r = TaskSyncResponseMessage {

@@ -500,6 +500,10 @@ pub struct TaskSyncMessage {
     pub created_at: chrono::DateTime<Utc>,
     /// When the task was last updated locally
     pub updated_at: chrono::DateTime<Utc>,
+    /// Shared label IDs attached to this task (for syncing task-label associations)
+    /// These should be hive label IDs (from label.shared_label_id), not local IDs.
+    #[serde(default)]
+    pub label_ids: Vec<Uuid>,
 }
 
 /// Response from Hive after processing a TaskSync message.
