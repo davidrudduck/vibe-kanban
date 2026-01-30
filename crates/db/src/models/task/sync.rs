@@ -248,9 +248,10 @@ impl Task {
     }
 
     /// Upsert a remote task from the Hive.
+    /// Returns the updated task, or the existing task if the remote version is stale.
     #[allow(clippy::too_many_arguments)]
-    pub async fn upsert_remote_task<'e, E>(
-        executor: E,
+    pub async fn upsert_remote_task(
+        pool: &SqlitePool,
         local_id: Uuid,
         project_id: Uuid,
         shared_task_id: Uuid,
@@ -263,12 +264,9 @@ impl Task {
         remote_version: i64,
         activity_at: Option<DateTime<Utc>>,
         archived_at: Option<DateTime<Utc>>,
-    ) -> Result<Self, sqlx::Error>
-    where
-        E: Executor<'e, Database = Sqlite>,
-    {
+    ) -> Result<Self, sqlx::Error> {
         let now = Utc::now();
-        sqlx::query_as!(
+        let result = sqlx::query_as!(
             Task,
             r#"INSERT INTO tasks (
                     id,
@@ -324,8 +322,17 @@ impl Task {
             activity_at,
             archived_at
         )
-        .fetch_one(executor)
-        .await
+        .fetch_optional(pool)
+        .await?;
+
+        // If update was skipped (stale version), return the existing task
+        if let Some(task) = result {
+            Ok(task)
+        } else {
+            Task::find_by_shared_task_id(pool, shared_task_id)
+                .await?
+                .ok_or(sqlx::Error::RowNotFound)
+        }
     }
 
     /// Update remote stream location for a task.
