@@ -344,7 +344,11 @@ latest_execution_started_at: Date | null,
 /**
  * Latest execution completion timestamp for sorting (codingagent only, non-dropped)
  */
-latest_execution_completed_at: Date | null, id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_task_id: string | null, shared_task_id: string | null, created_at: string, updated_at: string, remote_assignee_user_id: string | null, remote_assignee_name: string | null, remote_assignee_username: string | null, remote_version: bigint, remote_last_synced_at: string | null, remote_stream_node_id: string | null, remote_stream_url: string | null, 
+latest_execution_completed_at: Date | null,
+/**
+ * Node name where this task originated (for swarm display)
+ */
+source_node_name: string | null, id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_task_id: string | null, shared_task_id: string | null, created_at: string, updated_at: string, remote_assignee_user_id: string | null, remote_assignee_name: string | null, remote_assignee_username: string | null, remote_version: bigint, remote_last_synced_at: string | null, remote_stream_node_id: string | null, remote_stream_url: string | null, 
 /**
  * Timestamp when task was archived. NULL means not archived.
  */
