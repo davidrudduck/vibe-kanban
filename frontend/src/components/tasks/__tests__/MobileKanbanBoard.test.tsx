@@ -92,6 +92,7 @@ function createMockTask(
     activity_at: null,
     latest_execution_started_at: null,
     latest_execution_completed_at: null,
+    source_node_name: null,
   };
 }
 
