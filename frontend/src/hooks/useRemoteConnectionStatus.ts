@@ -6,6 +6,8 @@ import type { TaskWithAttemptStatus } from 'shared/types';
 interface UseRemoteConnectionStatusOptions {
   /** Whether to enable fetching connection info */
   enabled?: boolean;
+  /** Refetch interval in milliseconds (default: 30000 = 30 seconds) */
+  refetchInterval?: number;
 }
 
 interface UseRemoteConnectionStatusResult {
@@ -28,7 +30,7 @@ export function useRemoteConnectionStatus(
   task: TaskWithAttemptStatus | null | undefined,
   options?: UseRemoteConnectionStatusOptions
 ): UseRemoteConnectionStatusResult {
-  const { enabled = true } = options ?? {};
+  const { enabled = true, refetchInterval = 30000 } = options ?? {};
 
   const isRemote = Boolean(task?.shared_task_id);
   const taskId = task?.id;
@@ -38,7 +40,7 @@ export function useRemoteConnectionStatus(
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch connection info for remote tasks
+  // Fetch connection info for remote tasks with periodic refresh
   useEffect(() => {
     if (!isRemote || !taskId || !enabled) {
       setConnectionInfo(null);
@@ -48,9 +50,12 @@ export function useRemoteConnectionStatus(
     }
 
     let cancelled = false;
-    setIsLoading(true);
+    let intervalId: ReturnType<typeof setInterval> | null = null;
 
-    const fetchInfo = async () => {
+    const fetchInfo = async (isInitial: boolean = false) => {
+      if (isInitial) {
+        setIsLoading(true);
+      }
       try {
         const info = await tasksApi.streamConnectionInfo(taskId);
         if (!cancelled) {
@@ -68,18 +73,31 @@ export function useRemoteConnectionStatus(
           setConnectionInfo(null);
         }
       } finally {
-        if (!cancelled) {
+        if (!cancelled && isInitial) {
           setIsLoading(false);
         }
       }
     };
 
-    void fetchInfo();
+    // Initial fetch
+    void fetchInfo(true);
+
+    // Set up periodic refresh (only when tab is visible)
+    if (refetchInterval > 0) {
+      intervalId = setInterval(() => {
+        if (!document.hidden) {
+          void fetchInfo(false);
+        }
+      }, refetchInterval);
+    }
 
     return () => {
       cancelled = true;
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
     };
-  }, [isRemote, taskId, enabled]);
+  }, [isRemote, taskId, enabled, refetchInterval]);
 
   const status: ConnectionStatus = useMemo(() => {
     // Local task
