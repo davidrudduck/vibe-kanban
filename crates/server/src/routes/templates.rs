@@ -210,7 +210,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let inner = Router::new()
         .route("/", get(get_templates).post(create_template))
         .route("/all", get(get_all_templates))
-        .route("/by-name/:name", get(get_template_by_name))
+        .route("/by-name/{name}", get(get_template_by_name))
         .nest("/{template_id}", template_router);
 
     Router::new().nest("/templates", inner)
