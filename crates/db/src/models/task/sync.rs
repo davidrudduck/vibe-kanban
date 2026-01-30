@@ -554,13 +554,22 @@ impl Task {
         Ok(count)
     }
 
-    /// Count tasks that have not been synced to the Hive.
+    /// Counts tasks that have not been synced to Hive.
     ///
-    /// For tasks, "unsynced" means:
-    /// - Task belongs to a swarm project (project.remote_project_id IS NOT NULL)
-    /// - Task does not have a shared_task_id yet
+    /// Specifically, this counts tasks whose `shared_task_id` is NULL and whose project is linked to Hive (`projects.remote_project_id IS NOT NULL`).
     ///
-    /// Note: Unlike TaskAttempt and ExecutionProcess, Task doesn't have a `hive_synced_at` field.
+    /// # Returns
+    ///
+    /// The number of unsynced tasks.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # async fn _example(pool: &sqlx::SqlitePool) -> Result<(), sqlx::Error> {
+    /// let unsynced = crate::models::task::Task::count_unsynced(pool).await?;
+    /// assert!(unsynced >= 0);
+    /// # Ok(()) }
+    /// ```
     pub async fn count_unsynced(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
         let count = sqlx::query_scalar!(
             r#"SELECT COUNT(*) as "count!: i64"
@@ -574,14 +583,22 @@ impl Task {
         Ok(count)
     }
 
-    /// Find all synced tasks for a project that need force re-sync.
+    /// Returns all tasks in the given project that already have a `shared_task_id`, ordered by creation time.
     ///
-    /// Returns tasks that:
-    /// - Have a `shared_task_id` (already synced to Hive)
-    /// - Belong to the specified project
+    /// These tasks are candidates for a force re-sync (e.g., to push labels, owner_node_id, or assignee updates).
     ///
-    /// This is used for force re-sync scenarios where we need to push updated
-    /// fields (labels, owner_node_id, assignee) that weren't synced before.
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use sqlx::SqlitePool;
+    /// # use uuid::Uuid;
+    /// # async fn example() -> Result<(), sqlx::Error> {
+    /// let pool = SqlitePool::connect("sqlite::memory:").await?;
+    /// let project_id = Uuid::new_v4();
+    /// let tasks = crate::models::task::Task::find_synced_tasks_for_project(&pool, project_id).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn find_synced_tasks_for_project(
         pool: &SqlitePool,
         project_id: Uuid,
@@ -639,14 +656,22 @@ impl Task {
         Ok(result.rows_affected())
     }
 
-    /// Find tasks that need re-sync (have shared_task_id but need to push updates).
+    /// Find tasks that require a forced resync to Hive.
     ///
-    /// Returns tasks where:
-    /// - `shared_task_id` IS NOT NULL (already synced once)
-    /// - `remote_last_synced_at` IS NULL (marked for resync)
-    /// - Project has `remote_project_id` (linked to swarm)
+    /// Returns tasks that already have a `shared_task_id`, have `remote_last_synced_at` set to NULL (marked for resync),
+    /// and belong to projects linked to a remote project (swarm). Results are ordered by `updated_at` ascending and
+    /// limited by `limit`.
     ///
-    /// This is used by the sync service to pick up force-resync tasks.
+    /// # Examples
+    ///
+    /// ```
+    /// # use sqlx::SqlitePool;
+    /// # async fn _example() -> Result<(), sqlx::Error> {
+    /// let pool = SqlitePool::connect(":memory:").await?;
+    /// let tasks = crate::models::task::Task::find_needing_resync(&pool, 50).await?;
+    /// // `tasks` is a Vec<Task> of records needing resync (may be empty).
+    /// # Ok(()) }
+    /// ```
     pub async fn find_needing_resync(
         pool: &SqlitePool,
         limit: i64,

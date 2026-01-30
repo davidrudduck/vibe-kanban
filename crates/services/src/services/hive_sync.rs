@@ -187,22 +187,25 @@ impl HiveSyncService {
         Ok(())
     }
 
-    /// Sync tasks that need a shared_task_id to the Hive.
+    /// Synchronizes local tasks that require a Hive-side shared_task_id.
     ///
-    /// This finds tasks that:
-    /// 1. Don't have a shared_task_id (new tasks)
-    /// 2. Have shared_task_id but need resync (remote_last_synced_at IS NULL)
-    /// 3. Belong to local projects (not remote) with a remote_project_id (linked to swarm)
+    /// Finds tasks that (1) do not yet have a `shared_task_id`, (2) have a `shared_task_id` but have been marked for resync, or (3) belong to projects linked to a remote Swarm project, and sends a `TaskSync` message for each candidate so the Hive can assign or update the `shared_task_id`.
     ///
-    /// This includes:
-    /// - Tasks created before the project was linked to swarm
-    /// - Tasks that failed initial sync
-    /// - Tasks without any attempts yet
-    /// - Tasks marked for force resync via mark_for_resync_by_project
+    /// Tasks created before a project was linked, tasks that previously failed to sync, tasks without attempts, and tasks explicitly marked for force-resync are included. Each sent message contains the local project ID (the Hive resolves the swarm project mapping) and task fields; owner assignment is performed by the Hive.
     ///
-    /// For each such task, we send a TaskSync message to the Hive with the
-    /// local_project_id. The Hive looks up the swarm_project_id via node_local_projects.
-    /// The Hive will respond with a TaskSyncResponse containing the shared_task_id.
+    /// # Returns
+    ///
+    /// The number of tasks for which a `TaskSync` message was sent.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// // `service` is an instance of `HiveSyncService`.
+    /// # async fn example(service: &crate::hive::HiveSyncService) {
+    /// let synced = service.sync_tasks().await.unwrap();
+    /// println!("sent {} task sync messages", synced);
+    /// # }
+    /// ```
     async fn sync_tasks(&self) -> Result<usize, HiveSyncError> {
         // Find ALL tasks in swarm-linked projects that are missing shared_task_id
         // This captures tasks created before project was linked, failed syncs, etc.

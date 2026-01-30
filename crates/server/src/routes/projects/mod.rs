@@ -56,6 +56,23 @@ use handlers::{
     update_project,
 };
 
+/// Builds the axum router containing all project-related HTTP routes.
+///
+/// This router mounts the `/projects` subtree (including per-project, file, by-remote-id, and orphaned routes),
+/// exposes `/merged-projects`, and applies the appropriate per-route middleware for loading projects
+/// (including wildcard and by-remote-id variants).
+///
+/// # Returns
+///
+/// A configured `Router<DeploymentImpl>` with all project endpoints and their middleware applied.
+///
+/// # Examples
+///
+/// ```
+/// // Create or obtain a DeploymentImpl instance and pass a reference to build the router.
+/// // let deployment = DeploymentImpl::new(...);
+/// // let router = crate::routes::projects::router(&deployment);
+/// ```
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let project_id_router = Router::new()
         .route(
