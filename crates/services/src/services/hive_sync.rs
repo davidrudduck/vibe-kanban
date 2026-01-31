@@ -187,7 +187,7 @@ impl HiveSyncService {
         Ok(())
     }
 
-    /// Sync tasks that need a shared_task_id to the Hive.
+    /// Synchronizes local tasks that require a Hive-side shared_task_id.
     ///
     /// This finds tasks that:
     /// 1. Don't have a shared_task_id (new tasks)
@@ -200,9 +200,19 @@ impl HiveSyncService {
     /// - Tasks without any attempts yet
     /// - Tasks marked for force resync via mark_for_resync_by_project
     ///
-    /// For each such task, we send a TaskSync message to the Hive with the
-    /// local_project_id. The Hive looks up the swarm_project_id via node_local_projects.
-    /// The Hive will respond with a TaskSyncResponse containing the shared_task_id.
+    /// # Returns
+    ///
+    /// The number of tasks for which a `TaskSync` message was sent.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// // `service` is an instance of `HiveSyncService`.
+    /// # async fn example(service: &crate::hive::HiveSyncService) {
+    /// let synced = service.sync_tasks().await.unwrap();
+    /// println!("sent {} task sync messages", synced);
+    /// # }
+    /// ```
     async fn sync_tasks(&self) -> Result<usize, HiveSyncError> {
         // Find ALL tasks in swarm-linked projects that are missing shared_task_id
         // This captures tasks created before project was linked, failed syncs, etc.

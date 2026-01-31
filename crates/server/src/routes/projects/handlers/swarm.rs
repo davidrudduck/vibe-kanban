@@ -12,16 +12,36 @@ use crate::{DeploymentImpl, error::ApiError};
 
 use super::super::types::{ForceResyncResponse, UnlinkSwarmRequest, UnlinkSwarmResponse};
 
-/// Unlink a project from the Hive swarm.
+/// Remove a project's Hive synchronization metadata and detach it from its remote swarm.
 ///
-/// This handler:
-/// - Clears all shared_task_id values for tasks in the project
-/// - Clears hive_synced_at for all task attempts in the project
-/// - Sets the project's remote_project_id to NULL
-/// - Optionally notifies the Hive server about the unlink
+/// Performs three related updates atomically: clears tasks' `shared_task_id` values,
+/// clears `hive_synced_at` for all task attempts, and sets the project's
+/// `remote_project_id` to `NULL`. If `req.notify_hive` is true, a Hive notification
+/// would be attempted in the future; currently the handler logs a warning and
+/// returns `hive_notified = false`.
 ///
-/// This is a cleanup operation to remove all sync references when a project
-/// should no longer be connected to a remote swarm.
+/// # Parameters
+///
+/// * `req` — Controls whether a Hive notification should be attempted (`notify_hive`).
+///
+/// # Returns
+///
+/// An `ApiResponse` wrapping `UnlinkSwarmResponse` with:
+/// * `tasks_unlinked` — number of tasks that had `shared_task_id` cleared.
+/// * `attempts_reset` — number of task attempts that had `hive_synced_at` cleared.
+/// * `hive_notified` — `false` (notification is not implemented).
+///
+/// # Examples
+///
+/// ```
+/// // Construct the expected response payload (example, not an invocation).
+/// let resp = UnlinkSwarmResponse {
+///     tasks_unlinked: 42,
+///     attempts_reset: 10,
+///     hive_notified: false,
+/// };
+/// assert_eq!(resp.hive_notified, false);
+/// ```
 pub async fn unlink_from_swarm(
     State(deployment): State<DeploymentImpl>,
     Extension(project): Extension<Project>,
@@ -70,13 +90,22 @@ pub async fn unlink_from_swarm(
     })))
 }
 
-/// Force re-sync all tasks for a project to the Hive.
+/// Marks all tasks in the given project to be re-synchronized with the Hive.
 ///
-/// This marks all synced tasks (with shared_task_id) for re-sync by setting
-/// their remote_last_synced_at to NULL. The next sync cycle will pick them up
-/// and resend TaskSyncMessage with updated fields (labels, owner_node_id, assignee).
+/// This clears each synced task's `remote_last_synced_at` (for tasks with a `shared_task_id`) so the next sync cycle will resend their `TaskSyncMessage` including refreshed fields such as labels, `owner_node_id`, and assignee. Use this when new sync fields are introduced or to recover from missing/incorrect synced data.
 ///
-/// Use this after code updates that add new sync fields, or to fix missing data.
+/// # Returns
+///
+/// An `ApiResponse<ForceResyncResponse>` whose `tasks_resynced` field is the number of tasks that were marked for resync.
+///
+/// # Examples
+///
+/// ```
+/// use crates::server::routes::projects::handlers::swarm::ForceResyncResponse;
+///
+/// let resp = ForceResyncResponse { tasks_resynced: 42 };
+/// assert_eq!(resp.tasks_resynced, 42);
+/// ```
 pub async fn force_resync_tasks(
     State(deployment): State<DeploymentImpl>,
     Extension(project): Extension<Project>,
