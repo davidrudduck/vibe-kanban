@@ -223,6 +223,7 @@ pub async fn handle(
                                     &msg,
                                     auth_result.node_id,
                                     auth_result.organization_id,
+                                    &auth_result.node_name,
                                     &pool,
                                     &connections,
                                     &mut ws_sender,
@@ -501,6 +502,7 @@ async fn handle_node_message(
     msg: &NodeMessage,
     node_id: Uuid,
     organization_id: Uuid,
+    node_name: &str,
     pool: &PgPool,
     connections: &ConnectionManager,
     ws_sender: &mut futures::stream::SplitSink<WebSocket, Message>,
@@ -549,7 +551,7 @@ async fn handle_node_message(
             Ok(())
         }
         NodeMessage::TaskSync(task) => {
-            handle_task_sync(node_id, organization_id, task, pool, ws_sender).await
+            handle_task_sync(node_id, organization_id, node_name, task, pool, ws_sender).await
         }
         NodeMessage::ProjectsSync(projects) => handle_projects_sync(node_id, projects, pool).await,
         NodeMessage::Ack { message_id } => {
@@ -1545,6 +1547,7 @@ async fn handle_logs_batch(
 async fn handle_task_sync(
     node_id: Uuid,
     organization_id: Uuid,
+    node_name: &str,
     task_sync: &TaskSyncMessage,
     pool: &PgPool,
     ws_sender: &mut futures::stream::SplitSink<WebSocket, Message>,
@@ -1680,7 +1683,10 @@ async fn handle_task_sync(
             status,
             version: task_sync.version,
             owner_node_id: task_sync.owner_node_id.or(Some(node_id)),
-            owner_name: task_sync.owner_name.clone(),
+            owner_name: task_sync
+                .owner_name
+                .clone()
+                .or_else(|| Some(node_name.to_string())),
             assignee_user_id: task_sync.assignee_user_id,
         })
         .await
