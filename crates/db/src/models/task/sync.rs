@@ -1254,4 +1254,179 @@ mod tests {
             .expect("Query failed");
         assert!(found.is_none());
     }
+
+    #[tokio::test]
+    async fn test_mark_for_resync_by_project() {
+        let (pool, _temp_dir) = setup_test_pool().await;
+
+        // Create project with remote_project_id (swarm-linked)
+        let project_id = Uuid::new_v4();
+        let remote_project_id = Uuid::new_v4();
+        let project_data = CreateProject {
+            name: "Test Project".to_string(),
+            git_repo_path: format!("/tmp/test-repo-{}", project_id),
+            use_existing_repo: true,
+            clone_url: None,
+            setup_script: None,
+            dev_script: None,
+            cleanup_script: None,
+            copy_files: None,
+        };
+        let _project = Project::create(&pool, &project_data, project_id)
+            .await
+            .expect("Failed to create project");
+
+        // Link project to swarm
+        Project::set_remote_project_id(&pool, project_id, Some(remote_project_id))
+            .await
+            .expect("Failed to set remote_project_id");
+
+        // Create task with shared_task_id and remote_last_synced_at set
+        let task_id = Uuid::new_v4();
+        let shared_task_id = Uuid::new_v4();
+        let mut task_data =
+            CreateTask::from_title_description(project_id, "Test Task".to_string(), None);
+        task_data.shared_task_id = Some(shared_task_id);
+        Task::create(&pool, &task_data, task_id)
+            .await
+            .expect("Failed to create task");
+
+        // Manually set remote_last_synced_at to simulate a synced task
+        sqlx::query("UPDATE tasks SET remote_last_synced_at = datetime('now') WHERE id = ?")
+            .bind(task_id)
+            .execute(&pool)
+            .await
+            .expect("Failed to set remote_last_synced_at");
+
+        // Verify task has remote_last_synced_at set
+        let task = Task::find_by_id(&pool, task_id)
+            .await
+            .expect("Query failed")
+            .expect("Task not found");
+        assert!(task.remote_last_synced_at.is_some());
+
+        // Mark for resync
+        let count = Task::mark_for_resync_by_project(&pool, project_id)
+            .await
+            .expect("Mark for resync failed");
+        assert_eq!(count, 1);
+
+        // Verify remote_last_synced_at is now NULL
+        let task = Task::find_by_id(&pool, task_id)
+            .await
+            .expect("Query failed")
+            .expect("Task not found");
+        assert!(
+            task.remote_last_synced_at.is_none(),
+            "remote_last_synced_at should be NULL after marking for resync"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_find_needing_resync() {
+        let (pool, _temp_dir) = setup_test_pool().await;
+
+        // Create project with remote_project_id (swarm-linked)
+        let project_id = Uuid::new_v4();
+        let remote_project_id = Uuid::new_v4();
+        let project_data = CreateProject {
+            name: "Test Project".to_string(),
+            git_repo_path: format!("/tmp/test-repo-{}", project_id),
+            use_existing_repo: true,
+            clone_url: None,
+            setup_script: None,
+            dev_script: None,
+            cleanup_script: None,
+            copy_files: None,
+        };
+        let _project = Project::create(&pool, &project_data, project_id)
+            .await
+            .expect("Failed to create project");
+
+        // Link project to swarm
+        Project::set_remote_project_id(&pool, project_id, Some(remote_project_id))
+            .await
+            .expect("Failed to set remote_project_id");
+
+        // Create task with shared_task_id but remote_last_synced_at = NULL (needs resync)
+        let task_id = Uuid::new_v4();
+        let shared_task_id = Uuid::new_v4();
+        let mut task_data =
+            CreateTask::from_title_description(project_id, "Needs Resync".to_string(), None);
+        task_data.shared_task_id = Some(shared_task_id);
+        Task::create(&pool, &task_data, task_id)
+            .await
+            .expect("Failed to create task");
+
+        // Find tasks needing resync - should find our task
+        let tasks = Task::find_needing_resync(&pool, 100)
+            .await
+            .expect("Query failed");
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].id, task_id);
+        assert_eq!(tasks[0].title, "Needs Resync");
+
+        // Now set remote_last_synced_at (simulate sync completed)
+        sqlx::query("UPDATE tasks SET remote_last_synced_at = datetime('now') WHERE id = ?")
+            .bind(task_id)
+            .execute(&pool)
+            .await
+            .expect("Failed to set remote_last_synced_at");
+
+        // Find tasks needing resync - should now be empty
+        let tasks = Task::find_needing_resync(&pool, 100)
+            .await
+            .expect("Query failed");
+        assert!(
+            tasks.is_empty(),
+            "Should not find tasks after remote_last_synced_at is set"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_find_synced_tasks_for_project() {
+        let (pool, _temp_dir) = setup_test_pool().await;
+
+        // Create project
+        let project_id = Uuid::new_v4();
+        let project_data = CreateProject {
+            name: "Test Project".to_string(),
+            git_repo_path: format!("/tmp/test-repo-{}", project_id),
+            use_existing_repo: true,
+            clone_url: None,
+            setup_script: None,
+            dev_script: None,
+            cleanup_script: None,
+            copy_files: None,
+        };
+        let _project = Project::create(&pool, &project_data, project_id)
+            .await
+            .expect("Failed to create project");
+
+        // Create task WITH shared_task_id (synced)
+        let synced_task_id = Uuid::new_v4();
+        let shared_task_id = Uuid::new_v4();
+        let mut synced_task_data =
+            CreateTask::from_title_description(project_id, "Synced Task".to_string(), None);
+        synced_task_data.shared_task_id = Some(shared_task_id);
+        Task::create(&pool, &synced_task_data, synced_task_id)
+            .await
+            .expect("Failed to create synced task");
+
+        // Create task WITHOUT shared_task_id (not synced)
+        let unsynced_task_id = Uuid::new_v4();
+        let unsynced_task_data =
+            CreateTask::from_title_description(project_id, "Unsynced Task".to_string(), None);
+        Task::create(&pool, &unsynced_task_data, unsynced_task_id)
+            .await
+            .expect("Failed to create unsynced task");
+
+        // Find synced tasks - should only find the one with shared_task_id
+        let tasks = Task::find_synced_tasks_for_project(&pool, project_id)
+            .await
+            .expect("Query failed");
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].id, synced_task_id);
+        assert_eq!(tasks[0].title, "Synced Task");
+    }
 }

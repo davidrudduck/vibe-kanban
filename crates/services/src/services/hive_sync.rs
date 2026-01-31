@@ -189,9 +189,16 @@ impl HiveSyncService {
 
     /// Synchronizes local tasks that require a Hive-side shared_task_id.
     ///
-    /// Finds tasks that (1) do not yet have a `shared_task_id`, (2) have a `shared_task_id` but have been marked for resync, or (3) belong to projects linked to a remote Swarm project, and sends a `TaskSync` message for each candidate so the Hive can assign or update the `shared_task_id`.
+    /// This finds tasks that:
+    /// 1. Don't have a shared_task_id (new tasks)
+    /// 2. Have shared_task_id but need resync (remote_last_synced_at IS NULL)
+    /// 3. Belong to local projects (not remote) with a remote_project_id (linked to swarm)
     ///
-    /// Tasks created before a project was linked, tasks that previously failed to sync, tasks without attempts, and tasks explicitly marked for force-resync are included. Each sent message contains the local project ID (the Hive resolves the swarm project mapping) and task fields; owner assignment is performed by the Hive.
+    /// This includes:
+    /// - Tasks created before the project was linked to swarm
+    /// - Tasks that failed initial sync
+    /// - Tasks without any attempts yet
+    /// - Tasks marked for force resync via mark_for_resync_by_project
     ///
     /// # Returns
     ///
