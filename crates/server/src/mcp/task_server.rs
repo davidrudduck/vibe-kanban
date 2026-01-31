@@ -698,12 +698,11 @@ impl TaskServer {
         Parameters(GetContextRequest { cwd }): Parameters<GetContextRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         // Layer 1: Direct lookup if env var available
-        if let Ok(attempt_id_str) = std::env::var("VK_ATTEMPT_ID") {
-            if let Ok(attempt_id) = Uuid::parse_str(&attempt_id_str) {
-                if let Some(ctx) = self.fetch_context_by_attempt_id(attempt_id).await {
-                    return TaskServer::success(&ctx);
-                }
-            }
+        if let Ok(attempt_id_str) = std::env::var("VK_ATTEMPT_ID")
+            && let Ok(attempt_id) = Uuid::parse_str(&attempt_id_str)
+            && let Some(ctx) = self.fetch_context_by_attempt_id(attempt_id).await
+        {
+            return TaskServer::success(&ctx);
         }
 
         // Layer 2: Fallback to cwd-based resolution
@@ -726,12 +725,12 @@ impl TaskServer {
         Parameters(GetContextRequest { cwd }): Parameters<GetContextRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         // Layer 1: Direct return if env var available
-        if let Ok(task_id_str) = std::env::var("VK_TASK_ID") {
-            if let Ok(task_id) = Uuid::parse_str(&task_id_str) {
-                return TaskServer::success(&TaskIdResponse {
-                    task_id: task_id.to_string(),
-                });
-            }
+        if let Ok(task_id_str) = std::env::var("VK_TASK_ID")
+            && let Ok(task_id) = Uuid::parse_str(&task_id_str)
+        {
+            return TaskServer::success(&TaskIdResponse {
+                task_id: task_id.to_string(),
+            });
         }
 
         // Layer 2: Fallback to cwd-based resolution
@@ -756,14 +755,13 @@ impl TaskServer {
         Parameters(GetContextRequest { cwd }): Parameters<GetContextRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         // Layer 1: Direct lookup if env var available
-        if let Ok(attempt_id_str) = std::env::var("VK_ATTEMPT_ID") {
-            if let Ok(attempt_id) = Uuid::parse_str(&attempt_id_str) {
-                if let Some(ctx) = self.fetch_context_by_attempt_id(attempt_id).await {
-                    return TaskServer::success(&ProjectIdResponse {
-                        project_id: ctx.project_id.to_string(),
-                    });
-                }
-            }
+        if let Ok(attempt_id_str) = std::env::var("VK_ATTEMPT_ID")
+            && let Ok(attempt_id) = Uuid::parse_str(&attempt_id_str)
+            && let Some(ctx) = self.fetch_context_by_attempt_id(attempt_id).await
+        {
+            return TaskServer::success(&ProjectIdResponse {
+                project_id: ctx.project_id.to_string(),
+            });
         }
 
         // Layer 2: Fallback to cwd-based resolution
