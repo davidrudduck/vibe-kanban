@@ -400,7 +400,9 @@ pub async fn get_task(
                     remote_stream_node_id: shared_task
                         .executing_node_id
                         .or(shared_task.owner_node_id),
-                    remote_stream_url: None,
+                    remote_stream_url: shared_task.owner_public_url.as_ref().map(|url| {
+                        format!("{}/api/tasks/{}/attempts/logs", url.trim_end_matches('/'), shared_task.id)
+                    }),
                     activity_at: shared_task.activity_at,
                 };
                 return Ok(ResponseJson(ApiResponse::success(task)));

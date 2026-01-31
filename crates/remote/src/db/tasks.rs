@@ -314,7 +314,10 @@ impl<'a> SharedTaskRepository<'a> {
                 st.shared_at,
                 st.archived_at,
                 st.created_at,
-                st.updated_at
+                st.updated_at,
+                NULL::text AS assignee_name,
+                NULL::text AS assignee_username,
+                NULL::timestamptz AS activity_at
             FROM shared_tasks st
             LEFT JOIN nodes n ON st.owner_node_id = n.id
             WHERE st.swarm_project_id = $1
