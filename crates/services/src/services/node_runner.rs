@@ -710,10 +710,10 @@ pub fn spawn_node_runner<C: ContainerService + Sync + Send + 'static>(
 
                     // Sync node statuses from hive for remote projects
                     // This ensures source_node_status is up-to-date and not stale
-                    if let Some(ref client) = remote_client {
-                        if let Err(e) = sync_node_statuses(&db.pool, client).await {
-                            tracing::warn!(error = ?e, "Failed to sync node statuses from hive");
-                        }
+                    if let Some(ref client) = remote_client
+                        && let Err(e) = sync_node_statuses(&db.pool, client).await
+                    {
+                        tracing::warn!(error = ?e, "Failed to sync node statuses from hive");
                     }
                 }
                 Some(HiveEvent::TaskAssigned(assignment)) => {
