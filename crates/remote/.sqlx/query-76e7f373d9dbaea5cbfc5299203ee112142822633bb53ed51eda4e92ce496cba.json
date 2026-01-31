@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO shared_tasks (\n                organization_id,\n                project_id,\n                swarm_project_id,\n                creator_user_id,\n                assignee_user_id,\n                title,\n                description,\n                status,\n                shared_at\n            )\n            VALUES ($1, $2, $2, $3, $4, $5, $6, COALESCE($7, 'todo'::task_status), NOW())\n            RETURNING id                 AS \"id!\",\n                      organization_id    AS \"organization_id!: Uuid\",\n                      project_id         AS \"project_id?: Uuid\",\n                      swarm_project_id   AS \"swarm_project_id?: Uuid\",\n                      creator_user_id    AS \"creator_user_id?: Uuid\",\n                      assignee_user_id   AS \"assignee_user_id?: Uuid\",\n                      deleted_by_user_id AS \"deleted_by_user_id?: Uuid\",\n                      executing_node_id  AS \"executing_node_id?: Uuid\",\n                      owner_node_id      AS \"owner_node_id?: Uuid\",\n                      owner_name         AS \"owner_name?\",\n                      source_task_id     AS \"source_task_id?: Uuid\",\n                      source_node_id     AS \"source_node_id?: Uuid\",\n                      title              AS \"title!\",\n                      description        AS \"description?\",\n                      status             AS \"status!: TaskStatus\",\n                      version            AS \"version!\",\n                      deleted_at         AS \"deleted_at?\",\n                      shared_at          AS \"shared_at?\",\n                      archived_at        AS \"archived_at?\",\n                      created_at         AS \"created_at!\",\n                      updated_at         AS \"updated_at!\",\n                      NULL::text         AS \"assignee_name?\",\n                      NULL::text         AS \"assignee_username?\",\n                      NULL::timestamptz  AS \"activity_at?\"\n            ",
+  "query": "\n            INSERT INTO shared_tasks (\n                organization_id,\n                project_id,\n                swarm_project_id,\n                creator_user_id,\n                assignee_user_id,\n                title,\n                description,\n                status,\n                shared_at\n            )\n            VALUES ($1, $2, $2, $3, $4, $5, $6, COALESCE($7, 'todo'::task_status), NOW())\n            RETURNING id                 AS \"id!\",\n                      organization_id    AS \"organization_id!: Uuid\",\n                      project_id         AS \"project_id?: Uuid\",\n                      swarm_project_id   AS \"swarm_project_id?: Uuid\",\n                      creator_user_id    AS \"creator_user_id?: Uuid\",\n                      assignee_user_id   AS \"assignee_user_id?: Uuid\",\n                      deleted_by_user_id AS \"deleted_by_user_id?: Uuid\",\n                      executing_node_id  AS \"executing_node_id?: Uuid\",\n                      owner_node_id      AS \"owner_node_id?: Uuid\",\n                      owner_name         AS \"owner_name?\",\n                      NULL::text         AS \"owner_public_url?\",\n                      source_task_id     AS \"source_task_id?: Uuid\",\n                      source_node_id     AS \"source_node_id?: Uuid\",\n                      title              AS \"title!\",\n                      description        AS \"description?\",\n                      status             AS \"status!: TaskStatus\",\n                      version            AS \"version!\",\n                      deleted_at         AS \"deleted_at?\",\n                      shared_at          AS \"shared_at?\",\n                      archived_at        AS \"archived_at?\",\n                      created_at         AS \"created_at!\",\n                      updated_at         AS \"updated_at!\",\n                      NULL::text         AS \"assignee_name?\",\n                      NULL::text         AS \"assignee_username?\",\n                      NULL::timestamptz  AS \"activity_at?\"\n            ",
   "describe": {
     "columns": [
       {
@@ -55,26 +55,31 @@
       },
       {
         "ordinal": 10,
+        "name": "owner_public_url?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
         "name": "source_task_id?: Uuid",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "source_node_id?: Uuid",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "title!",
         "type_info": "Text"
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "description?",
         "type_info": "Text"
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "status!: TaskStatus",
         "type_info": {
           "Custom": {
@@ -92,47 +97,47 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "version!",
         "type_info": "Int8"
       },
       {
-        "ordinal": 16,
+        "ordinal": 17,
         "name": "deleted_at?",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 17,
+        "ordinal": 18,
         "name": "shared_at?",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 18,
+        "ordinal": 19,
         "name": "archived_at?",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 19,
+        "ordinal": 20,
         "name": "created_at!",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 20,
+        "ordinal": 21,
         "name": "updated_at!",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 21,
+        "ordinal": 22,
         "name": "assignee_name?",
         "type_info": "Text"
       },
       {
-        "ordinal": 22,
+        "ordinal": 23,
         "name": "assignee_username?",
         "type_info": "Text"
       },
       {
-        "ordinal": 23,
+        "ordinal": 24,
         "name": "activity_at?",
         "type_info": "Timestamptz"
       }
@@ -172,6 +177,7 @@
       true,
       true,
       true,
+      null,
       true,
       true,
       false,
@@ -188,5 +194,5 @@
       null
     ]
   },
-  "hash": "920f46075bc58f3130bd10a2bfc06d931ec29ad0c96ad18e002b10a890b4b6f0"
+  "hash": "76e7f373d9dbaea5cbfc5299203ee112142822633bb53ed51eda4e92ce496cba"
 }
