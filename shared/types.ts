@@ -344,7 +344,7 @@ latest_execution_started_at: Date | null,
 /**
  * Latest execution completion timestamp for sorting (codingagent only, non-dropped)
  */
-latest_execution_completed_at: Date | null,
+latest_execution_completed_at: Date | null, 
 /**
  * Node name where this task originated (for swarm display)
  */

@@ -51,6 +51,7 @@ use handlers::{
     set_github_enabled,
     sync_github_counts,
     // Swarm handlers
+    force_resync_tasks,
     unlink_from_swarm,
     update_project,
 };
@@ -74,6 +75,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         // Swarm sync health endpoints
         .route("/sync-health", get(get_project_sync_health))
         .route("/unlink-swarm", post(unlink_from_swarm))
+        .route("/force-resync-tasks", post(force_resync_tasks))
         .layer(from_fn_with_state(
             deployment.clone(),
             load_project_middleware,

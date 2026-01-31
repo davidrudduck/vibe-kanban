@@ -10,7 +10,7 @@ use utils::response::ApiResponse;
 
 use crate::{DeploymentImpl, error::ApiError};
 
-use super::super::types::{UnlinkSwarmRequest, UnlinkSwarmResponse};
+use super::super::types::{ForceResyncResponse, UnlinkSwarmRequest, UnlinkSwarmResponse};
 
 /// Unlink a project from the Hive swarm.
 ///
@@ -67,5 +67,33 @@ pub async fn unlink_from_swarm(
         tasks_unlinked,
         attempts_reset,
         hive_notified,
+    })))
+}
+
+/// Force re-sync all tasks for a project to the Hive.
+///
+/// This marks all synced tasks (with shared_task_id) for re-sync by setting
+/// their remote_last_synced_at to NULL. The next sync cycle will pick them up
+/// and resend TaskSyncMessage with updated fields (labels, owner_node_id, assignee).
+///
+/// Use this after code updates that add new sync fields, or to fix missing data.
+pub async fn force_resync_tasks(
+    State(deployment): State<DeploymentImpl>,
+    Extension(project): Extension<Project>,
+) -> Result<ResponseJson<ApiResponse<ForceResyncResponse>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let project_id = project.id;
+
+    // Mark all synced tasks for resync
+    let tasks_marked = Task::mark_for_resync_by_project(pool, project_id).await?;
+
+    tracing::info!(
+        project_id = %project_id,
+        tasks_marked,
+        "Marked tasks for force resync"
+    );
+
+    Ok(ResponseJson(ApiResponse::success(ForceResyncResponse {
+        tasks_resynced: tasks_marked as usize,
     })))
 }

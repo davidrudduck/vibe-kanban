@@ -190,13 +190,15 @@ impl HiveSyncService {
     /// Sync tasks that need a shared_task_id to the Hive.
     ///
     /// This finds tasks that:
-    /// 1. Don't have a shared_task_id
-    /// 2. Belong to local projects (not remote) with a remote_project_id (linked to swarm)
+    /// 1. Don't have a shared_task_id (new tasks)
+    /// 2. Have shared_task_id but need resync (remote_last_synced_at IS NULL)
+    /// 3. Belong to local projects (not remote) with a remote_project_id (linked to swarm)
     ///
     /// This includes:
     /// - Tasks created before the project was linked to swarm
     /// - Tasks that failed initial sync
     /// - Tasks without any attempts yet
+    /// - Tasks marked for force resync via mark_for_resync_by_project
     ///
     /// For each such task, we send a TaskSync message to the Hive with the
     /// local_project_id. The Hive looks up the swarm_project_id via node_local_projects.
@@ -204,8 +206,12 @@ impl HiveSyncService {
     async fn sync_tasks(&self) -> Result<usize, HiveSyncError> {
         // Find ALL tasks in swarm-linked projects that are missing shared_task_id
         // This captures tasks created before project was linked, failed syncs, etc.
-        let tasks =
+        let mut tasks =
             Task::find_missing_shared_task_id(&self.pool, self.config.max_tasks_per_batch).await?;
+
+        // Also find tasks that have shared_task_id but need resync (force resync scenario)
+        let resync_tasks = Task::find_needing_resync(&self.pool, self.config.max_tasks_per_batch).await?;
+        tasks.extend(resync_tasks);
 
         if tasks.is_empty() {
             return Ok(0);
@@ -565,6 +571,10 @@ impl HiveSyncService {
     // NOTE: sync_labels has been removed.
     // Labels are now managed centrally on the hive and synced DOWN to nodes.
     // See the auth response and HiveMessage::LabelSync broadcast for the new flow.
+
+    // NOTE: Force resync is handled via database flags (mark_for_resync_by_project).
+    // Tasks marked for resync are picked up by sync_tasks() via find_needing_resync().
+    // The API endpoint sets the flag, and the sync loop does the actual work.
 
     /// Sync all local projects to the Hive.
     ///

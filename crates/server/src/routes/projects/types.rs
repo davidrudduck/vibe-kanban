@@ -268,3 +268,11 @@ pub struct UnlinkSwarmResponse {
     /// Whether the Hive was successfully notified
     pub hive_notified: bool,
 }
+
+/// Response after force re-syncing tasks to the Hive
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
+pub struct ForceResyncResponse {
+    /// Number of tasks that were re-synced
+    pub tasks_resynced: usize,
+}
