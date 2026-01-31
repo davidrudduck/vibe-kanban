@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            UPDATE shared_tasks AS t\n            SET status = $2,\n                version = t.version + 1,\n                updated_at = NOW()\n            WHERE t.id = $1\n              AND t.deleted_at IS NULL\n            RETURNING\n                t.id                AS \"id!\",\n                t.organization_id   AS \"organization_id!: Uuid\",\n                t.project_id        AS \"project_id?: Uuid\",\n                t.swarm_project_id  AS \"swarm_project_id?: Uuid\",\n                t.creator_user_id   AS \"creator_user_id?: Uuid\",\n                t.assignee_user_id  AS \"assignee_user_id?: Uuid\",\n                t.deleted_by_user_id AS \"deleted_by_user_id?: Uuid\",\n                t.executing_node_id AS \"executing_node_id?: Uuid\",\n                t.owner_node_id     AS \"owner_node_id?: Uuid\",\n                t.owner_name        AS \"owner_name?\",\n                t.source_task_id    AS \"source_task_id?: Uuid\",\n                t.source_node_id    AS \"source_node_id?: Uuid\",\n                t.title             AS \"title!\",\n                t.description       AS \"description?\",\n                t.status            AS \"status!: TaskStatus\",\n                t.version           AS \"version!\",\n                t.deleted_at        AS \"deleted_at?\",\n                t.shared_at         AS \"shared_at?\",\n                t.archived_at       AS \"archived_at?\",\n                t.created_at        AS \"created_at!\",\n                t.updated_at        AS \"updated_at!\",\n                NULL::text          AS \"assignee_name?\",\n                NULL::text          AS \"assignee_username?\",\n                NULL::timestamptz   AS \"activity_at?\"\n            ",
+  "query": "\n            UPDATE shared_tasks AS t\n            SET status = $2,\n                version = t.version + 1,\n                updated_at = NOW()\n            WHERE t.id = $1\n              AND t.deleted_at IS NULL\n            RETURNING\n                t.id                AS \"id!\",\n                t.organization_id   AS \"organization_id!: Uuid\",\n                t.project_id        AS \"project_id?: Uuid\",\n                t.swarm_project_id  AS \"swarm_project_id?: Uuid\",\n                t.creator_user_id   AS \"creator_user_id?: Uuid\",\n                t.assignee_user_id  AS \"assignee_user_id?: Uuid\",\n                t.deleted_by_user_id AS \"deleted_by_user_id?: Uuid\",\n                t.executing_node_id AS \"executing_node_id?: Uuid\",\n                t.owner_node_id     AS \"owner_node_id?: Uuid\",\n                t.owner_name        AS \"owner_name?\",\n                NULL::text          AS \"owner_public_url?\",\n                t.source_task_id    AS \"source_task_id?: Uuid\",\n                t.source_node_id    AS \"source_node_id?: Uuid\",\n                t.title             AS \"title!\",\n                t.description       AS \"description?\",\n                t.status            AS \"status!: TaskStatus\",\n                t.version           AS \"version!\",\n                t.deleted_at        AS \"deleted_at?\",\n                t.shared_at         AS \"shared_at?\",\n                t.archived_at       AS \"archived_at?\",\n                t.created_at        AS \"created_at!\",\n                t.updated_at        AS \"updated_at!\",\n                NULL::text          AS \"assignee_name?\",\n                NULL::text          AS \"assignee_username?\",\n                NULL::timestamptz   AS \"activity_at?\"\n            ",
   "describe": {
     "columns": [
       {
@@ -55,26 +55,31 @@
       },
       {
         "ordinal": 10,
+        "name": "owner_public_url?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
         "name": "source_task_id?: Uuid",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "source_node_id?: Uuid",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "title!",
         "type_info": "Text"
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "description?",
         "type_info": "Text"
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "status!: TaskStatus",
         "type_info": {
           "Custom": {
@@ -92,47 +97,47 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "version!",
         "type_info": "Int8"
       },
       {
-        "ordinal": 16,
+        "ordinal": 17,
         "name": "deleted_at?",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 17,
+        "ordinal": 18,
         "name": "shared_at?",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 18,
+        "ordinal": 19,
         "name": "archived_at?",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 19,
+        "ordinal": 20,
         "name": "created_at!",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 20,
+        "ordinal": 21,
         "name": "updated_at!",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 21,
+        "ordinal": 22,
         "name": "assignee_name?",
         "type_info": "Text"
       },
       {
-        "ordinal": 22,
+        "ordinal": 23,
         "name": "assignee_username?",
         "type_info": "Text"
       },
       {
-        "ordinal": 23,
+        "ordinal": 24,
         "name": "activity_at?",
         "type_info": "Timestamptz"
       }
@@ -167,6 +172,7 @@
       true,
       true,
       true,
+      null,
       true,
       true,
       false,
@@ -183,5 +189,5 @@
       null
     ]
   },
-  "hash": "b3fd0c69f71910c2465193a7eabbdbb5fea7f347eab8e88a3785770a73e7aff8"
+  "hash": "405d51544aba49cee6a81162cd715be4bfe2d0a9075c92fe64baf0eabeb2659a"
 }

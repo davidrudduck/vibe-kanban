@@ -1,5 +1,5 @@
 import { Badge } from '@/components/ui/badge';
-import { Circle, Monitor } from 'lucide-react';
+import { Circle, Monitor, Globe } from 'lucide-react';
 import type { MergedProject, CachedNodeStatus } from 'shared/types';
 import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
@@ -100,6 +100,22 @@ export function LocationBadges({ project, compact = false }: Props) {
           {!compact && <span>{t('location.local')}</span>}
         </Badge>
       )}
+
+      {/* Swarm badge - show when project is linked to hive but no remote nodes visible yet */}
+      {project.has_local &&
+        project.remote_project_id &&
+        project.nodes.length === 0 && (
+          <Badge
+            variant="secondary"
+            className={cn(
+              'gap-1 font-normal',
+              compact ? 'px-1.5 py-0 text-[10px]' : 'px-2 py-0.5 text-xs'
+            )}
+          >
+            <Globe className="h-3 w-3 text-muted-foreground" />
+            {!compact && <span>{t('location.swarm', 'Swarm')}</span>}
+          </Badge>
+        )}
 
       {/* Remote node badges */}
       {project.nodes.map((node) => (

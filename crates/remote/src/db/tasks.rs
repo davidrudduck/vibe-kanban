@@ -67,6 +67,9 @@ pub struct SharedTask {
     pub owner_node_id: Option<Uuid>,
     /// Name of the owner node (denormalized for display)
     pub owner_name: Option<String>,
+    /// Public URL of the owner node (for remote log streaming)
+    #[sqlx(default)]
+    pub owner_public_url: Option<String>,
     /// Original local task ID from source node, used for re-sync duplicate detection
     pub source_task_id: Option<Uuid>,
     /// Node that originally created this task, used with source_task_id for uniqueness
@@ -252,6 +255,7 @@ impl<'a> SharedTaskRepository<'a> {
                 executing_node_id   AS "executing_node_id?: Uuid",
                 owner_node_id       AS "owner_node_id?: Uuid",
                 owner_name          AS "owner_name?",
+                NULL::text          AS "owner_public_url?",
                 source_task_id      AS "source_task_id?: Uuid",
                 source_node_id      AS "source_node_id?: Uuid",
                 title               AS "title!",
@@ -281,6 +285,7 @@ impl<'a> SharedTaskRepository<'a> {
     /// Fetches all shared tasks for a swarm project, excluding deleted tasks.
     ///
     /// Returns tasks ordered by updated_at descending (most recently updated first).
+    /// Joins with nodes table to get owner_public_url for remote log streaming.
     pub async fn find_by_swarm_project_id(
         &self,
         swarm_project_id: Uuid,
@@ -288,31 +293,36 @@ impl<'a> SharedTaskRepository<'a> {
         let tasks = sqlx::query_as::<_, SharedTask>(
             r#"
             SELECT
-                id,
-                organization_id,
-                project_id,
-                swarm_project_id,
-                creator_user_id,
-                assignee_user_id,
-                deleted_by_user_id,
-                executing_node_id,
-                owner_node_id,
-                owner_name,
-                source_task_id,
-                source_node_id,
-                title,
-                description,
-                status,
-                version,
-                deleted_at,
-                shared_at,
-                archived_at,
-                created_at,
-                updated_at
-            FROM shared_tasks
-            WHERE swarm_project_id = $1
-              AND deleted_at IS NULL
-            ORDER BY updated_at DESC
+                st.id,
+                st.organization_id,
+                st.project_id,
+                st.swarm_project_id,
+                st.creator_user_id,
+                st.assignee_user_id,
+                st.deleted_by_user_id,
+                st.executing_node_id,
+                st.owner_node_id,
+                st.owner_name,
+                n.public_url AS owner_public_url,
+                st.source_task_id,
+                st.source_node_id,
+                st.title,
+                st.description,
+                st.status,
+                st.version,
+                st.deleted_at,
+                st.shared_at,
+                st.archived_at,
+                st.created_at,
+                st.updated_at,
+                NULL::text AS assignee_name,
+                NULL::text AS assignee_username,
+                NULL::timestamptz AS activity_at
+            FROM shared_tasks st
+            LEFT JOIN nodes n ON st.owner_node_id = n.id
+            WHERE st.swarm_project_id = $1
+              AND st.deleted_at IS NULL
+            ORDER BY st.updated_at DESC
             "#,
         )
         .bind(swarm_project_id)
@@ -358,6 +368,7 @@ impl<'a> SharedTaskRepository<'a> {
                 executing_node_id   AS "executing_node_id?: Uuid",
                 owner_node_id       AS "owner_node_id?: Uuid",
                 owner_name          AS "owner_name?",
+                NULL::text          AS "owner_public_url?",
                 source_task_id      AS "source_task_id?: Uuid",
                 source_node_id      AS "source_node_id?: Uuid",
                 title               AS "title!",
@@ -477,6 +488,7 @@ impl<'a> SharedTaskRepository<'a> {
                       executing_node_id  AS "executing_node_id?: Uuid",
                       owner_node_id      AS "owner_node_id?: Uuid",
                       owner_name         AS "owner_name?",
+                      NULL::text         AS "owner_public_url?",
                       source_task_id     AS "source_task_id?: Uuid",
                       source_node_id     AS "source_node_id?: Uuid",
                       title              AS "title!",
@@ -591,6 +603,7 @@ impl<'a> SharedTaskRepository<'a> {
                       executing_node_id,
                       owner_node_id,
                       owner_name,
+                      NULL::text AS owner_public_url,
                       source_task_id,
                       source_node_id,
                       title,
@@ -722,6 +735,7 @@ impl<'a> SharedTaskRepository<'a> {
                     executing_node_id: row.executing_node_id,
                     owner_node_id: row.owner_node_id,
                     owner_name: row.owner_name,
+                    owner_public_url: None,
                     source_task_id: row.source_task_id,
                     source_node_id: row.source_node_id,
                     title: row.title,
@@ -836,6 +850,7 @@ impl<'a> SharedTaskRepository<'a> {
             t.executing_node_id AS "executing_node_id?: Uuid",
             t.owner_node_id     AS "owner_node_id?: Uuid",
             t.owner_name        AS "owner_name?",
+            NULL::text          AS "owner_public_url?",
             t.source_task_id    AS "source_task_id?: Uuid",
             t.source_node_id    AS "source_node_id?: Uuid",
             t.title             AS "title!",
@@ -932,6 +947,7 @@ impl<'a> SharedTaskRepository<'a> {
             t.executing_node_id AS "executing_node_id?: Uuid",
             t.owner_node_id     AS "owner_node_id?: Uuid",
             t.owner_name        AS "owner_name?",
+            NULL::text          AS "owner_public_url?",
             t.source_task_id    AS "source_task_id?: Uuid",
             t.source_node_id    AS "source_node_id?: Uuid",
             t.title             AS "title!",
@@ -1015,6 +1031,7 @@ impl<'a> SharedTaskRepository<'a> {
                 t.executing_node_id AS "executing_node_id?: Uuid",
                 t.owner_node_id     AS "owner_node_id?: Uuid",
                 t.owner_name        AS "owner_name?",
+                NULL::text          AS "owner_public_url?",
                 t.source_task_id    AS "source_task_id?: Uuid",
                 t.source_node_id    AS "source_node_id?: Uuid",
                 t.title             AS "title!",
@@ -1119,6 +1136,7 @@ impl<'a> SharedTaskRepository<'a> {
             t.executing_node_id AS "executing_node_id?: Uuid",
             t.owner_node_id     AS "owner_node_id?: Uuid",
             t.owner_name        AS "owner_name?",
+            NULL::text          AS "owner_public_url?",
             t.source_task_id    AS "source_task_id?: Uuid",
             t.source_node_id    AS "source_node_id?: Uuid",
             t.title             AS "title!",

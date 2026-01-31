@@ -183,7 +183,9 @@ pub async fn get_tasks(
                             remote_stream_node_id: shared_task
                                 .executing_node_id
                                 .or(shared_task.owner_node_id),
-                            remote_stream_url: None,
+                            remote_stream_url: shared_task.owner_public_url.as_ref().map(|url| {
+                                format!("{}/api/tasks/{}/attempts/logs", url.trim_end_matches('/'), shared_task.id)
+                            }),
                             activity_at: shared_task.activity_at,
                         },
                         has_in_progress_attempt: is_in_progress,
@@ -192,7 +194,7 @@ pub async fn get_tasks(
                         executor: String::new(),
                         latest_execution_started_at: None,
                         latest_execution_completed_at: None,
-                        source_node_name: project.source_node_name.clone(),
+                        source_node_name: shared_task.owner_name.clone(),
                     },
                 );
             }
@@ -288,7 +290,9 @@ pub async fn get_tasks(
                     remote_stream_node_id: shared_task
                         .executing_node_id
                         .or(shared_task.owner_node_id),
-                    remote_stream_url: None,
+                    remote_stream_url: shared_task.owner_public_url.as_ref().map(|url| {
+                        format!("{}/api/tasks/{}/attempts/logs", url.trim_end_matches('/'), shared_task.id)
+                    }),
                     activity_at: shared_task.activity_at,
                 },
                 has_in_progress_attempt: is_in_progress,
@@ -297,7 +301,7 @@ pub async fn get_tasks(
                 executor: String::new(),
                 latest_execution_started_at: None,
                 latest_execution_completed_at: None,
-                source_node_name: None, // Remote-only tasks don't have local project info
+                source_node_name: shared_task.owner_name.clone(),
             }
         })
         .collect();
@@ -396,7 +400,9 @@ pub async fn get_task(
                     remote_stream_node_id: shared_task
                         .executing_node_id
                         .or(shared_task.owner_node_id),
-                    remote_stream_url: None,
+                    remote_stream_url: shared_task.owner_public_url.as_ref().map(|url| {
+                        format!("{}/api/tasks/{}/attempts/logs", url.trim_end_matches('/'), shared_task.id)
+                    }),
                     activity_at: shared_task.activity_at,
                 };
                 return Ok(ResponseJson(ApiResponse::success(task)));
