@@ -28,6 +28,7 @@ interface ProcessesTabProps {
 function ProcessesTab({ attemptId }: ProcessesTabProps) {
   const { t } = useTranslation('tasks');
   const { data: attempt } = useTaskAttempt(attemptId);
+  const assignmentId = attempt?.hive_assignment_id;
   const {
     executionProcesses,
     executionProcessesById,
@@ -36,7 +37,7 @@ function ProcessesTab({ attemptId }: ProcessesTabProps) {
     error: processesError,
   } = useExecutionProcesses(attemptId ?? '', {
     showSoftDeleted: true,
-    assignmentId: attempt?.hive_assignment_id,
+    assignmentId,
   });
   const { selectedProcessId, setSelectedProcessId } = useProcessSelection();
   const [loadingProcessId, setLoadingProcessId] = useState<string | null>(null);
@@ -119,6 +120,9 @@ function ProcessesTab({ attemptId }: ProcessesTabProps) {
   };
 
   const fetchProcessDetails = useCallback(async (processId: string) => {
+    // Skip local API calls for remote attempts - data comes from Hive
+    if (assignmentId) return;
+
     try {
       setLoadingProcessId(processId);
       const result = await executionProcessesApi.getDetails(processId);
@@ -136,11 +140,11 @@ function ProcessesTab({ attemptId }: ProcessesTabProps) {
         current === processId ? null : current
       );
     }
-  }, []);
+  }, [assignmentId]);
 
-  // Automatically fetch process details when selectedProcessId changes
+  // Automatically fetch process details when selectedProcessId changes (local only)
   useEffect(() => {
-    if (!attemptId || !selectedProcessId) {
+    if (!attemptId || !selectedProcessId || assignmentId) {
       return;
     }
 
@@ -153,6 +157,7 @@ function ProcessesTab({ attemptId }: ProcessesTabProps) {
   }, [
     attemptId,
     selectedProcessId,
+    assignmentId,
     localProcessDetails,
     loadingProcessId,
     fetchProcessDetails,
@@ -161,8 +166,8 @@ function ProcessesTab({ attemptId }: ProcessesTabProps) {
   const handleProcessClick = async (process: ExecutionProcess) => {
     setSelectedProcessId(process.id);
 
-    // If we don't have details for this process, fetch them
-    if (!localProcessDetails[process.id]) {
+    // If we don't have details for this process, fetch them (local only)
+    if (!assignmentId && !localProcessDetails[process.id]) {
       await fetchProcessDetails(process.id);
     }
   };
