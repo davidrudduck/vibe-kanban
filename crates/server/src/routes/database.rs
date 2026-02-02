@@ -397,7 +397,19 @@ async fn get_hive_attempt(
     State(deployment): State<DeploymentImpl>,
     Path(assignment_id): Path<Uuid>,
 ) -> Result<ResponseJson<ApiResponse<services::services::remote_client::NodeTaskAttemptResponse>>, ApiError> {
-    let remote_client = deployment.remote_client()?;
+    // Prefer node_auth_client (API key auth) - works even without user login
+    // Fall back to remote_client (OAuth) for non-node deployments
+    let remote_client = match deployment.node_auth_client().cloned() {
+        Some(c) => c,
+        None => deployment.remote_client().map_err(|e| {
+            tracing::warn!(
+                assignment_id = %assignment_id,
+                error = %e,
+                "No client available for Hive attempt fetch"
+            );
+            e
+        })?,
+    };
 
     // Fetch the attempt data from the Hive using the remote client
     // The Hive endpoint is GET /v1/nodes/task-attempts/{attempt_id}

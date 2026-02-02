@@ -62,8 +62,15 @@ pub async fn get_task_labels(
     if let Some(Extension(task)) = local_task {
         // If task is synced from Hive, fetch labels from Hive
         if let Some(shared_task_id) = task.shared_task_id {
-            match deployment.remote_client() {
-                Ok(client) => {
+            // Prefer node_auth_client (API key auth) - works even without user login
+            // Fall back to remote_client (OAuth) for non-node deployments
+            let client_opt = deployment
+                .node_auth_client()
+                .cloned()
+                .or_else(|| deployment.remote_client().ok());
+
+            match client_opt {
+                Some(client) => {
                     match client.get_task_labels(shared_task_id).await {
                         Ok(response) => {
                             let labels: Vec<Label> = response
@@ -95,10 +102,9 @@ pub async fn get_task_labels(
                         }
                     }
                 }
-                Err(e) => {
+                None => {
                     tracing::debug!(
                         task_id = %task.id,
-                        error = %e,
                         "No remote client available, using local labels"
                     );
                 }
@@ -111,16 +117,19 @@ pub async fn get_task_labels(
 
     // Remote task - fetch from Hive
     if let Some(Extension(remote)) = remote_needed {
-        // Use OAuth client only - the labels endpoint requires OAuth auth
-        // (unlike get_shared_task which has a separate /v1/sync/swarm/tasks/{id} endpoint)
-        let client = deployment.remote_client().map_err(|e| {
-            tracing::warn!(
-                task_id = %remote.task_id,
-                error = %e,
-                "No OAuth client available for labels lookup"
-            );
-            ApiError::BadGateway("No OAuth client available for labels".into())
-        })?;
+        // Prefer node_auth_client (API key auth) - works even without user login
+        // Fall back to remote_client (OAuth) for non-node deployments
+        let client = match deployment.node_auth_client().cloned() {
+            Some(c) => c,
+            None => deployment.remote_client().map_err(|e| {
+                tracing::warn!(
+                    task_id = %remote.task_id,
+                    error = %e,
+                    "No client available for labels lookup"
+                );
+                ApiError::BadGateway("No client available for labels".into())
+            })?,
+        };
 
         match client.get_task_labels(remote.task_id).await {
             Ok(response) => {
@@ -176,7 +185,12 @@ pub async fn set_task_labels(
 ) -> Result<ResponseJson<ApiResponse<Vec<Label>>>, ApiError> {
     // For tasks synced from Hive, proxy to Hive labels API
     if let Some(shared_task_id) = task.shared_task_id {
-        let remote_client = deployment.remote_client()?;
+        // Prefer node_auth_client (API key auth) - works even without user login
+        // Fall back to remote_client (OAuth) for non-node deployments
+        let remote_client = match deployment.node_auth_client().cloned() {
+            Some(c) => c,
+            None => deployment.remote_client()?,
+        };
 
         match remote_client
             .set_task_labels(shared_task_id, &payload.label_ids)
