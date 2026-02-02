@@ -34,7 +34,10 @@ function ProcessesTab({ attemptId }: ProcessesTabProps) {
     isLoading: processesLoading,
     isConnected,
     error: processesError,
-  } = useExecutionProcesses(attemptId ?? '', { showSoftDeleted: true });
+  } = useExecutionProcesses(attemptId ?? '', {
+    showSoftDeleted: true,
+    assignmentId: attempt?.hive_assignment_id,
+  });
   const { selectedProcessId, setSelectedProcessId } = useProcessSelection();
   const [loadingProcessId, setLoadingProcessId] = useState<string | null>(null);
   const [localProcessDetails, setLocalProcessDetails] = useState<

@@ -389,6 +389,35 @@ async fn force_resync(
     })))
 }
 
+/// GET /api/database/hive/attempts/{assignment_id}
+///
+/// Proxy to the Hive API to fetch attempt details with execution processes for remote attempts.
+/// This endpoint is used by the frontend when viewing attempts from other nodes.
+async fn get_hive_attempt(
+    State(deployment): State<DeploymentImpl>,
+    Path(assignment_id): Path<Uuid>,
+) -> Result<ResponseJson<ApiResponse<services::services::remote_client::NodeTaskAttemptResponse>>, ApiError> {
+    let remote_client = deployment.remote_client()?;
+
+    // Fetch the attempt data from the Hive using the remote client
+    // The Hive endpoint is GET /v1/nodes/task-attempts/{attempt_id}
+    let response = remote_client
+        .get_node_task_attempt(assignment_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(?e, assignment_id = %assignment_id, "Failed to fetch attempt from Hive");
+            ApiError::RemoteClient(e)
+        })?;
+
+    match response {
+        Some(data) => Ok(ResponseJson(ApiResponse::success(data))),
+        None => Err(ApiError::NotFound(format!(
+            "Attempt {} not found on Hive",
+            assignment_id
+        ))),
+    }
+}
+
 /// Create the database routes router.
 pub fn router() -> Router<DeploymentImpl> {
     Router::new()
@@ -405,4 +434,5 @@ pub fn router() -> Router<DeploymentImpl> {
         .route("/database/purge-logs", post(purge_logs))
         .route("/database/sync-status", get(sync_status))
         .route("/database/force-resync/{project_id}", post(force_resync))
+        .route("/database/hive/attempts/{assignment_id}", get(get_hive_attempt))
 }
