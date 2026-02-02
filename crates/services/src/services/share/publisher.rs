@@ -77,6 +77,19 @@ impl SharePublisher {
             None => self.ensure_project_linked(&project).await?,
         };
 
+        // Get task labels and their shared_label_ids for sync
+        let label_ids = {
+            use db::models::label::Label;
+
+            let labels = Label::find_by_task_id(&self.db.pool, task.id).await?;
+            let shared_ids: Vec<_> = labels
+                .into_iter()
+                .filter_map(|l| l.shared_label_id)
+                .collect();
+
+            if shared_ids.is_empty() { None } else { Some(shared_ids) }
+        };
+
         let payload = CreateSharedTaskRequest {
             swarm_project_id: remote_project_id,
             title: task.title.clone(),
@@ -86,6 +99,7 @@ impl SharePublisher {
             start_attempt: false, // Never auto-dispatch when sharing from local node
             source_task_id: None, // Not a re-sync operation
             source_node_id: None,
+            label_ids,
         };
 
         let remote_task = self.client.create_shared_task(&payload).await?;
@@ -111,6 +125,19 @@ impl SharePublisher {
             return Ok(());
         };
 
+        // Get task labels and their shared_label_ids for sync
+        let label_ids = {
+            use db::models::label::Label;
+
+            let labels = Label::find_by_task_id(&self.db.pool, task.id).await?;
+            let shared_ids: Vec<_> = labels
+                .into_iter()
+                .filter_map(|l| l.shared_label_id)
+                .collect();
+
+            if shared_ids.is_empty() { None } else { Some(shared_ids) }
+        };
+
         let payload = UpdateSharedTaskRequest {
             title: Some(task.title.clone()),
             description: task.description.clone(),
@@ -118,6 +145,7 @@ impl SharePublisher {
             // Always sync archived_at - use Some(None) to unarchive, Some(Some(ts)) to archive
             archived_at: Some(task.archived_at),
             version: None,
+            label_ids,
         };
 
         self.client

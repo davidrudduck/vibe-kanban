@@ -95,6 +95,7 @@ pub async fn sync_archived_to_hive(
             status: None,
             archived_at: Some(Some(archived_at)),
             version: None, // Don't use version - this is a backfill operation
+            label_ids: None,
         };
 
         match remote_client
