@@ -4,6 +4,29 @@
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Load database path from .env if it exists
+DB_PATH=""
+if [[ -f "$PROJECT_ROOT/.env" ]]; then
+  # Extract VK_DATABASE_PATH from .env (handles quotes and tilde expansion)
+  DB_PATH=$(grep -E '^VK_DATABASE_PATH=' "$PROJECT_ROOT/.env" 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'")
+  # Expand tilde
+  DB_PATH="${DB_PATH/#\~/$HOME}"
+fi
+
+# Fallback to default paths if not set
+if [[ -z "$DB_PATH" ]]; then
+  if [[ "$(uname)" == "Darwin" ]]; then
+    # macOS default
+    DB_PATH="$HOME/Library/Application Support/vibe-kanban/db.sqlite"
+  else
+    # Linux default
+    DB_PATH="$HOME/.vkswarm/db/db.sqlite"
+  fi
+fi
+
+echo "Using database: $DB_PATH"
 
 case "${1:-}" in
   hive)
@@ -14,7 +37,12 @@ case "${1:-}" in
 
   node)
     echo "=== Clearing local node sync links ==="
-    sqlite3 /home/david/.vkswarm/db/db.sqlite < "$SCRIPT_DIR/02-clear-node-links.sql"
+    if [[ ! -f "$DB_PATH" ]]; then
+      echo "ERROR: Database not found at $DB_PATH"
+      echo "Set VK_DATABASE_PATH in $PROJECT_ROOT/.env or check the path."
+      exit 1
+    fi
+    sqlite3 "$DB_PATH" < "$SCRIPT_DIR/02-clear-node-links.sql"
     echo "Done!"
     ;;
 
@@ -25,7 +53,11 @@ case "${1:-}" in
     ssh tardis "docker exec -i remote-remote-db-1 psql -U remote -d remote" < "$SCRIPT_DIR/01-clear-hive.sql"
     echo ""
     echo "Step 2: Clearing local node..."
-    sqlite3 /home/david/.vkswarm/db/db.sqlite < "$SCRIPT_DIR/02-clear-node-links.sql"
+    if [[ ! -f "$DB_PATH" ]]; then
+      echo "ERROR: Database not found at $DB_PATH"
+      exit 1
+    fi
+    sqlite3 "$DB_PATH" < "$SCRIPT_DIR/02-clear-node-links.sql"
     echo ""
     echo "=== Reset Complete ==="
     echo "Now run this on other nodes: ./run-reset.sh node"
@@ -41,6 +73,9 @@ case "${1:-}" in
     echo "  hive  - Clear hive database only (run once from any node)"
     echo "  node  - Clear this node's sync links (run on each node)"
     echo "  all   - Clear hive + this node (run on first node, then 'node' on others)"
+    echo ""
+    echo "Database path: $DB_PATH"
+    echo "(Set VK_DATABASE_PATH in .env to override)"
     echo ""
     echo "Recommended order:"
     echo "  1. Stop all nodes"
