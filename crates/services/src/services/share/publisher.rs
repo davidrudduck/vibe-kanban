@@ -126,6 +126,7 @@ impl SharePublisher {
         };
 
         // Get task labels and their shared_label_ids for sync
+        // Always send Some(...) on update - Some(vec![]) clears labels, None means no change
         let label_ids = {
             use db::models::label::Label;
 
@@ -135,7 +136,7 @@ impl SharePublisher {
                 .filter_map(|l| l.shared_label_id)
                 .collect();
 
-            if shared_ids.is_empty() { None } else { Some(shared_ids) }
+            Some(shared_ids)
         };
 
         let payload = UpdateSharedTaskRequest {
