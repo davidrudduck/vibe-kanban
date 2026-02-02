@@ -46,6 +46,23 @@ case "${1:-}" in
     echo "Done!"
     ;;
 
+  dedupe)
+    echo "=== Deduplicate Hive (keep originals with attempts) ==="
+    ssh tardis "docker exec -i remote-remote-db-1 psql -U remote -d remote" < "$SCRIPT_DIR/03-dedupe-hive.sql"
+    echo ""
+    echo "Now run on each node: ./run-reset.sh fix-links"
+    ;;
+
+  fix-links)
+    echo "=== Fix local task links after dedupe ==="
+    if [[ ! -f "$DB_PATH" ]]; then
+      echo "ERROR: Database not found at $DB_PATH"
+      exit 1
+    fi
+    sqlite3 "$DB_PATH" < "$SCRIPT_DIR/04-fix-node-links.sql"
+    echo "Done! Restart vibe-kanban to re-sync."
+    ;;
+
   all)
     echo "=== Full Reset: Hive + This Node ==="
     echo ""
@@ -70,17 +87,25 @@ case "${1:-}" in
     echo "Usage: $0 [command]"
     echo ""
     echo "Commands:"
-    echo "  hive  - Clear hive database only (run once from any node)"
-    echo "  node  - Clear this node's sync links (run on each node)"
-    echo "  all   - Clear hive + this node (run on first node, then 'node' on others)"
+    echo "  hive       - Clear hive database only (run once from any node)"
+    echo "  node       - Clear this node's sync links (run on each node)"
+    echo "  all        - Clear hive + this node (run on first node, then 'node' on others)"
+    echo "  dedupe     - Remove duplicate shared_tasks (keeps originals with attempts)"
+    echo "  fix-links  - Fix local links after dedupe (run on each node)"
     echo ""
     echo "Database path: $DB_PATH"
     echo "(Set VK_DATABASE_PATH in .env to override)"
     echo ""
-    echo "Recommended order:"
+    echo "Full reset (nuclear option):"
     echo "  1. Stop all nodes"
     echo "  2. Run: ./run-reset.sh all    (on one node)"
     echo "  3. Run: ./run-reset.sh node   (on other nodes)"
+    echo "  4. Restart all nodes"
+    echo ""
+    echo "Dedupe only (preserves data):"
+    echo "  1. Stop all nodes"
+    echo "  2. Run: ./run-reset.sh dedupe     (once, from any node)"
+    echo "  3. Run: ./run-reset.sh fix-links  (on each node)"
     echo "  4. Restart all nodes"
     ;;
 esac

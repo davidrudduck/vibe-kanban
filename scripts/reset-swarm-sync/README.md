@@ -1,13 +1,24 @@
 # Swarm Sync Reset Scripts
 
-These scripts clear all hive sync state to allow a fresh re-synchronization.
+These scripts manage hive sync state for the swarm.
 
 ## When to Use
 
-- Duplicate `shared_tasks` causing mismatched data
-- Tasks showing wrong attempts or missing labels
-- Cross-node task viewing not working
-- After schema changes that affect sync
+- **Dedupe**: Duplicate `shared_tasks` causing mismatched attempts/labels
+- **Full Reset**: Complete re-sync needed after major issues or schema changes
+
+## Quick Fix: Deduplicate (preserves data)
+
+```bash
+# 1. Stop all nodes
+# 2. Dedupe hive (removes duplicates, keeps originals with attempts)
+./run-reset.sh dedupe
+
+# 3. Fix local links on each node
+./run-reset.sh fix-links   # run on TARDIS, TheDoctor, justX
+
+# 4. Restart all nodes with: pnpm run prod
+```
 
 ## Execution Order
 
@@ -41,8 +52,8 @@ sqlite3 /home/david/.vkswarm/db/db.sqlite < 02-clear-node-links.sql
 
 ### 4. Restart all nodes
 ```bash
-# On each node
-cd /home/david/Code/vibe-kanban && pnpm run dev
+# On each node (production mode)
+cd /home/david/Code/vibe-kanban && pnpm run prod
 ```
 
 ### 5. Verify re-sync
