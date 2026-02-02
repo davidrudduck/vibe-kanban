@@ -19,13 +19,50 @@ use crate::{DeploymentImpl, error::ApiError};
 /// GET /api/tasks/{id}/labels - Get labels for a task
 ///
 /// Supports both local tasks and remote tasks fetched from Hive.
+/// For tasks synced from Hive (have shared_task_id), labels are fetched from Hive.
 pub async fn get_task_labels(
     local_task: Option<Extension<Task>>,
     remote_needed: Option<Extension<RemoteTaskNeeded>>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<Vec<Label>>>, ApiError> {
-    // Local task - fetch labels from local DB
+    // Local task - check if it has shared_task_id (synced from Hive)
     if let Some(Extension(task)) = local_task {
+        // If task is synced from Hive, fetch labels from Hive
+        if let Some(shared_task_id) = task.shared_task_id {
+            if let Ok(client) = deployment.remote_client() {
+                match client.get_task_labels(shared_task_id).await {
+                    Ok(response) => {
+                        let labels: Vec<Label> = response
+                            .labels
+                            .into_iter()
+                            .map(|remote_label| Label {
+                                id: remote_label.id,
+                                project_id: remote_label.project_id,
+                                name: remote_label.name,
+                                icon: remote_label.icon,
+                                color: remote_label.color,
+                                shared_label_id: Some(remote_label.id),
+                                version: remote_label.version,
+                                synced_at: None,
+                                created_at: remote_label.created_at,
+                                updated_at: remote_label.updated_at,
+                            })
+                            .collect();
+                        return Ok(ResponseJson(ApiResponse::success(labels)));
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            task_id = %task.id,
+                            shared_task_id = %shared_task_id,
+                            error = %e,
+                            "Failed to fetch labels from Hive, falling back to local"
+                        );
+                        // Fall through to local lookup
+                    }
+                }
+            }
+        }
+        // Local-only task or Hive fetch failed - fetch labels from local DB
         let labels = Label::find_by_task_id(&deployment.db().pool, task.id).await?;
         return Ok(ResponseJson(ApiResponse::success(labels)));
     }
