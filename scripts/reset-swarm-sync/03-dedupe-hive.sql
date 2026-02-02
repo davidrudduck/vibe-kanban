@@ -33,16 +33,16 @@ JOIN shared_tasks st ON st.id = d.id
 LEFT JOIN nodes n ON st.source_node_id = n.id
 ORDER BY st.title;
 
--- Delete from node_task_output_logs (via assignments)
+-- Delete from node_task_output_logs (via assignments.task_id)
 DELETE FROM node_task_output_logs
 WHERE assignment_id IN (
-    SELECT id FROM node_task_assignments WHERE shared_task_id IN (SELECT id FROM duplicates_to_delete)
+    SELECT id FROM node_task_assignments WHERE task_id IN (SELECT id FROM duplicates_to_delete)
 );
 
--- Delete from node_task_progress_events (via assignments)
+-- Delete from node_task_progress_events (via assignments.task_id)
 DELETE FROM node_task_progress_events
 WHERE assignment_id IN (
-    SELECT id FROM node_task_assignments WHERE shared_task_id IN (SELECT id FROM duplicates_to_delete)
+    SELECT id FROM node_task_assignments WHERE task_id IN (SELECT id FROM duplicates_to_delete)
 );
 
 -- Delete from node_execution_processes (via attempts)
@@ -57,8 +57,8 @@ DELETE FROM node_task_attempts WHERE shared_task_id IN (SELECT id FROM duplicate
 -- Delete from shared_task_labels
 DELETE FROM shared_task_labels WHERE shared_task_id IN (SELECT id FROM duplicates_to_delete);
 
--- Delete from node_task_assignments
-DELETE FROM node_task_assignments WHERE shared_task_id IN (SELECT id FROM duplicates_to_delete);
+-- Delete from node_task_assignments (uses task_id to reference shared_tasks)
+DELETE FROM node_task_assignments WHERE task_id IN (SELECT id FROM duplicates_to_delete);
 
 -- Delete the duplicate shared_tasks
 DELETE FROM shared_tasks WHERE id IN (SELECT id FROM duplicates_to_delete);
