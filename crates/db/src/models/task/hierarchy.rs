@@ -9,13 +9,14 @@ use crate::models::{activity_dismissal::ActivityDismissal, task_attempt::TaskAtt
 
 impl Task {
     /// Update the status of a task and clear any activity dismissals.
+    /// Also marks task for Hive resync by clearing remote_last_synced_at.
     pub async fn update_status(
         pool: &SqlitePool,
         id: Uuid,
         status: TaskStatus,
     ) -> Result<(), sqlx::Error> {
         sqlx::query!(
-            "UPDATE tasks SET status = $2, updated_at = CURRENT_TIMESTAMP, activity_at = datetime('now', 'subsec') WHERE id = $1",
+            "UPDATE tasks SET status = $2, updated_at = CURRENT_TIMESTAMP, activity_at = datetime('now', 'subsec'), remote_last_synced_at = NULL WHERE id = $1",
             id,
             status
         )
