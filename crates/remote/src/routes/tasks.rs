@@ -226,6 +226,7 @@ pub async fn create_shared_task(
         start_attempt,
         source_task_id,
         source_node_id,
+        label_ids,
     } = payload;
 
     if let Err(error) = ensure_text_size(&title, description.as_deref()) {
@@ -307,6 +308,21 @@ pub async fn create_shared_task(
             "Failed to set source tracking on task"
         );
         // Don't fail the whole request - task was created successfully
+    }
+
+    // Set labels if provided
+    if let Some(label_ids) = label_ids
+        && !label_ids.is_empty()
+    {
+        let label_repo = crate::db::labels::LabelRepository::new(pool);
+        if let Err(error) = label_repo.set_task_labels(task.task.id, &label_ids).await {
+            tracing::warn!(
+                task_id = %task.task.id,
+                error = %error,
+                "Failed to set labels on shared task"
+            );
+            // Don't fail the whole request - task was created successfully
+        }
     }
 
     // Only dispatch to node if start_attempt flag is true
@@ -417,6 +433,7 @@ pub async fn update_shared_task(
         status,
         archived_at,
         version,
+        label_ids,
     } = payload;
 
     let next_title = title.as_deref().unwrap_or(existing.title.as_str());
@@ -435,7 +452,22 @@ pub async fn update_shared_task(
     };
 
     match repo.update(task_id, data).await {
-        Ok(task) => (StatusCode::OK, Json(SharedTaskResponse::from(task))).into_response(),
+        Ok(task) => {
+            // Set labels if provided (replaces existing labels)
+            if let Some(label_ids) = label_ids {
+                let label_repo = crate::db::labels::LabelRepository::new(pool);
+                if let Err(error) = label_repo.set_task_labels(task_id, &label_ids).await {
+                    tracing::warn!(
+                        task_id = %task_id,
+                        error = %error,
+                        "Failed to update labels on shared task"
+                    );
+                    // Don't fail - task update succeeded
+                }
+            }
+
+            (StatusCode::OK, Json(SharedTaskResponse::from(task))).into_response()
+        }
         Err(error) => task_error_response(error, "failed to update shared task"),
     }
 }
@@ -645,6 +677,10 @@ pub struct CreateSharedTaskRequest {
     pub source_task_id: Option<Uuid>,
     /// Node that originally created this task, required if source_task_id is provided.
     pub source_node_id: Option<Uuid>,
+    /// Label IDs (hive label IDs) to attach to the task.
+    /// These are synced from the node's local labels.
+    #[serde(default)]
+    pub label_ids: Option<Vec<Uuid>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -656,6 +692,9 @@ pub struct UpdateSharedTaskRequest {
     /// When None, don't change archived status.
     pub archived_at: Option<Option<DateTime<Utc>>>,
     pub version: Option<i64>,
+    /// Label IDs (hive label IDs) to set on the task.
+    /// When Some, replaces all existing labels. When None, labels are unchanged.
+    pub label_ids: Option<Vec<Uuid>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

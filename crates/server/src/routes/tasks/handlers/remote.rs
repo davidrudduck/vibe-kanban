@@ -66,6 +66,7 @@ pub(crate) async fn create_remote_task(
         start_attempt: false, // Do not auto-dispatch for remote projects created from local node
         source_task_id: None, // Not a re-sync operation
         source_node_id: None,
+        label_ids: None, // Labels synced via share publisher
     };
 
     let response = remote_client.create_shared_task(&request).await?;
@@ -144,6 +145,7 @@ pub(crate) async fn update_remote_task(
         status: payload.status.as_ref().map(task_status::to_remote),
         archived_at: None, // Don't modify archived_at when updating a remote task
         version: Some(existing_task.remote_version),
+        label_ids: None, // Labels are synced via the share publisher
     };
 
     let pool = &deployment.db().pool;
@@ -336,6 +338,7 @@ pub(crate) async fn resync_task_to_hive(
         start_attempt: false,
         source_task_id: Some(existing_task.id),
         source_node_id: Some(node_id),
+        label_ids: None, // TODO: fetch labels from existing_task and include
     };
 
     let response = remote_client.create_shared_task(&request).await?;

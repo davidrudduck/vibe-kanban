@@ -44,6 +44,7 @@ async fn archive_remote_task(
         status: None,
         archived_at: Some(Some(Utc::now())),
         version: None,
+        label_ids: None,
     };
 
     let response = remote_client
@@ -110,6 +111,7 @@ async fn unarchive_remote_task(
         status: None,
         archived_at: Some(None), // Some(None) means unarchive
         version: None,
+        label_ids: None,
     };
 
     let response = remote_client
