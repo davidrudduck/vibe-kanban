@@ -486,6 +486,9 @@ impl IntoResponse for ApiError {
             ApiError::Container(_) => ErrorInfo::internal("ContainerError"),
             ApiError::Executor(_) => ErrorInfo::internal("ExecutorError"),
             ApiError::CommandBuilder(_) => ErrorInfo::internal("CommandBuildError"),
+            ApiError::Database(sqlx::Error::RowNotFound) => {
+                ErrorInfo::not_found("DatabaseError", "Resource not found.")
+            }
             ApiError::Database(_) => ErrorInfo::internal("DatabaseError"),
             ApiError::Worktree(err) => ErrorInfo::with_status(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -592,6 +595,36 @@ impl From<RelayApiError> for ApiError {
     fn from(err: RelayApiError) -> Self {
         tracing::warn!(%err, "Relay transport failed");
         ApiError::BadGateway(err.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::{http::StatusCode, response::IntoResponse};
+
+    use super::ApiError;
+
+    #[test]
+    fn database_row_not_found_maps_to_not_found() {
+        let response = ApiError::Database(sqlx::Error::RowNotFound).into_response();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+}
+
+impl From<OpenRemoteEditorError> for ApiError {
+    fn from(err: OpenRemoteEditorError) -> Self {
+        match err {
+            OpenRemoteEditorError::Connection(err) => err.into(),
+            OpenRemoteEditorError::CreateTunnel(ref detail) => {
+                tracing::warn!(%detail, "Failed to create SSH tunnel");
+                ApiError::BadGateway(err.to_string())
+            }
+            OpenRemoteEditorError::SshSetup(ref detail) => {
+                tracing::warn!(%detail, "Failed to open remote editor");
+                ApiError::BadGateway(err.to_string())
+            }
+        }
     }
 }
 
