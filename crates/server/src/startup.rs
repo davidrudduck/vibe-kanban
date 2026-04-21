@@ -11,7 +11,8 @@ use tower_http::validate_request::ValidateRequestHeaderLayer;
 use utils::assets::asset_dir;
 
 use crate::{
-    DeploymentImpl, middleware::origin::validate_origin, routes, runtime::relay_registration,
+    DeploymentImpl, mcp_http, middleware::origin::validate_origin, routes,
+    runtime::relay_registration,
 };
 
 /// A running server instance. Callers can read the port, then call `serve()`
@@ -23,6 +24,7 @@ pub struct ServerHandle {
     shutdown_token: CancellationToken,
     main_listener: tokio::net::TcpListener,
     proxy_listener: tokio::net::TcpListener,
+    mcp_process: Option<mcp_http::McpHttpServerProcess>,
 }
 
 impl ServerHandle {
@@ -37,7 +39,7 @@ impl ServerHandle {
     }
 
     /// Run both the main and proxy servers until the shutdown token is cancelled.
-    pub async fn serve(self) -> anyhow::Result<()> {
+    pub async fn serve(mut self) -> anyhow::Result<()> {
         // Start relay tunnel so the host registers with the relay server.
         // This must happen after the port is known (it's needed for local
         // proxying) and is shared between the standalone binary and Tauri.
@@ -80,6 +82,9 @@ impl ServerHandle {
         }
 
         perform_cleanup_actions(&self.deployment).await;
+        if let Some(ref mut mcp_process) = self.mcp_process {
+            mcp_process.terminate();
+        }
         Ok(())
     }
 
@@ -117,6 +122,9 @@ pub async fn start_with_bind(
 
     tracing::info!("Server on :{port}, Preview proxy on :{proxy_port}");
 
+    let mcp_process =
+        mcp_http::spawn_mcp_http_server(&std::env::current_exe()?, listener.local_addr()?);
+
     Ok(ServerHandle {
         port,
         proxy_port,
@@ -124,6 +132,7 @@ pub async fn start_with_bind(
         shutdown_token,
         main_listener: listener,
         proxy_listener,
+        mcp_process,
     })
 }
 

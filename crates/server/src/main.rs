@@ -2,7 +2,8 @@ use anyhow::{self, Error as AnyhowError};
 use axum::Router;
 use deployment::{Deployment, DeploymentError};
 use server::{
-    DeploymentImpl, middleware::origin::validate_origin, routes, runtime::relay_registration,
+    DeploymentImpl, mcp_http, middleware::origin::validate_origin, routes,
+    runtime::relay_registration,
 };
 use services::services::container::ContainerService;
 use sqlx::Error as SqlxError;
@@ -120,6 +121,9 @@ async fn main() -> Result<(), VibeKanbanError> {
     let proxy_listener = tokio::net::TcpListener::bind(format!("{host}:{proxy_port}")).await?;
     let actual_proxy_port = proxy_listener.local_addr()?.port();
 
+    let mut mcp_process =
+        mcp_http::spawn_mcp_http_server(&std::env::current_exe()?, main_listener.local_addr()?);
+
     if let Err(e) = write_port_file_with_proxy(actual_main_port, Some(actual_proxy_port)).await {
         tracing::warn!("Failed to write port file: {}", e);
     }
@@ -193,6 +197,9 @@ async fn main() -> Result<(), VibeKanbanError> {
     shutdown_token.cancel();
 
     perform_cleanup_actions(&deployment).await;
+    if let Some(ref mut process) = mcp_process {
+        process.terminate();
+    }
 
     Ok(())
 }

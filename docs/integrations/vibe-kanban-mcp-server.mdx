@@ -10,7 +10,12 @@ This page covers connecting **external MCP clients** to Vibe Kanban's MCP server
 </Note>
 
 <Info>
-Vibe Kanban's MCP server is **local-only** - it runs on your computer and can only be accessed by applications installed locally. It cannot be accessed via publicly accessible URLs.
+Vibe Kanban supports two MCP transport modes:
+
+- **stdio** for local MCP clients such as Claude Desktop, Raycast, or coding agents launched on the same machine
+- **Streamable HTTP** at `/mcp` when `MCP_PORT` is configured for a running Vibe Kanban server
+
+If you need HTTPS, terminate TLS in a reverse proxy or tunnel in front of the MCP HTTP endpoint.
 </Info>
 
 <video
@@ -51,6 +56,24 @@ Add the following configuration to your agent's MCP servers configuration:
 ```
 
 `--mcp` launches the local MCP stdio server. Any additional arguments after `--mcp` are passed through to the `vibe-kanban-mcp` binary.
+
+### Option 3: HTTP / HTTPS Endpoint
+
+When `MCP_PORT` is set, the Vibe Kanban backend also spawns an HTTP MCP server at:
+
+```text
+http://<host>:<MCP_PORT>/mcp
+```
+
+For example:
+
+```bash
+HOST=0.0.0.0 BACKEND_PORT=3001 MCP_PORT=3002 pnpm run backend:dev:watch
+```
+
+This exposes the MCP endpoint on port `3002` while the backend API continues to run on port `3001`.
+
+If you want to expose it over HTTPS, put a reverse proxy or tunnel in front of `/mcp` and terminate TLS there.
 
 ## Available MCP Tools
 
