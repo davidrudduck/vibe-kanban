@@ -76,6 +76,7 @@ pub struct AttachExistingPrRequest {
 
 #[derive(Debug, Serialize, TS)]
 pub struct PrCommentsResponse {
+    pub pr_attached: bool,
     pub comments: Vec<UnifiedPrComment>,
 }
 
@@ -83,7 +84,6 @@ pub struct PrCommentsResponse {
 #[serde(tag = "type", rename_all = "snake_case")]
 #[ts(tag = "type", rename_all = "snake_case")]
 pub enum GetPrCommentsError {
-    NoPrAttached,
     CliNotInstalled { provider: ProviderKind },
     CliNotLoggedIn { provider: ProviderKind },
 }
@@ -564,9 +564,10 @@ pub async fn get_pr_comments(
     let pr_info = match merges.into_iter().next() {
         Some(Merge::Pr(pr_merge)) => pr_merge.pr_info,
         _ => {
-            return Ok(ResponseJson(ApiResponse::error_with_data(
-                GetPrCommentsError::NoPrAttached,
-            )));
+            return Ok(ResponseJson(ApiResponse::success(PrCommentsResponse {
+                pr_attached: false,
+                comments: Vec::new(),
+            })));
         }
     };
 
@@ -590,6 +591,7 @@ pub async fn get_pr_comments(
         .await
     {
         Ok(comments) => Ok(ResponseJson(ApiResponse::success(PrCommentsResponse {
+            pr_attached: true,
             comments,
         }))),
         Err(e) => {

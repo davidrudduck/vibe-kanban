@@ -160,6 +160,7 @@ impl<'a> OAuthAccountRepository<'a> {
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (provider, provider_user_id) DO UPDATE
             SET
+                user_id = EXCLUDED.user_id,
                 email = EXCLUDED.email,
                 username = EXCLUDED.username,
                 display_name = EXCLUDED.display_name,

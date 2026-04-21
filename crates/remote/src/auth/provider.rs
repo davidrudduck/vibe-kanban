@@ -26,11 +26,12 @@ pub struct AuthorizationGrant {
     pub id_token: Option<SecretString>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ProviderUser {
     pub id: String,
     pub login: Option<String>,
     pub email: Option<String>,
+    pub email_verified: bool,
     pub name: Option<String>,
     pub avatar_url: Option<String>,
 }
@@ -238,35 +239,33 @@ impl AuthorizationProvider for GitHubOAuthProvider {
             .json()
             .await?;
 
-        let email = if user.email.is_some() {
-            user.email
-        } else {
-            let response = self
-                .client
-                .get("https://api.github.com/user/emails")
-                .header("Accept", "application/vnd.github+json")
-                .header("Authorization", bearer)
-                .send()
-                .await?;
+        let response = self
+            .client
+            .get("https://api.github.com/user/emails")
+            .header("Accept", "application/vnd.github+json")
+            .header("Authorization", bearer)
+            .send()
+            .await?;
 
-            if response.status().is_success() {
-                let emails: Vec<GitHubEmail> = response
-                    .json()
-                    .await
-                    .context("failed to parse GitHub email response")?;
-                emails
-                    .into_iter()
-                    .find(|entry| entry.primary && entry.verified)
-                    .map(|entry| entry.email)
-            } else {
-                None
-            }
+        let verified_email = if response.status().is_success() {
+            let emails: Vec<GitHubEmail> = response
+                .json()
+                .await
+                .context("failed to parse GitHub email response")?;
+            emails
+                .iter()
+                .find(|entry| entry.primary && entry.verified)
+                .or_else(|| emails.iter().find(|entry| entry.verified))
+                .map(|entry| entry.email.clone())
+        } else {
+            None
         };
 
         Ok(ProviderUser {
             id: user.id.to_string(),
             login: Some(user.login),
-            email,
+            email: verified_email.or(user.email),
+            email_verified: verified_email.is_some(),
             name: user.name,
             avatar_url: user.avatar_url,
         })
@@ -490,6 +489,8 @@ enum GoogleTokenResponse {
 struct GoogleUser {
     sub: String,
     email: Option<String>,
+    #[serde(default)]
+    email_verified: bool,
     name: Option<String>,
     given_name: Option<String>,
     family_name: Option<String>,
@@ -600,6 +601,7 @@ impl AuthorizationProvider for GoogleOAuthProvider {
             id: profile.sub,
             login,
             email: profile.email,
+            email_verified: profile.email_verified,
             name,
             avatar_url: profile.picture,
         })

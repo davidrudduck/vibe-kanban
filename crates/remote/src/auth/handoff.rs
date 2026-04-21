@@ -431,6 +431,7 @@ impl OAuthHandoffService {
         let org_repo = OrganizationRepository::new(&self.pool);
 
         let email = ensure_email(provider.name(), profile);
+        let verified_email = verified_email_for_linking(profile).map(normalize_email);
         let username = derive_username(provider.name(), profile);
         let display_name = derive_display_name(profile);
 
@@ -438,10 +439,41 @@ impl OAuthHandoffService {
             .get_by_provider_user(provider.name(), &profile.id)
             .await?;
 
-        let user_id = match existing_account {
-            Some(account) => account.user_id,
-            None => Uuid::new_v4(),
+        let mut candidate_users = Vec::new();
+        if let Some(account) = existing_account.as_ref() {
+            candidate_users.push(user_repo.fetch_user(account.user_id).await?);
+        }
+
+        if let Some(email) = verified_email.as_deref() {
+            for user in user_repo.fetch_users_by_email(email).await? {
+                if candidate_users
+                    .iter()
+                    .all(|candidate| candidate.id != user.id)
+                {
+                    candidate_users.push(user);
+                }
+            }
+        }
+
+        let canonical_user = if candidate_users.is_empty() {
+            None
+        } else {
+            let mut candidates = Vec::with_capacity(candidate_users.len());
+            for user in candidate_users {
+                candidates.push(IdentityCandidate {
+                    has_non_personal_membership: org_repo
+                        .has_non_personal_membership(user.id)
+                        .await?,
+                    user,
+                });
+            }
+            select_canonical_user(candidates)
         };
+
+        let user_id = canonical_user
+            .as_ref()
+            .map(|user| user.id)
+            .unwrap_or_else(Uuid::new_v4);
 
         let (first_name, last_name) = split_name(profile.name.as_deref());
 
@@ -458,6 +490,19 @@ impl OAuthHandoffService {
         org_repo
             .ensure_personal_org_and_admin_membership(user.id, username.as_deref())
             .await?;
+
+        if let Some(account) = existing_account.as_ref()
+            && account.user_id != user.id
+        {
+            tracing::info!(
+                provider = provider.name(),
+                provider_user_id = %profile.id,
+                email = verified_email.as_deref().unwrap_or(""),
+                old_user_id = %account.user_id,
+                new_user_id = %user.id,
+                "relinked oauth account to canonical user"
+            );
+        }
 
         account_repo
             .upsert(OAuthAccountInsert {
@@ -477,6 +522,12 @@ impl OAuthHandoffService {
 }
 
 type IdentityUser = api_types::User;
+
+#[derive(Debug, Clone)]
+struct IdentityCandidate {
+    user: IdentityUser,
+    has_non_personal_membership: bool,
+}
 
 fn is_expired(record: &OAuthHandoff) -> bool {
     record.expires_at <= Utc::now()
@@ -534,6 +585,18 @@ fn generate_app_code() -> String {
         .collect()
 }
 
+fn verified_email_for_linking(profile: &ProviderUser) -> Option<String> {
+    if profile.email_verified {
+        return profile.email.clone();
+    }
+
+    None
+}
+
+fn normalize_email(email: String) -> String {
+    email.trim().to_ascii_lowercase()
+}
+
 fn ensure_email(provider: &str, profile: &ProviderUser) -> String {
     if let Some(email) = profile.email.clone() {
         return email;
@@ -557,6 +620,18 @@ fn derive_username(provider: &str, profile: &ProviderUser) -> Option<String> {
 
 fn derive_display_name(profile: &ProviderUser) -> Option<String> {
     profile.name.clone()
+}
+
+fn select_canonical_user(candidates: Vec<IdentityCandidate>) -> Option<IdentityUser> {
+    candidates
+        .into_iter()
+        .min_by_key(|candidate| {
+            (
+                !candidate.has_non_personal_membership,
+                candidate.user.created_at,
+            )
+        })
+        .map(|candidate| candidate.user)
 }
 
 fn split_name(name: Option<&str>) -> (Option<String>, Option<String>) {
@@ -588,6 +663,10 @@ fn is_forbidden_error(err: &AnyhowError) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use api_types::User;
+    use chrono::{TimeZone, Utc};
+    use uuid::Uuid;
+
     use super::*;
 
     #[test]
@@ -603,5 +682,80 @@ mod tests {
         ));
         assert!(!is_valid_challenge("not-hex"));
         assert!(!is_valid_challenge(""));
+    }
+
+    #[test]
+    fn picks_candidate_with_non_personal_membership() {
+        let older = sample_user("older@example.com", 1);
+        let newer = sample_user("older@example.com", 2);
+
+        let selected = select_canonical_user(vec![
+            IdentityCandidate {
+                user: newer.clone(),
+                has_non_personal_membership: false,
+            },
+            IdentityCandidate {
+                user: older.clone(),
+                has_non_personal_membership: true,
+            },
+        ])
+        .expect("expected a selected user");
+
+        assert_eq!(selected.id, older.id);
+    }
+
+    #[test]
+    fn falls_back_to_oldest_candidate_when_memberships_match() {
+        let older = sample_user("same@example.com", 1);
+        let newer = sample_user("same@example.com", 2);
+
+        let selected = select_canonical_user(vec![
+            IdentityCandidate {
+                user: newer.clone(),
+                has_non_personal_membership: false,
+            },
+            IdentityCandidate {
+                user: older.clone(),
+                has_non_personal_membership: false,
+            },
+        ])
+        .expect("expected a selected user");
+
+        assert_eq!(selected.id, older.id);
+    }
+
+    #[test]
+    fn only_uses_verified_emails_for_account_linking() {
+        let verified = ProviderUser {
+            id: "provider-user".to_string(),
+            login: Some("verified".to_string()),
+            email: Some("verified@example.com".to_string()),
+            email_verified: true,
+            name: None,
+            avatar_url: None,
+        };
+        let unverified = ProviderUser {
+            email_verified: false,
+            ..verified.clone()
+        };
+
+        assert_eq!(
+            verified_email_for_linking(&verified).as_deref(),
+            Some("verified@example.com")
+        );
+        assert_eq!(verified_email_for_linking(&unverified), None);
+    }
+
+    fn sample_user(email: &str, day: u32) -> User {
+        let created_at = Utc.with_ymd_and_hms(2026, 1, day, 0, 0, 0).unwrap();
+        User {
+            id: Uuid::new_v4(),
+            email: email.to_string(),
+            first_name: None,
+            last_name: None,
+            username: Some(format!("user-{day}")),
+            created_at,
+            updated_at: created_at,
+        }
     }
 }

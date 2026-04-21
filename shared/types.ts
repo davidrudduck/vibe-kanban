@@ -392,9 +392,9 @@ export type AttachPrResponse = { pr_attached: boolean, pr_url: string | null, pr
 
 export type AttachExistingPrRequest = { repo_id: string, };
 
-export type PrCommentsResponse = { comments: Array<UnifiedPrComment>, };
+export type PrCommentsResponse = { pr_attached: boolean, comments: Array<UnifiedPrComment>, };
 
-export type GetPrCommentsError = { "type": "no_pr_attached" } | { "type": "cli_not_installed", provider: ProviderKind, } | { "type": "cli_not_logged_in", provider: ProviderKind, };
+export type GetPrCommentsError = { "type": "cli_not_installed", provider: ProviderKind, } | { "type": "cli_not_logged_in", provider: ProviderKind, };
 
 export type GetPrCommentsQuery = { repo_id: string, };
 

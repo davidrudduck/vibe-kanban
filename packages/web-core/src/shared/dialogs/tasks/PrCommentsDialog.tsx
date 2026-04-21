@@ -43,6 +43,7 @@ const PrCommentsDialogImpl = create<PrCommentsDialogProps>(
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
     const comments = data?.comments ?? [];
+    const prAttached = data?.pr_attached ?? true;
 
     // Reset selection when dialog opens
     useEffect(() => {
@@ -126,7 +127,9 @@ const PrCommentsDialogImpl = create<PrCommentsDialogProps>(
                 </div>
               ) : comments.length === 0 ? (
                 <p className="text-center text-muted-foreground py-8">
-                  {t('tasks:prComments.dialog.noComments')}
+                  {prAttached
+                    ? t('tasks:prComments.dialog.noComments')
+                    : 'No PR is attached to this workspace. Create a PR first to see comments.'}
                 </p>
               ) : (
                 <>
@@ -216,9 +219,6 @@ function getErrorMessage(error: unknown): string {
   // Check if it's an API error with error_data
   if (error && typeof error === 'object' && 'error_data' in error) {
     const errorData = (error as { error_data?: { type?: string } }).error_data;
-    if (errorData?.type === 'no_pr_attached') {
-      return 'No PR is attached to this workspace. Create a PR first to see comments.';
-    }
     if (errorData?.type === 'cli_not_installed') {
       return 'CLI is not installed. Please install it to fetch PR comments.';
     }
