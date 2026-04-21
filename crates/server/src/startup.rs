@@ -40,6 +40,11 @@ impl ServerHandle {
 
     /// Run both the main and proxy servers until the shutdown token is cancelled.
     pub async fn serve(mut self) -> anyhow::Result<()> {
+        self.mcp_process = mcp_http::spawn_mcp_http_server(
+            &std::env::current_exe()?,
+            self.main_listener.local_addr()?,
+        );
+
         // Start relay tunnel so the host registers with the relay server.
         // This must happen after the port is known (it's needed for local
         // proxying) and is shared between the standalone binary and Tauri.
@@ -122,9 +127,6 @@ pub async fn start_with_bind(
 
     tracing::info!("Server on :{port}, Preview proxy on :{proxy_port}");
 
-    let mcp_process =
-        mcp_http::spawn_mcp_http_server(&std::env::current_exe()?, listener.local_addr()?);
-
     Ok(ServerHandle {
         port,
         proxy_port,
@@ -132,7 +134,7 @@ pub async fn start_with_bind(
         shutdown_token,
         main_listener: listener,
         proxy_listener,
-        mcp_process,
+        mcp_process: None,
     })
 }
 

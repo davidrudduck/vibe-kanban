@@ -19,11 +19,21 @@ impl McpHttpServerProcess {
 
     pub fn terminate(&mut self) {
         tracing::info!("[MCP] Terminating HTTP server (PID: {})", self.child.id());
-        if let Err(error) = self.child.kill() {
-            tracing::warn!("[MCP] Failed to kill HTTP server: {}", error);
-        } else {
-            let _ = self.child.wait();
-            tracing::info!("[MCP] HTTP server terminated");
+        match self.child.try_wait() {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                if let Err(error) = self.child.kill() {
+                    tracing::warn!("[MCP] Failed to kill HTTP server: {}", error);
+                }
+            }
+            Err(error) => {
+                tracing::warn!("[MCP] Failed to query HTTP server state: {}", error);
+            }
+        }
+
+        match self.child.wait() {
+            Ok(_) => tracing::info!("[MCP] HTTP server terminated"),
+            Err(error) => tracing::warn!("[MCP] Failed to reap HTTP server: {}", error),
         }
     }
 }
@@ -87,11 +97,14 @@ fn parse_mcp_port(value: Option<&str>) -> Result<Option<u16>, String> {
         return Ok(None);
     };
 
-    value
+    let port = value
         .trim()
         .parse::<u16>()
-        .map(Some)
-        .map_err(|error| format!("[MCP] Invalid MCP_PORT value '{}': {}", value, error))
+        .map_err(|error| format!("[MCP] Invalid MCP_PORT value '{}': {}", value, error))?;
+    if port == 0 {
+        return Err("[MCP] Invalid MCP_PORT value '0': expected 1-65535".to_string());
+    }
+    Ok(Some(port))
 }
 
 fn resolve_mcp_binary_path(current_exe: &Path) -> Option<PathBuf> {
@@ -138,6 +151,12 @@ mod tests {
     fn parse_mcp_port_rejects_invalid_value() {
         let error = parse_mcp_port(Some("abc")).expect_err("parse should fail");
         assert!(error.contains("Invalid MCP_PORT value"));
+    }
+
+    #[test]
+    fn parse_mcp_port_rejects_zero() {
+        let error = parse_mcp_port(Some("0")).expect_err("parse should fail");
+        assert!(error.contains("expected 1-65535"));
     }
 
     #[test]

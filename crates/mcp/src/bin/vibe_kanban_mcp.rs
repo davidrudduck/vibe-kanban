@@ -106,6 +106,9 @@ where
                 let parsed_port = value
                     .parse::<u16>()
                     .map_err(|_| anyhow::anyhow!("Invalid value for --port: '{value}'"))?;
+                if parsed_port == 0 {
+                    anyhow::bail!("Invalid value for --port: '{value}'. Expected 1-65535");
+                }
                 port = Some(parsed_port);
             }
             "-h" | "--help" => {
@@ -350,6 +353,16 @@ mod tests {
         .expect_err("invalid http port should fail");
 
         assert!(error.to_string().contains("Invalid value for --port"));
+    }
+
+    #[test]
+    fn zero_http_port_is_rejected() {
+        let error = resolve_launch_config_from_iter(
+            ["--http".to_string(), "--port".to_string(), "0".to_string()].into_iter(),
+        )
+        .expect_err("zero http port should fail");
+
+        assert!(error.to_string().contains("Expected 1-65535"));
     }
 
     #[tokio::test]
