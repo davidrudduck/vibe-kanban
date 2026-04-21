@@ -2527,6 +2527,8 @@ static SESSION_ID: LazyLock<Regex> = LazyLock::new(|| {
 pub enum Error {
     LaunchError { error: String },
     AuthRequired { error: String },
+    LinuxSandboxAutoFallback { error: String },
+    LinuxSandboxStrictFailure { error: String },
 }
 
 impl Error {
@@ -2535,6 +2537,15 @@ impl Error {
     }
     pub fn auth_required(error: String) -> Self {
         Self::AuthRequired { error }
+    }
+    pub fn linux_sandbox_auto_fallback(error: String) -> Self {
+        Self::LinuxSandboxAutoFallback { error }
+    }
+    pub fn linux_sandbox_strict_failure(error: String) -> Self {
+        let guidance = format!(
+            "Codex's Linux sandbox requires bubblewrap user namespaces. This workspace or host appears to block them.\n\nIf you want to keep sandboxing enabled, enable unprivileged user namespaces or relax the host/AppArmor policy.\nChange the Codex profile to `danger-full-access` if you want Codex to run without the Linux sandbox on this host.\n\nOriginal error: {error}"
+        );
+        Self::LinuxSandboxStrictFailure { error: guidance }
     }
 
     pub fn raw(&self) -> String {
@@ -2557,6 +2568,20 @@ impl ToNormalizedEntry for Error {
                 timestamp: None,
                 entry_type: NormalizedEntryType::ErrorMessage {
                     error_type: NormalizedEntryError::SetupRequired,
+                },
+                content: error.clone(),
+                metadata: None,
+            },
+            Error::LinuxSandboxAutoFallback { error } => NormalizedEntry {
+                timestamp: None,
+                entry_type: NormalizedEntryType::SystemMessage,
+                content: format!("warning: Codex retried without sandboxing. {error}"),
+                metadata: None,
+            },
+            Error::LinuxSandboxStrictFailure { error } => NormalizedEntry {
+                timestamp: None,
+                entry_type: NormalizedEntryType::ErrorMessage {
+                    error_type: NormalizedEntryError::Other,
                 },
                 content: error.clone(),
                 metadata: None,
@@ -2849,6 +2874,38 @@ mod tests {
             &entry.entry_type,
             NormalizedEntryType::UserAnsweredQuestions { answers }
                 if answers.len() == 1 && answers[0].question == "Which language?"
+        )));
+    }
+
+    #[tokio::test]
+    async fn normalizes_linux_sandbox_auto_fallback_warning() {
+        let entries = normalize_lines(&[Error::linux_sandbox_auto_fallback(
+            "bwrap: No permissions to create new namespace".to_string(),
+        )
+        .raw()])
+        .await;
+
+        assert!(entries.iter().any(|entry| matches!(
+            &entry.entry_type,
+            NormalizedEntryType::SystemMessage
+                if entry.content.contains("warning: Codex retried without sandboxing")
+        )));
+    }
+
+    #[tokio::test]
+    async fn normalizes_linux_sandbox_strict_failure_guidance() {
+        let entries = normalize_lines(&[Error::linux_sandbox_strict_failure(
+            "bwrap: No permissions to create new namespace".to_string(),
+        )
+        .raw()])
+        .await;
+
+        assert!(entries.iter().any(|entry| matches!(
+            &entry.entry_type,
+            NormalizedEntryType::ErrorMessage { .. }
+                if entry
+                    .content
+                    .contains("Change the Codex profile to `danger-full-access`")
         )));
     }
 
