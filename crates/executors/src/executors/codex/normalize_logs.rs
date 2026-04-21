@@ -1,7 +1,10 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::{Arc, LazyLock},
+    sync::{
+        Arc, LazyLock, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -62,7 +65,6 @@ fn is_suppressed_codex_stderr_line(line: &str) -> bool {
     SUPPRESSED_STDERR_PATTERNS
         .iter()
         .any(|pattern| line.contains(pattern))
-        || super::is_linux_sandbox_namespace_error_message(line)
 }
 
 trait ToNormalizedEntry {
@@ -1460,9 +1462,13 @@ const SUPPRESSED_STDERR_PATTERNS: &[&str] = &[
 fn normalize_codex_stderr_logs(
     msg_store: Arc<MsgStore>,
     entry_index_provider: EntryIndexProvider,
+    structured_linux_sandbox_message_seen: Arc<AtomicBool>,
+    deferred_linux_sandbox_stderr: Arc<Mutex<Vec<String>>>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut stderr = msg_store.stderr_chunked_stream();
+        let transform_structured_seen = structured_linux_sandbox_message_seen.clone();
+        let transform_deferred = deferred_linux_sandbox_stderr.clone();
         let mut processor = PlainTextLogProcessor::builder()
             .normalized_entry_producer(|content: String| NormalizedEntry {
                 timestamp: None,
@@ -1474,8 +1480,23 @@ fn normalize_codex_stderr_logs(
             })
             .time_gap(Duration::from_secs(2))
             .index_provider(entry_index_provider)
-            .transform_lines(Box::new(|lines: &mut Vec<String>| {
-                lines.retain(|line| !is_suppressed_codex_stderr_line(line));
+            .transform_lines(Box::new(move |lines: &mut Vec<String>| {
+                let mut kept = Vec::with_capacity(lines.len());
+                let structured_seen = transform_structured_seen.load(Ordering::Relaxed);
+                let mut deferred = transform_deferred.lock().unwrap();
+                for line in lines.drain(..) {
+                    if is_suppressed_codex_stderr_line(&line) {
+                        continue;
+                    }
+                    if super::is_linux_sandbox_namespace_error_message(&line) {
+                        if !structured_seen {
+                            deferred.push(line);
+                        }
+                        continue;
+                    }
+                    kept.push(line);
+                }
+                *lines = kept;
             }))
             .build();
 
@@ -1492,7 +1513,14 @@ pub fn normalize_logs(
     worktree_path: &Path,
 ) -> Vec<tokio::task::JoinHandle<()>> {
     let entry_index = EntryIndexProvider::start_from(&msg_store);
-    let h1 = normalize_codex_stderr_logs(msg_store.clone(), entry_index.clone());
+    let structured_linux_sandbox_message_seen = Arc::new(AtomicBool::new(false));
+    let deferred_linux_sandbox_stderr = Arc::new(Mutex::new(Vec::<String>::new()));
+    let h1 = normalize_codex_stderr_logs(
+        msg_store.clone(),
+        entry_index.clone(),
+        structured_linux_sandbox_message_seen.clone(),
+        deferred_linux_sandbox_stderr.clone(),
+    );
 
     let worktree_path_str = worktree_path.to_string_lossy().to_string();
     let h2 = tokio::spawn(async move {
@@ -1501,6 +1529,12 @@ pub fn normalize_logs(
 
         while let Some(Ok(line)) = stdout_lines.next().await {
             if let Ok(error) = serde_json::from_str::<Error>(&line) {
+                if matches!(
+                    error,
+                    Error::LinuxSandboxAutoFallback { .. } | Error::LinuxSandboxStrictFailure { .. }
+                ) {
+                    structured_linux_sandbox_message_seen.store(true, Ordering::Relaxed);
+                }
                 add_normalized_entry(&msg_store, &entry_index, error.to_normalized_entry());
                 continue;
             }
@@ -2427,6 +2461,27 @@ pub fn normalize_logs(
                 | EventMsg::GuardianAssessment(..) => {}
             }
         }
+
+        if !structured_linux_sandbox_message_seen.load(Ordering::Relaxed) {
+            let deferred = {
+                let mut deferred = deferred_linux_sandbox_stderr.lock().unwrap();
+                std::mem::take(&mut *deferred)
+            };
+            if !deferred.is_empty() {
+                add_normalized_entry(
+                    &msg_store,
+                    &entry_index,
+                    NormalizedEntry {
+                        timestamp: None,
+                        entry_type: NormalizedEntryType::ErrorMessage {
+                            error_type: NormalizedEntryError::Other,
+                        },
+                        content: strip_ansi_escapes::strip_str(&deferred.concat()),
+                        metadata: None,
+                    },
+                );
+            }
+        }
     });
 
     vec![h1, h2]
@@ -2952,6 +3007,29 @@ mod tests {
             &entry.entry_type,
             NormalizedEntryType::ErrorMessage { .. }
                 if entry.content.contains("needs access to create user namespaces")
+        )));
+    }
+
+    #[tokio::test]
+    async fn preserves_linux_sandbox_stderr_when_no_structured_warning_exists() {
+        let entries = normalize_stdout_and_stderr(
+            &[],
+            &[String::from(
+                "2026-04-21T12:13:49.006895Z ERROR codex_app_server: Codex's Linux sandbox uses bubblewrap and needs access to create user namespaces.\n",
+            )],
+        )
+        .await;
+
+        assert!(entries.iter().any(|entry| matches!(
+            &entry.entry_type,
+            NormalizedEntryType::ErrorMessage { .. }
+                if entry.content.contains("needs access to create user namespaces")
+        )));
+
+        assert!(!entries.iter().any(|entry| matches!(
+            &entry.entry_type,
+            NormalizedEntryType::SystemMessage
+                if entry.content.contains("warning: Codex retried without sandboxing")
         )));
     }
 
