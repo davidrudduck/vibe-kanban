@@ -58,6 +58,13 @@ use crate::{
     },
 };
 
+fn is_suppressed_codex_stderr_line(line: &str) -> bool {
+    SUPPRESSED_STDERR_PATTERNS
+        .iter()
+        .any(|pattern| line.contains(pattern))
+        || super::is_linux_sandbox_namespace_error_message(line)
+}
+
 trait ToNormalizedEntry {
     fn to_normalized_entry(&self) -> NormalizedEntry;
 }
@@ -1468,11 +1475,7 @@ fn normalize_codex_stderr_logs(
             .time_gap(Duration::from_secs(2))
             .index_provider(entry_index_provider)
             .transform_lines(Box::new(|lines: &mut Vec<String>| {
-                lines.retain(|line| {
-                    !SUPPRESSED_STDERR_PATTERNS
-                        .iter()
-                        .any(|pattern| line.contains(pattern))
-                });
+                lines.retain(|line| !is_suppressed_codex_stderr_line(line));
             }))
             .build();
 
@@ -2757,6 +2760,23 @@ mod tests {
         latest_normalized_entries(&msg_store)
     }
 
+    async fn normalize_stdout_and_stderr(stdout_lines: &[String], stderr_chunks: &[String]) -> Vec<NormalizedEntry> {
+        let msg_store = Arc::new(MsgStore::new());
+        for line in stdout_lines {
+            msg_store.push_stdout(format!("{line}\n"));
+        }
+        for chunk in stderr_chunks {
+            msg_store.push(LogMsg::Stderr(chunk.clone()));
+        }
+        msg_store.push_finished();
+
+        for handle in normalize_logs(msg_store.clone(), Path::new("/tmp/test-worktree")) {
+            handle.await.unwrap();
+        }
+
+        latest_normalized_entries(&msg_store)
+    }
+
     fn tool_use<'a>(entries: &'a [NormalizedEntry], tool_name: &str) -> &'a NormalizedEntry {
         entries
             .iter()
@@ -2906,6 +2926,32 @@ mod tests {
                 if entry
                     .content
                     .contains("Change the Codex profile to `danger-full-access`")
+        )));
+    }
+
+    #[tokio::test]
+    async fn suppresses_raw_linux_sandbox_stderr_when_structured_warning_exists() {
+        let entries = normalize_stdout_and_stderr(
+            &[Error::linux_sandbox_auto_fallback(
+                "bwrap: No permissions to create new namespace".to_string(),
+            )
+            .raw()],
+            &[String::from(
+                "2026-04-21T12:13:49.006895Z ERROR codex_app_server: Codex's Linux sandbox uses bubblewrap and needs access to create user namespaces.\n",
+            )],
+        )
+        .await;
+
+        assert!(entries.iter().any(|entry| matches!(
+            &entry.entry_type,
+            NormalizedEntryType::SystemMessage
+                if entry.content.contains("warning: Codex retried without sandboxing")
+        )));
+
+        assert!(!entries.iter().any(|entry| matches!(
+            &entry.entry_type,
+            NormalizedEntryType::ErrorMessage { .. }
+                if entry.content.contains("needs access to create user namespaces")
         )));
     }
 
