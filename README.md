@@ -120,8 +120,8 @@ The following environment variables can be configured at build time or runtime:
 | `BACKEND_PORT` | Runtime | `0` (auto-assign) | Backend server port (dev mode only, overrides PORT+1) |
 | `FRONTEND_PORT` | Runtime | `3000` | Frontend dev server port (dev mode only, overrides PORT) |
 | `HOST` | Runtime | `127.0.0.1` | Backend server host |
-| `MCP_HOST` | Runtime | Value of `HOST` | MCP server connection host (use `127.0.0.1` when `HOST=0.0.0.0` on Windows) |
-| `MCP_PORT` | Runtime | Value of `BACKEND_PORT` | MCP server connection port |
+| `MCP_HOST` | Runtime | Value of `HOST` | MCP HTTP server bind host when HTTP mode is enabled |
+| `MCP_PORT` | Runtime | Not set | Enables the MCP HTTP server at `http://<MCP_HOST or HOST>:<MCP_PORT>/mcp` |
 | `DISABLE_WORKTREE_CLEANUP` | Runtime | Not set | Disable all git worktree cleanup including orphan and expired workspace cleanup (for debugging) |
 | `VK_ALLOWED_ORIGINS` | Runtime | Not set | Comma-separated list of origins that are allowed to make backend API requests (e.g., `https://my-vibekanban-frontend.com`) |
 | `VK_SHARED_API_BASE` | Runtime | Not set | Base URL for the remote/cloud API used by the local desktop app |
@@ -129,6 +129,23 @@ The following environment variables can be configured at build time or runtime:
 | `VK_TUNNEL` | Runtime | Not set | Enable relay tunnel mode when set (requires relay API base URL) |
 
 **Build-time variables** must be set when running `pnpm run build`. **Runtime variables** are read when the application starts.
+
+#### MCP over HTTP / HTTPS
+
+By default, `npx vibe-kanban --mcp` runs the MCP server over `stdio` for local clients.
+
+If `MCP_PORT` is set when the backend starts, Vibe Kanban also spawns an HTTP MCP endpoint at `/mcp` on that port:
+
+```bash
+HOST=127.0.0.1 BACKEND_PORT=3001 MCP_PORT=3002 pnpm run backend:dev:watch
+```
+
+This gives you:
+
+- Backend API/UI on `http://127.0.0.1:3001`
+- MCP HTTP endpoint on `http://127.0.0.1:3002/mcp`
+
+If you need HTTPS, terminate TLS in a reverse proxy or tunnel in front of the MCP endpoint.
 
 #### Self-Hosting with a Reverse Proxy or Custom Domain
 

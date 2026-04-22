@@ -1,5 +1,21 @@
+use std::sync::Arc;
+
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
+    middleware::Next,
+    response::Response,
+};
 use mcp::task_server::McpServer;
-use rmcp::{ServiceExt, transport::stdio};
+use rmcp::{
+    ServiceExt,
+    transport::{
+        stdio,
+        streamable_http_server::{
+            StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
+        },
+    },
+};
 use tracing_subscriber::{EnvFilter, prelude::*};
 use utils::{
     port_file::read_port_file,
@@ -18,6 +34,13 @@ enum McpLaunchMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct LaunchConfig {
     mode: McpLaunchMode,
+    transport: McpTransport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum McpTransport {
+    Stdio,
+    Http { port: u16 },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -32,20 +55,25 @@ fn main() -> anyhow::Result<()> {
             init_process_logging("vibe-kanban-mcp", version);
 
             let base_url = resolve_base_url("vibe-kanban-mcp").await?;
-            let LaunchConfig { mode } = launch_config;
+            let LaunchConfig { mode, transport } = launch_config;
 
             let server = match mode {
                 McpLaunchMode::Global => McpServer::new_global(&base_url),
                 McpLaunchMode::Orchestrator => McpServer::new_orchestrator(&base_url),
             };
 
-            let service = server.init().await?.serve(stdio()).await.map_err(|error| {
-                tracing::error!("serving error: {:?}", error);
-                error
-            })?;
+            match transport {
+                McpTransport::Stdio => {
+                    let service = server.init().await?.serve(stdio()).await.map_err(|error| {
+                        tracing::error!("serving error: {:?}", error);
+                        error
+                    })?;
 
-            service.waiting().await?;
-            Ok(())
+                    service.waiting().await?;
+                    Ok(())
+                }
+                McpTransport::Http { port } => run_http_server(server, port).await,
+            }
         })
 }
 
@@ -58,6 +86,8 @@ where
     I: Iterator<Item = String>,
 {
     let mut mode = None;
+    let mut http = false;
+    let mut port = None;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -66,13 +96,30 @@ where
                     anyhow::anyhow!("Missing value for --mode. Expected 'global' or 'orchestrator'")
                 })?);
             }
+            "--http" => {
+                http = true;
+            }
+            "--port" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("Missing value for --port"))?;
+                let parsed_port = value
+                    .parse::<u16>()
+                    .map_err(|_| anyhow::anyhow!("Invalid value for --port: '{value}'"))?;
+                if parsed_port == 0 {
+                    anyhow::bail!("Invalid value for --port: '{value}'. Expected 1-65535");
+                }
+                port = Some(parsed_port);
+            }
             "-h" | "--help" => {
-                println!("Usage: vibe-kanban-mcp --mode <global|orchestrator>");
+                println!(
+                    "Usage: vibe-kanban-mcp [--mode <global|orchestrator>] [--http --port <port>]"
+                );
                 std::process::exit(0);
             }
             _ => {
                 return Err(anyhow::anyhow!(
-                    "Unknown argument '{arg}'. Usage: vibe-kanban-mcp --mode <global|orchestrator>"
+                    "Unknown argument '{arg}'. Usage: vibe-kanban-mcp [--mode <global|orchestrator>] [--http --port <port>]"
                 ));
             }
         }
@@ -94,7 +141,62 @@ where
         }
     };
 
-    Ok(LaunchConfig { mode })
+    let transport = match (http, port) {
+        (false, None) => McpTransport::Stdio,
+        (false, Some(_)) => {
+            anyhow::bail!("--port requires --http");
+        }
+        (true, None) => {
+            anyhow::bail!("Missing value for --port");
+        }
+        (true, Some(port)) => McpTransport::Http { port },
+    };
+
+    Ok(LaunchConfig { mode, transport })
+}
+
+async fn remap_session_not_found(req: Request<Body>, next: Next) -> Response {
+    let response = next.run(req).await;
+    if response.status() == StatusCode::UNAUTHORIZED {
+        let (mut parts, body) = response.into_parts();
+        parts.status = StatusCode::NOT_FOUND;
+        Response::from_parts(parts, body)
+    } else {
+        response
+    }
+}
+
+async fn run_http_server(server: McpServer, port: u16) -> anyhow::Result<()> {
+    let bind_host = std::env::var(HOST_ENV)
+        .or_else(|_| std::env::var("HOST"))
+        .unwrap_or_else(|_| "127.0.0.1".to_string());
+    let bind_address = format!("{bind_host}:{port}");
+
+    tracing::info!("[vibe-kanban-mcp] Starting HTTP server at http://{bind_address}/mcp");
+
+    let template_server = Arc::new(server.init().await?);
+    let session_manager = Arc::new(LocalSessionManager::default());
+    let service: StreamableHttpService<McpServer, LocalSessionManager> = StreamableHttpService::new(
+        move || Ok((*template_server).clone()),
+        session_manager,
+        StreamableHttpServerConfig::default(),
+    );
+
+    let router = axum::Router::new()
+        .nest_service("/mcp", service)
+        .layer(axum::middleware::from_fn(remap_session_not_found));
+    let tcp_listener = tokio::net::TcpListener::bind(&bind_address).await?;
+
+    tracing::info!("[vibe-kanban-mcp] HTTP server listening at http://{bind_address}/mcp");
+
+    axum::serve(tcp_listener, router)
+        .with_graceful_shutdown(async move {
+            tokio::signal::ctrl_c().await.unwrap();
+            tracing::info!("[vibe-kanban-mcp] Received shutdown signal, stopping HTTP server...");
+        })
+        .await?;
+
+    Ok(())
 }
 
 async fn resolve_base_url(log_prefix: &str) -> anyhow::Result<String> {
@@ -158,7 +260,18 @@ fn init_process_logging(log_prefix: &str, version: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{LaunchConfig, McpLaunchMode, resolve_launch_config_from_iter};
+    use std::sync::Arc;
+
+    use axum::middleware::from_fn;
+    use rmcp::transport::streamable_http_server::{
+        StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
+    };
+    use tokio::sync::oneshot;
+
+    use super::{
+        LaunchConfig, McpLaunchMode, McpServer, McpTransport, remap_session_not_found,
+        resolve_launch_config_from_iter,
+    };
 
     #[test]
     fn orchestrator_mode_does_not_require_session_id() {
@@ -170,7 +283,8 @@ mod tests {
         assert_eq!(
             config,
             LaunchConfig {
-                mode: McpLaunchMode::Orchestrator
+                mode: McpLaunchMode::Orchestrator,
+                transport: McpTransport::Stdio,
             }
         );
     }
@@ -193,5 +307,158 @@ mod tests {
                 .to_string()
                 .contains("Unknown argument '--session-id'")
         );
+    }
+
+    #[test]
+    fn http_mode_with_port_parses() {
+        let config = resolve_launch_config_from_iter(
+            [
+                "--http".to_string(),
+                "--port".to_string(),
+                "8765".to_string(),
+                "--mode".to_string(),
+                "global".to_string(),
+            ]
+            .into_iter(),
+        )
+        .expect("config should parse");
+
+        assert_eq!(
+            config,
+            LaunchConfig {
+                mode: McpLaunchMode::Global,
+                transport: McpTransport::Http { port: 8765 },
+            }
+        );
+    }
+
+    #[test]
+    fn http_mode_requires_port_value() {
+        let error = resolve_launch_config_from_iter(["--http".to_string()].into_iter())
+            .expect_err("http mode without port should fail");
+
+        assert!(error.to_string().contains("Missing value for --port"));
+    }
+
+    #[test]
+    fn invalid_http_port_is_rejected() {
+        let error = resolve_launch_config_from_iter(
+            [
+                "--http".to_string(),
+                "--port".to_string(),
+                "not-a-port".to_string(),
+            ]
+            .into_iter(),
+        )
+        .expect_err("invalid http port should fail");
+
+        assert!(error.to_string().contains("Invalid value for --port"));
+    }
+
+    #[test]
+    fn zero_http_port_is_rejected() {
+        let error = resolve_launch_config_from_iter(
+            ["--http".to_string(), "--port".to_string(), "0".to_string()].into_iter(),
+        )
+        .expect_err("zero http port should fail");
+
+        assert!(error.to_string().contains("Expected 1-65535"));
+    }
+
+    #[tokio::test]
+    async fn remap_session_not_found_returns_not_found() {
+        let template_server = Arc::new(
+            McpServer::new_global("http://127.0.0.1:9")
+                .init()
+                .await
+                .expect("server should initialize without local context"),
+        );
+        let service: StreamableHttpService<McpServer, LocalSessionManager> =
+            StreamableHttpService::new(
+                move || Ok((*template_server).clone()),
+                Arc::new(LocalSessionManager::default()),
+                StreamableHttpServerConfig::default().with_sse_keep_alive(None),
+            );
+        let router = axum::Router::new()
+            .nest_service("/mcp", service)
+            .layer(from_fn(remap_session_not_found));
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("listener should bind");
+        let addr = listener.local_addr().expect("local addr should resolve");
+        let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+        let server = tokio::spawn(async move {
+            let _ = axum::serve(listener, router)
+                .with_graceful_shutdown(async move {
+                    let _ = shutdown_rx.await;
+                })
+                .await;
+        });
+
+        let response = reqwest::Client::new()
+            .post(format!("http://{addr}/mcp"))
+            .header("accept", "application/json, text/event-stream")
+            .header("content-type", "application/json")
+            .header("mcp-session-id", "stale-session-id")
+            .body(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}"#)
+            .send()
+            .await
+            .expect("request should complete");
+
+        assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+
+        let _ = shutdown_tx.send(());
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    async fn http_server_initialize_responds_on_mcp_endpoint() {
+        let template_server = Arc::new(
+            McpServer::new_global("http://127.0.0.1:9")
+                .init()
+                .await
+                .expect("server should initialize without local context"),
+        );
+        let service: StreamableHttpService<McpServer, LocalSessionManager> =
+            StreamableHttpService::new(
+                move || Ok((*template_server).clone()),
+                Arc::new(LocalSessionManager::default()),
+                StreamableHttpServerConfig::default().with_sse_keep_alive(None),
+            );
+        let router = axum::Router::new()
+            .nest_service("/mcp", service)
+            .layer(from_fn(remap_session_not_found));
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("listener should bind");
+        let addr = listener.local_addr().expect("local addr should resolve");
+        let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+        let server = tokio::spawn(async move {
+            let _ = axum::serve(listener, router)
+                .with_graceful_shutdown(async move {
+                    let _ = shutdown_rx.await;
+                })
+                .await;
+        });
+
+        let response = reqwest::Client::new()
+            .post(format!("http://{addr}/mcp"))
+            .header("accept", "application/json, text/event-stream")
+            .header("content-type", "application/json")
+            .body(
+                r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}"#,
+            )
+            .send()
+            .await
+            .expect("request should complete");
+
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let body = response.text().await.expect("body should read");
+        assert!(body.contains("\"protocolVersion\":\"2025-03-26\""));
+
+        let _ = shutdown_tx.send(());
+        let _ = server.await;
     }
 }
