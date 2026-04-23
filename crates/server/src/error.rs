@@ -641,22 +641,6 @@ mod tests {
     }
 }
 
-impl From<OpenRemoteEditorError> for ApiError {
-    fn from(err: OpenRemoteEditorError) -> Self {
-        match err {
-            OpenRemoteEditorError::Connection(err) => err.into(),
-            OpenRemoteEditorError::CreateTunnel(ref detail) => {
-                tracing::warn!(%detail, "Failed to create SSH tunnel");
-                ApiError::BadGateway(err.to_string())
-            }
-            OpenRemoteEditorError::SshSetup(ref detail) => {
-                tracing::warn!(%detail, "Failed to open remote editor");
-                ApiError::BadGateway(err.to_string())
-            }
-        }
-    }
-}
-
 impl From<RelayPairingClientError> for ApiError {
     fn from(err: RelayPairingClientError) -> Self {
         match err {
