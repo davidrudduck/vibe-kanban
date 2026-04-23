@@ -1,10 +1,7 @@
-use db::{
-    DBService,
-    models::{
-        coding_agent_turn::CodingAgentTurn,
-        execution_process::{ExecutionProcess, ExecutionProcessStatus},
-        session::Session,
-    },
+use db::models::{
+    coding_agent_turn::CodingAgentTurn,
+    execution_process::{ExecutionProcess, ExecutionProcessStatus},
+    session::Session,
 };
 use rmcp::{
     ErrorData, handler::server::wrapper::Parameters, model::CallToolResult, schemars, tool,
@@ -526,17 +523,18 @@ impl McpServer {
             Err(error_result) => return Ok(Self::tool_error(error_result)),
         };
 
-        let pool = match DBService::new_migration_pool().await {
+        let pool = match self.get_db_pool().await {
             Ok(pool) => pool,
             Err(error) => {
+                let msg: String = error.to_string();
                 return Ok(Self::tool_error(ToolError::new(
                     "Failed to open VK database",
-                    Some(error.to_string()),
+                    Some(msg),
                 )));
             }
         };
         let final_message = match CodingAgentTurn::find_by_execution_process_id(
-            &pool,
+            pool,
             execution_process.id,
         )
         .await
@@ -579,18 +577,19 @@ impl McpServer {
             return Ok(Self::tool_error(error_result));
         }
 
-        let pool = match DBService::new_migration_pool().await {
+        let pool = match self.get_db_pool().await {
             Ok(pool) => pool,
             Err(error) => {
+                let msg: String = error.to_string();
                 return Ok(Self::tool_error(ToolError::new(
                     "Failed to open VK database",
-                    Some(error.to_string()),
+                    Some(msg),
                 )));
             }
         };
 
         let execution_processes = match ExecutionProcess::find_by_session_id(
-            &pool,
+            pool,
             session_id,
             include_soft_deleted.unwrap_or(false),
         )
@@ -605,22 +604,24 @@ impl McpServer {
             }
         };
 
+        // Batch-fetch all coding agent turns for these execution processes in
+        // a single query, avoiding N+1 lookups for sessions with many turns.
+        let execution_ids: Vec<_> = execution_processes.iter().map(|ep| ep.id).collect();
+        let turn_map = match CodingAgentTurn::find_by_execution_process_ids(pool, &execution_ids)
+            .await
+        {
+            Ok(map) => map,
+            Err(error) => {
+                return Ok(Self::tool_error(ToolError::new(
+                    "Failed to load session turn history",
+                    Some(error.to_string()),
+                )));
+            }
+        };
+
         let mut turns = Vec::new();
         for execution_process in execution_processes {
-            let turn =
-                match CodingAgentTurn::find_by_execution_process_id(&pool, execution_process.id)
-                    .await
-                {
-                    Ok(turn) => turn,
-                    Err(error) => {
-                        return Ok(Self::tool_error(ToolError::new(
-                            "Failed to load session turn history",
-                            Some(error.to_string()),
-                        )));
-                    }
-                };
-
-            let Some(turn) = turn else {
+            let Some(turn) = turn_map.get(&execution_process.id) else {
                 continue;
             };
 
@@ -631,10 +632,10 @@ impl McpServer {
                 dropped: execution_process.dropped,
                 created_at: execution_process.created_at.to_rfc3339(),
                 completed_at: execution_process.completed_at.map(|time| time.to_rfc3339()),
-                prompt: turn.prompt,
-                final_message: turn.summary,
-                agent_session_id: turn.agent_session_id,
-                agent_message_id: turn.agent_message_id,
+                prompt: turn.prompt.clone(),
+                final_message: turn.summary.clone(),
+                agent_session_id: turn.agent_session_id.clone(),
+                agent_message_id: turn.agent_message_id.clone(),
             });
         }
 

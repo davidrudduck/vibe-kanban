@@ -1,12 +1,14 @@
 mod handler;
 mod tools;
 
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 use anyhow::Context;
-use db::models::{requests::ContainerQuery, workspace::WorkspaceContext};
+use db::{DBService, models::{requests::ContainerQuery, workspace::WorkspaceContext}};
 use rmcp::{handler::server::tool::ToolRouter, schemars};
 use serde::{Deserialize, Serialize};
+use sqlx::SqlitePool;
+use tokio::sync::OnceCell;
 use uuid::Uuid;
 
 pub(crate) use crate::ApiResponseEnvelope;
@@ -53,6 +55,10 @@ pub struct McpServer {
     tool_router: ToolRouter<McpServer>,
     context: Option<McpContext>,
     mode: McpMode,
+    /// Shared SQLite pool for MCP tools that need direct DB access.
+    /// Lazily initialized once per McpServer instance to avoid creating a
+    /// fresh 64-connection pool on every tool invocation.
+    db_pool: Arc<OnceCell<SqlitePool>>,
 }
 
 impl McpServer {
@@ -63,6 +69,7 @@ impl McpServer {
             tool_router: Self::global_mode_router(),
             context: None,
             mode: McpMode::Global,
+            db_pool: Arc::new(OnceCell::new()),
         }
     }
 
@@ -73,7 +80,17 @@ impl McpServer {
             tool_router: Self::orchestrator_mode_router(),
             context: None,
             mode: McpMode::Orchestrator,
+            db_pool: Arc::new(OnceCell::new()),
         }
+    }
+
+    /// Get or initialize the shared SQLite pool for this McpServer instance.
+    /// Lazily creates a single pool (instead of one per tool invocation) so
+    /// concurrent MCP calls share connections.
+    pub(crate) async fn get_db_pool(&self) -> Result<&SqlitePool, sqlx::Error> {
+        self.db_pool
+            .get_or_try_init(|| async { DBService::new_migration_pool().await })
+            .await
     }
 
     fn url(&self, path: &str) -> String {

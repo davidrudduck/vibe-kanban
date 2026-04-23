@@ -221,6 +221,14 @@ async fn run_http_server(server: McpServer, port: u16) -> anyhow::Result<()> {
 }
 
 async fn resolve_base_url(log_prefix: &str, config: &LaunchConfig) -> anyhow::Result<String> {
+    // Single, unambiguous precedence chain for backend URL resolution:
+    //   1. `config.backend_url` (explicit --backend-url CLI arg)
+    //   2. `VIBE_BACKEND_URL` env var (must parse as a URL *with a scheme*)
+    //   3. Port file `backend_url` field
+    //   4. Reconstructed from HOST / (MCP_PORT|BACKEND_PORT|PORT)
+    //
+    // `HOST` and port env vars apply uniformly across all paths where we
+    // reconstruct a URL; they never override a fully-formed explicit URL.
     if let Some(url) = &config.backend_url {
         tracing::info!(
             "[{}] Using backend URL from --backend-url: {}",
@@ -230,47 +238,74 @@ async fn resolve_base_url(log_prefix: &str, config: &LaunchConfig) -> anyhow::Re
         return Ok(url.clone());
     }
 
-    let host_override = config.host.clone().or_else(|| std::env::var(HOST_ENV).ok());
-    let port_override = std::env::var(PORT_ENV)
-        .ok()
-        .and_then(|s| s.parse::<u16>().ok());
+    let host_override = config
+        .host
+        .clone()
+        .or_else(|| std::env::var(HOST_ENV).ok())
+        .or_else(|| std::env::var("HOST").ok());
 
-    if let Some(mut base) = std::env::var("VIBE_BACKEND_URL")
-        .ok()
-        .and_then(|u| url::Url::parse(&u).ok())
-    {
+    // VIBE_BACKEND_URL: only honor if it parses as a URL with a scheme.
+    // Invalid (e.g. missing-scheme) values fall through to the next source
+    // with a warning rather than being passed through as raw strings.
+    let backend_url_env = std::env::var("VIBE_BACKEND_URL").ok().and_then(|raw| {
+        match url::Url::parse(&raw) {
+            Ok(parsed) if !parsed.scheme().is_empty() => Some(parsed),
+            Ok(_) => {
+                tracing::warn!(
+                    "[{}] Ignoring VIBE_BACKEND_URL='{}': missing scheme",
+                    log_prefix,
+                    raw
+                );
+                None
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "[{}] Ignoring VIBE_BACKEND_URL='{}': {e}",
+                    log_prefix,
+                    raw
+                );
+                None
+            }
+        }
+    });
+
+    if let Some(mut base) = backend_url_env {
+        // Allow HOST / port env vars to override components of the parsed URL
+        // so both branches have the same precedence rules.
         if let Some(h) = &host_override {
             let _ = base.set_host(Some(h));
         }
-        if let Some(p) = port_override {
+        if let Some(p) = read_port_override_env()? {
             let _ = base.set_port(Some(p));
         }
         let url = base.as_str().trim_end_matches('/').to_string();
-        tracing::info!("[{}] Using backend URL: {}", log_prefix, url);
+        tracing::info!("[{}] Using backend URL from VIBE_BACKEND_URL: {}", log_prefix, url);
         return Ok(url);
     }
 
-    let backend_url = std::env::var("VIBE_BACKEND_URL").ok();
-    let host = host_override
-        .or_else(|| std::env::var("HOST").ok())
-        .unwrap_or_else(|| "127.0.0.1".to_string());
-
-    let explicit_port = match std::env::var(PORT_ENV)
-        .or_else(|_| std::env::var("BACKEND_PORT"))
-        .or_else(|_| std::env::var("PORT"))
-    {
-        Ok(port_str) => Some(port_str.parse::<u16>().map_err(|error| {
-            anyhow::anyhow!("Invalid port value '{}': {}", port_str, error)
-        })?),
-        Err(_) => None,
-    };
+    let host = host_override.unwrap_or_else(|| "127.0.0.1".to_string());
+    let explicit_port = read_port_override_env()?;
 
     let port_info = match explicit_port {
         Some(_) => None,
         None => Some(read_port_info("vibe-kanban").await?),
     };
 
-    resolve_base_url_from_sources(log_prefix, backend_url, host, explicit_port, port_info)
+    resolve_base_url_from_sources(log_prefix, None, host, explicit_port, port_info)
+}
+
+/// Read port override from env (MCP_PORT, then BACKEND_PORT, then PORT).
+/// Returns `Ok(None)` when nothing is set; errors on unparseable values.
+fn read_port_override_env() -> anyhow::Result<Option<u16>> {
+    match std::env::var(PORT_ENV)
+        .or_else(|_| std::env::var("BACKEND_PORT"))
+        .or_else(|_| std::env::var("PORT"))
+    {
+        Ok(port_str) => Ok(Some(port_str.parse::<u16>().map_err(|error| {
+            anyhow::anyhow!("Invalid port value '{}': {}", port_str, error)
+        })?)),
+        Err(_) => Ok(None),
+    }
 }
 
 fn resolve_base_url_from_sources(

@@ -729,10 +729,13 @@ impl GitCli {
             .trim()
             .to_string();
 
-        // Rebase the task branch onto base, in the task worktree where
-        // from_branch is already checked out.
+        // Rebase the task branch onto base. Passing `from_branch` explicitly
+        // (3-argument form: `git rebase <base> <from>`) guarantees we rebase
+        // the named branch rather than whatever HEAD happens to be pointing
+        // at in the task worktree. `git rebase` will check out `from_branch`
+        // before replaying commits.
         if let Err(e) = self
-            .git(task_repo_path, ["rebase", base_branch])
+            .git(task_repo_path, ["rebase", base_branch, from_branch])
             .map(|_| ())
         {
             // Best-effort cleanup so we don't leave the worktree mid-rebase.
@@ -747,11 +750,18 @@ impl GitCli {
         {
             // The rebase succeeded but the fast-forward failed. Roll the task
             // branch back to its pre-rebase tip so the repository returns to
-            // its pre-call state.
-            let _ = self.git(
-                task_repo_path,
-                ["reset", "--hard", &original_task_tip],
-            );
+            // its pre-call state. Log any rollback failure so the operator
+            // can recover a corrupt worktree instead of silently losing the
+            // signal.
+            if let Err(rollback_err) =
+                self.git(task_repo_path, ["reset", "--hard", &original_task_tip])
+            {
+                tracing::error!(
+                    task_worktree = ?task_repo_path,
+                    original_task_tip = %original_task_tip,
+                    "Failed to roll back rebase after fast-forward failure: {rollback_err}"
+                );
+            }
             return Err(e);
         }
 

@@ -227,14 +227,32 @@ pub async fn merge_workspace(
     let commit_message = format!("{} (vibe-kanban {})", workspace_label, vk_id);
 
     let strategy = request.strategy.unwrap_or_default();
-    let merge_commit_id = deployment.git().merge_changes(
-        &repo.path,
-        &worktree_path,
-        &workspace.branch,
-        &workspace_repo.target_branch,
-        &commit_message,
-        strategy,
-    )?;
+    // merge_changes invokes synchronous git CLI operations (rebase / merge
+    // --no-ff / squash) which can block for seconds on large repos. Move it
+    // onto a blocking thread so we don't stall the Tokio executor while git
+    // runs.
+    let merge_commit_id = {
+        let git = deployment.git().clone();
+        let repo_path = repo.path.clone();
+        let worktree_path = worktree_path.clone();
+        let branch = workspace.branch.clone();
+        let target_branch = workspace_repo.target_branch.clone();
+        let commit_message = commit_message.clone();
+        tokio::task::spawn_blocking(move || {
+            git.merge_changes(
+                &repo_path,
+                &worktree_path,
+                &branch,
+                &target_branch,
+                &commit_message,
+                strategy,
+            )
+        })
+        .await
+        .map_err(|e| {
+            ApiError::Io(std::io::Error::other(format!("merge task panicked: {e}")))
+        })??
+    };
 
     Merge::create_direct(
         pool,

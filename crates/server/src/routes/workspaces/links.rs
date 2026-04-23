@@ -43,9 +43,18 @@ fn classify_remote_workspace_sync(
         return Ok(RemoteWorkspaceSyncAction::Create);
     };
 
-    if existing_workspace.project_id == project_id && existing_workspace.issue_id == Some(issue_id)
-    {
-        return Ok(RemoteWorkspaceSyncAction::Update);
+    if existing_workspace.project_id == project_id {
+        match existing_workspace.issue_id {
+            // Workspace was previously unlinked from any issue — allow it to
+            // be linked to the target issue (Update rather than Conflict).
+            None => return Ok(RemoteWorkspaceSyncAction::Update),
+            // Target matches the already-linked issue — idempotent update.
+            Some(existing_issue_id) if existing_issue_id == issue_id => {
+                return Ok(RemoteWorkspaceSyncAction::Update);
+            }
+            // Different issue — genuine conflict, fall through.
+            Some(_) => {}
+        }
     }
 
     Err(ApiError::Conflict(
@@ -88,10 +97,14 @@ pub async fn sync_workspace_to_issue(
                 .await?;
         }
         RemoteWorkspaceSyncAction::Update => {
+            // Only include the name in the update when the local workspace
+            // actually has one — passing `Some(None)` would otherwise clear
+            // the remote's name for workspaces that never had a local name set.
+            let name_update = workspace.name.clone().map(Some);
             client
                 .update_workspace(
                     workspace.id,
-                    Some(workspace.name.clone()),
+                    name_update,
                     Some(workspace.archived),
                     files_changed,
                     lines_added,
@@ -244,5 +257,17 @@ mod tests {
         assert!(
             matches!(result, Err(ApiError::Conflict(message)) if message == "This workspace is already linked to another issue.")
         );
+    }
+
+    #[test]
+    fn classify_remote_workspace_sync_updates_when_previous_issue_is_none() {
+        let project_id = Uuid::new_v4();
+        let existing_workspace = make_remote_workspace(project_id, None);
+
+        let action =
+            classify_remote_workspace_sync(Some(&existing_workspace), project_id, Uuid::new_v4())
+                .unwrap();
+
+        assert_eq!(action, RemoteWorkspaceSyncAction::Update);
     }
 }

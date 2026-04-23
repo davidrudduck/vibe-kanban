@@ -80,6 +80,11 @@ pub struct LocalDeployment {
     ssh_config: Arc<russh::server::Config>,
     pty: PtyService,
     pr_sync_notify: Arc<Notify>,
+    /// Retained JoinHandle for the webhook dispatcher background task so it
+    /// is not detached. Dropped with LocalDeployment; honors `shutdown` for
+    /// graceful termination.
+    #[allow(dead_code)]
+    webhook_dispatcher_handle: Arc<tokio::task::JoinHandle<()>>,
 }
 
 #[derive(Debug, Clone)]
@@ -237,8 +242,14 @@ impl Deployment for LocalDeployment {
 
         let events = EventService::new(db.clone(), events_msg_store, events_entry_count);
 
-        // Spawn outbound webhook dispatcher
-        WebhookDispatcher::new(db.pool.clone(), events.msg_store().clone()).spawn();
+        // Spawn outbound webhook dispatcher. Retain the JoinHandle on
+        // LocalDeployment so the task is not detached, and hook it into the
+        // shutdown CancellationToken for graceful termination.
+        let webhook_dispatcher_handle = WebhookDispatcher::new(
+            db.pool.clone(),
+            events.msg_store().clone(),
+        )
+        .spawn(shutdown.child_token());
 
         let file_search_cache = Arc::new(FileSearchCache::new());
 
@@ -297,6 +308,7 @@ impl Deployment for LocalDeployment {
             ssh_config,
             pty,
             pr_sync_notify,
+            webhook_dispatcher_handle: Arc::new(webhook_dispatcher_handle),
         };
 
         Ok(deployment)

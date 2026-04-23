@@ -81,6 +81,53 @@ impl CodingAgentTurn {
         .await
     }
 
+    /// Batch-fetch coding agent turns for a list of execution process IDs.
+    /// Avoids N+1 queries by running a single `WHERE execution_process_id IN (...)`
+    /// lookup. Returns a map of execution_process_id -> turn.
+    pub async fn find_by_execution_process_ids(
+        pool: &SqlitePool,
+        execution_process_ids: &[Uuid],
+    ) -> Result<std::collections::HashMap<Uuid, Self>, sqlx::Error> {
+        use std::collections::HashMap;
+
+        if execution_process_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // SQLite doesn't support binding arrays directly — build a query with
+        // the right number of `?` placeholders and bind each UUID string.
+        let placeholders = std::iter::repeat("?")
+            .take(execution_process_ids.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let query = format!(
+            r#"SELECT
+                id as "id!: Uuid",
+                execution_process_id as "execution_process_id!: Uuid",
+                agent_session_id,
+                agent_message_id,
+                prompt,
+                summary,
+                seen as "seen!: bool",
+                created_at as "created_at!: DateTime<Utc>",
+                updated_at as "updated_at!: DateTime<Utc>"
+               FROM coding_agent_turns
+               WHERE execution_process_id IN ({placeholders})"#,
+        );
+
+        let mut q = sqlx::query_as::<_, Self>(&query);
+        for id in execution_process_ids {
+            q = q.bind(id);
+        }
+
+        let rows = q.fetch_all(pool).await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|turn| (turn.execution_process_id, turn))
+            .collect())
+    }
+
     /// Create a new coding agent turn
     pub async fn create(
         pool: &SqlitePool,
