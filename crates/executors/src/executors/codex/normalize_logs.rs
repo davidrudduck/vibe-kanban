@@ -621,7 +621,8 @@ fn normalize_app_file_changes(
                 codex_app_server_protocol::PatchChangeKind::Update { move_path } => {
                     let mut edits = Vec::new();
                     if let Some(dest) = move_path {
-                        let dest_rel = make_path_relative(&dest.to_string_lossy(), worktree_path);
+                        let lossy = dest.to_string_lossy();
+                        let dest_rel = make_path_relative(&lossy, worktree_path);
                         edits.push(FileChange::Rename { new_path: dest_rel });
                     }
                     edits.push(FileChange::Edit {
@@ -1107,22 +1108,20 @@ fn handle_direct_item_completed(
             if let Some(mut mcp_tool_state) = state.mcp_tools.remove(&id) {
                 mcp_tool_state.status = app_mcp_status_to_tool_status(&status);
                 if let Some(result) = result {
-                    if result
-                        .content
-                        .iter()
-                        .all(|block| block.get("type").and_then(|t| t.as_str()) == Some("text"))
-                    {
+                    if result.content.iter().all(|block: &Value| {
+                        block.get("type").and_then(|t: &Value| t.as_str()) == Some("text")
+                    }) {
                         mcp_tool_state.result = Some(ToolResult {
                             r#type: ToolResultValueType::Markdown,
                             value: Value::String(
                                 result
                                     .content
                                     .iter()
-                                    .filter_map(|block| {
+                                    .filter_map(|block: &Value| {
                                         block
                                             .get("text")
-                                            .and_then(|t| t.as_str())
-                                            .map(|s| s.to_owned())
+                                            .and_then(|t: &Value| t.as_str())
+                                            .map(|s: &str| s.to_owned())
                                     })
                                     .collect::<Vec<String>>()
                                     .join("\n"),
@@ -1243,12 +1242,15 @@ fn handle_direct_request(
             let call_id = params.item_id;
             let approval_id = params.approval_id.unwrap_or_default();
             let command_state = state.command_state(call_id.clone());
-            if let Some(command) = params.command.filter(|command| !command.is_empty()) {
+            if let Some(command) = params
+                .command
+                .filter(|command: &String| !command.is_empty())
+            {
                 command_state.command = command;
             } else if command_state.command.is_empty() {
                 command_state.command = params
                     .reason
-                    .filter(|reason| !reason.is_empty())
+                    .filter(|reason: &String| !reason.is_empty())
                     .unwrap_or_else(|| "command execution".to_string());
             }
             command_state.awaiting_approval = true;
@@ -1392,7 +1394,7 @@ fn handle_direct_notification(
                 .details
                 .as_deref()
                 .map(str::trim)
-                .filter(|details| !details.is_empty())
+                .filter(|details: &&str| !details.is_empty())
                 .map(|details| format!("\n{details}"))
                 .unwrap_or_default();
             add_normalized_entry(
@@ -1531,7 +1533,8 @@ pub fn normalize_logs(
             if let Ok(error) = serde_json::from_str::<Error>(&line) {
                 if matches!(
                     error,
-                    Error::LinuxSandboxAutoFallback { .. } | Error::LinuxSandboxStrictFailure { .. }
+                    Error::LinuxSandboxAutoFallback { .. }
+                        | Error::LinuxSandboxStrictFailure { .. }
                 ) {
                     structured_linux_sandbox_message_seen.store(true, Ordering::Relaxed);
                 }
@@ -2476,7 +2479,7 @@ pub fn normalize_logs(
                         entry_type: NormalizedEntryType::ErrorMessage {
                             error_type: NormalizedEntryError::Other,
                         },
-                        content: strip_ansi_escapes::strip_str(&deferred.concat()),
+                        content: strip_ansi_escapes::strip_str(deferred.concat()),
                         metadata: None,
                     },
                 );
@@ -2815,7 +2818,10 @@ mod tests {
         latest_normalized_entries(&msg_store)
     }
 
-    async fn normalize_stdout_and_stderr(stdout_lines: &[String], stderr_chunks: &[String]) -> Vec<NormalizedEntry> {
+    async fn normalize_stdout_and_stderr(
+        stdout_lines: &[String],
+        stderr_chunks: &[String],
+    ) -> Vec<NormalizedEntry> {
         let msg_store = Arc::new(MsgStore::new());
         for line in stdout_lines {
             msg_store.push_stdout(format!("{line}\n"));
