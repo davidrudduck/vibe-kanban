@@ -36,14 +36,6 @@ export function useWorkspaceActions({
       if (result === 'confirmed') {
         try {
           await workspacesApi.unlinkFromIssue(localWorkspaceId);
-          // Invalidate caches so the UI reflects the unlink immediately
-          // rather than waiting for a background refetch.
-          queryClient.invalidateQueries({
-            queryKey: workspaceKeys.all,
-          });
-          queryClient.invalidateQueries({
-            queryKey: workspaceSummaryKeys.all,
-          });
         } catch (error) {
           ConfirmDialog.show({
             title: t('common:error'),
@@ -53,6 +45,15 @@ export function useWorkspaceActions({
                 : t('workspaces.unlinkError'),
             confirmText: t('common:ok'),
             showCancelButton: false,
+          });
+        } finally {
+          // Invalidate caches so the UI reflects the unlink immediately
+          // rather than waiting for a background refetch.
+          queryClient.invalidateQueries({
+            queryKey: workspaceKeys.all,
+          });
+          queryClient.invalidateQueries({
+            queryKey: workspaceSummaryKeys.all,
           });
         }
       }
@@ -122,18 +123,10 @@ export function useWorkspaceActions({
       }
 
       try {
-        await workspacesApi.delete(localWorkspaceId, result.deleteBranches);
         if (result.unlinkFromIssue) {
           await workspacesApi.unlinkFromIssue(localWorkspaceId);
         }
-        // Invalidate caches so the deleted workspace and any
-        // dependent queries (summaries) are removed from the UI.
-        queryClient.invalidateQueries({
-          queryKey: workspaceKeys.all,
-        });
-        queryClient.invalidateQueries({
-          queryKey: workspaceSummaryKeys.all,
-        });
+        await workspacesApi.delete(localWorkspaceId, result.deleteBranches);
       } catch (error) {
         ConfirmDialog.show({
           title: t('common:error'),
@@ -143,6 +136,15 @@ export function useWorkspaceActions({
               : t('workspaces.deleteError'),
           confirmText: t('common:ok'),
           showCancelButton: false,
+        });
+      } finally {
+        // Invalidate caches so the deleted workspace and any
+        // dependent queries (summaries) are removed from the UI.
+        queryClient.invalidateQueries({
+          queryKey: workspaceKeys.all,
+        });
+        queryClient.invalidateQueries({
+          queryKey: workspaceSummaryKeys.all,
         });
       }
     },

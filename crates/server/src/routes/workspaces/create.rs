@@ -299,14 +299,25 @@ pub async fn create_and_start_workspace(
     tracing::info!("Created workspace {}", workspace.id);
 
     if let (Some(linked_issue), Some(client)) = (linked_issue.as_ref(), remote_client.as_ref()) {
-        sync_workspace_to_issue(
+        // Don't abort workspace creation if remote issue linkage fails — the
+        // local workspace has already been provisioned and the user can
+        // retry linkage separately via the link endpoint. Failing here
+        // would orphan a valid local workspace whenever the remote is down.
+        if let Err(e) = sync_workspace_to_issue(
             &deployment,
             client,
             &workspace,
             linked_issue.remote_project_id,
             linked_issue.issue_id,
         )
-        .await?;
+        .await
+        {
+            tracing::warn!(
+                workspace_id = %workspace.id,
+                "Failed to sync workspace to remote issue after creation: {e}. \
+                 Workspace created successfully; linking can be retried via the link endpoint."
+            );
+        }
     }
 
     let execution_process = deployment

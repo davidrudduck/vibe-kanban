@@ -5,12 +5,8 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use db::models::{
-    execution_process::ExecutionProcessError,
-    external_session::ExternalSessionError,
-    repo::RepoError,
-    scratch::ScratchError,
-    session::SessionError,
-    webhook::WebhookError,
+    execution_process::ExecutionProcessError, external_session::ExternalSessionError,
+    repo::RepoError, scratch::ScratchError, session::SessionError, webhook::WebhookError,
     workspace::WorkspaceError,
 };
 use deployment::{DeploymentError, RelayHostsNotConfigured, RemoteClientNotConfigured};
@@ -369,13 +365,14 @@ impl IntoResponse for ApiError {
             ApiError::ExternalSession(ExternalSessionError::InvalidStatus(s)) => {
                 ErrorInfo::bad_request(
                     "ExternalSessionError",
-                    format!("Invalid status: {}. Must be one of: in_progress, in_review, done, blocked.", s),
+                    format!(
+                        "Invalid status: {}. Must be one of: in_progress, in_review, done, blocked.",
+                        s
+                    ),
                 )
             }
 
-            ApiError::Webhook(WebhookError::Database(_)) => {
-                ErrorInfo::internal("WebhookError")
-            }
+            ApiError::Webhook(WebhookError::Database(_)) => ErrorInfo::internal("WebhookError"),
             ApiError::Webhook(WebhookError::NotFound) => {
                 ErrorInfo::not_found("WebhookError", "Webhook not found.")
             }

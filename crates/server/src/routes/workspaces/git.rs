@@ -249,12 +249,15 @@ pub async fn merge_workspace(
             )
         })
         .await
-        .map_err(|e| {
-            ApiError::Io(std::io::Error::other(format!("merge task panicked: {e}")))
-        })??
+        .map_err(|e| ApiError::Io(std::io::Error::other(format!("merge task panicked: {e}"))))??
     };
 
-    Merge::create_direct(
+    // The merge commit has already been written to the repository by
+    // `merge_changes` above. If the subsequent DB insert fails the worktree
+    // has diverged from our recorded state — log a critical line with enough
+    // context that an operator can reconcile manually. We still return the
+    // error so the HTTP caller is not told "success" for a partial write.
+    match Merge::create_direct(
         pool,
         workspace.id,
         workspace_repo.repo_id,
@@ -262,7 +265,21 @@ pub async fn merge_workspace(
         &merge_commit_id,
         strategy.as_str(),
     )
-    .await?;
+    .await
+    {
+        Ok(_) => {}
+        Err(e) => {
+            tracing::error!(
+                workspace_id = %workspace.id,
+                merge_commit_id = %merge_commit_id,
+                strategy = ?strategy,
+                target_branch = %workspace_repo.target_branch,
+                "CRITICAL: git merge committed to disk but DB write failed. \
+                 Worktree has diverged from DB state. Manual recovery required. Error: {e}"
+            );
+            return Err(ApiError::Database(e));
+        }
+    }
 
     if let Ok(client) = deployment.remote_client() {
         let workspace_id = workspace.id;

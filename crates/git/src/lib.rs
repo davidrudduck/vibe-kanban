@@ -673,13 +673,24 @@ impl GitService {
                     GitServiceError::InvalidRepository(format!("CLI merge failed: {e}"))
                 })?;
 
-                // Update task branch ref for continuity
-                let task_refname = format!("refs/heads/{task_branch_name}");
-                git_cli
-                    .update_ref(base_worktree_path, &task_refname, &sha)
-                    .map_err(|e| {
-                        GitServiceError::InvalidRepository(format!("git update-ref failed: {e}"))
-                    })?;
+                // Update task branch ref for continuity. For Rebase the
+                // rebase itself already moved `refs/heads/<task_branch>` to
+                // the rebased tip in place, and `sha` here is the base HEAD
+                // after the fast-forward — overwriting the task branch with
+                // the base tip would silently clobber the rebased history.
+                // Squash / Merge strategies still need this: they leave the
+                // task branch pointing at its old (pre-merge) tip, so we
+                // bump it forward to keep follow-up work contiguous.
+                if !matches!(strategy, MergeStrategy::Rebase) {
+                    let task_refname = format!("refs/heads/{task_branch_name}");
+                    git_cli
+                        .update_ref(base_worktree_path, &task_refname, &sha)
+                        .map_err(|e| {
+                            GitServiceError::InvalidRepository(format!(
+                                "git update-ref failed: {e}"
+                            ))
+                        })?;
+                }
 
                 Ok(sha)
             }

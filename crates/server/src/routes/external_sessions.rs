@@ -4,9 +4,7 @@ use axum::{
     response::Json as ResponseJson,
     routing::get,
 };
-use db::models::external_session::{
-    CreateExternalSession, ExternalSession, ExternalSessionError,
-};
+use db::models::external_session::{CreateExternalSession, ExternalSession, ExternalSessionError};
 use deployment::Deployment;
 use serde::Deserialize;
 use ts_rs::TS;
@@ -80,6 +78,12 @@ pub async fn update_external_session(
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let _ = deployment; // unused but matches convention
     Router::new()
-        .route("/", get(list_external_sessions).post(create_external_session))
-        .route("/{id}", get(get_external_session).patch(update_external_session))
+        .route(
+            "/",
+            get(list_external_sessions).post(create_external_session),
+        )
+        .route(
+            "/{id}",
+            get(get_external_session).patch(update_external_session),
+        )
 }

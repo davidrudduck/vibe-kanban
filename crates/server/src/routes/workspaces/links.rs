@@ -83,7 +83,13 @@ pub async fn sync_workspace_to_issue(
 
     match classify_remote_workspace_sync(existing_workspace.as_ref(), project_id, issue_id)? {
         RemoteWorkspaceSyncAction::Create => {
-            client
+            // TOCTOU: between the `get_workspace_by_local_id` 404 above and
+            // this `create_workspace` call, a concurrent request (e.g. a
+            // duplicate client retry, or a sibling link request) may have
+            // already created the remote workspace. If the remote returns a
+            // 409 Conflict on create, fall through to an Update so the
+            // request is idempotent rather than surfacing a confusing error.
+            let create_result = client
                 .create_workspace(CreateWorkspaceRequest {
                     project_id,
                     local_workspace_id: workspace.id,
@@ -94,7 +100,29 @@ pub async fn sync_workspace_to_issue(
                     lines_added,
                     lines_removed,
                 })
-                .await?;
+                .await;
+
+            match create_result {
+                Ok(()) => {}
+                Err(RemoteClientError::Http { status: 409, .. }) => {
+                    tracing::info!(
+                        workspace_id = %workspace.id,
+                        "Remote workspace already exists (409 on create); retrying as update"
+                    );
+                    let name_update = workspace.name.clone().map(Some);
+                    client
+                        .update_workspace(
+                            workspace.id,
+                            name_update,
+                            Some(workspace.archived),
+                            files_changed,
+                            lines_added,
+                            lines_removed,
+                        )
+                        .await?;
+                }
+                Err(e) => return Err(e.into()),
+            }
         }
         RemoteWorkspaceSyncAction::Update => {
             // Only include the name in the update when the local workspace

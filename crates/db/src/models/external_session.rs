@@ -44,10 +44,7 @@ pub struct CreateExternalSession {
 const VALID_STATUSES: &[&str] = &["in_progress", "in_review", "done", "blocked"];
 
 impl ExternalSession {
-    pub async fn find_by_id(
-        pool: &SqlitePool,
-        id: Uuid,
-    ) -> Result<Option<Self>, sqlx::Error> {
+    pub async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error> {
         sqlx::query_as!(
             ExternalSession,
             r#"SELECT id AS "id!: Uuid",

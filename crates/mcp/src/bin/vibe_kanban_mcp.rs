@@ -57,7 +57,9 @@ fn main() -> anyhow::Result<()> {
             init_process_logging("vibe-kanban-mcp", version);
 
             let base_url = resolve_base_url("vibe-kanban-mcp", &launch_config).await?;
-            let LaunchConfig { mode, transport, .. } = launch_config;
+            let LaunchConfig {
+                mode, transport, ..
+            } = launch_config;
 
             let server = match mode {
                 McpLaunchMode::Global => McpServer::new_global(&base_url),
@@ -247,39 +249,55 @@ async fn resolve_base_url(log_prefix: &str, config: &LaunchConfig) -> anyhow::Re
     // VIBE_BACKEND_URL: only honor if it parses as a URL with a scheme.
     // Invalid (e.g. missing-scheme) values fall through to the next source
     // with a warning rather than being passed through as raw strings.
-    let backend_url_env = std::env::var("VIBE_BACKEND_URL").ok().and_then(|raw| {
-        match url::Url::parse(&raw) {
-            Ok(parsed) if !parsed.scheme().is_empty() => Some(parsed),
-            Ok(_) => {
-                tracing::warn!(
-                    "[{}] Ignoring VIBE_BACKEND_URL='{}': missing scheme",
-                    log_prefix,
-                    raw
-                );
-                None
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "[{}] Ignoring VIBE_BACKEND_URL='{}': {e}",
-                    log_prefix,
-                    raw
-                );
-                None
-            }
-        }
-    });
+    let backend_url_env =
+        std::env::var("VIBE_BACKEND_URL")
+            .ok()
+            .and_then(|raw| match url::Url::parse(&raw) {
+                Ok(parsed) if !parsed.scheme().is_empty() => Some(parsed),
+                Ok(_) => {
+                    tracing::warn!(
+                        "[{}] Ignoring VIBE_BACKEND_URL='{}': missing scheme",
+                        log_prefix,
+                        raw
+                    );
+                    None
+                }
+                Err(e) => {
+                    tracing::warn!("[{}] Ignoring VIBE_BACKEND_URL='{}': {e}", log_prefix, raw);
+                    None
+                }
+            });
 
     if let Some(mut base) = backend_url_env {
         // Allow HOST / port env vars to override components of the parsed URL
-        // so both branches have the same precedence rules.
-        if let Some(h) = &host_override {
-            let _ = base.set_host(Some(h));
+        // so both branches have the same precedence rules. `set_host` /
+        // `set_port` reject values the URL scheme can't represent (e.g.
+        // can't set a host on a cannot-be-a-base URL); surface that as a
+        // warning instead of silently ignoring the user's override.
+        if let Some(h) = &host_override
+            && base.set_host(Some(h)).is_err()
+        {
+            tracing::warn!(
+                "[{}] Could not apply HOST override '{}' to VIBE_BACKEND_URL; using original host",
+                log_prefix,
+                h
+            );
         }
-        if let Some(p) = read_port_override_env()? {
-            let _ = base.set_port(Some(p));
+        if let Some(p) = read_port_override_env()?
+            && base.set_port(Some(p)).is_err()
+        {
+            tracing::warn!(
+                "[{}] Could not apply port override {} to VIBE_BACKEND_URL; using original port",
+                log_prefix,
+                p
+            );
         }
         let url = base.as_str().trim_end_matches('/').to_string();
-        tracing::info!("[{}] Using backend URL from VIBE_BACKEND_URL: {}", log_prefix, url);
+        tracing::info!(
+            "[{}] Using backend URL from VIBE_BACKEND_URL: {}",
+            log_prefix,
+            url
+        );
         return Ok(url);
     }
 

@@ -4,7 +4,10 @@ mod tools;
 use std::{path::Path, sync::Arc};
 
 use anyhow::Context;
-use db::{DBService, models::{requests::ContainerQuery, workspace::WorkspaceContext}};
+use db::{
+    DBService,
+    models::{requests::ContainerQuery, workspace::WorkspaceContext},
+};
 use rmcp::{handler::server::tool::ToolRouter, schemars};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;

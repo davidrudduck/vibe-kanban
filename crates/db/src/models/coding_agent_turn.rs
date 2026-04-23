@@ -82,8 +82,11 @@ impl CodingAgentTurn {
     }
 
     /// Batch-fetch coding agent turns for a list of execution process IDs.
-    /// Avoids N+1 queries by running a single `WHERE execution_process_id IN (...)`
-    /// lookup. Returns a map of execution_process_id -> turn.
+    /// Avoids N+1 queries by running `WHERE execution_process_id IN (...)`
+    /// lookups in chunks. Returns a map of execution_process_id -> turn.
+    ///
+    /// Chunks are capped at 500 IDs per query to stay well below SQLite's
+    /// default bound-parameter limit (SQLITE_MAX_VARIABLE_NUMBER = 999).
     pub async fn find_by_execution_process_ids(
         pool: &SqlitePool,
         execution_process_ids: &[Uuid],
@@ -94,14 +97,16 @@ impl CodingAgentTurn {
             return Ok(HashMap::new());
         }
 
-        // SQLite doesn't support binding arrays directly — build a query with
-        // the right number of `?` placeholders and bind each UUID string.
-        let placeholders = std::iter::repeat("?")
-            .take(execution_process_ids.len())
-            .collect::<Vec<_>>()
-            .join(", ");
-        let query = format!(
-            r#"SELECT
+        let mut result = HashMap::new();
+        for chunk in execution_process_ids.chunks(500) {
+            // SQLite doesn't support binding arrays directly — build a query
+            // with the right number of `?` placeholders and bind each UUID.
+            let placeholders = std::iter::repeat("?")
+                .take(chunk.len())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let query = format!(
+                r#"SELECT
                 id as "id!: Uuid",
                 execution_process_id as "execution_process_id!: Uuid",
                 agent_session_id,
@@ -113,19 +118,20 @@ impl CodingAgentTurn {
                 updated_at as "updated_at!: DateTime<Utc>"
                FROM coding_agent_turns
                WHERE execution_process_id IN ({placeholders})"#,
-        );
+            );
 
-        let mut q = sqlx::query_as::<_, Self>(&query);
-        for id in execution_process_ids {
-            q = q.bind(id);
+            let mut q = sqlx::query_as::<_, Self>(&query);
+            for id in chunk {
+                q = q.bind(id);
+            }
+
+            let rows = q.fetch_all(pool).await?;
+            for turn in rows {
+                result.insert(turn.execution_process_id, turn);
+            }
         }
 
-        let rows = q.fetch_all(pool).await?;
-
-        Ok(rows
-            .into_iter()
-            .map(|turn| (turn.execution_process_id, turn))
-            .collect())
+        Ok(result)
     }
 
     /// Create a new coding agent turn

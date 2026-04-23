@@ -748,11 +748,35 @@ impl GitCli {
             .git(base_repo_path, ["merge", "--ff-only", from_branch])
             .map(|_| ())
         {
-            // The rebase succeeded but the fast-forward failed. Roll the task
-            // branch back to its pre-rebase tip so the repository returns to
-            // its pre-call state. Log any rollback failure so the operator
-            // can recover a corrupt worktree instead of silently losing the
-            // signal.
+            // The rebase succeeded but the fast-forward failed. Ideally we
+            // roll the task branch back to its pre-rebase tip, but a
+            // `git reset --hard` will nuke any uncommitted changes that
+            // appeared in the worktree between the rebase and the failure
+            // (rare, but possible — e.g. a sibling process wrote to tracked
+            // files). If the worktree is dirty we refuse to reset and leave
+            // it in the mid-rebase state for manual recovery.
+            // Check for dirty *tracked* files only. `git reset --hard` never
+            // touches untracked files, so their presence must not block a
+            // safe rollback. `--untracked-files=no` suppresses the `??`
+            // lines so only staged/modified tracked entries are reported.
+            let tracked_dirty = self
+                .git(
+                    task_repo_path,
+                    ["status", "--porcelain", "--untracked-files=no"],
+                )
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false);
+            if tracked_dirty {
+                tracing::error!(
+                    task_worktree = ?task_repo_path,
+                    original_task_tip = %original_task_tip,
+                    "merge_rebase: ff-only failed and worktree has uncommitted tracked changes; \
+                     cannot roll back safely without data loss. \
+                     Worktree left in mid-rebase state for manual recovery \
+                     (hint: git reset --hard {original_task_tip})."
+                );
+                return Err(e);
+            }
             if let Err(rollback_err) =
                 self.git(task_repo_path, ["reset", "--hard", &original_task_tip])
             {

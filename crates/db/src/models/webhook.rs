@@ -68,10 +68,7 @@ impl Webhook {
         .await
     }
 
-    pub async fn create(
-        pool: &SqlitePool,
-        data: &CreateWebhook,
-    ) -> Result<Self, WebhookError> {
+    pub async fn create(pool: &SqlitePool, data: &CreateWebhook) -> Result<Self, WebhookError> {
         let id = Uuid::new_v4();
         Ok(sqlx::query_as!(
             Webhook,

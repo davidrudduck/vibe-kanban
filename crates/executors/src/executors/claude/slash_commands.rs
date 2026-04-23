@@ -14,9 +14,7 @@ use tokio::{
 };
 use workspace_utils::command_ext::GroupSpawnNoWindowExt;
 
-use super::{
-    ClaudeCode, ClaudeJson, ClaudePlugin, base_command, normalize_npx_base_command,
-};
+use super::{ClaudeCode, ClaudeJson, ClaudePlugin, base_command, normalize_npx_base_command};
 use crate::{
     command::{CommandBuildError, CommandBuilder, apply_overrides},
     env::{ExecutionEnv, RepoContext},
@@ -373,12 +371,13 @@ impl ClaudeCode {
 
 #[cfg(test)]
 mod tests {
-    use crate::command::CmdOverrides;
-
     use std::sync::Arc;
 
-    use super::super::{AppendPrompt, ExecutorApprovalService};
-    use super::*;
+    use super::{
+        super::{AppendPrompt, ExecutorApprovalService},
+        *,
+    };
+    use crate::command::CmdOverrides;
 
     #[tokio::test]
     async fn test_discovery_builder_normalizes_npx_override() {

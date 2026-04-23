@@ -4,21 +4,24 @@ use std::{
 };
 
 use db::models::webhook::Webhook;
+use futures::StreamExt;
 use reqwest::Client;
 use serde_json::Value;
 use sqlx::SqlitePool;
-use tokio::sync::RwLock;
-use tokio_stream::wrappers::BroadcastStream;
+use tokio::sync::{RwLock, Semaphore};
+use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
 use tokio_util::sync::CancellationToken;
 use utils::{log_msg::LogMsg, msg_store::MsgStore};
-
-use futures::StreamExt;
-use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 
 /// How long to cache the enabled-webhooks list before re-querying the DB.
 /// Short enough that newly-added webhooks start receiving events promptly,
 /// long enough to avoid a full-table scan on every broadcast event.
 const WEBHOOK_CACHE_TTL: Duration = Duration::from_secs(30);
+
+/// Upper bound on concurrent in-flight webhook deliveries. Without this, a
+/// slow downstream combined with a bursty event stream can spawn unbounded
+/// tasks and exhaust file descriptors / memory.
+const MAX_CONCURRENT_DELIVERIES: usize = 128;
 
 /// Subscribes to the events MsgStore and POSTs JSON-patch payloads to all
 /// registered and enabled webhook URLs.
@@ -29,6 +32,9 @@ pub struct WebhookDispatcher {
     /// Cached list of enabled webhooks plus the timestamp when the cache was
     /// last refreshed. Refreshed on a TTL so we don't hit the DB on every event.
     cache: Arc<RwLock<Option<(Instant, Vec<Webhook>)>>>,
+    /// Caps concurrent in-flight delivery tasks so a slow webhook can't
+    /// cause unbounded task growth under bursty event traffic.
+    semaphore: Arc<Semaphore>,
 }
 
 impl WebhookDispatcher {
@@ -41,6 +47,7 @@ impl WebhookDispatcher {
                 .build()
                 .expect("reqwest client"),
             cache: Arc::new(RwLock::new(None)),
+            semaphore: Arc::new(Semaphore::new(MAX_CONCURRENT_DELIVERIES)),
         }
     }
 
@@ -64,13 +71,19 @@ impl WebhookDispatcher {
             }
         }
 
-        // Slow path: refresh cache. Another task may race us here; that's fine
-        // because the query is idempotent and the last writer wins.
-        let hooks = Webhook::find_enabled(&self.pool).await?;
+        // Slow path: refresh cache under the write lock. Re-check the cache
+        // after acquiring the write lock — another task may have already
+        // refreshed it while we were queued, and without this guard a burst
+        // of events after cache expiry would all fall through and hit the
+        // DB (thundering herd).
+        let mut cache = self.cache.write().await;
+        if let Some((fetched_at, hooks)) = cache.as_ref()
+            && fetched_at.elapsed() < WEBHOOK_CACHE_TTL
         {
-            let mut cache = self.cache.write().await;
-            *cache = Some((Instant::now(), hooks.clone()));
+            return Ok(hooks.clone());
         }
+        let hooks = Webhook::find_enabled(&self.pool).await?;
+        *cache = Some((Instant::now(), hooks.clone()));
         Ok(hooks)
     }
 
@@ -123,10 +136,40 @@ impl WebhookDispatcher {
 
                     // Fire-and-forget each delivery so a slow webhook can't
                     // block the dispatcher loop (head-of-line blocking).
+                    // A semaphore caps total in-flight deliveries so slow
+                    // downstreams can't balloon task counts unbounded.
+                    //
+                    // IMPORTANT: semaphore acquisition is raced against the
+                    // shutdown token so that a saturated permit pool (128
+                    // in-flight deliveries against slow targets) cannot
+                    // block graceful shutdown indefinitely.
                     for hook in hooks {
+                        let permit = tokio::select! {
+                            biased;
+                            _ = shutdown.cancelled() => {
+                                tracing::info!(
+                                    "webhook_dispatcher: shutdown while waiting for delivery \
+                                     permit, stopping fan-out"
+                                );
+                                return;
+                            }
+                            result = Arc::clone(&self.semaphore).acquire_owned() => {
+                                match result {
+                                    Ok(p) => p,
+                                    Err(_) => {
+                                        // Semaphore explicitly closed — shutting down.
+                                        tracing::info!(
+                                            "webhook_dispatcher: semaphore closed, stopping fan-out"
+                                        );
+                                        return;
+                                    }
+                                }
+                            }
+                        };
                         let client = self.http.clone();
                         let body = payload.clone();
                         tokio::spawn(async move {
+                            let _permit = permit; // released on drop
                             let mut req = client
                                 .post(&hook.url)
                                 .header("Content-Type", "application/json")

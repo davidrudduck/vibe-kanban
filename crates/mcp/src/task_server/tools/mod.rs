@@ -461,6 +461,7 @@ mod tests {
                 }],
             }),
             mode: McpMode::Global,
+            db_pool: std::sync::Arc::new(tokio::sync::OnceCell::new()),
         };
 
         assert_eq!(server.orchestrator_session_id(), Some(session_id));
@@ -476,6 +477,7 @@ mod tests {
             tool_router: ToolRouter::default(),
             context: None,
             mode: McpMode::Orchestrator,
+            db_pool: std::sync::Arc::new(tokio::sync::OnceCell::new()),
         };
 
         assert_eq!(server.orchestrator_session_id(), None);

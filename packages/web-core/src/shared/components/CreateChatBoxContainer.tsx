@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useState, useEffect } from 'react';
+import { useMemo, useCallback, useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropzone } from 'react-dropzone';
 import { useCreateMode } from '@/features/create-mode/model/useCreateMode';
@@ -60,6 +60,7 @@ export function CreateChatBoxContainer({
   } = useCreateMode();
 
   const { createWorkspace } = useCreateWorkspace();
+  const isSubmitting = useRef(false);
   const hasSelectedRepos = repos.length > 0;
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const [hasInitializedStep, setHasInitializedStep] = useState(false);
@@ -223,63 +224,72 @@ export function CreateChatBoxContainer({
 
   // Handle submit
   const handleSubmit = useCallback(async () => {
+    if (isSubmitting.current) return;
+    isSubmitting.current = true;
     setHasAttemptedSubmit(true);
-    if (!canSubmit || !executorConfig) return;
+    if (!canSubmit || !executorConfig) {
+      isSubmitting.current = false;
+      return;
+    }
 
-    const { title } = splitMessageToTitleDescription(message);
-    const data = {
-      executor_config: executorConfig,
-      name: title,
-      prompt: message,
-      repos: repos.map((r) => ({
-        repo_id: r.id,
-        target_branch: targetBranches[r.id]!,
-      })),
-      linked_issue: linkedIssue
+    try {
+      const { title } = splitMessageToTitleDescription(message);
+      const data = {
+        executor_config: executorConfig,
+        name: title,
+        prompt: message,
+        repos: repos.map((r) => ({
+          repo_id: r.id,
+          target_branch: targetBranches[r.id]!,
+        })),
+        linked_issue: linkedIssue
+          ? {
+              remote_project_id: linkedIssue.remoteProjectId,
+              issue_id: linkedIssue.issueId,
+            }
+          : null,
+        attachment_ids: getAttachmentIds(),
+      };
+      const linkToIssue = linkedIssue
         ? {
-            remote_project_id: linkedIssue.remoteProjectId,
-            issue_id: linkedIssue.issueId,
+            remoteProjectId: linkedIssue.remoteProjectId,
+            issueId: linkedIssue.issueId,
           }
-        : null,
-      attachment_ids: getAttachmentIds(),
-    };
-    const linkToIssue = linkedIssue
-      ? {
-          remoteProjectId: linkedIssue.remoteProjectId,
-          issueId: linkedIssue.issueId,
-        }
-      : undefined;
+        : undefined;
 
-    const result = await createWorkspace.mutateAsync({
-      data,
-      linkToIssue,
-    });
-
-    if (result.linkErrorMessage) {
-      await ConfirmDialog.show({
-        title: t('common:error'),
-        message: t('workspaces.linkAfterCreateError', {
-          defaultValue:
-            'The workspace was created and started, but linking it to the issue failed. It will not appear in the issue workspace list until you link it. Error: {{error}}',
-          error: result.linkErrorMessage,
-        }),
-        confirmText: t('common:ok'),
-        showCancelButton: false,
+      const result = await createWorkspace.mutateAsync({
+        data,
+        linkToIssue,
       });
-    }
 
-    if (result.workspace) {
-      onWorkspaceCreated(result.workspace.id);
-    }
+      if (result.linkErrorMessage) {
+        await ConfirmDialog.show({
+          title: t('common:error'),
+          message: t('workspaces.linkAfterCreateError', {
+            defaultValue:
+              'The workspace was created and started, but linking it to the issue failed. It will not appear in the issue workspace list until you link it. Error: {{error}}',
+            error: result.linkErrorMessage,
+          }),
+          confirmText: t('common:ok'),
+          showCancelButton: false,
+        });
+      }
 
-    if (linkedIssue?.remoteProjectId) {
-      saveProjectRepoDefaults(linkedIssue.remoteProjectId, data.repos).catch(
-        (err) => console.warn('Failed to save project repo defaults:', err)
-      );
-    }
+      if (result.workspace) {
+        onWorkspaceCreated(result.workspace.id);
+      }
 
-    clearAttachments();
-    await clearDraft();
+      if (linkedIssue?.remoteProjectId) {
+        saveProjectRepoDefaults(linkedIssue.remoteProjectId, data.repos).catch(
+          (err) => console.warn('Failed to save project repo defaults:', err)
+        );
+      }
+
+      clearAttachments();
+      await clearDraft();
+    } finally {
+      isSubmitting.current = false;
+    }
   }, [
     canSubmit,
     executorConfig,

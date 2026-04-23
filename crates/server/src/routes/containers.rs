@@ -28,9 +28,7 @@ async fn get_container_info(
         Workspace::resolve_container_ref_by_prefix(&deployment.db().pool, &query.container_ref)
             .await
             .map_err(|e| match e {
-                sqlx::Error::RowNotFound => {
-                    ApiError::Workspace(WorkspaceError::WorkspaceNotFound)
-                }
+                sqlx::Error::RowNotFound => ApiError::Workspace(WorkspaceError::WorkspaceNotFound),
                 e => ApiError::Database(e),
             })?;
 
@@ -47,9 +45,7 @@ async fn get_context(
         Workspace::resolve_container_ref_by_prefix(&deployment.db().pool, &payload.container_ref)
             .await
             .map_err(|e| match e {
-                sqlx::Error::RowNotFound => {
-                    ApiError::Workspace(WorkspaceError::WorkspaceNotFound)
-                }
+                sqlx::Error::RowNotFound => ApiError::Workspace(WorkspaceError::WorkspaceNotFound),
                 e => ApiError::Database(e),
             })?;
 

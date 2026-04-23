@@ -1,6 +1,6 @@
 use db::models::{
     coding_agent_turn::CodingAgentTurn,
-    execution_process::{ExecutionProcess, ExecutionProcessStatus},
+    execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
     session::Session,
 };
 use rmcp::{
@@ -339,14 +339,22 @@ impl McpServer {
         {
             Ok(value) => value,
             Err(error_result) => {
-                // Session was created but prompt failed. Return the session_id
-                // so callers can retry with run_session_prompt instead of
-                // accumulating orphaned sessions.
+                // Session was created but the follow-up prompt failed to
+                // start. The server has no DELETE /api/sessions endpoint,
+                // so we cannot clean up the orphan automatically. Surface
+                // the session_id so the caller can reuse it with
+                // `run_session_prompt` rather than creating a second orphan.
+                tracing::warn!(
+                    session_id = %session_id,
+                    "create_and_run_session: session created but follow-up failed; \
+                     session left for caller to reuse or discard"
+                );
                 let mut err = Self::tool_error(error_result);
                 err.content.push(rmcp::model::Content::text(
                     serde_json::json!({
                         "session_id": session_id.to_string(),
-                        "note": "Session was created but the prompt failed to start. Use run_session_prompt with this session_id to retry."
+                        "note": "Session was created but the prompt failed to start. \
+                                 Use run_session_prompt with this session_id to retry.",
                     })
                     .to_string(),
                 ));
@@ -533,20 +541,16 @@ impl McpServer {
                 )));
             }
         };
-        let final_message = match CodingAgentTurn::find_by_execution_process_id(
-            pool,
-            execution_process.id,
-        )
-        .await
-        {
-            Ok(turn) => turn.and_then(|turn| turn.summary),
-            Err(error) => {
-                return Ok(Self::tool_error(ToolError::new(
-                    "Failed to load execution summary",
-                    Some(error.to_string()),
-                )));
-            }
-        };
+        let final_message =
+            match CodingAgentTurn::find_by_execution_process_id(pool, execution_process.id).await {
+                Ok(turn) => turn.and_then(|turn| turn.summary),
+                Err(error) => {
+                    return Ok(Self::tool_error(ToolError::new(
+                        "Failed to load execution summary",
+                        Some(error.to_string()),
+                    )));
+                }
+            };
 
         Self::success(&GetExecutionResponse {
             execution_id: execution_process.id.to_string(),
@@ -604,20 +608,30 @@ impl McpServer {
             }
         };
 
+        // Only coding-agent turns show up in the history view. Setup
+        // scripts, cleanup scripts, dev servers, etc. run under the same
+        // session but have no `CodingAgentTurn` row, so if we left them in
+        // the list below and filtered by `turn_map.get(...).is_some()` we
+        // would silently drop them *and* make `total_count` mismatch the
+        // actual number of coding-agent turns we returned.
+        let execution_processes: Vec<_> = execution_processes
+            .into_iter()
+            .filter(|ep| ep.run_reason == ExecutionProcessRunReason::CodingAgent)
+            .collect();
+
         // Batch-fetch all coding agent turns for these execution processes in
         // a single query, avoiding N+1 lookups for sessions with many turns.
         let execution_ids: Vec<_> = execution_processes.iter().map(|ep| ep.id).collect();
-        let turn_map = match CodingAgentTurn::find_by_execution_process_ids(pool, &execution_ids)
-            .await
-        {
-            Ok(map) => map,
-            Err(error) => {
-                return Ok(Self::tool_error(ToolError::new(
-                    "Failed to load session turn history",
-                    Some(error.to_string()),
-                )));
-            }
-        };
+        let turn_map =
+            match CodingAgentTurn::find_by_execution_process_ids(pool, &execution_ids).await {
+                Ok(map) => map,
+                Err(error) => {
+                    return Ok(Self::tool_error(ToolError::new(
+                        "Failed to load session turn history",
+                        Some(error.to_string()),
+                    )));
+                }
+            };
 
         let mut turns = Vec::new();
         for execution_process in execution_processes {
