@@ -313,9 +313,15 @@ fn read_port_override_env() -> anyhow::Result<Option<u16>> {
         .or_else(|_| std::env::var("BACKEND_PORT"))
         .or_else(|_| std::env::var("PORT"))
     {
-        Ok(port_str) => Ok(Some(port_str.parse::<u16>().map_err(|error| {
-            anyhow::anyhow!("Invalid port value '{}': {}", port_str, error)
-        })?)),
+        Ok(port_str) => {
+            let port = port_str
+                .parse::<u16>()
+                .map_err(|error| anyhow::anyhow!("Invalid port value '{}': {}", port_str, error))?;
+            if port == 0 {
+                anyhow::bail!("Invalid port value '{}'. Expected 1-65535", port_str);
+            }
+            Ok(Some(port))
+        }
         Err(_) => Ok(None),
     }
 }

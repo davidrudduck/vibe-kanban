@@ -105,7 +105,7 @@ curl -X POST http://127.0.0.1:3001/api/webhooks \
 ### Delete a webhook
 
 ```
-DELETE /api/webhooks/:id
+DELETE /api/webhooks/{id}
 ```
 
 <ParamField path="id" type="string" required>
@@ -159,7 +159,7 @@ Without a shared secret, any party who can send HTTP requests to your webhook en
 </Warning>
 
 <Warning>
-The `secret` field is returned in API responses. Since the local server only accepts connections from `127.0.0.1`, only processes on the same machine can read it. Treat the Vibe Kanban API port as sensitive — avoid using production-grade secrets; prefer a short HMAC token.
+The `secret` field is returned in API responses. By default, the local server binds to `127.0.0.1` and only local processes can reach it. If you bind with `--host 0.0.0.0` or a network-accessible address, treat the API and any stored secrets as network-accessible. Treat the Vibe Kanban API port as sensitive — avoid using production-grade secrets; prefer a short HMAC token.
 </Warning>
 
 ### Validating the secret

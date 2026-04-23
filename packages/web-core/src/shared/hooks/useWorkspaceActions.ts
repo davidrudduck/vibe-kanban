@@ -79,12 +79,6 @@ export function useWorkspaceActions({
         await workspacesApi.update(localWorkspaceId, {
           archived: !isCurrentlyArchived,
         });
-        queryClient.invalidateQueries({
-          queryKey: workspaceKeys.all,
-        });
-        queryClient.invalidateQueries({
-          queryKey: workspaceSummaryKeys.all,
-        });
       } catch (error) {
         ConfirmDialog.show({
           title: t('common:error'),
@@ -94,6 +88,15 @@ export function useWorkspaceActions({
               : t('workspaces.archiveError', 'Failed to update workspace'),
           confirmText: t('common:ok'),
           showCancelButton: false,
+        });
+      } finally {
+        // Invalidate caches even on uncertain outcomes (server-side commit
+        // with client timeout) so the board stays in sync.
+        queryClient.invalidateQueries({
+          queryKey: workspaceKeys.all,
+        });
+        queryClient.invalidateQueries({
+          queryKey: workspaceSummaryKeys.all,
         });
       }
     },

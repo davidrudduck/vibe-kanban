@@ -162,7 +162,7 @@ curl -X POST http://127.0.0.1:3001/api/sessions/external \
 Returns a single external session by its UUID.
 
 ```
-GET /api/sessions/external/:id
+GET /api/sessions/external/{id}
 ```
 
 <ParamField path="id" type="string" required>
@@ -198,7 +198,7 @@ curl http://127.0.0.1:3001/api/sessions/external/550e8400-e29b-41d4-a716-4466554
 Updates the status of an existing external session. The only field you can update is `status`.
 
 ```
-PATCH /api/sessions/external/:id
+PATCH /api/sessions/external/{id}
 ```
 
 <ParamField path="id" type="string" required>
@@ -271,8 +271,17 @@ curl -s -X PATCH "$VK_BASE/$SESSION_ID" \
 ```
 
 ```javascript Node.js
-const VK_PORT = process.env.BACKEND_PORT ?? '3001';
-const VK_BASE = `http://127.0.0.1:${VK_PORT}/api/sessions/external`;
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const portFile = path.join(os.tmpdir(), 'vibe-kanban', 'vibe-kanban.port');
+let backendBase = 'http://127.0.0.1:3001';
+try {
+  const info = JSON.parse(fs.readFileSync(portFile, 'utf8'));
+  backendBase = info.backend_url ?? `http://127.0.0.1:${info.main_port}`;
+} catch (_) {}
+const VK_BASE = `${backendBase}/api/sessions/external`;
 
 async function registerSession() {
   const { execSync } = require('child_process');
@@ -317,10 +326,18 @@ try {
 import os
 import json
 import urllib.request
+import tempfile
+import json as _json
 from pathlib import Path
 
-VK_PORT = os.environ.get('BACKEND_PORT', '3001')
-VK_BASE = f'http://127.0.0.1:{VK_PORT}/api/sessions/external'
+_port_file = os.path.join(tempfile.gettempdir(), 'vibe-kanban', 'vibe-kanban.port')
+try:
+    with open(_port_file) as _f:
+        _info = _json.load(_f)
+    _backend_base = _info.get('backend_url') or f'http://127.0.0.1:{_info["main_port"]}'
+except Exception:
+    _backend_base = 'http://127.0.0.1:3001'
+VK_BASE = f'{_backend_base}/api/sessions/external'
 
 def register_session(name: str, project_path: str, branch: str) -> str:
     payload = json.dumps({

@@ -18,6 +18,7 @@ pub enum WebhookError {
 pub struct Webhook {
     pub id: Uuid,
     pub url: String,
+    #[serde(skip_serializing)]
     pub secret: Option<String>,
     pub description: Option<String>,
     pub enabled: bool,

@@ -107,15 +107,15 @@ impl CodingAgentTurn {
                 .join(", ");
             let query = format!(
                 r#"SELECT
-                id as "id!: Uuid",
-                execution_process_id as "execution_process_id!: Uuid",
+                id,
+                execution_process_id,
                 agent_session_id,
                 agent_message_id,
                 prompt,
                 summary,
-                seen as "seen!: bool",
-                created_at as "created_at!: DateTime<Utc>",
-                updated_at as "updated_at!: DateTime<Utc>"
+                seen,
+                created_at,
+                updated_at
                FROM coding_agent_turns
                WHERE execution_process_id IN ({placeholders})"#,
             );
