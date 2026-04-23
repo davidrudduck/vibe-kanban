@@ -205,6 +205,19 @@ pub async fn merge_workspace(
         ));
     }
 
+    // Idempotency guard: if a DirectMerge record already exists for this
+    // workspace+repo, a previous request succeeded on disk but the client
+    // retried (e.g. after a transient DB error on the first attempt). Reject
+    // the retry rather than applying a second merge commit on top of the first.
+    let already_merged = merges
+        .iter()
+        .any(|m| matches!(m, Merge::Direct(_)));
+    if already_merged {
+        return Err(ApiError::BadRequest(
+            "This workspace has already been merged into the target branch.".to_string(),
+        ));
+    }
+
     let is_target_remote = deployment
         .git()
         .is_remote_branch(&repo.path, &workspace_repo.target_branch)?;

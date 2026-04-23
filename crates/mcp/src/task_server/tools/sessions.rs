@@ -344,10 +344,10 @@ impl McpServer {
                 // so we cannot clean up the orphan automatically. Surface
                 // the session_id so the caller can reuse it with
                 // `run_session_prompt` rather than creating a second orphan.
-                tracing::warn!(
+                tracing::error!(
                     session_id = %session_id,
                     "create_and_run_session: session created but follow-up failed; \
-                     session left for caller to reuse or discard"
+                     orphaned session left for caller to reuse or discard"
                 );
                 let mut err = Self::tool_error(error_result);
                 err.content.push(rmcp::model::Content::text(

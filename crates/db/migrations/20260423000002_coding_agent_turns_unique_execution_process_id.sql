@@ -17,3 +17,9 @@ WHERE rowid NOT IN (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_coding_agent_turns_execution_process_id_unique
     ON coding_agent_turns(execution_process_id);
+
+-- Drop the original non-unique index on the same column — it is now fully
+-- superseded by the unique index above, which SQLite uses for both
+-- uniqueness enforcement and query planning. Keeping both wastes one B-tree
+-- write per INSERT/UPDATE with no benefit.
+DROP INDEX IF EXISTS idx_coding_agent_turns_execution_process_id;
