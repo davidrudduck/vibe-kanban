@@ -57,6 +57,31 @@ Add the following configuration to your agent's MCP servers configuration:
 
 `--mcp` launches the local MCP stdio server. Any additional arguments after `--mcp` are passed through to the `vibe-kanban-mcp` binary.
 
+#### MCP server CLI flags
+
+| Flag | Description |
+|------|-------------|
+| `--mode <global\|orchestrator>` | Launch mode. `global` (default) provides all tools. `orchestrator` scopes tools to the current workspace session. |
+| `--host <HOST>` | Override the host used to connect to the Vibe Kanban backend. |
+| `--backend-url <URL>` | Explicit backend URL (e.g. `http://127.0.0.1:3001`). When set, this takes precedence over all host/port discovery mechanisms. |
+| `--http` | Use HTTP transport instead of stdio. Requires `--port`. |
+| `--port <PORT>` | Port for the HTTP MCP server (only valid with `--http`). |
+
+```json Example: explicit backend URL
+{
+  "mcpServers": {
+    "vibe_kanban": {
+      "command": "npx",
+      "args": ["-y", "vibe-kanban@latest", "--mcp", "--backend-url", "http://127.0.0.1:3001"]
+    }
+  }
+}
+```
+
+<Tip>
+Use `--backend-url` when Vibe Kanban is running on a fixed port and you want to avoid the automatic port-file discovery, for example in CI environments.
+</Tip>
+
 ### Option 3: HTTP / HTTPS Endpoint
 
 When `MCP_PORT` is set, the Vibe Kanban backend also spawns an HTTP MCP server at:
@@ -167,10 +192,76 @@ Supported relationship types: `blocking`, `related`, `has_duplicate`.
 | Tool | Purpose | Required Parameters | Optional Parameters | Returns |
 |------|---------|-------------------|-------------------|---------|
 | `start_workspace` | Create a workspace and start its first coding-agent session | `name`<br/>`executor`<br/>`repositories` | `prompt`<br/>`variant`<br/>`issue_id` | Workspace ID |
-| `create_session` | Create a session in an existing workspace | None | `workspace_id`<br/>`executor` | Session summary |
+| `create_session` | Create a session in an existing workspace | None | `workspace_id`<br/>`executor`<br/>`name` | Session summary |
+| `create_and_run_session` | Create a session and immediately run a prompt in one call | `executor`<br/>`prompt` | `workspace_id`<br/>`name` | `session_id`, `execution_id`, session summary, execution details |
 | `list_sessions` | List sessions for a workspace | None | `workspace_id` | Session list |
 | `run_session_prompt` | Run a coding-agent prompt inside an existing session | `session_id`<br/>`prompt` | None | Execution details |
 | `get_execution` | Inspect execution status and final message | `execution_id` | None | Execution details |
+| `get_session_history` | Return the full prompt and response history for a session | `session_id` | `include_soft_deleted` | Session summary and array of turns |
+
+#### `create_and_run_session`
+
+Combines `create_session` and `run_session_prompt` into a single call. Use this when you want to start a new coding task without the extra round-trip of creating a session first.
+
+**Parameters**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `executor` | string | Yes | Coding agent to use (e.g. `claude-code`, `gemini`). Same values as `start_workspace`. |
+| `prompt` | string | Yes | Initial prompt to run. Must not be empty. |
+| `workspace_id` | UUID | No | Workspace to create the session in. Inferred from context when running inside an orchestrator MCP. |
+| `name` | string | No | Display name for the session. |
+
+**Returns**
+
+```json
+{
+  "session_id": "550e8400-e29b-41d4-a716-446655440000",
+  "execution_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "session": { "id": "...", "workspace_id": "...", "executor": "claude-code", ... },
+  "execution": { "id": "...", "status": "running", ... }
+}
+```
+
+<Note>
+If the session is created successfully but the prompt fails to start, the response includes the `session_id` so you can retry with `run_session_prompt` rather than accumulating orphaned sessions.
+</Note>
+
+#### `get_session_history`
+
+Returns the ordered list of coding-agent turns for a session. Each turn corresponds to one prompt/response cycle.
+
+**Parameters**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session_id` | UUID | Yes | Session to inspect. |
+| `include_soft_deleted` | boolean | No | Include turns that have been dropped from the active history view. Defaults to `false`. |
+
+**Returns**
+
+```json
+{
+  "session": { "id": "...", "workspace_id": "...", ... },
+  "total_count": 2,
+  "turns": [
+    {
+      "execution_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      "status": "completed",
+      "is_finished": true,
+      "dropped": false,
+      "created_at": "2026-04-23T10:00:00Z",
+      "completed_at": "2026-04-23T10:05:00Z",
+      "prompt": "Implement the login endpoint",
+      "final_message": "I've implemented the login endpoint in src/routes/auth.rs ...",
+      "agent_session_id": null,
+      "agent_message_id": null
+    }
+  ]
+}
+```
+
+**Use case:** Review what an agent did in a past session before continuing work, or audit the sequence of prompts sent to an agent during an automated pipeline.
 
 The `repositories` parameter is an array of objects with:
 - `repo_id`: The repository ID (UUID)

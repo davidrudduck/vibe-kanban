@@ -1,0 +1,396 @@
+---
+title: "External Sessions API"
+description: "Register external CLI agents with Vibe Kanban for visibility in the UI using the External Sessions API"
+---
+
+The External Sessions API lets CLI agents running outside Vibe Kanban — such as Claude Code, Gemini CLI, or any custom automation — register themselves so their work is visible in the Vibe Kanban interface.
+
+## What are external sessions?
+
+An external session represents a coding agent that is running in a terminal or CI environment, outside of a managed Vibe Kanban workspace. By registering with the API, the agent appears in the UI with its current status, making it easy to track progress alongside sessions that Vibe Kanban manages directly.
+
+Common use cases:
+
+- A Claude Code session running in a terminal that you want to monitor alongside managed workspaces
+- A CI pipeline agent that needs to report progress back to the board
+- An orchestration script spinning up multiple agents and tracking their collective status
+
+## Authentication
+
+The External Sessions API uses the same local server as the rest of the Vibe Kanban API. No additional authentication is required when connecting from `localhost`.
+
+<Note>
+The local Vibe Kanban server binds to `127.0.0.1` by default. Only processes on the same machine can reach it without additional network configuration.
+</Note>
+
+## Base URL
+
+```text
+http://127.0.0.1:<BACKEND_PORT>/api/sessions/external
+```
+
+The backend port is auto-assigned at startup. Vibe Kanban writes the current port to a port file that the MCP server and other local tools read automatically. To find the port, check the Vibe Kanban UI or inspect the port file at `~/.vibe-kanban/port`.
+
+## Status values
+
+External sessions use a four-state lifecycle:
+
+| Status | Meaning |
+|--------|---------|
+| `in_progress` | The agent is actively working (default on creation) |
+| `in_review` | Work is complete and awaiting review |
+| `done` | The task is finished |
+| `blocked` | The agent is waiting on something before it can continue |
+
+```text
+in_progress → in_review → done
+     ↓
+  blocked → in_progress
+```
+
+## Endpoints
+
+### List external sessions
+
+Returns all registered external sessions ordered by creation time (newest first).
+
+```
+GET /api/sessions/external
+```
+
+<RequestExample>
+```bash cURL
+curl http://127.0.0.1:3001/api/sessions/external
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200 OK
+{
+  "data": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "name": "Implement auth refactor",
+      "runtime": "claude_code",
+      "project_path": "/home/user/projects/my-app",
+      "branch": "feature/auth-refactor",
+      "pid": 12345,
+      "status": "in_progress",
+      "created_at": "2026-04-23T10:00:00Z",
+      "updated_at": "2026-04-23T10:05:00Z"
+    }
+  ]
+}
+```
+</ResponseExample>
+
+### Register a new external session
+
+Creates a new external session and returns the registered record, including its assigned `id`.
+
+```
+POST /api/sessions/external
+```
+
+#### Request body
+
+<ParamField body="name" type="string">
+Human-readable label for this session. Displayed in the Vibe Kanban UI. Empty strings are treated as absent.
+</ParamField>
+
+<ParamField body="runtime" type="string">
+The agent runtime. Recognised values: `claude_code`, `gemini`, `zora`. Any other value is stored as-is. Defaults to `unknown` if omitted.
+</ParamField>
+
+<ParamField body="project_path" type="string">
+Absolute path to the project directory the agent is working in.
+</ParamField>
+
+<ParamField body="branch" type="string">
+Git branch the agent is working on.
+</ParamField>
+
+<ParamField body="pid" type="integer">
+Operating system process ID of the agent process. Useful for tracking whether the process is still alive.
+</ParamField>
+
+<RequestExample>
+```bash cURL
+curl -X POST http://127.0.0.1:3001/api/sessions/external \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "Implement auth refactor",
+    "runtime": "claude_code",
+    "project_path": "/home/user/projects/my-app",
+    "branch": "feature/auth-refactor",
+    "pid": 12345
+  }'
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200 OK
+{
+  "data": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Implement auth refactor",
+    "runtime": "claude_code",
+    "project_path": "/home/user/projects/my-app",
+    "branch": "feature/auth-refactor",
+    "pid": 12345,
+    "status": "in_progress",
+    "created_at": "2026-04-23T10:00:00Z",
+    "updated_at": "2026-04-23T10:00:00Z"
+  }
+}
+```
+</ResponseExample>
+
+### Get a specific session
+
+Returns a single external session by its UUID.
+
+```
+GET /api/sessions/external/:id
+```
+
+<ParamField path="id" type="string" required>
+UUID of the external session.
+</ParamField>
+
+<RequestExample>
+```bash cURL
+curl http://127.0.0.1:3001/api/sessions/external/550e8400-e29b-41d4-a716-446655440000
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200 OK
+{
+  "data": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Implement auth refactor",
+    "runtime": "claude_code",
+    "project_path": "/home/user/projects/my-app",
+    "branch": "feature/auth-refactor",
+    "pid": 12345,
+    "status": "in_progress",
+    "created_at": "2026-04-23T10:00:00Z",
+    "updated_at": "2026-04-23T10:05:00Z"
+  }
+}
+```
+</ResponseExample>
+
+### Update session status
+
+Updates the status of an existing external session. The only field you can update is `status`.
+
+```
+PATCH /api/sessions/external/:id
+```
+
+<ParamField path="id" type="string" required>
+UUID of the external session.
+</ParamField>
+
+<ParamField body="status" type="string" required>
+New status. Must be one of: `in_progress`, `in_review`, `done`, `blocked`.
+</ParamField>
+
+<RequestExample>
+```bash cURL
+curl -X PATCH http://127.0.0.1:3001/api/sessions/external/550e8400-e29b-41d4-a716-446655440000 \
+  -H 'Content-Type: application/json' \
+  -d '{"status": "in_review"}'
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200 OK
+{
+  "data": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Implement auth refactor",
+    "runtime": "claude_code",
+    "project_path": "/home/user/projects/my-app",
+    "branch": "feature/auth-refactor",
+    "pid": 12345,
+    "status": "in_review",
+    "created_at": "2026-04-23T10:00:00Z",
+    "updated_at": "2026-04-23T10:30:00Z"
+  }
+}
+```
+</ResponseExample>
+
+## Code examples
+
+The following examples show how a CLI agent can register itself on startup and update its status as work progresses.
+
+<CodeGroup>
+```bash Shell script
+#!/usr/bin/env bash
+# Register on startup and update status when done
+
+VK_PORT=$(cat ~/.vibe-kanban/port 2>/dev/null || echo "3001")
+VK_BASE="http://127.0.0.1:${VK_PORT}/api/sessions/external"
+
+# Register the session
+RESPONSE=$(curl -s -X POST "$VK_BASE" \
+  -H 'Content-Type: application/json' \
+  -d "{
+    \"name\": \"My agent task\",
+    \"runtime\": \"claude_code\",
+    \"project_path\": \"$(pwd)\",
+    \"branch\": \"$(git rev-parse --abbrev-ref HEAD 2>/dev/null)\",
+    \"pid\": $$
+  }")
+
+SESSION_ID=$(echo "$RESPONSE" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+echo "Registered as session: $SESSION_ID"
+
+# ... do work ...
+
+# Mark as done
+curl -s -X PATCH "$VK_BASE/$SESSION_ID" \
+  -H 'Content-Type: application/json' \
+  -d '{"status": "done"}'
+```
+
+```javascript Node.js
+const VK_PORT = process.env.BACKEND_PORT ?? '3001';
+const VK_BASE = `http://127.0.0.1:${VK_PORT}/api/sessions/external`;
+
+async function registerSession() {
+  const { execSync } = require('child_process');
+  const branch = execSync('git rev-parse --abbrev-ref HEAD').toString().trim();
+
+  const response = await fetch(VK_BASE, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: 'My agent task',
+      runtime: 'claude_code',
+      project_path: process.cwd(),
+      branch,
+      pid: process.pid,
+    }),
+  });
+
+  const { data } = await response.json();
+  return data.id;
+}
+
+async function updateStatus(sessionId, status) {
+  await fetch(`${VK_BASE}/${sessionId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+}
+
+// Usage
+const sessionId = await registerSession();
+try {
+  // ... do work ...
+  await updateStatus(sessionId, 'done');
+} catch (error) {
+  await updateStatus(sessionId, 'blocked');
+  throw error;
+}
+```
+
+```python Python
+import os
+import json
+import urllib.request
+from pathlib import Path
+
+VK_PORT = os.environ.get('BACKEND_PORT', '3001')
+VK_BASE = f'http://127.0.0.1:{VK_PORT}/api/sessions/external'
+
+def register_session(name: str, project_path: str, branch: str) -> str:
+    payload = json.dumps({
+        'name': name,
+        'runtime': 'claude_code',
+        'project_path': project_path,
+        'branch': branch,
+        'pid': os.getpid(),
+    }).encode()
+
+    req = urllib.request.Request(
+        VK_BASE,
+        data=payload,
+        headers={'Content-Type': 'application/json'},
+        method='POST',
+    )
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read())['data']['id']
+
+def update_status(session_id: str, status: str) -> None:
+    payload = json.dumps({'status': status}).encode()
+    req = urllib.request.Request(
+        f'{VK_BASE}/{session_id}',
+        data=payload,
+        headers={'Content-Type': 'application/json'},
+        method='PATCH',
+    )
+    urllib.request.urlopen(req)
+
+# Usage
+session_id = register_session('My agent task', str(Path.cwd()), 'main')
+try:
+    # ... do work ...
+    update_status(session_id, 'done')
+except Exception:
+    update_status(session_id, 'blocked')
+    raise
+```
+</CodeGroup>
+
+## Response structure
+
+All endpoints return a JSON object with a `data` field containing the session record, or an error object.
+
+<ResponseField name="data" type="object">
+The external session record.
+
+<Expandable title="Session fields">
+  <ResponseField name="id" type="string">
+  UUID assigned to this session by Vibe Kanban.
+  </ResponseField>
+
+  <ResponseField name="name" type="string | null">
+  Display name for the session.
+  </ResponseField>
+
+  <ResponseField name="runtime" type="string">
+  Agent runtime identifier. Defaults to `unknown`.
+  </ResponseField>
+
+  <ResponseField name="project_path" type="string | null">
+  Absolute path to the project directory.
+  </ResponseField>
+
+  <ResponseField name="branch" type="string | null">
+  Git branch the agent is working on.
+  </ResponseField>
+
+  <ResponseField name="pid" type="integer | null">
+  Operating system process ID.
+  </ResponseField>
+
+  <ResponseField name="status" type="string">
+  Current status: `in_progress`, `in_review`, `done`, or `blocked`.
+  </ResponseField>
+
+  <ResponseField name="created_at" type="string">
+  ISO 8601 timestamp of when the session was registered.
+  </ResponseField>
+
+  <ResponseField name="updated_at" type="string">
+  ISO 8601 timestamp of the last status update.
+  </ResponseField>
+</Expandable>
+</ResponseField>
