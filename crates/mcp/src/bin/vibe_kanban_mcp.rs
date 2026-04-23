@@ -58,7 +58,10 @@ fn main() -> anyhow::Result<()> {
 
             let base_url = resolve_base_url("vibe-kanban-mcp", &launch_config).await?;
             let LaunchConfig {
-                mode, transport, ..
+                mode,
+                transport,
+                host,
+                ..
             } = launch_config;
 
             let server = match mode {
@@ -76,7 +79,7 @@ fn main() -> anyhow::Result<()> {
                     service.waiting().await?;
                     Ok(())
                 }
-                McpTransport::Http { port } => run_http_server(server, port).await,
+                McpTransport::Http { port } => run_http_server(server, port, host).await,
             }
         })
 }
@@ -189,10 +192,15 @@ async fn remap_session_not_found(req: Request<Body>, next: Next) -> Response {
     }
 }
 
-async fn run_http_server(server: McpServer, port: u16) -> anyhow::Result<()> {
-    let bind_host = std::env::var(HOST_ENV)
-        .or_else(|_| std::env::var("HOST"))
-        .unwrap_or_else(|_| "127.0.0.1".to_string());
+async fn run_http_server(
+    server: McpServer,
+    port: u16,
+    host_override: Option<String>,
+) -> anyhow::Result<()> {
+    let bind_host = host_override
+        .or_else(|| std::env::var(HOST_ENV).ok())
+        .or_else(|| std::env::var("HOST").ok())
+        .unwrap_or_else(|| "127.0.0.1".to_string());
     let bind_address = format!("{bind_host}:{port}");
 
     tracing::info!("[vibe-kanban-mcp] Starting HTTP server at http://{bind_address}/mcp");
@@ -268,30 +276,7 @@ async fn resolve_base_url(log_prefix: &str, config: &LaunchConfig) -> anyhow::Re
                 }
             });
 
-    if let Some(mut base) = backend_url_env {
-        // Allow HOST / port env vars to override components of the parsed URL
-        // so both branches have the same precedence rules. `set_host` /
-        // `set_port` reject values the URL scheme can't represent (e.g.
-        // can't set a host on a cannot-be-a-base URL); surface that as a
-        // warning instead of silently ignoring the user's override.
-        if let Some(h) = &host_override
-            && base.set_host(Some(h)).is_err()
-        {
-            tracing::warn!(
-                "[{}] Could not apply HOST override '{}' to VIBE_BACKEND_URL; using original host",
-                log_prefix,
-                h
-            );
-        }
-        if let Some(p) = read_port_override_env()?
-            && base.set_port(Some(p)).is_err()
-        {
-            tracing::warn!(
-                "[{}] Could not apply port override {} to VIBE_BACKEND_URL; using original port",
-                log_prefix,
-                p
-            );
-        }
+    if let Some(base) = backend_url_env {
         let url = base.as_str().trim_end_matches('/').to_string();
         tracing::info!(
             "[{}] Using backend URL from VIBE_BACKEND_URL: {}",
@@ -304,9 +289,18 @@ async fn resolve_base_url(log_prefix: &str, config: &LaunchConfig) -> anyhow::Re
     let host = host_override.unwrap_or_else(|| "127.0.0.1".to_string());
     let explicit_port = read_port_override_env()?;
 
-    let port_info = match explicit_port {
-        Some(_) => None,
-        None => Some(read_port_info("vibe-kanban").await?),
+    let port_info = match read_port_info("vibe-kanban").await {
+        Ok(info) => Some(info),
+        Err(e) => {
+            // Port file may not exist yet (e.g. server not started); only error
+            // if we also have no explicit port to fall back to.
+            if explicit_port.is_none() {
+                return Err(anyhow::anyhow!(
+                    "Could not read port file and no port override set: {e}"
+                ));
+            }
+            None
+        }
     };
 
     resolve_base_url_from_sources(log_prefix, None, host, explicit_port, port_info)

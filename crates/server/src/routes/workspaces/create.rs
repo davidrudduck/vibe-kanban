@@ -240,7 +240,16 @@ pub async fn create_and_start_workspace(
         .load_managed_workspace(create_workspace_record(&deployment, name).await?)
         .await?;
     let remote_client = match linked_issue.as_ref() {
-        Some(_) => Some(deployment.remote_client()?),
+        Some(_) => match deployment.remote_client() {
+            Ok(client) => Some(client),
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to resolve remote client for issue linking; \
+                     workspace will be created without remote link: {e}"
+                );
+                None
+            }
+        },
         None => None,
     };
 
@@ -298,7 +307,9 @@ pub async fn create_and_start_workspace(
     let workspace = managed_workspace.workspace.clone();
     tracing::info!("Created workspace {}", workspace.id);
 
-    if let (Some(linked_issue), Some(client)) = (linked_issue.as_ref(), remote_client.as_ref()) {
+    let link_warning = if let (Some(linked_issue), Some(client)) =
+        (linked_issue.as_ref(), remote_client.as_ref())
+    {
         // Don't abort workspace creation if remote issue linkage fails — the
         // local workspace has already been provisioned and the user can
         // retry linkage separately via the link endpoint. Failing here
@@ -317,8 +328,16 @@ pub async fn create_and_start_workspace(
                 "Failed to sync workspace to remote issue after creation: {e}. \
                  Workspace created successfully; linking can be retried via the link endpoint."
             );
+            Some(format!(
+                "Workspace created successfully, but linking to the remote issue failed: {e}. \
+                 You can retry linking via the workspace link endpoint."
+            ))
+        } else {
+            None
         }
-    }
+    } else {
+        None
+    };
 
     let execution_process = deployment
         .container()
@@ -340,6 +359,7 @@ pub async fn create_and_start_workspace(
         CreateAndStartWorkspaceResponse {
             workspace,
             execution_process,
+            link_warning,
         },
     )))
 }

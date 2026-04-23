@@ -42,6 +42,7 @@ pub struct CreateAndStartWorkspaceRequest {
 pub struct CreateAndStartWorkspaceResponse {
     pub workspace: Workspace,
     pub execution_process: ExecutionProcess,
+    pub link_warning: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]

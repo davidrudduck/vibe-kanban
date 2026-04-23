@@ -63,8 +63,17 @@ export function useWorkspaceActions({
 
   const archiveWorkspace = useCallback(
     async (localWorkspaceId: string) => {
-      const isCurrentlyArchived =
-        findWorkspace(localWorkspaceId)?.archived ?? false;
+      const workspace = findWorkspace(localWorkspaceId);
+      if (!workspace) {
+        await ConfirmDialog.show({
+          title: t('common:error'),
+          message: t('workspaces.archiveError', 'Failed to update workspace'),
+          confirmText: t('common:ok'),
+          showCancelButton: false,
+        });
+        return;
+      }
+      const isCurrentlyArchived = workspace.archived;
 
       try {
         await workspacesApi.update(localWorkspaceId, {

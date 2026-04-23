@@ -29,7 +29,18 @@ The local Vibe Kanban server binds to `127.0.0.1` by default. Only processes on 
 http://127.0.0.1:<BACKEND_PORT>/api/sessions/external
 ```
 
-The backend port is auto-assigned at startup. Vibe Kanban writes the current port to a port file that the MCP server and other local tools read automatically. To find the port, check the Vibe Kanban UI or inspect the port file at `~/.vibe-kanban/port`.
+The backend port is auto-assigned at startup. Vibe Kanban writes the current connection details to a port file that the MCP server and other local tools read automatically. To find the port, check the Vibe Kanban UI or read the port file:
+
+- **Linux/macOS**: `/tmp/vibe-kanban/vibe-kanban.port`
+- **Windows**: `%TEMP%\vibe-kanban\vibe-kanban.port`
+
+The port file contains JSON, for example:
+
+```json
+{"main_port":3001,"preview_proxy_port":8080,"backend_url":"http://127.0.0.1:3001"}
+```
+
+Use the `backend_url` field when present — it is the canonical base URL for the API.
 
 ## Status values
 
@@ -233,8 +244,9 @@ The following examples show how a CLI agent can register itself on startup and u
 #!/usr/bin/env bash
 # Register on startup and update status when done
 
-VK_PORT=$(cat ~/.vibe-kanban/port 2>/dev/null || echo "3001")
-VK_BASE="http://127.0.0.1:${VK_PORT}/api/sessions/external"
+_PORT_FILE="/tmp/vibe-kanban/vibe-kanban.port"
+VK_BASE=$(jq -r '.backend_url // ("http://127.0.0.1:" + (.main_port | tostring))' "$_PORT_FILE" 2>/dev/null || echo "http://127.0.0.1:3001")
+VK_BASE="${VK_BASE}/api/sessions/external"
 
 # Register the session
 RESPONSE=$(curl -s -X POST "$VK_BASE" \

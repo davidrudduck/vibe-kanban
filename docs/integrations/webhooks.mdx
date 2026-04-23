@@ -158,6 +158,10 @@ All events use the `patch` event type and describe a change to the Vibe Kanban s
 Without a shared secret, any party who can send HTTP requests to your webhook endpoint can spoof events. Always use a secret in production.
 </Warning>
 
+<Warning>
+The `secret` field is returned in API responses. Since the local server only accepts connections from `127.0.0.1`, only processes on the same machine can read it. Treat the Vibe Kanban API port as sensitive — avoid using production-grade secrets; prefer a short HMAC token.
+</Warning>
+
 ### Validating the secret
 
 When you configure a `secret`, Vibe Kanban sends it verbatim in the `X-VK-Secret` header. Your endpoint should compare this value against the secret you configured and reject requests where it does not match.
