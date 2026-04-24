@@ -46,7 +46,10 @@ async fn forward_http(
     let relay_hosts = deployment.relay_hosts()?;
     let (parts, body) = request.into_parts();
     let method = parts.method;
-    let headers = parts.headers;
+    let mut headers = parts.headers;
+    if let Ok(value) = host_id.to_string().parse() {
+        headers.insert("x-relay-host-id", value);
+    }
     let target_path = parts
         .uri
         .path_and_query()

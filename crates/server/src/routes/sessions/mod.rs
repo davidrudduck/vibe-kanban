@@ -4,6 +4,7 @@ pub mod review;
 use axum::{
     Extension, Json, Router,
     extract::{Query, State},
+    http::HeaderMap,
     middleware::from_fn_with_state,
     response::Json as ResponseJson,
     routing::{get, post},
@@ -64,6 +65,7 @@ pub async fn get_session(
 
 pub async fn create_session(
     State(deployment): State<DeploymentImpl>,
+    headers: HeaderMap,
     Json(payload): Json<CreateSessionRequest>,
 ) -> Result<ResponseJson<ApiResponse<Session>>, ApiError> {
     let pool = &deployment.db().pool;
@@ -75,11 +77,17 @@ pub async fn create_session(
             "Workspace not found".to_string(),
         )))?;
 
+    let host_id = headers
+        .get("x-relay-host-id")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
     let session = Session::create(
         pool,
         &CreateSession {
             executor: payload.executor,
             name: payload.name,
+            host_id,
         },
         Uuid::new_v4(),
         payload.workspace_id,

@@ -505,6 +505,7 @@ pub trait ContainerService {
                     &CreateSession {
                         executor: None,
                         name: None,
+                        host_id: None,
                     },
                     Uuid::new_v4(),
                     workspace.id,
@@ -1065,6 +1066,7 @@ pub trait ContainerService {
             &CreateSession {
                 executor: Some(executor_config.executor.to_string()),
                 name: None,
+                host_id: None,
             },
             Uuid::new_v4(),
             workspace.id,

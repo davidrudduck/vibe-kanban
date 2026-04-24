@@ -26,6 +26,7 @@ pub struct Session {
     pub name: Option<String>,
     pub executor: Option<String>,
     pub agent_working_dir: Option<String>,
+    pub host_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -34,6 +35,7 @@ pub struct Session {
 pub struct CreateSession {
     pub executor: Option<String>,
     pub name: Option<String>,
+    pub host_id: Option<String>,
 }
 
 impl Session {
@@ -45,6 +47,7 @@ impl Session {
                       name,
                       executor,
                       agent_working_dir,
+                      host_id,
                       created_at AS "created_at!: DateTime<Utc>",
                       updated_at AS "updated_at!: DateTime<Utc>"
                FROM sessions
@@ -69,6 +72,7 @@ impl Session {
                       s.name,
                       s.executor,
                       s.agent_working_dir,
+                      s.host_id,
                       s.created_at AS "created_at!: DateTime<Utc>",
                       s.updated_at AS "updated_at!: DateTime<Utc>"
                FROM sessions s
@@ -100,6 +104,7 @@ impl Session {
                       s.name,
                       s.executor,
                       s.agent_working_dir,
+                      s.host_id,
                       s.created_at AS "created_at!: DateTime<Utc>",
                       s.updated_at AS "updated_at!: DateTime<Utc>"
                FROM sessions s
@@ -130,6 +135,7 @@ impl Session {
                       name,
                       executor,
                       agent_working_dir,
+                      host_id,
                       created_at,
                       updated_at
                FROM sessions
@@ -153,20 +159,22 @@ impl Session {
 
         Ok(sqlx::query_as!(
             Session,
-            r#"INSERT INTO sessions (id, workspace_id, name, executor, agent_working_dir)
-               VALUES ($1, $2, $3, $4, $5)
+            r#"INSERT INTO sessions (id, workspace_id, name, executor, agent_working_dir, host_id)
+               VALUES ($1, $2, $3, $4, $5, $6)
                RETURNING id AS "id!: Uuid",
                          workspace_id AS "workspace_id!: Uuid",
                          name,
                          executor,
                          agent_working_dir,
+                         host_id,
                          created_at AS "created_at!: DateTime<Utc>",
                          updated_at AS "updated_at!: DateTime<Utc>""#,
             id,
             workspace_id,
             name,
             data.executor,
-            agent_working_dir
+            agent_working_dir,
+            data.host_id
         )
         .fetch_one(pool)
         .await?)

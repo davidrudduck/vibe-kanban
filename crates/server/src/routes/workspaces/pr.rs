@@ -123,6 +123,7 @@ async fn trigger_pr_description_follow_up(
                     &CreateSession {
                         executor: None,
                         name: None,
+                        host_id: None,
                     },
                     Uuid::new_v4(),
                     workspace.id,
@@ -798,6 +799,7 @@ pub async fn create_workspace_from_pr(
                 &CreateSession {
                     executor: None,
                     name: None,
+                    host_id: None,
                 },
                 Uuid::new_v4(),
                 workspace.id,
