@@ -62,6 +62,7 @@ export interface SessionOption<TExecutor extends string = string> {
   name?: string | null;
   created_at: string | Date;
   executor?: TExecutor | string | null;
+  hostName?: string;
 }
 
 interface SessionProps<TExecutor extends string = string> {
@@ -363,13 +364,17 @@ export function SessionChatBox<TExecutor extends string = string>({
   const isLatestSelected =
     sessions.length > 0 && selectedSessionId === sessions[0].id;
   const selectedSessionObj = sessions.find((s) => s.id === selectedSessionId);
-  const sessionLabel = isNewSessionMode
+  const baseSessionLabel = isNewSessionMode
     ? t('conversation.sessions.newSession')
     : selectedSessionObj?.name
       ? selectedSessionObj.name
       : isLatestSelected
         ? t('conversation.sessions.latest')
         : t('conversation.sessions.previous');
+  const sessionLabel =
+    !isNewSessionMode && selectedSessionObj?.hostName
+      ? `${baseSessionLabel} · ${selectedSessionObj.hostName}`
+      : baseSessionLabel;
 
   // Stats
   const filesChanged = stats?.filesChanged ?? 0;
@@ -841,18 +846,25 @@ export function SessionChatBox<TExecutor extends string = string>({
                     }
                     onClick={() => onSelectSession(s.id)}
                   >
-                    <span className="flex items-center gap-1.5 max-w-[200px]">
-                      {renderAgentIcon?.(
-                        s.executor ?? null,
-                        'size-icon shrink-0'
-                      )}
-                      <span className="truncate">
-                        {s.name
-                          ? s.name
-                          : index === 0
-                            ? t('conversation.sessions.latest')
-                            : formatSessionDate(s.created_at)}
+                    <span className="flex items-center gap-1.5 min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5 min-w-0 max-w-[200px]">
+                        {renderAgentIcon?.(
+                          s.executor ?? null,
+                          'size-icon shrink-0'
+                        )}
+                        <span className="truncate">
+                          {s.name
+                            ? s.name
+                            : index === 0
+                              ? t('conversation.sessions.latest')
+                              : formatSessionDate(s.created_at)}
+                        </span>
                       </span>
+                      {s.hostName && (
+                        <span className="ml-auto shrink-0 text-xs px-1.5 py-0.5 rounded bg-subtle text-low border border-subtle">
+                          {s.hostName}
+                        </span>
+                      )}
                     </span>
                   </DropdownMenuItem>
                 ))}

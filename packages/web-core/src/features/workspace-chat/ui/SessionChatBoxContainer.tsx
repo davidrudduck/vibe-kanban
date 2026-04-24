@@ -10,6 +10,7 @@ import {
 } from 'shared/types';
 import { AgentIcon } from '@/shared/components/AgentIcon';
 import { useHostId } from '@/shared/providers/HostIdProvider';
+import { useRemoteCloudHostsState } from '@/shared/hooks/useRemoteCloudHosts';
 import { workspaceSessionKeys } from '@/shared/hooks/workspaceSessionKeys';
 import { useWorkspaceExecution } from '@/shared/hooks/useWorkspaceExecution';
 import { useWorkspaceRepo } from '@/shared/hooks/useWorkspaceRepo';
@@ -172,6 +173,20 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   const sessionId = session?.id;
   const queryClient = useQueryClient();
   const hostId = useHostId();
+
+  const { data: hostsData } = useRemoteCloudHostsState();
+  const hostsById = useMemo(
+    () => new Map((hostsData?.hosts ?? []).map((h) => [h.id, h.name])),
+    [hostsData?.hosts]
+  );
+  const sessionsWithHost = useMemo(
+    () =>
+      sessions.map((s) => ({
+        ...s,
+        hostName: s.host_id ? (hostsById.get(s.host_id) ?? undefined) : undefined,
+      })),
+    [sessions, hostsById]
+  );
 
   const handleRenameSession = useCallback(
     (targetSessionId: string, currentName: string) => {
@@ -1037,7 +1052,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         onPasteFiles: uploadFiles,
       }}
       session={{
-        sessions,
+        sessions: sessionsWithHost,
         selectedSessionId: sessionId,
         onSelectSession: onSelectSession ?? (() => {}),
         isNewSessionMode: needsExecutorSelection,
