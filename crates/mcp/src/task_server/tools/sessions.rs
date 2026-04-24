@@ -1,5 +1,6 @@
 use db::models::{
-    execution_process::{ExecutionProcess, ExecutionProcessStatus},
+    coding_agent_turn::CodingAgentTurn,
+    execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
     session::Session,
 };
 use rmcp::{
@@ -9,7 +10,7 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::McpServer;
+use super::{McpServer, ToolError};
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct CreateSessionRequest {
@@ -77,6 +78,30 @@ struct RunCodingAgentInSessionRequest {
     prompt: String,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct CreateAndRunSessionRequest {
+    #[schemars(
+        description = "Workspace ID to create the session in. Optional when running inside a scoped orchestrator MCP."
+    )]
+    workspace_id: Option<Uuid>,
+    #[schemars(
+        description = "The coding agent executor to run (e.g. 'CLAUDE_CODE', 'GEMINI', 'CODEX')"
+    )]
+    executor: String,
+    #[schemars(description = "Prompt for the coding agent")]
+    prompt: String,
+    #[schemars(description = "Optional display name for the session")]
+    name: Option<String>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+struct CreateAndRunSessionResponse {
+    session_id: String,
+    execution_id: String,
+    session: SessionSummary,
+    execution: serde_json::Value,
+}
+
 #[derive(Debug, Serialize)]
 struct FollowUpPayload {
     prompt: String,
@@ -136,8 +161,52 @@ struct GetExecutionResponse {
     status: String,
     is_finished: bool,
     execution: serde_json::Value,
-    #[schemars(description = "Final assistant message/summary when execution has finished")]
+    #[schemars(description = "Final assistant message/summary when available")]
     final_message: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct GetSessionHistoryRequest {
+    #[schemars(description = "Session ID to inspect")]
+    session_id: Uuid,
+    #[schemars(
+        description = "Include soft-deleted (dropped) executions in the response (default: false)"
+    )]
+    include_soft_deleted: Option<bool>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+struct SessionHistoryTurn {
+    #[schemars(description = "Execution ID for this coding-agent turn")]
+    execution_id: String,
+    #[schemars(description = "Execution status")]
+    status: String,
+    #[schemars(description = "True when this execution is no longer running")]
+    is_finished: bool,
+    #[schemars(
+        description = "Whether this execution has been dropped from the active history view"
+    )]
+    dropped: bool,
+    #[schemars(description = "Execution creation timestamp")]
+    created_at: String,
+    #[schemars(description = "Execution completion timestamp")]
+    completed_at: Option<String>,
+    #[schemars(description = "Prompt sent to the coding agent for this turn")]
+    prompt: Option<String>,
+    #[schemars(description = "Final assistant message/summary for this turn when available")]
+    final_message: Option<String>,
+    #[schemars(description = "Upstream agent session ID when available")]
+    agent_session_id: Option<String>,
+    #[schemars(description = "Upstream agent message ID when available")]
+    agent_message_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+struct GetSessionHistoryResponse {
+    session: SessionSummary,
+    #[schemars(description = "Number of coding-agent turns returned")]
+    total_count: usize,
+    turns: Vec<SessionHistoryTurn>,
 }
 
 #[tool_router(router = session_tools_router, vis = "pub")]
@@ -187,6 +256,123 @@ impl McpServer {
 
         Self::success(&CreateSessionResponse {
             session: self.session_summary(session),
+        })
+    }
+
+    #[tool(
+        description = "Create a new session in a workspace and immediately run a coding agent prompt in it. Combines create_session + run_session_prompt into a single call."
+    )]
+    async fn create_and_run_session(
+        &self,
+        Parameters(CreateAndRunSessionRequest {
+            workspace_id,
+            executor,
+            prompt,
+            name,
+        }): Parameters<CreateAndRunSessionRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let prompt = prompt.trim();
+        if prompt.is_empty() {
+            return Self::err("prompt must not be empty", None);
+        }
+
+        let workspace_id = match self.resolve_workspace_id(workspace_id) {
+            Ok(id) => id,
+            Err(error_result) => return Ok(Self::tool_error(error_result)),
+        };
+        if let Err(error_result) = self.scope_allows_workspace(workspace_id) {
+            return Ok(Self::tool_error(error_result));
+        }
+
+        // Validate executor up front
+        let executor_name = match Self::normalize_executor_name(Some(&executor)) {
+            Ok(name) => name,
+            Err(error_result) => return Ok(Self::tool_error(error_result)),
+        };
+
+        // 1. Create the session
+        let create_payload = CreateSessionPayload {
+            workspace_id,
+            executor: Some(executor_name.clone()),
+            name: name.and_then(|value| {
+                let trimmed = value.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                }
+            }),
+        };
+
+        let create_url = self.url("/api/sessions");
+        let session: Session = match self
+            .send_json(self.client.post(&create_url).json(&create_payload))
+            .await
+        {
+            Ok(value) => value,
+            Err(error_result) => return Ok(Self::tool_error(error_result)),
+        };
+
+        let session_id = session.id;
+        let session_summary = self.session_summary(session);
+
+        // 2. Run the prompt
+        let follow_up_payload = FollowUpPayload {
+            prompt: prompt.to_string(),
+            executor_config: ExecutorConfigPayload {
+                executor: executor_name,
+                variant: None,
+                model_id: None,
+                agent_id: None,
+                reasoning_id: None,
+                permission_policy: None,
+            },
+            retry_process_id: None,
+            force_when_dirty: None,
+            perform_git_reset: None,
+        };
+
+        let follow_up_url = self.url(&format!("/api/sessions/{session_id}/follow-up"));
+        let execution_process: ExecutionProcess = match self
+            .send_json(self.client.post(&follow_up_url).json(&follow_up_payload))
+            .await
+        {
+            Ok(value) => value,
+            Err(error_result) => {
+                // Session was created but the follow-up prompt failed to
+                // start. The server has no DELETE /api/sessions endpoint,
+                // so we cannot clean up the orphan automatically. Surface
+                // the session_id so the caller can reuse it with
+                // `run_session_prompt` rather than creating a second orphan.
+                tracing::error!(
+                    session_id = %session_id,
+                    "create_and_run_session: session created but follow-up failed; \
+                     orphaned session left for caller to reuse or discard"
+                );
+                let mut err = Self::tool_error(error_result);
+                err.content.push(rmcp::model::Content::text(
+                    serde_json::json!({
+                        "session_id": session_id.to_string(),
+                        "note": "Session was created but the prompt failed to start. \
+                                 Use run_session_prompt with this session_id to retry.",
+                    })
+                    .to_string(),
+                ));
+                return Ok(err);
+            }
+        };
+
+        let execution_id = execution_process.id.to_string();
+        let execution = match Self::serialize_execution_process(&execution_process) {
+            Ok(value) => value,
+            Err(error_result) => return Ok(Self::tool_error(error_result)),
+        };
+
+        Self::success(&CreateAndRunSessionResponse {
+            session_id: session_id.to_string(),
+            execution_id,
+            session: session_summary,
+            execution,
         })
     }
 
@@ -345,13 +531,132 @@ impl McpServer {
             Err(error_result) => return Ok(Self::tool_error(error_result)),
         };
 
+        let pool = match self.get_db_pool().await {
+            Ok(pool) => pool,
+            Err(error) => {
+                let msg: String = error.to_string();
+                return Ok(Self::tool_error(ToolError::new(
+                    "Failed to open VK database",
+                    Some(msg),
+                )));
+            }
+        };
+        let final_message =
+            match CodingAgentTurn::find_by_execution_process_id(pool, execution_process.id).await {
+                Ok(turn) => turn.and_then(|turn| turn.summary),
+                Err(error) => {
+                    return Ok(Self::tool_error(ToolError::new(
+                        "Failed to load execution summary",
+                        Some(error.to_string()),
+                    )));
+                }
+            };
+
         Self::success(&GetExecutionResponse {
             execution_id: execution_process.id.to_string(),
             session_id: execution_process.session_id.to_string(),
             status: Self::execution_process_status_label(&execution_process.status).to_string(),
             is_finished,
             execution: execution_process_value,
-            final_message: None,
+            final_message,
+        })
+    }
+
+    #[tool(
+        description = "Get coding-agent turn history for a session, including prompts and final summaries."
+    )]
+    async fn get_session_history(
+        &self,
+        Parameters(GetSessionHistoryRequest {
+            session_id,
+            include_soft_deleted,
+        }): Parameters<GetSessionHistoryRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let session_url = self.url(&format!("/api/sessions/{session_id}"));
+        let session: Session = match self.send_json(self.client.get(&session_url)).await {
+            Ok(value) => value,
+            Err(error_result) => return Ok(Self::tool_error(error_result)),
+        };
+        if let Err(error_result) = self.scope_allows_workspace(session.workspace_id) {
+            return Ok(Self::tool_error(error_result));
+        }
+
+        let pool = match self.get_db_pool().await {
+            Ok(pool) => pool,
+            Err(error) => {
+                let msg: String = error.to_string();
+                return Ok(Self::tool_error(ToolError::new(
+                    "Failed to open VK database",
+                    Some(msg),
+                )));
+            }
+        };
+
+        let execution_processes = match ExecutionProcess::find_by_session_id(
+            pool,
+            session_id,
+            include_soft_deleted.unwrap_or(false),
+        )
+        .await
+        {
+            Ok(processes) => processes,
+            Err(error) => {
+                return Ok(Self::tool_error(ToolError::new(
+                    "Failed to load session execution history",
+                    Some(error.to_string()),
+                )));
+            }
+        };
+
+        // Only coding-agent turns show up in the history view. Setup
+        // scripts, cleanup scripts, dev servers, etc. run under the same
+        // session but have no `CodingAgentTurn` row, so if we left them in
+        // the list below and filtered by `turn_map.get(...).is_some()` we
+        // would silently drop them *and* make `total_count` mismatch the
+        // actual number of coding-agent turns we returned.
+        let execution_processes: Vec<_> = execution_processes
+            .into_iter()
+            .filter(|ep| ep.run_reason == ExecutionProcessRunReason::CodingAgent)
+            .collect();
+
+        // Batch-fetch all coding agent turns for these execution processes in
+        // a single query, avoiding N+1 lookups for sessions with many turns.
+        let execution_ids: Vec<_> = execution_processes.iter().map(|ep| ep.id).collect();
+        let turn_map =
+            match CodingAgentTurn::find_by_execution_process_ids(pool, &execution_ids).await {
+                Ok(map) => map,
+                Err(error) => {
+                    return Ok(Self::tool_error(ToolError::new(
+                        "Failed to load session turn history",
+                        Some(error.to_string()),
+                    )));
+                }
+            };
+
+        let mut turns = Vec::new();
+        for execution_process in execution_processes {
+            let Some(turn) = turn_map.get(&execution_process.id) else {
+                continue;
+            };
+
+            turns.push(SessionHistoryTurn {
+                execution_id: execution_process.id.to_string(),
+                status: Self::execution_process_status_label(&execution_process.status).to_string(),
+                is_finished: execution_process.status != ExecutionProcessStatus::Running,
+                dropped: execution_process.dropped,
+                created_at: execution_process.created_at.to_rfc3339(),
+                completed_at: execution_process.completed_at.map(|time| time.to_rfc3339()),
+                prompt: turn.prompt.clone(),
+                final_message: turn.summary.clone(),
+                agent_session_id: turn.agent_session_id.clone(),
+                agent_message_id: turn.agent_message_id.clone(),
+            });
+        }
+
+        Self::success(&GetSessionHistoryResponse {
+            session: self.session_summary(session),
+            total_count: turns.len(),
+            turns,
         })
     }
 }

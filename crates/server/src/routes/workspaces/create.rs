@@ -15,8 +15,9 @@ use uuid::Uuid;
 use crate::{
     DeploymentImpl,
     error::ApiError,
-    routes::workspaces::attachments::{
-        ImportedIssueAttachment, import_issue_attachments_from_remote,
+    routes::workspaces::{
+        attachments::{ImportedIssueAttachment, import_issue_attachments_from_remote},
+        links::sync_workspace_to_issue,
     },
 };
 
@@ -238,6 +239,19 @@ pub async fn create_and_start_workspace(
         .workspace_manager()
         .load_managed_workspace(create_workspace_record(&deployment, name).await?)
         .await?;
+    let remote_client = match linked_issue.as_ref() {
+        Some(_) => match deployment.remote_client() {
+            Ok(client) => Some(client),
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to resolve remote client for issue linking; \
+                     workspace will be created without remote link: {e}"
+                );
+                None
+            }
+        },
+        None => None,
+    };
 
     for repo in &repos {
         managed_workspace
@@ -250,9 +264,7 @@ pub async fn create_and_start_workspace(
         managed_workspace.associate_attachments(ids).await?;
     }
 
-    if let Some(linked_issue) = &linked_issue
-        && let Ok(client) = deployment.remote_client()
-    {
+    if let (Some(linked_issue), Some(client)) = (linked_issue.as_ref(), remote_client.as_ref()) {
         match import_issue_attachments_from_remote(
             &client,
             deployment.file(),
@@ -295,6 +307,38 @@ pub async fn create_and_start_workspace(
     let workspace = managed_workspace.workspace.clone();
     tracing::info!("Created workspace {}", workspace.id);
 
+    let link_warning = if let (Some(linked_issue), Some(client)) =
+        (linked_issue.as_ref(), remote_client.as_ref())
+    {
+        // Don't abort workspace creation if remote issue linkage fails — the
+        // local workspace has already been provisioned and the user can
+        // retry linkage separately via the link endpoint. Failing here
+        // would orphan a valid local workspace whenever the remote is down.
+        if let Err(e) = sync_workspace_to_issue(
+            &deployment,
+            client,
+            &workspace,
+            linked_issue.remote_project_id,
+            linked_issue.issue_id,
+        )
+        .await
+        {
+            tracing::warn!(
+                workspace_id = %workspace.id,
+                "Failed to sync workspace to remote issue after creation: {e}. \
+                 Workspace created successfully; linking can be retried via the link endpoint."
+            );
+            Some(format!(
+                "Workspace created successfully, but linking to the remote issue failed: {e}. \
+                 You can retry linking via the workspace link endpoint."
+            ))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let execution_process = deployment
         .container()
         .start_workspace(&workspace, executor_config.clone(), workspace_prompt)
@@ -315,6 +359,7 @@ pub async fn create_and_start_workspace(
         CreateAndStartWorkspaceResponse {
             workspace,
             execution_process,
+            link_warning,
         },
     )))
 }

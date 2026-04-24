@@ -30,6 +30,7 @@ use services::services::{
     queued_message::QueuedMessageService,
     remote_client::{RemoteClient, RemoteClientError},
     repo::RepoService,
+    webhook_dispatcher::WebhookDispatcher,
 };
 use tokio::sync::{Notify, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -79,6 +80,15 @@ pub struct LocalDeployment {
     ssh_config: Arc<russh::server::Config>,
     pty: PtyService,
     pr_sync_notify: Arc<Notify>,
+    /// Abort handle for the webhook dispatcher background task. We keep an
+    /// `AbortHandle` (which is `Clone`) rather than the `JoinHandle` itself
+    /// because `LocalDeployment` derives `Clone`, so wrapping a
+    /// `JoinHandle` in `Arc` would just hide the fact that the clones share
+    /// ownership. The dispatcher already terminates via `shutdown`
+    /// (CancellationToken); this handle is kept only as a last-resort hook
+    /// to force-abort on teardown paths that bypass the token.
+    #[allow(dead_code)]
+    webhook_dispatcher_abort: tokio::task::AbortHandle,
 }
 
 #[derive(Debug, Clone)]
@@ -236,6 +246,16 @@ impl Deployment for LocalDeployment {
 
         let events = EventService::new(db.clone(), events_msg_store, events_entry_count);
 
+        // Spawn outbound webhook dispatcher. Drive graceful termination via
+        // the shutdown CancellationToken; keep only an AbortHandle around
+        // so we can force-abort if needed. We drop the JoinHandle rather
+        // than storing it because `LocalDeployment` is `Clone` and cloning
+        // a JoinHandle through an Arc would misleadingly share ownership.
+        let webhook_dispatcher_handle =
+            WebhookDispatcher::new(db.pool.clone(), events.msg_store().clone())
+                .spawn(shutdown.child_token());
+        let webhook_dispatcher_abort = webhook_dispatcher_handle.abort_handle();
+
         let file_search_cache = Arc::new(FileSearchCache::new());
 
         let pty = PtyService::new();
@@ -293,6 +313,7 @@ impl Deployment for LocalDeployment {
             ssh_config,
             pty,
             pr_sync_notify,
+            webhook_dispatcher_abort,
         };
 
         Ok(deployment)

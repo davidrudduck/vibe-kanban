@@ -10,10 +10,26 @@ Vibe Kanban keeps you organised while running multiple coding agents in parallel
 
 Start the Vibe Kanban client and open the UI in your browser:
 
-
 ```bash
 npx vibe-kanban
 ```
+
+By default, Vibe Kanban binds to `127.0.0.1` and auto-assigns a free port. You can override this with CLI flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--host <HOST>` | `127.0.0.1` | Network interface to bind the backend server to. Set to `0.0.0.0` to accept connections from other machines. |
+| `--port <PORT>` | auto-assigned | Backend server port. Overrides the `BACKEND_PORT` and `PORT` environment variables. |
+| `--preview-proxy-port <PORT>` | auto-assigned | Port for the preview proxy server. Overrides the `PREVIEW_PROXY_PORT` environment variable. |
+
+```bash
+# Bind to a specific port and accept external connections
+npx vibe-kanban --host 0.0.0.0 --port 3001 --preview-proxy-port 3002
+```
+
+<Warning>
+Setting `--host 0.0.0.0` makes the server reachable from other machines on your network. Only do this in trusted network environments.
+</Warning>
 
 ## 2. Confirm your preferences
 

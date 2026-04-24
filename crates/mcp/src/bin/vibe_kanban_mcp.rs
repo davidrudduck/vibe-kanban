@@ -18,7 +18,7 @@ use rmcp::{
 };
 use tracing_subscriber::{EnvFilter, prelude::*};
 use utils::{
-    port_file::read_port_file,
+    port_file::{PortInfo, read_port_info},
     sentry::{self as sentry_utils, SentrySource, sentry_layer},
 };
 
@@ -32,15 +32,17 @@ enum McpLaunchMode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct LaunchConfig {
-    mode: McpLaunchMode,
-    transport: McpTransport,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 enum McpTransport {
     Stdio,
     Http { port: u16 },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LaunchConfig {
+    mode: McpLaunchMode,
+    transport: McpTransport,
+    host: Option<String>,
+    backend_url: Option<String>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -54,8 +56,13 @@ fn main() -> anyhow::Result<()> {
             let version = env!("CARGO_PKG_VERSION");
             init_process_logging("vibe-kanban-mcp", version);
 
-            let base_url = resolve_base_url("vibe-kanban-mcp").await?;
-            let LaunchConfig { mode, transport } = launch_config;
+            let base_url = resolve_base_url("vibe-kanban-mcp", &launch_config).await?;
+            let LaunchConfig {
+                mode,
+                transport,
+                host,
+                ..
+            } = launch_config;
 
             let server = match mode {
                 McpLaunchMode::Global => McpServer::new_global(&base_url),
@@ -72,7 +79,7 @@ fn main() -> anyhow::Result<()> {
                     service.waiting().await?;
                     Ok(())
                 }
-                McpTransport::Http { port } => run_http_server(server, port).await,
+                McpTransport::Http { port } => run_http_server(server, port, host).await,
             }
         })
 }
@@ -88,6 +95,8 @@ where
     let mut mode = None;
     let mut http = false;
     let mut port = None;
+    let mut host = None;
+    let mut backend_url = None;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -111,15 +120,35 @@ where
                 }
                 port = Some(parsed_port);
             }
+            "--host" => {
+                host = Some(
+                    args.next()
+                        .ok_or_else(|| anyhow::anyhow!("Missing value for --host"))?,
+                );
+            }
+            "--backend-url" => {
+                let raw = args
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("Missing value for --backend-url"))?;
+                let parsed = url::Url::parse(&raw).map_err(|error| {
+                    anyhow::anyhow!("Invalid value for --backend-url: '{raw}': {error}")
+                })?;
+                if parsed.scheme().is_empty() {
+                    anyhow::bail!(
+                        "Invalid value for --backend-url: '{raw}'. Expected an absolute URL with a scheme (e.g. http://localhost:3001)"
+                    );
+                }
+                backend_url = Some(parsed.as_str().trim_end_matches('/').to_string());
+            }
             "-h" | "--help" => {
                 println!(
-                    "Usage: vibe-kanban-mcp [--mode <global|orchestrator>] [--http --port <port>]"
+                    "Usage: vibe-kanban-mcp [--mode <global|orchestrator>] [--http --port <port>] [--host <HOST>] [--backend-url <URL>]"
                 );
                 std::process::exit(0);
             }
             _ => {
                 return Err(anyhow::anyhow!(
-                    "Unknown argument '{arg}'. Usage: vibe-kanban-mcp [--mode <global|orchestrator>] [--http --port <port>]"
+                    "Unknown argument '{arg}'. Usage: vibe-kanban-mcp [--mode <global|orchestrator>] [--http --port <port>] [--host <HOST>] [--backend-url <URL>]"
                 ));
             }
         }
@@ -152,7 +181,12 @@ where
         (true, Some(port)) => McpTransport::Http { port },
     };
 
-    Ok(LaunchConfig { mode, transport })
+    Ok(LaunchConfig {
+        mode,
+        transport,
+        host,
+        backend_url,
+    })
 }
 
 async fn remap_session_not_found(req: Request<Body>, next: Next) -> Response {
@@ -166,10 +200,15 @@ async fn remap_session_not_found(req: Request<Body>, next: Next) -> Response {
     }
 }
 
-async fn run_http_server(server: McpServer, port: u16) -> anyhow::Result<()> {
-    let bind_host = std::env::var(HOST_ENV)
-        .or_else(|_| std::env::var("HOST"))
-        .unwrap_or_else(|_| "127.0.0.1".to_string());
+async fn run_http_server(
+    server: McpServer,
+    port: u16,
+    host_override: Option<String>,
+) -> anyhow::Result<()> {
+    let bind_host = host_override
+        .or_else(|| std::env::var(HOST_ENV).ok())
+        .or_else(|| std::env::var("HOST").ok())
+        .unwrap_or_else(|| "127.0.0.1".to_string());
     let bind_address = format!("{bind_host}:{port}");
 
     tracing::info!("[vibe-kanban-mcp] Starting HTTP server at http://{bind_address}/mcp");
@@ -199,8 +238,54 @@ async fn run_http_server(server: McpServer, port: u16) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn resolve_base_url(log_prefix: &str) -> anyhow::Result<String> {
-    if let Ok(url) = std::env::var("VIBE_BACKEND_URL") {
+async fn resolve_base_url(log_prefix: &str, config: &LaunchConfig) -> anyhow::Result<String> {
+    // Single, unambiguous precedence chain for backend URL resolution:
+    //   1. `config.backend_url` (explicit --backend-url CLI arg)
+    //   2. `VIBE_BACKEND_URL` env var (must parse as a URL *with a scheme*)
+    //   3. Port file `backend_url` field
+    //   4. Reconstructed from HOST / (MCP_PORT|BACKEND_PORT|PORT)
+    //
+    // `HOST` and port env vars apply uniformly across all paths where we
+    // reconstruct a URL; they never override a fully-formed explicit URL.
+    if let Some(url) = &config.backend_url {
+        tracing::info!(
+            "[{}] Using backend URL from --backend-url: {}",
+            log_prefix,
+            url
+        );
+        return Ok(url.clone());
+    }
+
+    let host_override = config
+        .host
+        .clone()
+        .or_else(|| std::env::var(HOST_ENV).ok())
+        .or_else(|| std::env::var("HOST").ok());
+
+    // VIBE_BACKEND_URL: only honor if it parses as a URL with a scheme.
+    // Invalid (e.g. missing-scheme) values fall through to the next source
+    // with a warning rather than being passed through as raw strings.
+    let backend_url_env =
+        std::env::var("VIBE_BACKEND_URL")
+            .ok()
+            .and_then(|raw| match url::Url::parse(&raw) {
+                Ok(parsed) if !parsed.scheme().is_empty() => Some(parsed),
+                Ok(_) => {
+                    tracing::warn!(
+                        "[{}] Ignoring VIBE_BACKEND_URL='{}': missing scheme",
+                        log_prefix,
+                        raw
+                    );
+                    None
+                }
+                Err(e) => {
+                    tracing::warn!("[{}] Ignoring VIBE_BACKEND_URL='{}': {e}", log_prefix, raw);
+                    None
+                }
+            });
+
+    if let Some(base) = backend_url_env {
+        let url = base.as_str().trim_end_matches('/').to_string();
         tracing::info!(
             "[{}] Using backend URL from VIBE_BACKEND_URL: {}",
             log_prefix,
@@ -209,28 +294,85 @@ async fn resolve_base_url(log_prefix: &str) -> anyhow::Result<String> {
         return Ok(url);
     }
 
-    let host = std::env::var(HOST_ENV)
-        .or_else(|_| std::env::var("HOST"))
-        .unwrap_or_else(|_| "127.0.0.1".to_string());
+    let host = host_override.unwrap_or_else(|| "127.0.0.1".to_string());
+    let explicit_port = read_port_override_env()?;
 
-    let port = match std::env::var(PORT_ENV)
+    let port_info = match read_port_info("vibe-kanban").await {
+        Ok(info) => Some(info),
+        Err(e) => {
+            // Port file may not exist yet (e.g. server not started); only error
+            // if we also have no explicit port to fall back to.
+            if explicit_port.is_none() {
+                return Err(anyhow::anyhow!(
+                    "Could not read port file and no port override set: {e}"
+                ));
+            }
+            None
+        }
+    };
+
+    resolve_base_url_from_sources(log_prefix, None, host, explicit_port, port_info)
+}
+
+/// Read port override from env (MCP_PORT, then BACKEND_PORT, then PORT).
+/// Returns `Ok(None)` when nothing is set; errors on unparseable values.
+fn read_port_override_env() -> anyhow::Result<Option<u16>> {
+    match std::env::var(PORT_ENV)
         .or_else(|_| std::env::var("BACKEND_PORT"))
         .or_else(|_| std::env::var("PORT"))
     {
         Ok(port_str) => {
-            tracing::info!("[{}] Using port from environment: {}", log_prefix, port_str);
-            port_str
+            let port = port_str
                 .parse::<u16>()
-                .map_err(|error| anyhow::anyhow!("Invalid port value '{}': {}", port_str, error))?
+                .map_err(|error| anyhow::anyhow!("Invalid port value '{}': {}", port_str, error))?;
+            if port == 0 {
+                anyhow::bail!("Invalid port value '{}'. Expected 1-65535", port_str);
+            }
+            Ok(Some(port))
         }
-        Err(_) => {
-            let port = read_port_file("vibe-kanban").await?;
-            tracing::info!("[{}] Using port from port file: {}", log_prefix, port);
-            port
-        }
-    };
+        Err(_) => Ok(None),
+    }
+}
 
-    let url = format!("http://{}:{}", host, port);
+fn resolve_base_url_from_sources(
+    log_prefix: &str,
+    backend_url: Option<String>,
+    host: String,
+    explicit_port: Option<u16>,
+    port_info: Option<PortInfo>,
+) -> anyhow::Result<String> {
+    if let Some(url) = backend_url {
+        tracing::info!(
+            "[{}] Using backend URL from VIBE_BACKEND_URL: {}",
+            log_prefix,
+            url
+        );
+        return Ok(url);
+    }
+
+    if let Some(port) = explicit_port {
+        tracing::info!("[{}] Using port from environment: {}", log_prefix, port);
+        let url = format!("http://{}:{}", host, port);
+        tracing::info!("[{}] Using backend URL: {}", log_prefix, url);
+        return Ok(url);
+    }
+
+    let port_info = port_info.ok_or_else(|| anyhow::anyhow!("Missing port file information"))?;
+    if let Some(url) = port_info.backend_url {
+        tracing::info!(
+            "[{}] Using canonical backend URL from port file: {}",
+            log_prefix,
+            url
+        );
+        return Ok(url);
+    }
+
+    tracing::info!(
+        "[{}] Using port from port file: {}",
+        log_prefix,
+        port_info.main_port
+    );
+    let url = format!("http://{}:{}", host, port_info.main_port);
     tracing::info!("[{}] Using backend URL: {}", log_prefix, url);
     Ok(url)
 }
@@ -267,10 +409,11 @@ mod tests {
         StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
     };
     use tokio::sync::oneshot;
+    use utils::port_file::PortInfo;
 
     use super::{
         LaunchConfig, McpLaunchMode, McpServer, McpTransport, remap_session_not_found,
-        resolve_launch_config_from_iter,
+        resolve_base_url_from_sources, resolve_launch_config_from_iter,
     };
 
     #[test]
@@ -285,6 +428,8 @@ mod tests {
             LaunchConfig {
                 mode: McpLaunchMode::Orchestrator,
                 transport: McpTransport::Stdio,
+                host: None,
+                backend_url: None,
             }
         );
     }
@@ -310,6 +455,65 @@ mod tests {
     }
 
     #[test]
+    fn vibe_backend_url_has_highest_precedence() {
+        let url = resolve_base_url_from_sources(
+            "test",
+            Some("http://override:9999".to_string()),
+            "legacy-host".to_string(),
+            Some(7777),
+            None,
+        )
+        .expect("base url should resolve");
+
+        assert_eq!(url, "http://override:9999");
+    }
+
+    #[test]
+    fn explicit_env_host_and_port_beat_port_file_url() {
+        let url =
+            resolve_base_url_from_sources("test", None, "env-host".to_string(), Some(7777), None)
+                .expect("base url should resolve");
+
+        assert_eq!(url, "http://env-host:7777");
+    }
+
+    #[test]
+    fn canonical_backend_url_from_port_file_beats_legacy_reconstruction() {
+        let url = resolve_base_url_from_sources(
+            "test",
+            None,
+            "legacy-host".to_string(),
+            None,
+            Some(PortInfo {
+                main_port: 4567,
+                preview_proxy_port: Some(8901),
+                backend_url: Some("http://localhost:4567".to_string()),
+            }),
+        )
+        .expect("base url should resolve");
+
+        assert_eq!(url, "http://localhost:4567");
+    }
+
+    #[test]
+    fn legacy_port_file_still_reconstructs_from_host_and_port() {
+        let url = resolve_base_url_from_sources(
+            "test",
+            None,
+            "legacy-host".to_string(),
+            None,
+            Some(PortInfo {
+                main_port: 4567,
+                preview_proxy_port: Some(8901),
+                backend_url: None,
+            }),
+        )
+        .expect("base url should resolve");
+
+        assert_eq!(url, "http://legacy-host:4567");
+    }
+
+    #[test]
     fn http_mode_with_port_parses() {
         let config = resolve_launch_config_from_iter(
             [
@@ -328,6 +532,8 @@ mod tests {
             LaunchConfig {
                 mode: McpLaunchMode::Global,
                 transport: McpTransport::Http { port: 8765 },
+                host: None,
+                backend_url: None,
             }
         );
     }

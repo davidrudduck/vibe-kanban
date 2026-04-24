@@ -415,9 +415,11 @@ mod tests {
     fn orchestrator_mode_exposes_only_scoped_workflow_tools() {
         let actual = tool_names(McpServer::orchestrator_mode_router());
         let expected = BTreeSet::from([
+            "create_and_run_session".to_string(),
             "create_session".to_string(),
             "get_context".to_string(),
             "get_execution".to_string(),
+            "get_session_history".to_string(),
             "list_sessions".to_string(),
             "run_session_prompt".to_string(),
             "update_session".to_string(),
@@ -459,6 +461,7 @@ mod tests {
                 }],
             }),
             mode: McpMode::Global,
+            db_pool: std::sync::Arc::new(tokio::sync::OnceCell::new()),
         };
 
         assert_eq!(server.orchestrator_session_id(), Some(session_id));
@@ -474,6 +477,7 @@ mod tests {
             tool_router: ToolRouter::default(),
             context: None,
             mode: McpMode::Orchestrator,
+            db_pool: std::sync::Arc::new(tokio::sync::OnceCell::new()),
         };
 
         assert_eq!(server.orchestrator_session_id(), None);

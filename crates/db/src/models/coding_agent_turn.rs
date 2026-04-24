@@ -81,6 +81,59 @@ impl CodingAgentTurn {
         .await
     }
 
+    /// Batch-fetch coding agent turns for a list of execution process IDs.
+    /// Avoids N+1 queries by running `WHERE execution_process_id IN (...)`
+    /// lookups in chunks. Returns a map of execution_process_id -> turn.
+    ///
+    /// Chunks are capped at 500 IDs per query to stay well below SQLite's
+    /// default bound-parameter limit (SQLITE_MAX_VARIABLE_NUMBER = 999).
+    pub async fn find_by_execution_process_ids(
+        pool: &SqlitePool,
+        execution_process_ids: &[Uuid],
+    ) -> Result<std::collections::HashMap<Uuid, Self>, sqlx::Error> {
+        use std::collections::HashMap;
+
+        if execution_process_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut result = HashMap::new();
+        for chunk in execution_process_ids.chunks(500) {
+            // SQLite doesn't support binding arrays directly — build a query
+            // with the right number of `?` placeholders and bind each UUID.
+            let placeholders = std::iter::repeat("?")
+                .take(chunk.len())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let query = format!(
+                r#"SELECT
+                id,
+                execution_process_id,
+                agent_session_id,
+                agent_message_id,
+                prompt,
+                summary,
+                seen,
+                created_at,
+                updated_at
+               FROM coding_agent_turns
+               WHERE execution_process_id IN ({placeholders})"#,
+            );
+
+            let mut q = sqlx::query_as::<_, Self>(&query);
+            for id in chunk {
+                q = q.bind(id);
+            }
+
+            let rows = q.fetch_all(pool).await?;
+            for turn in rows {
+                result.insert(turn.execution_process_id, turn);
+            }
+        }
+
+        Ok(result)
+    }
+
     /// Create a new coding agent turn
     pub async fn create(
         pool: &SqlitePool,
