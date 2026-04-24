@@ -18,6 +18,8 @@ import type { ExecutionProcessStatus, ExecutionProcess } from 'shared/types';
 
 import { useProcessSelection } from '@/shared/hooks/ProcessSelectionContext';
 import { useRetryUi } from '@/shared/hooks/useRetryUi';
+import { writeClipboardViaBridge } from '@/shared/lib/clipboard';
+import { useToast } from '@vibe/ui/components/Toast';
 
 interface ProcessesTabProps {
   sessionId?: string;
@@ -25,6 +27,7 @@ interface ProcessesTabProps {
 
 function ProcessesTab({ sessionId }: ProcessesTabProps) {
   const { t } = useTranslation('tasks');
+  const toast = useToast();
   const {
     executionProcesses,
     executionProcessesById,
@@ -56,13 +59,14 @@ function ProcessesTab({ sessionId }: ProcessesTabProps) {
 
     const text = logs.map((entry) => entry.content).join('\n');
     try {
-      await navigator.clipboard.writeText(text);
+      await writeClipboardViaBridge(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+      toast.show(t('processes.logsCopied'), { variant: 'success' });
     } catch (err) {
-      console.warn('Copy to clipboard failed:', err);
+      toast.show(t('processes.copyFailed'), { variant: 'error' });
     }
-  }, [logs]);
+  }, [logs, t, toast]);
 
   const getStatusIcon = (status: ExecutionProcessStatus) => {
     switch (status) {

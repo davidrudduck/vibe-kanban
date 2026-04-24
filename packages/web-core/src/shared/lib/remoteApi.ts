@@ -14,6 +14,7 @@ import type {
 } from 'shared/remote-types';
 import { getAuthRuntime } from '@/shared/lib/auth/runtime';
 import { syncRelayApiBaseWithRemote } from '@/shared/lib/relayBackendApi';
+import { sha256Hex } from '@vibe/ui/lib/sha256';
 
 const BUILD_TIME_API_BASE = import.meta.env.VITE_VK_SHARED_API_BASE || '';
 
@@ -190,10 +191,7 @@ const sasUrlCache = new Map<string, CachedSasUrl>();
 
 export async function computeFileHash(file: File): Promise<string> {
   const buffer = await file.arrayBuffer();
-  const hash = await crypto.subtle.digest('SHA-256', buffer);
-  return Array.from(new Uint8Array(hash))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+  return sha256Hex(buffer);
 }
 
 // ---------------------------------------------------------------------------

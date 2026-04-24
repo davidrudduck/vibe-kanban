@@ -10,6 +10,7 @@ import { useTauriNotificationNavigation } from '@web/app/hooks/useTauriNotificat
 import { useTauriUpdateReady } from '@web/app/hooks/useTauriUpdateReady';
 import { AppSystemNotifications } from '@web/app/notifications/AppSystemNotifications';
 import { router } from '@web/app/router';
+import { ToastViewport } from '@vibe/ui/components/Toast';
 
 function TauriListeners() {
   useTauriNotificationNavigation();
@@ -34,7 +35,9 @@ function App() {
                   'projects',
                 ]}
               >
-                <RouterProvider router={router} />
+                <ToastViewport>
+                  <RouterProvider router={router} />
+                </ToastViewport>
               </HotkeysProvider>
             </ClickedElementsProvider>
           </LocalAuthProvider>

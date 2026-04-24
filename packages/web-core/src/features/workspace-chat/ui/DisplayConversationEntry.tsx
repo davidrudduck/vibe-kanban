@@ -571,10 +571,10 @@ function FileEditEntry({
   const hasDiffContent = Boolean(diffContent && diffPreviewData.isValid);
 
   // Only show "open in changes" button if the file exists in current diffs
+  const canOpenInChanges = hasDiffPath(path);
   const handleOpenInChanges = useCallback(() => {
-    if (!hasDiffPath(path)) return;
     viewFileInChanges(path);
-  }, [viewFileInChanges, hasDiffPath, path]);
+  }, [viewFileInChanges, path]);
   const handleOpenInVSCode = useCallback((filename: string) => {
     openFileInVSCode(filename, { openAsDiff: false });
   }, []);
@@ -598,7 +598,7 @@ function FileEditEntry({
             )
           : undefined
       }
-      onOpenInChanges={handleOpenInChanges}
+      onOpenInChanges={canOpenInChanges ? handleOpenInChanges : undefined}
     />
   );
 }
@@ -1358,10 +1358,10 @@ function AggregatedDiffGroupEntry({ group }: { group: AggregatedDiffGroup }) {
     setIsHovered(hovered);
   }, []);
 
+  const canOpenInChanges = hasDiffPath(group.filePath);
   const handleOpenInChanges = useCallback(() => {
-    if (!hasDiffPath(group.filePath)) return;
     viewFileInChanges(group.filePath);
-  }, [viewFileInChanges, hasDiffPath, group.filePath]);
+  }, [viewFileInChanges, group.filePath]);
   const handleOpenInVSCode = useCallback((filePath: string) => {
     openFileInVSCode(filePath, { openAsDiff: false });
   }, []);
@@ -1374,7 +1374,7 @@ function AggregatedDiffGroupEntry({ group }: { group: AggregatedDiffGroup }) {
       isHovered={isHovered}
       onToggle={handleToggle}
       onHoverChange={handleHoverChange}
-      onOpenInChanges={handleOpenInChanges}
+      onOpenInChanges={canOpenInChanges ? handleOpenInChanges : undefined}
       fileIcon={FileIcon}
       isVSCode={isVSCode}
       onOpenInVSCode={handleOpenInVSCode}
