@@ -246,6 +246,7 @@ fn generate_types_content() -> String {
         executors::logs::AskUserQuestionOption::decl(),
         executors::logs::TodoItem::decl(),
         executors::logs::NormalizedEntryError::decl(),
+        executors::executors::claude::session_recovery::AvailableSessionInfo::decl(),
         executors::logs::ToolResult::decl(),
         executors::logs::ToolResultValueType::decl(),
         executors::logs::ToolStatus::decl(),

@@ -2,7 +2,10 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use workspace_utils::approvals::{ApprovalStatus, QuestionStatus};
 
-use crate::logs::utils::shell_command_parsing::CommandCategory;
+use crate::{
+    executors::claude::session_recovery::AvailableSessionInfo,
+    logs::utils::shell_command_parsing::CommandCategory,
+};
 
 pub mod plain_text_processor;
 pub mod stderr_processor;
@@ -64,6 +67,9 @@ pub struct NormalizedConversation {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum NormalizedEntryError {
     SetupRequired,
+    SessionNotFound {
+        available_sessions: Vec<AvailableSessionInfo>,
+    },
     Other,
 }
 

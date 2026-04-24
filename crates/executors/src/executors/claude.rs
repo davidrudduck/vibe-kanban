@@ -1,6 +1,7 @@
 // SDK submodules
 pub mod client;
 pub mod protocol;
+pub mod session_recovery;
 pub mod slash_commands;
 pub mod types;
 

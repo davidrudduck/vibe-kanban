@@ -33,8 +33,14 @@ use executors::{
     },
     approvals::{ExecutorApprovalService, NoopExecutorApprovalService},
     env::{ExecutionEnv, RepoContext},
-    executors::{BaseCodingAgent, CancellationToken, ExecutorExitResult, ExecutorExitSignal},
-    logs::{NormalizedEntryType, utils::patch::extract_normalized_entry_from_patch},
+    executors::{
+        BaseCodingAgent, CancellationToken, ExecutorExitResult, ExecutorExitSignal,
+        claude::session_recovery,
+    },
+    logs::{
+        NormalizedEntry, NormalizedEntryError, NormalizedEntryType,
+        utils::patch::{ConversationPatch, extract_normalized_entry_from_patch},
+    },
 };
 use futures::{FutureExt, TryStreamExt, stream::select};
 use git::GitService;
@@ -589,6 +595,42 @@ impl LocalContainerService {
                                 ctx.session.id,
                                 e
                             );
+                        }
+
+                        // Scan for available session transcripts the user can recover from
+                        let worktree_path = ctx.workspace.container_ref.as_deref().map(|cr| {
+                            match &ctx.session.agent_working_dir {
+                                Some(wd) => PathBuf::from(cr).join(wd),
+                                None => PathBuf::from(cr),
+                            }
+                        });
+
+                        let available_sessions = if let Some(ref wt) = worktree_path {
+                            session_recovery::scan_available_sessions(wt).await
+                        } else {
+                            vec![]
+                        };
+
+                        tracing::info!(
+                            "Found {} available session transcripts for recovery",
+                            available_sessions.len()
+                        );
+
+                        // Emit structured error entry via MsgStore so the frontend
+                        // can show the session picker
+                        if let Some(store) = msg_stores.read().await.get(&exec_id) {
+                            let entry = NormalizedEntry {
+                                timestamp: None,
+                                entry_type: NormalizedEntryType::ErrorMessage {
+                                    error_type: NormalizedEntryError::SessionNotFound {
+                                        available_sessions,
+                                    },
+                                },
+                                content: "Session can't be resumed — the session transcript was not found. Select a previous session to recover from, or start fresh.".to_string(),
+                                metadata: None,
+                            };
+                            let patch = ConversationPatch::add_normalized_entry(999999, entry);
+                            store.push_patch(patch);
                         }
                     }
                 }

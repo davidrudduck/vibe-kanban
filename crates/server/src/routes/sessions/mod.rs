@@ -112,6 +112,7 @@ pub struct CreateFollowUpAttempt {
     pub retry_process_id: Option<Uuid>,
     pub force_when_dirty: Option<bool>,
     pub perform_git_reset: Option<bool>,
+    pub override_session_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, TS)]
@@ -188,7 +189,26 @@ pub async fn follow_up(
         .filter(|dir| !dir.is_empty())
         .cloned();
 
-    let action_type = if let Some(info) = latest_session_info {
+    if let Some(ref id) = payload.override_session_id {
+        if id.is_empty()
+            || id.len() > 128
+            || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+        {
+            return Err(ApiError::BadRequest(
+                "Invalid override session ID format".to_string(),
+            ));
+        }
+    }
+
+    let action_type = if let Some(override_id) = payload.override_session_id {
+        ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
+            prompt: prompt.clone(),
+            session_id: override_id,
+            reset_to_message_id: None,
+            executor_config: payload.executor_config.clone(),
+            working_dir: working_dir.clone(),
+        })
+    } else if let Some(info) = latest_session_info {
         let is_reset = payload.retry_process_id.is_some();
         ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
             prompt: prompt.clone(),
