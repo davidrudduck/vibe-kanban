@@ -104,7 +104,8 @@
     "loadingDetails": "Loading process details...",
     "errorLoadingDetails": "Failed to load process details. Please try again.",
     "copyLogs": "Copy logs",
-    "logsCopied": "Copied!"
+    "logsCopied": "Copied!",
+    "copyFailed": "Couldn't copy logs to the clipboard."
   },
   "followUp": {
     "queuedMessage": "Message queued - will execute when current run finishes"
