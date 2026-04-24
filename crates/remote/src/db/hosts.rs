@@ -1,4 +1,4 @@
-use relay_types::RelayHost;
+use relay_types::{HostRepo, RelayHost};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -43,5 +43,73 @@ impl<'a> HostRepository<'a> {
         )
         .fetch_all(self.pool)
         .await
+    }
+
+    pub async fn get_host_id_by_machine_id(
+        &self,
+        user_id: Uuid,
+        machine_id: &str,
+    ) -> Result<Option<Uuid>, sqlx::Error> {
+        let row = sqlx::query!(
+            "SELECT id FROM hosts WHERE owner_user_id = $1 AND machine_id = $2",
+            user_id,
+            machine_id
+        )
+        .fetch_optional(self.pool)
+        .await?;
+        Ok(row.map(|r| r.id))
+    }
+
+    pub async fn upsert_host_repos(
+        &self,
+        host_id: Uuid,
+        repos: &[HostRepo],
+    ) -> Result<(), sqlx::Error> {
+        let paths: Vec<String> = repos.iter().map(|r| r.path.clone()).collect();
+        // Remove repos no longer present on the host
+        sqlx::query!(
+            "DELETE FROM host_repos WHERE host_id = $1 AND NOT (path = ANY($2))",
+            host_id,
+            &paths as &[String]
+        )
+        .execute(self.pool)
+        .await?;
+
+        for repo in repos {
+            sqlx::query!(
+                r#"
+                INSERT INTO host_repos (host_id, path, name, display_name)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (host_id, path) DO UPDATE
+                SET name = EXCLUDED.name,
+                    display_name = EXCLUDED.display_name,
+                    updated_at = NOW()
+                "#,
+                host_id,
+                repo.path,
+                repo.name,
+                repo.display_name
+            )
+            .execute(self.pool)
+            .await?;
+        }
+        Ok(())
+    }
+
+    pub async fn list_host_repos(&self, host_id: Uuid) -> Result<Vec<HostRepo>, sqlx::Error> {
+        let rows = sqlx::query!(
+            "SELECT path, name, display_name FROM host_repos WHERE host_id = $1 ORDER BY name",
+            host_id
+        )
+        .fetch_all(self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| HostRepo {
+                path: r.path,
+                name: r.name,
+                display_name: r.display_name,
+            })
+            .collect())
     }
 }

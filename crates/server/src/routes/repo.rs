@@ -17,7 +17,7 @@ use ts_rs::TS;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError};
+use crate::{DeploymentImpl, error::ApiError, runtime::relay_registration};
 
 #[derive(serde::Deserialize)]
 pub struct OpenEditorRequest {
@@ -60,6 +60,8 @@ pub async fn register_repo(
         )
         .await?;
 
+    let d = deployment.clone();
+    tokio::spawn(async move { relay_registration::report_repos(&d).await });
     Ok(ResponseJson(ApiResponse::success(repo)))
 }
 
@@ -77,6 +79,8 @@ pub async fn init_repo(
         )
         .await?;
 
+    let d = deployment.clone();
+    tokio::spawn(async move { relay_registration::report_repos(&d).await });
     Ok(ResponseJson(ApiResponse::success(repo)))
 }
 
@@ -362,6 +366,8 @@ pub async fn delete_repo(
     }
 
     Repo::delete(&deployment.db().pool, repo_id).await?;
+    let d = deployment.clone();
+    tokio::spawn(async move { relay_registration::report_repos(&d).await });
     Ok((StatusCode::OK, ResponseJson(ApiResponse::success(()))))
 }
 

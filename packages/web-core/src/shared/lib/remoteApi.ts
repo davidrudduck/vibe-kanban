@@ -4,8 +4,10 @@ import type {
   CommitAttachmentsRequest,
   CommitAttachmentsResponse,
   ConfirmUploadRequest,
+  HostRepo,
   InitUploadRequest,
   InitUploadResponse,
+  ListHostReposResponse,
   ListRelayHostsResponse,
   RelayHost,
   UpdateIssueRequest,
@@ -169,6 +171,17 @@ export async function listRelayHosts(): Promise<RelayHost[]> {
 
   const body = (await response.json()) as ListRelayHostsResponse;
   return body.hosts;
+}
+
+export async function listHostRepos(hostId: string): Promise<HostRepo[]> {
+  const response = await makeRequest(`/v1/hosts/${hostId}/repos`, {
+    method: 'GET',
+  });
+  if (!response.ok) {
+    return [];
+  }
+  const body = (await response.json()) as ListHostReposResponse;
+  return body.repos;
 }
 
 // ---------------------------------------------------------------------------

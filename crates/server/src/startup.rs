@@ -58,6 +58,13 @@ impl ServerHandle {
             .expect("client preview proxy port already set");
         relay_registration::spawn_relay(&self.deployment).await;
 
+        // Report repos to relay after a short delay (let WS connect first).
+        let deployment_for_repos = self.deployment.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            relay_registration::report_repos(&deployment_for_repos).await;
+        });
+
         let app_router = routes::router(self.deployment.clone());
         let proxy_router: axum::Router = routes::preview::subdomain_router(self.deployment.clone())
             .layer(ValidateRequestHeaderLayer::custom(validate_origin));

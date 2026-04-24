@@ -4,8 +4,10 @@
 use std::net::SocketAddr;
 
 use anyhow::Context as _;
+use db::models::repo::Repo;
 use deployment::Deployment as _;
 use relay_tunnel_core::client::{RelayClientConfig, start_relay_client};
+use relay_types::HostRepo;
 use services::services::{config::Config, remote_client::RemoteClient};
 
 use crate::DeploymentImpl;
@@ -111,6 +113,41 @@ pub async fn spawn_relay(deployment: &DeploymentImpl) {
 
         tracing::debug!("Relay reconnect loop exited");
     });
+}
+
+/// Report this host's repo list to the relay server. Best-effort — never panics.
+pub async fn report_repos(deployment: &DeploymentImpl) {
+    let Some(params) = resolve_relay_params(deployment).await else {
+        return;
+    };
+    let repos = match Repo::list_all(&deployment.db().pool).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::debug!(?e, "failed to fetch repos for relay reporting");
+            return;
+        }
+    };
+    let host_repos: Vec<HostRepo> = repos
+        .into_iter()
+        .map(|r| HostRepo {
+            path: r.path.to_string_lossy().into_owned(),
+            name: r.name,
+            display_name: if r.display_name.is_empty() {
+                None
+            } else {
+                Some(r.display_name)
+            },
+        })
+        .collect();
+    if let Err(e) = params
+        .remote_client
+        .report_host_repos(&params.machine_id, host_repos)
+        .await
+    {
+        tracing::debug!(?e, "failed to report repos to relay (non-fatal)");
+    } else {
+        tracing::debug!("Host repos reported to relay");
+    }
 }
 
 /// Stop the relay by cancelling the current session token.
