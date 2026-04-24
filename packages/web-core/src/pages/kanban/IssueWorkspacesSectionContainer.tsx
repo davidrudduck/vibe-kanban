@@ -123,11 +123,8 @@ export function IssueWorkspacesSectionContainer({
     [workspacesWithStats]
   );
 
-  const {
-    unlinkWorkspace: handleUnlinkWorkspace,
-    archiveWorkspace: handleArchiveWorkspace,
-    deleteWorkspace,
-  } = useWorkspaceActions({ localWorkspacesById, findWorkspace });
+  const { unlinkWorkspace: handleUnlinkWorkspace, deleteWorkspace } =
+    useWorkspaceActions({ localWorkspacesById, findWorkspace });
 
   const handleDeleteWorkspace = useCallback(
     (localWorkspaceId: string) =>

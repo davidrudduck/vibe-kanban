@@ -1139,6 +1139,7 @@ function SessionNotFoundEntry({
 }) {
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [recovered, setRecovered] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submittingRef = useRef(false);
 
@@ -1183,6 +1184,7 @@ function SessionNotFoundEntry({
           perform_git_reset: null,
           override_session_id: overrideSessionId,
         });
+        setRecovered(true);
       } catch (e: unknown) {
         const err = e as { message?: string };
         setError(err.message ?? 'Failed to recover session');
@@ -1193,6 +1195,15 @@ function SessionNotFoundEntry({
     },
     [sessionId, validExecutor]
   );
+
+  if (recovered) {
+    return (
+      <div className="flex items-start gap-base text-sm text-low">
+        <WarningCircleIcon className="shrink-0 size-icon-base pt-0.5" />
+        <span>Session recovered — resuming…</span>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-base text-sm">
