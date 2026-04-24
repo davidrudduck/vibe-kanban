@@ -127,10 +127,18 @@ where
                 );
             }
             "--backend-url" => {
-                backend_url = Some(
-                    args.next()
-                        .ok_or_else(|| anyhow::anyhow!("Missing value for --backend-url"))?,
-                );
+                let raw = args
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("Missing value for --backend-url"))?;
+                let parsed = url::Url::parse(&raw).map_err(|error| {
+                    anyhow::anyhow!("Invalid value for --backend-url: '{raw}': {error}")
+                })?;
+                if parsed.scheme().is_empty() {
+                    anyhow::bail!(
+                        "Invalid value for --backend-url: '{raw}'. Expected an absolute URL with a scheme (e.g. http://localhost:3001)"
+                    );
+                }
+                backend_url = Some(parsed.as_str().trim_end_matches('/').to_string());
             }
             "-h" | "--help" => {
                 println!(

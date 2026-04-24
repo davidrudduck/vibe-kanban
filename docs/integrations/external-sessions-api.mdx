@@ -312,14 +312,21 @@ async function updateStatus(sessionId, status) {
 }
 
 // Usage
-const sessionId = await registerSession();
-try {
-  // ... do work ...
-  await updateStatus(sessionId, 'done');
-} catch (error) {
-  await updateStatus(sessionId, 'blocked');
-  throw error;
+async function main() {
+  const sessionId = await registerSession();
+  try {
+    // ... do work ...
+    await updateStatus(sessionId, 'done');
+  } catch (error) {
+    await updateStatus(sessionId, 'blocked');
+    throw error;
+  }
 }
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
 ```
 
 ```python Python
