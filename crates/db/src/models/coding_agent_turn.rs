@@ -179,6 +179,34 @@ impl CodingAgentTurn {
         .await
     }
 
+    /// Invalidate all agent sessions for a vibe-kanban session by clearing
+    /// every `agent_session_id` on its coding-agent turns. When a worktree is
+    /// recreated, *all* prior Claude Code sessions in that worktree are lost,
+    /// so we must null them all — otherwise `find_latest_session_info()` would
+    /// fall through to an older (equally stale) turn.
+    pub async fn invalidate_sessions_for_session(
+        pool: &SqlitePool,
+        session_id: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        let now = Utc::now();
+        sqlx::query!(
+            r#"UPDATE coding_agent_turns
+               SET agent_session_id = NULL, updated_at = $1
+               WHERE execution_process_id IN (
+                   SELECT ep.id FROM execution_processes ep
+                   WHERE ep.session_id = $2
+                     AND ep.run_reason = 'codingagent'
+               )
+               AND agent_session_id IS NOT NULL"#,
+            now,
+            session_id
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
     /// Update coding agent turn with agent session ID
     pub async fn update_agent_session_id(
         pool: &SqlitePool,

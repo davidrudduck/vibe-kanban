@@ -552,6 +552,47 @@ impl LocalContainerService {
                     tracing::warn!("Failed to update executor session summary: {}", e);
                 }
 
+                // Detect stale Claude Code sessions: if stderr contains
+                // "No conversation found with session ID", the worktree was
+                // recreated without the local .claude/ state. Invalidate the
+                // session so the next retry falls back to a fresh request.
+                if matches!(
+                    ctx.execution_process.run_reason,
+                    ExecutionProcessRunReason::CodingAgent
+                ) {
+                    let has_invalid_session = msg_stores
+                        .read()
+                        .await
+                        .get(&exec_id)
+                        .map(|store| {
+                            store.get_history().iter().any(|msg| matches!(
+                                msg,
+                                LogMsg::Stderr(s) if s.contains("No conversation found with session ID")
+                            ))
+                        })
+                        .unwrap_or(false);
+
+                    if has_invalid_session {
+                        tracing::warn!(
+                            "Detected stale Claude Code session for execution {} (session {}), invalidating all turns",
+                            exec_id,
+                            ctx.session.id
+                        );
+                        if let Err(e) = CodingAgentTurn::invalidate_sessions_for_session(
+                            &db.pool,
+                            ctx.session.id,
+                        )
+                        .await
+                        {
+                            tracing::error!(
+                                "Failed to invalidate stale sessions for session {}: {}",
+                                ctx.session.id,
+                                e
+                            );
+                        }
+                    }
+                }
+
                 let success = matches!(
                     ctx.execution_process.status,
                     ExecutionProcessStatus::Completed
