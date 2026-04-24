@@ -3283,5 +3283,4 @@ mod tests {
         let parsed: ClaudeJson = serde_json::from_str(control_request_json).unwrap();
         assert!(matches!(parsed, ClaudeJson::ControlRequest { .. }));
     }
-
 }
