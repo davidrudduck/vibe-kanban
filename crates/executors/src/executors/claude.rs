@@ -67,29 +67,6 @@ fn base_command(claude_code_router: bool) -> &'static str {
     }
 }
 
-fn ensure_npx_delimiter(base: &str) -> String {
-    let mut tokens = base.split_whitespace();
-    let is_npx = tokens.next() == Some("npx");
-    if !is_npx {
-        return base.to_string();
-    }
-
-    if base.split_whitespace().any(|token| token == "--") {
-        return base.to_string();
-    }
-
-    format!("{base} --")
-}
-
-fn normalize_npx_base_command(builder: CommandBuilder) -> CommandBuilder {
-    let normalized_base = ensure_npx_delimiter(&builder.base);
-    if normalized_base == builder.base {
-        return builder;
-    }
-
-    builder.override_base(normalized_base)
-}
-
 fn normalize_claude_stderr_logs(
     msg_store: Arc<MsgStore>,
     entry_index_provider: EntryIndexProvider,
@@ -218,7 +195,7 @@ impl ClaudeCode {
         ]);
 
         let builder = apply_overrides(builder, &self.cmd)?;
-        Ok(normalize_npx_base_command(builder))
+        Ok(builder)
     }
 
     pub fn permission_mode(&self) -> PermissionMode {
@@ -3307,27 +3284,4 @@ mod tests {
         assert!(matches!(parsed, ClaudeJson::ControlRequest { .. }));
     }
 
-    #[tokio::test]
-    async fn test_build_command_builder_normalizes_npx_override() {
-        let executor = ClaudeCode {
-            append_prompt: AppendPrompt::default(),
-            claude_code_router: Some(false),
-            plan: None,
-            approvals: None,
-            model: None,
-            effort: None,
-            agent: None,
-            dangerously_skip_permissions: None,
-            disable_api_key: None,
-            cmd: CmdOverrides {
-                base_command_override: Some("npx -y @anthropic-ai/claude-code@2.1.62".to_string()),
-                additional_params: None,
-                env: None,
-            },
-            approvals_service: None,
-        };
-
-        let builder = executor.build_command_builder().await.unwrap();
-        assert_eq!(builder.base, "npx -y @anthropic-ai/claude-code@2.1.62 --");
-    }
 }
