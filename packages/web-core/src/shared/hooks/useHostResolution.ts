@@ -12,7 +12,7 @@ const RELAY_HOSTS_QUERY_KEY = ['relay-hosts'] as const;
 export function useHostResolution() {
   const { machineId } = useUserSystem();
 
-  const { data: relayHosts = [] } = useQuery({
+  const { data: relayHosts = [], isPending } = useQuery({
     queryKey: RELAY_HOSTS_QUERY_KEY,
     queryFn: listRelayHosts,
     staleTime: 60_000,
@@ -41,12 +41,15 @@ export function useHostResolution() {
   const resolveHostName = useMemo(
     () =>
       (hostId: string | null | undefined): string | undefined => {
-        if (hostId) return hostsById.get(hostId) ?? `Unknown (${hostId.slice(0, 6)})`;
+        if (hostId) {
+          if (isPending) return undefined;
+          return hostsById.get(hostId) ?? `Unknown (${hostId.slice(0, 6)})`;
+        }
         // Self-label only when multiple hosts exist (single-host = obvious)
         if (relayHosts.length > 1) return localHostEntry?.name;
         return undefined;
       },
-    [hostsById, localHostEntry, relayHosts.length]
+    [hostsById, localHostEntry, relayHosts, isPending]
   );
 
   return {
