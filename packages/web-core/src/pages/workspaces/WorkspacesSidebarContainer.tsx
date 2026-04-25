@@ -53,6 +53,7 @@ import {
   XIcon,
 } from '@phosphor-icons/react';
 import { useRemoteCloudHostsAppBarModel } from '@/shared/hooks/useRemoteCloudHosts';
+import { useHostResolution } from '@/shared/hooks/useHostResolution';
 
 export type WorkspaceLayoutMode = 'flat' | 'accordion';
 
@@ -266,6 +267,7 @@ export function WorkspacesSidebarContainer({
 
   const isMobile = useIsMobile();
   const { hosts: remoteCloudHosts } = useRemoteCloudHostsAppBarModel();
+  const { resolveHostName, hasMultipleHosts } = useHostResolution();
   const { hostId: routeHostId } = useParams({ strict: false });
   const setMobileActiveTab = useUiPreferencesStore((s) => s.setMobileActiveTab);
   const [searchQuery, setSearchQuery] = useState('');
@@ -677,11 +679,33 @@ export function WorkspacesSidebarContainer({
     });
   }, [routeHostId]);
 
+  const activeWorkspacesWithHost = useMemo(
+    () =>
+      paginatedActiveWorkspaces.map((ws) => ({
+        ...ws,
+        hostName: hasMultipleHosts
+          ? resolveHostName(ws.latestHostId)
+          : undefined,
+      })),
+    [paginatedActiveWorkspaces, hasMultipleHosts, resolveHostName]
+  );
+
+  const archivedWorkspacesWithHost = useMemo(
+    () =>
+      paginatedArchivedWorkspaces.map((ws) => ({
+        ...ws,
+        hostName: hasMultipleHosts
+          ? resolveHostName(ws.latestHostId)
+          : undefined,
+      })),
+    [paginatedArchivedWorkspaces, hasMultipleHosts, resolveHostName]
+  );
+
   return (
     <WorkspacesSidebar
-      workspaces={paginatedActiveWorkspaces}
+      workspaces={activeWorkspacesWithHost}
       totalWorkspacesCount={activeWorkspaces.length}
-      archivedWorkspaces={paginatedArchivedWorkspaces}
+      archivedWorkspaces={archivedWorkspacesWithHost}
       isLoading={isWorkspacesListLoading}
       selectedWorkspaceId={selectedWorkspaceId ?? null}
       onSelectWorkspace={handleSelectWorkspace}

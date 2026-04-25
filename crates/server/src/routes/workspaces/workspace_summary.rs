@@ -51,6 +51,8 @@ pub struct WorkspaceSummary {
     pub pr_number: Option<i64>,
     /// PR URL for this workspace (if any PR exists)
     pub pr_url: Option<String>,
+    /// Host ID of the session that ran the latest execution process
+    pub latest_host_id: Option<String>,
 }
 
 /// Response containing summaries for requested workspaces
@@ -159,6 +161,7 @@ pub async fn get_workspace_summaries(
                 pr_status: pr_statuses.get(&id).map(|pr| pr.pr_status.clone()),
                 pr_number: pr_statuses.get(&id).map(|pr| pr.pr_number),
                 pr_url: pr_statuses.get(&id).map(|pr| pr.pr_url.clone()),
+                latest_host_id: latest.and_then(|p| p.host_id.clone()),
             }
         })
         .collect();

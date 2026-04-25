@@ -7,6 +7,7 @@ import { useAuth } from '@/shared/hooks/auth/useAuth';
 import { useOrgContext } from '@/shared/hooks/useOrgContext';
 import { useUserContext } from '@/shared/hooks/useUserContext';
 import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
+import { useHostResolution } from '@/shared/hooks/useHostResolution';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useProjectWorkspaceCreateDraft } from '@/shared/hooks/useProjectWorkspaceCreateDraft';
 import { useWorkspaceActions } from '@/shared/hooks/useWorkspaceActions';
@@ -49,6 +50,7 @@ export function IssueWorkspacesSectionContainer({
   } = useProjectContext();
   const { activeWorkspaces, archivedWorkspaces } = useWorkspaceContext();
   const { membersWithProfilesById, isLoading: orgLoading } = useOrgContext();
+  const { resolveHostName, hasMultipleHosts } = useHostResolution();
 
   const localWorkspacesById = useMemo(() => {
     const map = new Map<string, (typeof activeWorkspaces)[number]>();
@@ -104,6 +106,9 @@ export function IssueWorkspacesSectionContainer({
         hasUnseenActivity: localWorkspace?.hasUnseenActivity,
         latestProcessCompletedAt: localWorkspace?.latestProcessCompletedAt,
         latestProcessStatus: localWorkspace?.latestProcessStatus,
+        hostName: hasMultipleHosts
+          ? resolveHostName(localWorkspace?.latestHostId)
+          : undefined,
       };
     });
   }, [
@@ -113,6 +118,8 @@ export function IssueWorkspacesSectionContainer({
     membersWithProfilesById,
     userId,
     localWorkspacesById,
+    hasMultipleHosts,
+    resolveHostName,
   ]);
 
   const findWorkspace = useCallback(
