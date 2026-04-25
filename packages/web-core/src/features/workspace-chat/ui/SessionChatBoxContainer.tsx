@@ -174,14 +174,14 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   const queryClient = useQueryClient();
   const hostId = useHostId();
 
-  const { resolveHostName, hasMultipleHosts } = useHostResolution();
+  const { resolveHostName } = useHostResolution();
   const sessionsWithHost = useMemo(
     () =>
       sessions.map((s) => ({
         ...s,
-        hostName: hasMultipleHosts ? resolveHostName(s.host_id) : undefined,
+        hostName: resolveHostName(s.host_id),
       })),
-    [sessions, resolveHostName, hasMultipleHosts]
+    [sessions, resolveHostName]
   );
 
   const handleRenameSession = useCallback(

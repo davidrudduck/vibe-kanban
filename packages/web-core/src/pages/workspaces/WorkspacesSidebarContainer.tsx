@@ -267,7 +267,7 @@ export function WorkspacesSidebarContainer({
 
   const isMobile = useIsMobile();
   const { hosts: remoteCloudHosts } = useRemoteCloudHostsAppBarModel();
-  const { resolveHostName, hasMultipleHosts } = useHostResolution();
+  const { resolveHostName } = useHostResolution();
   const { hostId: routeHostId } = useParams({ strict: false });
   const setMobileActiveTab = useUiPreferencesStore((s) => s.setMobileActiveTab);
   const [searchQuery, setSearchQuery] = useState('');
@@ -683,22 +683,18 @@ export function WorkspacesSidebarContainer({
     () =>
       paginatedActiveWorkspaces.map((ws) => ({
         ...ws,
-        hostName: hasMultipleHosts
-          ? resolveHostName(ws.latestHostId)
-          : undefined,
+        hostName: resolveHostName(ws.latestHostId),
       })),
-    [paginatedActiveWorkspaces, hasMultipleHosts, resolveHostName]
+    [paginatedActiveWorkspaces, resolveHostName]
   );
 
   const archivedWorkspacesWithHost = useMemo(
     () =>
       paginatedArchivedWorkspaces.map((ws) => ({
         ...ws,
-        hostName: hasMultipleHosts
-          ? resolveHostName(ws.latestHostId)
-          : undefined,
+        hostName: resolveHostName(ws.latestHostId),
       })),
-    [paginatedArchivedWorkspaces, hasMultipleHosts, resolveHostName]
+    [paginatedArchivedWorkspaces, resolveHostName]
   );
 
   return (

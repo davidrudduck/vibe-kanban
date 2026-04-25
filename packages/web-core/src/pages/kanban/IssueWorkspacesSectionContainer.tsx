@@ -50,7 +50,7 @@ export function IssueWorkspacesSectionContainer({
   } = useProjectContext();
   const { activeWorkspaces, archivedWorkspaces } = useWorkspaceContext();
   const { membersWithProfilesById, isLoading: orgLoading } = useOrgContext();
-  const { resolveHostName, hasMultipleHosts } = useHostResolution();
+  const { resolveHostName } = useHostResolution();
 
   const localWorkspacesById = useMemo(() => {
     const map = new Map<string, (typeof activeWorkspaces)[number]>();
@@ -106,9 +106,7 @@ export function IssueWorkspacesSectionContainer({
         hasUnseenActivity: localWorkspace?.hasUnseenActivity,
         latestProcessCompletedAt: localWorkspace?.latestProcessCompletedAt,
         latestProcessStatus: localWorkspace?.latestProcessStatus,
-        hostName: hasMultipleHosts
-          ? resolveHostName(localWorkspace?.latestHostId)
-          : undefined,
+        hostName: resolveHostName(localWorkspace?.latestHostId),
       };
     });
   }, [
@@ -118,7 +116,6 @@ export function IssueWorkspacesSectionContainer({
     membersWithProfilesById,
     userId,
     localWorkspacesById,
-    hasMultipleHosts,
     resolveHostName,
   ]);
 
