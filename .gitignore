@@ -96,3 +96,8 @@ vibe-kanban-cloud/
 Caddyfile
 Caddyfile.dev
 .omc
+
+# Playwright MCP screenshots
+.playwright-mcp/
+homepage.png
+workspace.png
