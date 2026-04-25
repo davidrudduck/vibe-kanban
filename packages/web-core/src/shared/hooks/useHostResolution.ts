@@ -31,28 +31,27 @@ export function useHostResolution() {
     [relayHosts, machineId]
   );
 
-  const hasMultipleHosts = relayHosts.length > 1;
-
   /**
    * Resolve a host_id to a display name.
-   * - If host_id is set: look up in hostsById.
-   * - If host_id is null/undefined: use local machine's host name (self-label).
-   * Returns undefined if there are no relay hosts configured.
+   * - Non-null host_id: always shows — returns the known name, or a short
+   *   sentinel ("Unknown (abc123)") when the host has been unpaired/deleted.
+   * - Null/undefined host_id: self-labels with the local machine's host name,
+   *   but only when >1 relay host is configured (avoids noise for solo users).
    */
   const resolveHostName = useMemo(
     () =>
       (hostId: string | null | undefined): string | undefined => {
-        if (hostId) return hostsById.get(hostId);
-        // Self-label: null host_id means created locally on this machine
-        return localHostEntry?.name;
+        if (hostId) return hostsById.get(hostId) ?? `Unknown (${hostId.slice(0, 6)})`;
+        // Self-label only when multiple hosts exist (single-host = obvious)
+        if (relayHosts.length > 1) return localHostEntry?.name;
+        return undefined;
       },
-    [hostsById, localHostEntry]
+    [hostsById, localHostEntry, relayHosts.length]
   );
 
   return {
     hostsById,
     localHostEntry,
-    hasMultipleHosts,
     resolveHostName,
     relayHosts,
   };
