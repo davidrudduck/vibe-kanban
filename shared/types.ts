@@ -482,7 +482,11 @@ pr_number: bigint | null,
 /**
  * PR URL for this workspace (if any PR exists)
  */
-pr_url: string | null, };
+pr_url: string | null, 
+/**
+ * Host ID of the session that ran the latest execution process
+ */
+latest_host_id: string | null, };
 
 export type WorkspaceSummaryResponse = { summaries: Array<WorkspaceSummary>, };
 

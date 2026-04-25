@@ -44,6 +44,7 @@ export interface WorkspaceWithStats {
   hasUnseenActivity?: boolean;
   latestProcessCompletedAt?: string;
   latestProcessStatus?: 'running' | 'completed' | 'failed' | 'killed';
+  hostName?: string;
 }
 
 export interface IssueWorkspaceCardProps {
@@ -289,6 +290,17 @@ export function IssueWorkspaceCard({
               <span className="text-low/50 shrink-0">·</span>
               <span className="text-error whitespace-nowrap shrink-0">
                 -{workspace.linesRemoved}
+              </span>
+            </>
+          )}
+          {workspace.hostName && (
+            <>
+              <span className="text-low/50 shrink-0">·</span>
+              <span
+                className="text-xs px-1.5 py-0.5 rounded bg-subtle text-low border border-subtle truncate max-w-[120px] shrink-0"
+                title={workspace.hostName}
+              >
+                {workspace.hostName}
               </span>
             </>
           )}
