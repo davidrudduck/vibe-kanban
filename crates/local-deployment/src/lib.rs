@@ -89,6 +89,7 @@ pub struct LocalDeployment {
     /// to force-abort on teardown paths that bypass the token.
     #[allow(dead_code)]
     webhook_dispatcher_abort: tokio::task::AbortHandle,
+    wal_monitor: db::wal_monitor::WalMonitorHandle,
 }
 
 #[derive(Debug, Clone)]
@@ -283,6 +284,9 @@ impl Deployment for LocalDeployment {
             PrMonitorService::spawn(db, analytics, container, rc, pr_sync_notify.clone()).await;
         }
 
+        let db_path = utils::assets::asset_dir().join("db.v2.sqlite");
+        let wal_monitor = db::wal_monitor::WalMonitor::spawn(db.pool.clone(), db_path);
+
         let deployment = Self {
             config,
             user_id,
@@ -314,6 +318,7 @@ impl Deployment for LocalDeployment {
             pty,
             pr_sync_notify,
             webhook_dispatcher_abort,
+            wal_monitor,
         };
 
         Ok(deployment)
@@ -505,5 +510,9 @@ impl LocalDeployment {
 
     pub fn trigger_pr_sync(&self) {
         self.pr_sync_notify.notify_one();
+    }
+
+    pub fn wal_monitor(&self) -> &db::wal_monitor::WalMonitorHandle {
+        &self.wal_monitor
     }
 }

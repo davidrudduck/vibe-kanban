@@ -9,6 +9,7 @@ use utils::assets::asset_dir;
 
 pub mod metrics;
 pub mod models;
+pub mod wal_monitor;
 
 async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {
     use std::collections::HashSet;
