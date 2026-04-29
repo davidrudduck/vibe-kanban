@@ -144,7 +144,7 @@ async fn archived_stats(
     let cutoff = format!("-{} days", query.older_than_days);
     let count: i64 = sqlx::query_scalar(
         r#"SELECT COUNT(*) FROM workspaces
-           WHERE archived = 1 AND created_at < datetime('now', ?)"#,
+           WHERE archived = 1 AND updated_at < datetime('now', ?)"#,
     )
     .bind(&cutoff)
     .fetch_one(pool)
@@ -201,7 +201,7 @@ async fn purge_archived(
     // Count workspaces that match the age filter but are excluded due to active processes.
     let skipped_active: i64 = sqlx::query_scalar(
         r#"SELECT COUNT(*) FROM workspaces w
-           WHERE w.archived = 1 AND w.created_at < datetime('now', ?)
+           WHERE w.archived = 1 AND w.updated_at < datetime('now', ?)
              AND EXISTS (
                  SELECT 1 FROM execution_processes ep
                  JOIN sessions s ON s.id = ep.session_id
@@ -227,7 +227,7 @@ async fn purge_archived(
                 w.name,
                 w.worktree_deleted
            FROM workspaces w
-           WHERE w.archived = 1 AND w.created_at < datetime('now', ?)
+           WHERE w.archived = 1 AND w.updated_at < datetime('now', ?)
              AND NOT EXISTS (
                  SELECT 1 FROM execution_processes ep
                  JOIN sessions s ON s.id = ep.session_id
