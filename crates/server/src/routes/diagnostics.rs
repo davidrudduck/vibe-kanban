@@ -11,6 +11,7 @@ use db::{
 };
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+use uuid::Uuid;
 use deployment::Deployment;
 use utils::{assets::asset_dir, response::ApiResponse};
 
@@ -21,23 +22,24 @@ use crate::{DeploymentImpl, error::ApiError};
 pub struct DiagnosticsResponse {
     pub pool_stats: PoolStats,
     pub database_stats: DatabaseStats,
-    pub wal_size_bytes: i64,
+    pub wal_size_bytes: u64,
     pub wal_size_human: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct WorkspaceDiskUsage {
-    pub workspace_id: String,
+    pub workspace_id: Uuid,
     pub path: String,
     pub size_bytes: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
-pub struct DiskUsageStats {
+pub struct DiskUsageResponse {
     pub workspaces: Vec<WorkspaceDiskUsage>,
     pub total_bytes: u64,
+    pub total_human: String,
 }
 
 fn format_bytes(bytes: u64) -> String {
@@ -63,8 +65,8 @@ async fn get_diagnostics(
         .await
         .map_err(|e| ApiError::Database(sqlx::Error::Protocol(e.to_string())))?;
 
-    let wal_size_bytes = database_stats.wal_size_bytes;
-    let wal_size_human = format_bytes(wal_size_bytes as u64);
+    let wal_size_bytes = database_stats.wal_size_bytes as u64;
+    let wal_size_human = format_bytes(wal_size_bytes);
 
     Ok(ResponseJson(ApiResponse::success(DiagnosticsResponse {
         pool_stats,
@@ -76,7 +78,7 @@ async fn get_diagnostics(
 
 async fn get_disk_usage(
     State(deployment): State<DeploymentImpl>,
-) -> Result<ResponseJson<ApiResponse<DiskUsageStats>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<DiskUsageResponse>>, ApiError> {
     let workspaces: Vec<Workspace> = sqlx::query_as(
         "SELECT * FROM workspaces WHERE container_ref IS NOT NULL AND worktree_deleted = 0",
     )
@@ -121,7 +123,7 @@ async fn get_disk_usage(
         .unwrap_or(0);
 
         usage_list.push(WorkspaceDiskUsage {
-            workspace_id: workspace.id.to_string(),
+            workspace_id: workspace.id,
             path: container_ref,
             size_bytes,
         });
@@ -131,10 +133,12 @@ async fn get_disk_usage(
     usage_list.truncate(50);
 
     let total_bytes: u64 = usage_list.iter().map(|w| w.size_bytes).sum();
+    let total_human = format_bytes(total_bytes);
 
-    Ok(ResponseJson(ApiResponse::success(DiskUsageStats {
+    Ok(ResponseJson(ApiResponse::success(DiskUsageResponse {
         workspaces: usage_list,
         total_bytes,
+        total_human,
     })))
 }
 

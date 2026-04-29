@@ -216,6 +216,12 @@ export type LogStatsResponse = { file_count: bigint, total_bytes: bigint, older_
 
 export type LogPurgeResult = { deleted_files: bigint, bytes_freed: bigint, older_than_days: bigint, };
 
+export type DiagnosticsResponse = { pool_stats: PoolStats, database_stats: DatabaseStats, wal_size_bytes: bigint, wal_size_human: string, };
+
+export type WorkspaceDiskUsage = { workspace_id: string, path: string, size_bytes: bigint, };
+
+export type DiskUsageResponse = { workspaces: Array<WorkspaceDiskUsage>, total_bytes: bigint, total_human: string, };
+
 export type Session = { id: string, workspace_id: string, name: string | null, executor: string | null, agent_working_dir: string | null, host_id: string | null, created_at: string, updated_at: string, };
 
 export type ExecutionProcess = { id: string, session_id: string, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, status: ExecutionProcessStatus, exit_code: bigint | null, 

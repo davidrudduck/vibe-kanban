@@ -10,6 +10,7 @@ pub mod approvals;
 pub mod config;
 pub mod containers;
 pub mod database;
+pub mod diagnostics;
 pub mod external_sessions;
 pub mod filesystem;
 pub mod webhooks;
@@ -42,6 +43,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(config::router())
         .merge(containers::router(&deployment))
         .merge(database::router())
+        .merge(diagnostics::router())
         .merge(workspaces::router(&deployment))
         .merge(execution_processes::router(&deployment))
         .merge(tags::router(&deployment))
