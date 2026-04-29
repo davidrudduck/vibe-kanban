@@ -33,6 +33,8 @@ pub struct DatabaseStats {
     pub free_pages: i64,
     /// Size of each database page in bytes
     pub page_size: i64,
+    /// Total number of pages in the database
+    pub page_count: i64,
     /// Total number of tasks in the database
     pub task_count: i64,
     /// Total number of workspaces in the database
@@ -92,6 +94,10 @@ pub async fn get_database_stats(
             .fetch_one(&mut *conn)
             .await?;
 
+    let page_count: i64 = sqlx::query_scalar("PRAGMA page_count")
+        .fetch_one(&mut *conn)
+        .await?;
+
     let task_count: i64 = sqlx::query_scalar(r#"SELECT COUNT(*) as "count: i64" FROM tasks"#)
         .fetch_one(&mut *conn)
         .await?;
@@ -116,6 +122,7 @@ pub async fn get_database_stats(
         wal_size_bytes,
         free_pages: freelist_count,
         page_size,
+        page_count,
         task_count,
         workspace_count,
         execution_process_count,
@@ -123,7 +130,14 @@ pub async fn get_database_stats(
     })
 }
 
-/// Run VACUUM on the database to reclaim space from deleted records.
+/// Runs SQLite VACUUM to reclaim free pages and defragment the database.
+///
+/// # Concurrency
+/// VACUUM requires exclusive access to the database. The connection pool is
+/// configured with a 5-second `busy_timeout`, so SQLite will automatically
+/// retry for up to 5 seconds if other connections are active. Under sustained
+/// heavy load the operation may still return `SQLITE_BUSY` — callers should
+/// handle this error and surface it to the user for manual retry.
 pub async fn vacuum_database(pool: &SqlitePool) -> Result<VacuumResult, DatabaseStatsError> {
     let mut conn = pool.acquire().await?;
 
@@ -195,10 +209,12 @@ mod tests {
             "Database size should be positive"
         );
         assert!(stats.page_size > 0, "Page size should be positive");
-        assert!(stats.task_count >= 0, "Task count should be non-negative");
-        assert!(
-            stats.workspace_count >= 0,
-            "Workspace count should be non-negative"
+        assert!(stats.page_count > 0, "Page count should be positive");
+        assert_eq!(stats.task_count, 0, "Task count should be zero on empty DB");
+        assert_eq!(
+            stats.workspace_count,
+            0,
+            "Workspace count should be zero on empty DB"
         );
         assert!(
             stats.execution_process_count >= 0,

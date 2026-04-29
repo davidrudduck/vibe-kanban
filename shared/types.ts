@@ -174,6 +174,10 @@ free_pages: bigint,
  */
 page_size: bigint, 
 /**
+ * Total number of pages in the database
+ */
+page_count: bigint, 
+/**
  * Total number of tasks in the database
  */
 task_count: bigint, 
@@ -186,7 +190,7 @@ workspace_count: bigint,
  */
 execution_process_count: bigint, 
 /**
- * Number of rows in execution_process_logs (legacy table, expected near-zero post-migration)
+ * Total number of legacy log rows (expected near-zero post-migration)
  */
 legacy_log_row_count: bigint, };
 
@@ -196,7 +200,19 @@ export type VacuumResult = {
  */
 bytes_freed: bigint, };
 
-export type AnalyzeResult = { success: boolean, };
+export type AnalyzeResult = { 
+/**
+ * Whether the ANALYZE operation succeeded
+ */
+success: boolean, };
+
+export type ArchivedStatsResponse = { count: bigint, older_than_days: bigint, };
+
+export type ArchivedPurgeResult = { deleted: number, skipped_active: number, };
+
+export type LogStatsResponse = { file_count: bigint, total_bytes: bigint, older_than_days: bigint, };
+
+export type LogPurgeResult = { deleted_files: bigint, bytes_freed: bigint, };
 
 export type Session = { id: string, workspace_id: string, name: string | null, executor: string | null, agent_working_dir: string | null, host_id: string | null, created_at: string, updated_at: string, };
 
