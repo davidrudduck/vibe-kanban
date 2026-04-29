@@ -36,6 +36,7 @@ thiserror = { workspace = true }
 command-group = { version = "5.0", features = ["with-tokio"] }
 futures = "0.3"
 tokio = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
 globwalk = "0.9"
 portable-pty = "0.8"
 

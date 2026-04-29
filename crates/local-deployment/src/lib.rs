@@ -3,6 +3,8 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
+use chrono::{DateTime, Utc};
+
 use api_types::LoginStatus;
 use async_trait::async_trait;
 use client_info::ClientInfo;
@@ -90,6 +92,7 @@ pub struct LocalDeployment {
     #[allow(dead_code)]
     webhook_dispatcher_abort: tokio::task::AbortHandle,
     wal_monitor: db::wal_monitor::WalMonitorHandle,
+    last_vacuum_time: Arc<RwLock<Option<DateTime<Utc>>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -322,6 +325,7 @@ impl Deployment for LocalDeployment {
             pr_sync_notify,
             webhook_dispatcher_abort,
             wal_monitor,
+            last_vacuum_time: Arc::new(RwLock::new(None)),
         };
 
         Ok(deployment)
@@ -517,5 +521,9 @@ impl LocalDeployment {
 
     pub fn wal_monitor(&self) -> &db::wal_monitor::WalMonitorHandle {
         &self.wal_monitor
+    }
+
+    pub fn last_vacuum_time(&self) -> &Arc<RwLock<Option<DateTime<Utc>>>> {
+        &self.last_vacuum_time
     }
 }
