@@ -3,10 +3,9 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use chrono::{DateTime, Utc};
-
 use api_types::LoginStatus;
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use client_info::ClientInfo;
 use db::DBService;
 use deployment::{Deployment, DeploymentError, RelayHostsNotConfigured, RemoteClientNotConfigured};

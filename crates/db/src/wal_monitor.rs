@@ -11,8 +11,10 @@
 //! - Optionally triggers passive checkpoint when WAL is large
 //! - Runs periodic TRUNCATE checkpoints to minimize data loss on abrupt shutdown
 
-use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use sqlx::{Pool, Sqlite};
 use tokio::sync::mpsc;

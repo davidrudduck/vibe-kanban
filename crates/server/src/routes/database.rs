@@ -80,7 +80,7 @@ async fn get_stats(
     let db_path = db_file_path();
     let stats = get_database_stats(pool, &db_path)
         .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to get database stats: {}", e)))?;
+        .map_err(ApiError::Database)?;
     Ok(ResponseJson(ApiResponse::success(stats)))
 }
 
@@ -371,12 +371,12 @@ async fn purge_logs(
 
 pub fn router() -> Router<DeploymentImpl> {
     Router::new()
-        .route("/stats", get(get_stats))
-        .route("/vacuum", post(vacuum))
-        .route("/analyze", post(analyze))
-        .route("/archived-stats", get(archived_stats))
-        .route("/archived-non-terminal", get(archived_non_terminal))
-        .route("/purge-archived", post(purge_archived))
-        .route("/log-stats", get(log_stats))
-        .route("/purge-logs", post(purge_logs))
+        .route("/database/stats", get(get_stats))
+        .route("/database/vacuum", post(vacuum))
+        .route("/database/analyze", post(analyze))
+        .route("/database/archived-stats", get(archived_stats))
+        .route("/database/archived-non-terminal", get(archived_non_terminal))
+        .route("/database/purge-archived", post(purge_archived))
+        .route("/database/log-stats", get(log_stats))
+        .route("/database/purge-logs", post(purge_logs))
 }
