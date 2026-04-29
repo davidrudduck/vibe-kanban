@@ -208,11 +208,13 @@ success: boolean, };
 
 export type ArchivedStatsResponse = { count: bigint, older_than_days: bigint, };
 
-export type ArchivedPurgeResult = { deleted: number, skipped_active: number, };
+export type ArchivedNonTerminalResponse = { workspace_ids: Array<string>, count: bigint, };
+
+export type ArchivedPurgeResult = { deleted: bigint, skipped_active: bigint, older_than_days: bigint, };
 
 export type LogStatsResponse = { file_count: bigint, total_bytes: bigint, older_than_days: bigint, };
 
-export type LogPurgeResult = { deleted_files: bigint, bytes_freed: bigint, };
+export type LogPurgeResult = { deleted_files: bigint, bytes_freed: bigint, older_than_days: bigint, };
 
 export type Session = { id: string, workspace_id: string, name: string | null, executor: string | null, agent_working_dir: string | null, host_id: string | null, created_at: string, updated_at: string, };
 

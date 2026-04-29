@@ -19,16 +19,13 @@ use serde::{Deserialize, Serialize};
 use services::services::container::ContainerService;
 use sqlx::SqlitePool;
 use ts_rs::TS;
-use utils::{
-    assets::asset_dir, execution_logs::process_log_file_path_in_root, response::ApiResponse,
-};
+use utils::{assets::asset_dir, execution_logs::EXECUTION_LOGS_DIRNAME, response::ApiResponse};
 use uuid::Uuid;
 
 use crate::{DeploymentImpl, error::ApiError};
 
 const VACUUM_COOLDOWN_SECS: i64 = 5 * 60;
 const DEFAULT_OLDER_THAN_DAYS: i64 = 14;
-const PURGE_LOG_BATCH_SIZE: usize = 100;
 
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -39,24 +36,33 @@ pub struct ArchivedStatsResponse {
 
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
+pub struct ArchivedNonTerminalResponse {
+    pub workspace_ids: Vec<Uuid>,
+    pub count: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct ArchivedPurgeResult {
-    pub deleted: usize,
-    pub skipped_active: usize,
+    pub deleted: i64,
+    pub skipped_active: i64,
+    pub older_than_days: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct LogStatsResponse {
-    pub file_count: u64,
-    pub total_bytes: u64,
+    pub file_count: i64,
+    pub total_bytes: i64,
     pub older_than_days: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct LogPurgeResult {
-    pub deleted_files: u64,
-    pub bytes_freed: u64,
+    pub deleted_files: i64,
+    pub bytes_freed: i64,
+    pub older_than_days: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -78,9 +84,10 @@ async fn get_stats(
 ) -> Result<ResponseJson<ApiResponse<DatabaseStats>>, ApiError> {
     let pool = &deployment.db().pool;
     let db_path = db_file_path();
-    let stats = get_database_stats(pool, &db_path)
-        .await
-        .map_err(|e| ApiError::Database(sqlx::Error::Protocol(e.to_string())))?;
+    let stats = get_database_stats(pool, &db_path).await.map_err(|e| {
+        tracing::error!("database stats error: {e}");
+        ApiError::Database(sqlx::Error::Protocol(e.to_string()))
+    })?;
     Ok(ResponseJson(ApiResponse::success(stats)))
 }
 
@@ -100,9 +107,10 @@ async fn vacuum(
     }
 
     let pool = &deployment.db().pool;
-    let result = vacuum_database(pool)
-        .await
-        .map_err(|e| ApiError::Database(sqlx::Error::Protocol(e.to_string())))?;
+    let result = vacuum_database(pool).await.map_err(|e| {
+        tracing::error!("vacuum error: {e}");
+        ApiError::Database(sqlx::Error::Protocol(e.to_string()))
+    })?;
 
     {
         let mut last = deployment.last_vacuum_time().write().await;
@@ -116,9 +124,10 @@ async fn analyze(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<AnalyzeResult>>, ApiError> {
     let pool = &deployment.db().pool;
-    let result = analyze_database(pool)
-        .await
-        .map_err(|e| ApiError::Database(sqlx::Error::Protocol(e.to_string())))?;
+    let result = analyze_database(pool).await.map_err(|e| {
+        tracing::error!("analyze error: {e}");
+        ApiError::Database(sqlx::Error::Protocol(e.to_string()))
+    })?;
     Ok(ResponseJson(ApiResponse::success(result)))
 }
 
@@ -126,6 +135,11 @@ async fn archived_stats(
     State(deployment): State<DeploymentImpl>,
     Query(query): Query<OlderThanQuery>,
 ) -> Result<ResponseJson<ApiResponse<ArchivedStatsResponse>>, ApiError> {
+    if query.older_than_days < 1 {
+        return Err(ApiError::BadRequest(
+            "older_than_days must be >= 1".to_string(),
+        ));
+    }
     let pool = &deployment.db().pool;
     let cutoff = format!("-{} days", query.older_than_days);
     let count: i64 = sqlx::query_scalar(
@@ -144,28 +158,21 @@ async fn archived_stats(
 
 async fn archived_non_terminal(
     State(deployment): State<DeploymentImpl>,
-) -> Result<ResponseJson<ApiResponse<Vec<Workspace>>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<ArchivedNonTerminalResponse>>, ApiError> {
     let pool = &deployment.db().pool;
-    let workspaces = fetch_archived_with_active_processes(pool).await?;
-    Ok(ResponseJson(ApiResponse::success(workspaces)))
+    let workspace_ids = fetch_archived_non_terminal_ids(pool).await?;
+    let count = workspace_ids.len() as i64;
+    Ok(ResponseJson(ApiResponse::success(
+        ArchivedNonTerminalResponse {
+            workspace_ids,
+            count,
+        },
+    )))
 }
 
-async fn fetch_archived_with_active_processes(
-    pool: &SqlitePool,
-) -> Result<Vec<Workspace>, sqlx::Error> {
-    sqlx::query_as::<_, Workspace>(
-        r#"SELECT
-                w.id,
-                w.task_id,
-                w.container_ref,
-                w.branch,
-                w.setup_completed_at,
-                w.created_at,
-                w.updated_at,
-                w.archived,
-                w.pinned,
-                w.name,
-                w.worktree_deleted
+async fn fetch_archived_non_terminal_ids(pool: &SqlitePool) -> Result<Vec<Uuid>, sqlx::Error> {
+    sqlx::query_scalar::<_, Uuid>(
+        r#"SELECT w.id
            FROM workspaces w
            WHERE w.archived = 1
              AND EXISTS (
@@ -183,6 +190,11 @@ async fn purge_archived(
     State(deployment): State<DeploymentImpl>,
     Query(query): Query<OlderThanQuery>,
 ) -> Result<ResponseJson<ApiResponse<ArchivedPurgeResult>>, ApiError> {
+    if query.older_than_days < 1 {
+        return Err(ApiError::BadRequest(
+            "older_than_days must be >= 1".to_string(),
+        ));
+    }
     let pool = &deployment.db().pool;
     let cutoff = format!("-{} days", query.older_than_days);
 
@@ -227,12 +239,12 @@ async fn purge_archived(
     .fetch_all(pool)
     .await?;
 
-    let mut deleted = 0usize;
+    let mut deleted = 0i64;
     for workspace in &candidates {
         if let Err(e) = deployment.container().delete(workspace).await {
             tracing::warn!(
-                "Failed to delete container for archived workspace {}: {}",
-                workspace.id,
+                workspace_id = %workspace.id,
+                "Failed to delete container for archived workspace: {}",
                 e
             );
             continue;
@@ -241,8 +253,8 @@ async fn purge_archived(
         match Workspace::delete(pool, workspace.id).await {
             Ok(_) => deleted += 1,
             Err(e) => tracing::warn!(
-                "Failed to delete workspace row {} after container delete: {}",
-                workspace.id,
+                workspace_id = %workspace.id,
+                "Failed to delete workspace row after container delete: {}",
                 e
             ),
         }
@@ -250,43 +262,40 @@ async fn purge_archived(
 
     Ok(ResponseJson(ApiResponse::success(ArchivedPurgeResult {
         deleted,
-        skipped_active: skipped_active as usize,
+        skipped_active,
+        older_than_days: query.older_than_days,
     })))
 }
 
 async fn log_stats(
-    State(deployment): State<DeploymentImpl>,
+    State(_deployment): State<DeploymentImpl>,
     Query(query): Query<OlderThanQuery>,
 ) -> Result<ResponseJson<ApiResponse<LogStatsResponse>>, ApiError> {
-    let pool = &deployment.db().pool;
-    let cutoff = format!("-{} days", query.older_than_days);
+    if query.older_than_days < 1 {
+        return Err(ApiError::BadRequest(
+            "older_than_days must be >= 1".to_string(),
+        ));
+    }
 
-    let processes: Vec<(Uuid, Uuid)> = sqlx::query_as(
-        "SELECT id, session_id FROM execution_processes
-         WHERE status IN ('completed', 'failed', 'killed')
-         AND created_at < datetime('now', ?)",
-    )
-    .bind(&cutoff)
-    .fetch_all(pool)
-    .await
-    .map_err(ApiError::Database)?;
+    let log_root = asset_dir().join(EXECUTION_LOGS_DIRNAME);
+    let older_than_days = query.older_than_days;
 
-    let log_root = asset_dir();
     let (file_count, total_bytes) = tokio::task::spawn_blocking(move || {
-        let mut count: u64 = 0;
-        let mut bytes: u64 = 0;
-        for (process_id, session_id) in &processes {
-            let path =
-                process_log_file_path_in_root(&log_root, *session_id, *process_id);
-            if let Ok(meta) = std::fs::metadata(&path) {
-                count += 1;
-                bytes += meta.len();
-            }
-        }
+        let cutoff = std::time::SystemTime::now()
+            - std::time::Duration::from_secs(older_than_days as u64 * 86400);
+        let mut count: i64 = 0;
+        let mut bytes: i64 = 0;
+        walk_log_files(&log_root, cutoff, &mut |meta| {
+            count += 1;
+            bytes += meta.len() as i64;
+        });
         (count, bytes)
     })
     .await
-    .unwrap_or((0, 0));
+    .map_err(|e| {
+        tracing::error!("log_stats join error: {e}");
+        ApiError::Database(sqlx::Error::Protocol(e.to_string()))
+    })?;
 
     Ok(ResponseJson(ApiResponse::success(LogStatsResponse {
         file_count,
@@ -295,64 +304,120 @@ async fn log_stats(
     })))
 }
 
-
-#[derive(sqlx::FromRow)]
-struct ProcessLogRow {
-    id: Uuid,
-    session_id: Uuid,
-}
-
 async fn purge_logs(
-    State(deployment): State<DeploymentImpl>,
+    State(_deployment): State<DeploymentImpl>,
     Query(query): Query<OlderThanQuery>,
 ) -> Result<ResponseJson<ApiResponse<LogPurgeResult>>, ApiError> {
-    let pool = &deployment.db().pool;
-    let cutoff = format!("-{} days", query.older_than_days);
-
-    let rows = sqlx::query_as::<_, ProcessLogRow>(
-        r#"SELECT id as "id!: Uuid", session_id as "session_id!: Uuid"
-           FROM execution_processes
-           WHERE created_at < datetime('now', ?)
-             AND status IN ('completed', 'failed', 'killed')"#,
-    )
-    .bind(&cutoff)
-    .fetch_all(pool)
-    .await?;
-
-    let root = asset_dir();
-    let mut deleted_files: u64 = 0;
-    let mut bytes_freed: u64 = 0;
-
-    for chunk in rows.chunks(PURGE_LOG_BATCH_SIZE) {
-        let root = root.clone();
-        let chunk_owned: Vec<(Uuid, Uuid)> = chunk.iter().map(|r| (r.session_id, r.id)).collect();
-        let (chunk_deleted, chunk_bytes) = tokio::task::spawn_blocking(move || {
-            let mut d: u64 = 0;
-            let mut b: u64 = 0;
-            for (session_id, process_id) in chunk_owned {
-                let path = process_log_file_path_in_root(&root, session_id, process_id);
-                if let Ok(metadata) = std::fs::metadata(&path) {
-                    let len = metadata.len();
-                    if std::fs::remove_file(&path).is_ok() {
-                        d += 1;
-                        b += len;
-                    }
-                }
-            }
-            (d, b)
-        })
-        .await
-        .map_err(|e| ApiError::BadRequest(format!("purge_logs join error: {}", e)))?;
-
-        deleted_files += chunk_deleted;
-        bytes_freed += chunk_bytes;
-        tokio::task::yield_now().await;
+    if query.older_than_days < 1 {
+        return Err(ApiError::BadRequest(
+            "older_than_days must be >= 1".to_string(),
+        ));
     }
+
+    let log_root = asset_dir().join(EXECUTION_LOGS_DIRNAME);
+    let older_than_days = query.older_than_days;
+
+    let (deleted_files, bytes_freed) = tokio::task::spawn_blocking(move || {
+        let cutoff = std::time::SystemTime::now()
+            - std::time::Duration::from_secs(older_than_days as u64 * 86400);
+
+        let entries = collect_old_log_files(&log_root, cutoff);
+        let mut deleted: i64 = 0;
+        let mut freed: i64 = 0;
+
+        for (path, size) in entries {
+            if std::fs::remove_file(&path).is_ok() {
+                deleted += 1;
+                freed += size as i64;
+            } else {
+                tracing::warn!("Failed to delete log file: {}", path.display());
+            }
+        }
+
+        (deleted, freed)
+    })
+    .await
+    .map_err(|e| {
+        tracing::error!("purge_logs join error: {e}");
+        ApiError::Database(sqlx::Error::Protocol(e.to_string()))
+    })?;
 
     Ok(ResponseJson(ApiResponse::success(LogPurgeResult {
         deleted_files,
         bytes_freed,
+        older_than_days: query.older_than_days,
     })))
+}
+
+/// Walk `.jsonl` log files older than `cutoff`, calling `cb` with each file's metadata.
+fn walk_log_files(
+    root: &std::path::Path,
+    cutoff: std::time::SystemTime,
+    cb: &mut impl FnMut(&std::fs::Metadata),
+) {
+    let Ok(top) = std::fs::read_dir(root) else {
+        return;
+    };
+    for prefix_entry in top.flatten() {
+        let Ok(sessions_dir) = std::fs::read_dir(prefix_entry.path()) else {
+            continue;
+        };
+        for session_entry in sessions_dir.flatten() {
+            let processes_dir = session_entry.path().join("processes");
+            let Ok(procs) = std::fs::read_dir(&processes_dir) else {
+                continue;
+            };
+            for proc_entry in procs.flatten() {
+                let path = proc_entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                    continue;
+                }
+                if let Ok(meta) = std::fs::metadata(&path) {
+                    if let Ok(mtime) = meta.modified() {
+                        if mtime < cutoff {
+                            cb(&meta);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Collect `(path, size)` for `.jsonl` log files older than `cutoff`.
+fn collect_old_log_files(
+    root: &std::path::Path,
+    cutoff: std::time::SystemTime,
+) -> Vec<(std::path::PathBuf, u64)> {
+    let mut result = Vec::new();
+    let Ok(top) = std::fs::read_dir(root) else {
+        return result;
+    };
+    for prefix_entry in top.flatten() {
+        let Ok(sessions_dir) = std::fs::read_dir(prefix_entry.path()) else {
+            continue;
+        };
+        for session_entry in sessions_dir.flatten() {
+            let processes_dir = session_entry.path().join("processes");
+            let Ok(procs) = std::fs::read_dir(&processes_dir) else {
+                continue;
+            };
+            for proc_entry in procs.flatten() {
+                let path = proc_entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                    continue;
+                }
+                if let Ok(meta) = std::fs::metadata(&path) {
+                    if let Ok(mtime) = meta.modified() {
+                        if mtime < cutoff {
+                            result.push((path, meta.len()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    result
 }
 
 pub fn router() -> Router<DeploymentImpl> {

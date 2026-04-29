@@ -49,6 +49,7 @@ fn generate_types_content() -> String {
         db::database_stats::VacuumResult::decl(),
         db::database_stats::AnalyzeResult::decl(),
         server::routes::database::ArchivedStatsResponse::decl(),
+        server::routes::database::ArchivedNonTerminalResponse::decl(),
         server::routes::database::ArchivedPurgeResult::decl(),
         server::routes::database::LogStatsResponse::decl(),
         server::routes::database::LogPurgeResult::decl(),
