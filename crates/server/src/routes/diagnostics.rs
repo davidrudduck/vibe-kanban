@@ -65,7 +65,7 @@ async fn get_diagnostics(
         .await
         .map_err(|e| ApiError::Database(sqlx::Error::Protocol(e.to_string())))?;
 
-    let wal_size_bytes = database_stats.wal_size_bytes as u64;
+    let wal_size_bytes = u64::try_from(database_stats.wal_size_bytes).unwrap_or(0);
     let wal_size_human = format_bytes(wal_size_bytes);
 
     Ok(ResponseJson(ApiResponse::success(DiagnosticsResponse {
@@ -98,41 +98,53 @@ async fn get_disk_usage(
             continue;
         }
 
-        let size_bytes = tokio::task::spawn_blocking({
-            let path = path.clone();
-            move || {
-                let mut total = 0u64;
-                let mut stack = vec![path];
-                while let Some(dir) = stack.pop() {
-                    if let Ok(entries) = std::fs::read_dir(&dir) {
-                        for entry in entries.flatten() {
-                            if let Ok(meta) = entry.metadata() {
-                                if meta.is_file() {
-                                    total += meta.len();
-                                } else if meta.is_dir() {
-                                    stack.push(entry.path());
+        let workspace_id = workspace.id;
+        let path_str = container_ref.clone();
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            tokio::task::spawn_blocking({
+                let path = path.clone();
+                move || {
+                    let mut total = 0u64;
+                    let mut stack = vec![path];
+                    while let Some(dir) = stack.pop() {
+                        if let Ok(entries) = std::fs::read_dir(&dir) {
+                            for entry in entries.flatten() {
+                                if let Ok(meta) = entry.metadata() {
+                                    if meta.is_file() {
+                                        total += meta.len();
+                                    } else if meta.is_dir() {
+                                        stack.push(entry.path());
+                                    }
                                 }
                             }
                         }
                     }
+                    total
                 }
-                total
-            }
-        })
+            }),
+        )
         .await
-        .unwrap_or(0);
-
-        usage_list.push(WorkspaceDiskUsage {
-            workspace_id: workspace.id,
-            path: container_ref,
-            size_bytes,
-        });
+        {
+            Ok(Ok(size_bytes)) => {
+                usage_list.push(WorkspaceDiskUsage {
+                    workspace_id,
+                    path: container_ref,
+                    size_bytes,
+                });
+            }
+            Ok(Err(e)) => {
+                tracing::warn!("disk walk join error for {workspace_id}: {e}");
+            }
+            Err(_) => {
+                tracing::warn!("disk walk timed out for {workspace_id} at {path_str}");
+            }
+        }
     }
 
     usage_list.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes));
-    usage_list.truncate(50);
-
     let total_bytes: u64 = usage_list.iter().map(|w| w.size_bytes).sum();
+    usage_list.truncate(50);
     let total_human = format_bytes(total_bytes);
 
     Ok(ResponseJson(ApiResponse::success(DiskUsageResponse {
