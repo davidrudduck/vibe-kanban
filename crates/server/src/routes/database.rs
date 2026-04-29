@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use axum::{
     Router,
@@ -80,7 +80,7 @@ async fn get_stats(
     let db_path = db_file_path();
     let stats = get_database_stats(pool, &db_path)
         .await
-        .map_err(ApiError::Database)?;
+        .map_err(|e| ApiError::Database(sqlx::Error::Protocol(e.to_string())))?;
     Ok(ResponseJson(ApiResponse::success(stats)))
 }
 
@@ -102,7 +102,7 @@ async fn vacuum(
     let pool = &deployment.db().pool;
     let result = vacuum_database(pool)
         .await
-        .map_err(|e| ApiError::BadRequest(format!("Vacuum failed: {}", e)))?;
+        .map_err(|e| ApiError::Database(sqlx::Error::Protocol(e.to_string())))?;
 
     {
         let mut last = deployment.last_vacuum_time().write().await;
@@ -118,7 +118,7 @@ async fn analyze(
     let pool = &deployment.db().pool;
     let result = analyze_database(pool)
         .await
-        .map_err(|e| ApiError::BadRequest(format!("Analyze failed: {}", e)))?;
+        .map_err(|e| ApiError::Database(sqlx::Error::Protocol(e.to_string())))?;
     Ok(ResponseJson(ApiResponse::success(result)))
 }
 
@@ -189,7 +189,7 @@ async fn purge_archived(
     // Count workspaces that match the age filter but are excluded due to active processes.
     let skipped_active: i64 = sqlx::query_scalar(
         r#"SELECT COUNT(*) FROM workspaces w
-           WHERE w.archived = 1 AND w.updated_at < datetime('now', ?)
+           WHERE w.archived = 1 AND w.created_at < datetime('now', ?)
              AND EXISTS (
                  SELECT 1 FROM execution_processes ep
                  JOIN sessions s ON s.id = ep.session_id
@@ -215,7 +215,7 @@ async fn purge_archived(
                 w.name,
                 w.worktree_deleted
            FROM workspaces w
-           WHERE w.archived = 1 AND w.updated_at < datetime('now', ?)
+           WHERE w.archived = 1 AND w.created_at < datetime('now', ?)
              AND NOT EXISTS (
                  SELECT 1 FROM execution_processes ep
                  JOIN sessions s ON s.id = ep.session_id
@@ -255,32 +255,38 @@ async fn purge_archived(
 }
 
 async fn log_stats(
+    State(deployment): State<DeploymentImpl>,
     Query(query): Query<OlderThanQuery>,
 ) -> Result<ResponseJson<ApiResponse<LogStatsResponse>>, ApiError> {
-    let root = asset_dir().join(utils::execution_logs::EXECUTION_LOGS_DIRNAME);
-    let cutoff_secs = (query.older_than_days.max(0) as u64) * 24 * 60 * 60;
-    let cutoff = std::time::SystemTime::now()
-        .checked_sub(std::time::Duration::from_secs(cutoff_secs))
-        .unwrap_or(std::time::UNIX_EPOCH);
+    let pool = &deployment.db().pool;
+    let cutoff = format!("-{} days", query.older_than_days);
 
+    let processes: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        "SELECT id, session_id FROM execution_processes
+         WHERE status IN ('completed', 'failed', 'killed')
+         AND created_at < datetime('now', ?)",
+    )
+    .bind(&cutoff)
+    .fetch_all(pool)
+    .await
+    .map_err(ApiError::Database)?;
+
+    let log_root = asset_dir();
     let (file_count, total_bytes) = tokio::task::spawn_blocking(move || {
         let mut count: u64 = 0;
         let mut bytes: u64 = 0;
-        if root.exists() {
-            walk_jsonl_files(&root, &mut |path, metadata| {
-                if let Ok(modified) = metadata.modified()
-                    && modified < cutoff
-                {
-                    count += 1;
-                    bytes += metadata.len();
-                }
-                let _ = path;
-            });
+        for (process_id, session_id) in &processes {
+            let path =
+                process_log_file_path_in_root(&log_root, *session_id, *process_id);
+            if let Ok(meta) = std::fs::metadata(&path) {
+                count += 1;
+                bytes += meta.len();
+            }
         }
         (count, bytes)
     })
     .await
-    .map_err(|e| ApiError::BadRequest(format!("log_stats join error: {}", e)))?;
+    .unwrap_or((0, 0));
 
     Ok(ResponseJson(ApiResponse::success(LogStatsResponse {
         file_count,
@@ -289,26 +295,6 @@ async fn log_stats(
     })))
 }
 
-fn walk_jsonl_files<F>(dir: &Path, visit: &mut F)
-where
-    F: FnMut(&Path, &std::fs::Metadata),
-{
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let Ok(metadata) = entry.metadata() else {
-            continue;
-        };
-        if metadata.is_dir() {
-            walk_jsonl_files(&path, visit);
-        } else if metadata.is_file() && path.extension().and_then(|s| s.to_str()) == Some("jsonl") {
-            visit(&path, &metadata);
-        }
-    }
-}
 
 #[derive(sqlx::FromRow)]
 struct ProcessLogRow {
