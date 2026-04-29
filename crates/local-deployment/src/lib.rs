@@ -158,6 +158,12 @@ impl Deployment for LocalDeployment {
         };
 
         let file = FileService::new(db.clone().pool)?;
+
+        // Spawn WAL monitor first — it must be running before any other background
+        // tasks write to the database.
+        let db_path = utils::assets::asset_dir().join("db.v2.sqlite");
+        let wal_monitor = db::wal_monitor::WalMonitor::spawn(db.pool.clone(), db_path);
+
         {
             let file_service = file.clone();
             tokio::spawn(async move {
@@ -283,9 +289,6 @@ impl Deployment for LocalDeployment {
             let rc = remote_client.clone().ok();
             PrMonitorService::spawn(db, analytics, container, rc, pr_sync_notify.clone()).await;
         }
-
-        let db_path = utils::assets::asset_dir().join("db.v2.sqlite");
-        let wal_monitor = db::wal_monitor::WalMonitor::spawn(db.pool.clone(), db_path);
 
         let deployment = Self {
             config,

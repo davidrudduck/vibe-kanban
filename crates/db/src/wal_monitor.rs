@@ -148,13 +148,17 @@ impl WalMonitor {
 
         // Periodic TRUNCATE checkpoint timer - ensures data is persisted regularly
         // to minimize data loss if the server is killed abruptly.
-        let truncate_enabled = self.config.truncate_checkpoint_interval_secs > 0;
-        let mut truncate_interval =
-            tokio::time::interval(Duration::from_secs(if truncate_enabled {
-                self.config.truncate_checkpoint_interval_secs
+        // Uses Option<Interval> so the select! arm is cleanly disabled when not configured.
+        let mut truncate_interval: Option<tokio::time::Interval> =
+            if self.config.truncate_checkpoint_interval_secs > 0 {
+                let mut i = tokio::time::interval(Duration::from_secs(
+                    self.config.truncate_checkpoint_interval_secs,
+                ));
+                i.tick().await; // consume immediate first tick
+                Some(i)
             } else {
-                u64::MAX // Effectively disabled
-            }));
+                None
+            };
 
         tracing::info!(
             check_interval_secs = self.config.check_interval_secs,
@@ -164,11 +168,6 @@ impl WalMonitor {
             truncate_interval_secs = self.config.truncate_checkpoint_interval_secs,
             "WAL monitor started"
         );
-
-        // Skip first immediate tick for truncate interval
-        if truncate_enabled {
-            truncate_interval.tick().await;
-        }
 
         loop {
             tokio::select! {
@@ -192,7 +191,13 @@ impl WalMonitor {
                 _ = check_interval.tick() => {
                     self.check_wal_size().await;
                 }
-                _ = truncate_interval.tick(), if truncate_enabled => {
+                _ = async {
+                    if let Some(ref mut t) = truncate_interval {
+                        t.tick().await
+                    } else {
+                        std::future::pending::<tokio::time::Instant>().await
+                    }
+                } => {
                     self.run_truncate_checkpoint().await;
                 }
             }
@@ -310,8 +315,10 @@ impl WalMonitor {
                         "TRUNCATE checkpoint completed - all WAL flushed to main database"
                     );
                 } else {
-                    // blocked != 0 means checkpoint was blocked by active readers/writers.
-                    // Fall back to PASSIVE checkpoint rather than treating this as success.
+                    // blocked != 0 is SQLite's indication that readers/writers prevented
+                    // full checkpointing — this is the WAL-mode equivalent of SQLITE_BUSY
+                    // for TRUNCATE mode. The WAL was not fully flushed; fall back to a
+                    // PASSIVE checkpoint rather than treating this as success.
                     tracing::warn!(
                         duration_ms = duration.as_millis() as u64,
                         blocked = blocked,
