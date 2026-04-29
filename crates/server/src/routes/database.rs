@@ -130,7 +130,7 @@ async fn archived_stats(
     let cutoff = format!("-{} days", query.older_than_days);
     let count: i64 = sqlx::query_scalar(
         r#"SELECT COUNT(*) FROM workspaces
-           WHERE archived = 1 AND updated_at < datetime('now', ?)"#,
+           WHERE archived = 1 AND created_at < datetime('now', ?)"#,
     )
     .bind(&cutoff)
     .fetch_one(pool)
