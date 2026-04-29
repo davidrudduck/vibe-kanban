@@ -7,6 +7,7 @@ use sqlx::{
 };
 use utils::assets::asset_dir;
 
+pub mod metrics;
 pub mod models;
 
 async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {
@@ -156,5 +157,9 @@ impl DBService {
 
         run_migrations(&pool).await?;
         Ok(pool)
+    }
+
+    pub fn pool_stats(&self) -> metrics::PoolStats {
+        metrics::pool_stats(&self.pool)
     }
 }
