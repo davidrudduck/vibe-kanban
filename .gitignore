@@ -101,3 +101,4 @@ Caddyfile.dev
 .playwright-mcp/
 homepage.png
 workspace.png
+.worktrees/
