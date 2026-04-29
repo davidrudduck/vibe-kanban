@@ -156,6 +156,48 @@ export type Workspace = { id: string, task_id: string | null, container_ref: str
 
 export type WorkspaceWithStatus = { is_running: boolean, is_errored: boolean, id: string, task_id: string | null, container_ref: string | null, branch: string, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, worktree_deleted: boolean, };
 
+export type DatabaseStats = { 
+/**
+ * Size of the main database file in bytes
+ */
+database_size_bytes: bigint, 
+/**
+ * Size of the WAL (Write-Ahead Log) file in bytes
+ */
+wal_size_bytes: bigint, 
+/**
+ * Number of free pages in the database (reclaimable with VACUUM)
+ */
+free_pages: bigint, 
+/**
+ * Size of each database page in bytes
+ */
+page_size: bigint, 
+/**
+ * Total number of tasks in the database
+ */
+task_count: bigint, 
+/**
+ * Total number of workspaces in the database
+ */
+workspace_count: bigint, 
+/**
+ * Total number of execution processes in the database
+ */
+execution_process_count: bigint, 
+/**
+ * Number of rows in execution_process_logs (legacy table, expected near-zero post-migration)
+ */
+legacy_log_row_count: bigint, };
+
+export type VacuumResult = { 
+/**
+ * Bytes freed by the VACUUM operation
+ */
+bytes_freed: bigint, };
+
+export type AnalyzeResult = { success: boolean, };
+
 export type Session = { id: string, workspace_id: string, name: string | null, executor: string | null, agent_working_dir: string | null, host_id: string | null, created_at: string, updated_at: string, };
 
 export type ExecutionProcess = { id: string, session_id: string, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, status: ExecutionProcessStatus, exit_code: bigint | null, 

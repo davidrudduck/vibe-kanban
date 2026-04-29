@@ -7,6 +7,7 @@ use sqlx::{
 };
 use utils::assets::asset_dir;
 
+pub mod database_stats;
 pub mod metrics;
 pub mod models;
 pub mod wal_monitor;
