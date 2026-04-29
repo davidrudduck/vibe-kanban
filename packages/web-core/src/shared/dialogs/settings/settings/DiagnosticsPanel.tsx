@@ -1,18 +1,8 @@
-import { useState } from 'react';
 import { ArrowClockwiseIcon, SpinnerIcon } from '@phosphor-icons/react';
 import { PrimaryButton } from '@vibe/ui/components/PrimaryButton';
 import { SettingsCard } from './SettingsComponents';
-import { useDiagnostics } from '@/shared/hooks/useDiagnostics';
-import { getDiskUsage } from '@/shared/lib/diagnostics';
-import type { DiskUsageResponse } from 'shared/types';
-
-function formatBytes(bytes: bigint | number): string {
-  const n = typeof bytes === 'bigint' ? Number(bytes) : bytes;
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
+import { useDiagnostics, useDiskUsage } from '@/shared/hooks/useDiagnostics';
+import { formatBytes } from '@/shared/lib/utils';
 
 function WalStatusDot({ walSizeBytes }: { walSizeBytes: bigint }) {
   const bytes = Number(walSizeBytes);
@@ -58,25 +48,12 @@ function StatRow({
 
 export function DiagnosticsPanel() {
   const { data: diagnostics, isLoading: diagLoading } = useDiagnostics();
-
-  const [diskUsage, setDiskUsage] = useState<DiskUsageResponse | null>(null);
-  const [diskLoading, setDiskLoading] = useState(false);
-  const [diskError, setDiskError] = useState<string | null>(null);
-
-  const handleRefreshDisk = async () => {
-    setDiskLoading(true);
-    setDiskError(null);
-    try {
-      const data = await getDiskUsage();
-      setDiskUsage(data);
-    } catch (err) {
-      setDiskError(
-        err instanceof Error ? err.message : 'Failed to fetch disk usage'
-      );
-    } finally {
-      setDiskLoading(false);
-    }
-  };
+  const {
+    data: diskData,
+    isFetching: diskLoading,
+    error: diskError,
+    refetch: refetchDisk,
+  } = useDiskUsage();
 
   return (
     <>
@@ -140,7 +117,7 @@ export function DiagnosticsPanel() {
         headerAction={
           <PrimaryButton
             variant="tertiary"
-            onClick={handleRefreshDisk}
+            onClick={() => refetchDisk()}
             disabled={diskLoading}
           >
             {diskLoading ? (
@@ -155,15 +132,19 @@ export function DiagnosticsPanel() {
           </PrimaryButton>
         }
       >
-        {diskError && <p className="text-sm text-error">{diskError}</p>}
+        {diskError && (
+          <p className="text-sm text-error">
+            {(diskError as Error).message ?? 'Failed to fetch disk usage'}
+          </p>
+        )}
 
-        {!diskUsage && !diskLoading && (
+        {!diskData && !diskLoading && !diskError && (
           <p className="text-sm text-low">
             Click Refresh to load workspace disk usage.
           </p>
         )}
 
-        {diskUsage && (
+        {diskData && (
           <>
             <div className="rounded-sm border border-border overflow-hidden">
               <div className="flex items-center justify-between px-3 py-1.5 bg-secondary/50 border-b border-border">
@@ -174,12 +155,12 @@ export function DiagnosticsPanel() {
                   Size
                 </span>
               </div>
-              {diskUsage.workspaces.length === 0 && (
+              {diskData.workspaces.length === 0 && (
                 <div className="px-3 py-3 text-sm text-low text-center">
                   No workspace data available.
                 </div>
               )}
-              {diskUsage.workspaces.map((ws) => (
+              {diskData.workspaces.map((ws) => (
                 <div
                   key={ws.workspace_id}
                   className="flex items-center justify-between px-3 py-1.5 border-b border-border last:border-b-0"
@@ -198,7 +179,7 @@ export function DiagnosticsPanel() {
               <div className="flex items-center justify-between px-3 py-1.5 bg-secondary/50 border-t border-border">
                 <span className="text-sm font-medium text-normal">Total</span>
                 <span className="text-sm font-mono font-medium text-normal">
-                  {diskUsage.total_human}
+                  {diskData.total_human}
                 </span>
               </div>
             </div>

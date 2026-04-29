@@ -8,6 +8,8 @@ import {
   WarningIcon,
 } from '@phosphor-icons/react';
 import { PrimaryButton } from '@vibe/ui/components/PrimaryButton';
+import { ConfirmDialog } from '@vibe/ui/components/ConfirmDialog';
+import { formatBytes } from '@/shared/lib/utils';
 import {
   SettingsCard,
   SettingsField,
@@ -22,14 +24,6 @@ import {
   useLogStats,
   usePurgeLogs,
 } from '@/shared/hooks/useDatabaseMaintenance';
-
-function formatBytes(bytes: bigint | number): string {
-  const n = typeof bytes === 'bigint' ? Number(bytes) : bytes;
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
 
 const DAYS_OPTIONS: { value: string; label: string }[] = [
   { value: '7', label: '7 days' },
@@ -54,38 +48,6 @@ function StatRow({
   );
 }
 
-function ConfirmDialog({
-  message,
-  onConfirm,
-  onCancel,
-}: {
-  message: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-panel border border-border rounded-sm p-6 max-w-sm w-full mx-4 space-y-4">
-        <div className="flex items-start gap-3">
-          <WarningIcon
-            className="size-5 text-warning shrink-0 mt-0.5"
-            weight="bold"
-          />
-          <p className="text-sm text-normal">{message}</p>
-        </div>
-        <div className="flex justify-end gap-2">
-          <PrimaryButton variant="tertiary" value="Cancel" onClick={onCancel} />
-          <PrimaryButton
-            variant="secondary"
-            value="Confirm"
-            onClick={onConfirm}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function MaintenancePanel() {
   const {
     data: stats,
@@ -99,7 +61,6 @@ export function MaintenancePanel() {
   // Archived cleanup state
   const [archivedDays, setArchivedDays] = useState<string>('14');
   const [showArchivedStats, setShowArchivedStats] = useState(false);
-  const [showArchivedConfirm, setShowArchivedConfirm] = useState(false);
   const archivedStats = useArchivedStats(
     showArchivedStats ? Number(archivedDays) : undefined
   );
@@ -108,7 +69,6 @@ export function MaintenancePanel() {
   // Log cleanup state
   const [logDays, setLogDays] = useState<string>('14');
   const [showLogStats, setShowLogStats] = useState(false);
-  const [showLogConfirm, setShowLogConfirm] = useState(false);
   const logStats = useLogStats(showLogStats ? Number(logDays) : undefined);
   const purgeLogsMutation = usePurgeLogs();
 
@@ -223,10 +183,22 @@ export function MaintenancePanel() {
           </p>
         )}
 
+        {vacuumMutation.isError && !isVacuumCooldown && (
+          <p className="text-sm text-error mt-2">
+            Error: {(vacuumMutation.error as Error).message}
+          </p>
+        )}
+
         {analyzeMutation.isSuccess && (
           <p className="text-sm text-success flex items-center gap-1.5">
             <CheckCircleIcon className="size-icon-sm" weight="bold" />
             ANALYZE complete
+          </p>
+        )}
+
+        {analyzeMutation.isError && (
+          <p className="text-sm text-error mt-2">
+            Error: {(analyzeMutation.error as Error).message}
           </p>
         )}
       </SettingsCard>
@@ -270,7 +242,17 @@ export function MaintenancePanel() {
 
           <PrimaryButton
             variant="secondary"
-            onClick={() => setShowArchivedConfirm(true)}
+            onClick={async () => {
+              const result = await ConfirmDialog.show({
+                title: 'Purge Archived Workspaces',
+                message: `This will permanently delete archived workspaces older than ${archivedDays} days. This cannot be undone.`,
+                confirmText: 'Purge',
+                variant: 'destructive',
+              });
+              if (result === 'confirmed') {
+                purgeArchivedMutation.mutate(Number(archivedDays));
+              }
+            }}
             disabled={purgeArchivedMutation.isPending}
           >
             {purgeArchivedMutation.isPending ? (
@@ -297,6 +279,12 @@ export function MaintenancePanel() {
             <CheckCircleIcon className="size-icon-sm" weight="bold" />
             Deleted {String(purgeArchivedMutation.data.deleted)} workspace(s),
             skipped {String(purgeArchivedMutation.data.skipped_active)} active
+          </p>
+        )}
+
+        {purgeArchivedMutation.isError && (
+          <p className="text-sm text-error mt-2">
+            Error: {(purgeArchivedMutation.error as Error).message}
           </p>
         )}
       </SettingsCard>
@@ -340,7 +328,17 @@ export function MaintenancePanel() {
 
           <PrimaryButton
             variant="secondary"
-            onClick={() => setShowLogConfirm(true)}
+            onClick={async () => {
+              const result = await ConfirmDialog.show({
+                title: 'Purge Log Files',
+                message: `This will permanently delete log files older than ${logDays} days. This cannot be undone.`,
+                confirmText: 'Purge',
+                variant: 'destructive',
+              });
+              if (result === 'confirmed') {
+                purgeLogsMutation.mutate(Number(logDays));
+              }
+            }}
             disabled={purgeLogsMutation.isPending}
           >
             {purgeLogsMutation.isPending ? (
@@ -370,30 +368,13 @@ export function MaintenancePanel() {
             freed {formatBytes(purgeLogsMutation.data.bytes_freed)}
           </p>
         )}
+
+        {purgeLogsMutation.isError && (
+          <p className="text-sm text-error mt-2">
+            Error: {(purgeLogsMutation.error as Error).message}
+          </p>
+        )}
       </SettingsCard>
-
-      {/* Confirm dialogs */}
-      {showArchivedConfirm && (
-        <ConfirmDialog
-          message={`This will permanently delete archived workspaces older than ${archivedDays} days. This cannot be undone.`}
-          onConfirm={() => {
-            setShowArchivedConfirm(false);
-            purgeArchivedMutation.mutate(Number(archivedDays));
-          }}
-          onCancel={() => setShowArchivedConfirm(false)}
-        />
-      )}
-
-      {showLogConfirm && (
-        <ConfirmDialog
-          message={`This will permanently delete log files older than ${logDays} days. This cannot be undone.`}
-          onConfirm={() => {
-            setShowLogConfirm(false);
-            purgeLogsMutation.mutate(Number(logDays));
-          }}
-          onCancel={() => setShowLogConfirm(false)}
-        />
-      )}
     </>
   );
 }

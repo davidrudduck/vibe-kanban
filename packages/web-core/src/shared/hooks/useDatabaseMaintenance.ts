@@ -38,25 +38,39 @@ export function useRunAnalyze() {
 export function useArchivedStats(olderThanDays?: number) {
   return useQuery({
     queryKey: ['database', 'archived-stats', olderThanDays] as const,
-    queryFn: () => getArchivedStats(olderThanDays),
+    queryFn: () => getArchivedStats(olderThanDays!),
+    enabled: olderThanDays != null,
   });
 }
 
 export function usePurgeArchived() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (olderThanDays?: number) => purgeArchived(olderThanDays),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ['database', 'archived-stats'],
+      });
+      queryClient.invalidateQueries({ queryKey: DATABASE_STATS_QUERY_KEY });
+    },
   });
 }
 
 export function useLogStats(olderThanDays?: number) {
   return useQuery({
     queryKey: ['database', 'log-stats', olderThanDays] as const,
-    queryFn: () => getLogStats(olderThanDays),
+    queryFn: () => getLogStats(olderThanDays!),
+    enabled: olderThanDays != null,
   });
 }
 
 export function usePurgeLogs() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (olderThanDays?: number) => purgeLogs(olderThanDays),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['database', 'log-stats'] });
+      queryClient.invalidateQueries({ queryKey: DATABASE_STATS_QUERY_KEY });
+    },
   });
 }
