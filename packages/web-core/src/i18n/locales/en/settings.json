@@ -32,7 +32,11 @@
         "remote-projects": "Projects",
         "remote-projectsDesc": "Manage projects",
         "relay": "Remote Access",
-        "relayDesc": "Relay tunnel and enrollment"
+        "relayDesc": "Relay tunnel and enrollment",
+        "maintenance": "Maintenance",
+        "maintenanceDesc": "Database vacuum, cleanup, and log management",
+        "diagnostics": "Diagnostics",
+        "diagnosticsDesc": "Connection pool and disk usage stats"
       }
     },
     "hostPicker": {

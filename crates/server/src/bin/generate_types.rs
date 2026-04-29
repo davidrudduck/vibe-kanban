@@ -53,6 +53,7 @@ fn generate_types_content() -> String {
         server::routes::database::ArchivedPurgeResult::decl(),
         server::routes::database::LogStatsResponse::decl(),
         server::routes::database::LogPurgeResult::decl(),
+        db::metrics::PoolStats::decl(),
         server::routes::diagnostics::DiagnosticsResponse::decl(),
         server::routes::diagnostics::WorkspaceDiskUsage::decl(),
         server::routes::diagnostics::DiskUsageResponse::decl(),

@@ -6,6 +6,8 @@ import {
   CpuIcon,
   PlugIcon,
   BroadcastIcon,
+  WrenchIcon,
+  PulseIcon,
 } from '@phosphor-icons/react';
 import type { Icon } from '@phosphor-icons/react';
 import { GeneralSettingsSection } from './GeneralSettingsSection';
@@ -15,6 +17,8 @@ import { RemoteProjectsSettingsSection } from './RemoteProjectsSettingsSection';
 import { AgentsSettingsSection } from './AgentsSettingsSection';
 import { McpSettingsSection } from './McpSettingsSection';
 import { RelaySettingsSectionContent } from './RelaySettingsSection';
+import { MaintenancePanel } from './MaintenancePanel';
+import { DiagnosticsPanel } from './DiagnosticsPanel';
 
 export type SettingsSectionType =
   | 'general'
@@ -23,7 +27,9 @@ export type SettingsSectionType =
   | 'remote-projects'
   | 'agents'
   | 'mcp'
-  | 'relay';
+  | 'relay'
+  | 'maintenance'
+  | 'diagnostics';
 
 export type SettingsSectionGroup = 'host' | 'universal';
 
@@ -37,6 +43,8 @@ export type SettingsSectionInitialState = {
   agents: { executor?: string; variant?: string } | undefined;
   mcp: undefined;
   relay: { hostId?: string } | undefined;
+  maintenance: undefined;
+  diagnostics: undefined;
 };
 
 export interface SettingsSectionDefinition {
@@ -50,6 +58,8 @@ export const SETTINGS_SECTION_DEFINITIONS: SettingsSectionDefinition[] = [
   { id: 'repos', icon: GitBranchIcon, group: 'host' },
   { id: 'agents', icon: CpuIcon, group: 'host' },
   { id: 'mcp', icon: PlugIcon, group: 'host' },
+  { id: 'maintenance', icon: WrenchIcon, group: 'host' },
+  { id: 'diagnostics', icon: PulseIcon, group: 'host' },
   { id: 'organizations', icon: BuildingsIcon, group: 'universal' },
   { id: 'remote-projects', icon: CloudIcon, group: 'universal' },
   { id: 'relay', icon: BroadcastIcon, group: 'universal' },
@@ -99,6 +109,10 @@ export function renderSettingsSection(
           onClose={onClose}
         />
       );
+    case 'maintenance':
+      return <MaintenancePanel />;
+    case 'diagnostics':
+      return <DiagnosticsPanel />;
     default:
       return <GeneralSettingsSection />;
   }

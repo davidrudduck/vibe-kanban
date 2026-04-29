@@ -216,6 +216,20 @@ export type LogStatsResponse = { file_count: bigint, total_bytes: bigint, older_
 
 export type LogPurgeResult = { deleted_files: bigint, bytes_freed: bigint, older_than_days: bigint, };
 
+export type PoolStats = { 
+/**
+ * Total connections in the pool (idle + acquired)
+ */
+size: number, 
+/**
+ * Connections currently idle (available)
+ */
+idle: number, 
+/**
+ * Connections currently acquired (in use)
+ */
+acquired: number, };
+
 export type DiagnosticsResponse = { pool_stats: PoolStats, database_stats: DatabaseStats, wal_size_bytes: bigint, wal_size_human: string, };
 
 export type WorkspaceDiskUsage = { workspace_id: string, path: string, size_bytes: bigint, };
