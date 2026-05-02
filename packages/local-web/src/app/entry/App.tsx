@@ -13,6 +13,7 @@ import { AppSystemNotifications } from '@web/app/notifications/AppSystemNotifica
 import { router } from '@web/app/router';
 import { ToastViewport } from '@vibe/ui/components/Toast';
 import { FontProvider } from '@/shared/components/FontProvider';
+import { AccentProvider } from '@/shared/components/AccentProvider';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
 
 function TauriListeners() {
@@ -30,6 +31,15 @@ function FontProviderWithConfig({ children }: { children: React.ReactNode }) {
   );
 }
 
+function AccentProviderWithConfig({ children }: { children: React.ReactNode }) {
+  const { config } = useUserSystem();
+  return (
+    <AccentProvider initialAccent={config?.appearance?.accent_color}>
+      {children}
+    </AccentProvider>
+  );
+}
+
 function App() {
   return (
     <AppRuntimeProvider runtime="local">
@@ -37,23 +47,25 @@ function App() {
         <TauriListeners />
         <UserSystemProvider>
           <FontProviderWithConfig>
-            <LocalAuthProvider>
-              <AppSystemNotifications />
-              <ClickedElementsProvider>
-                <HotkeysProvider
-                  initiallyActiveScopes={[
-                    'global',
-                    'workspace',
-                    'kanban',
-                    'projects',
-                  ]}
-                >
-                  <ToastViewport>
-                    <RouterProvider router={router} />
-                  </ToastViewport>
-                </HotkeysProvider>
-              </ClickedElementsProvider>
-            </LocalAuthProvider>
+            <AccentProviderWithConfig>
+              <LocalAuthProvider>
+                <AppSystemNotifications />
+                <ClickedElementsProvider>
+                  <HotkeysProvider
+                    initiallyActiveScopes={[
+                      'global',
+                      'workspace',
+                      'kanban',
+                      'projects',
+                    ]}
+                  >
+                    <ToastViewport>
+                      <RouterProvider router={router} />
+                    </ToastViewport>
+                  </HotkeysProvider>
+                </ClickedElementsProvider>
+              </LocalAuthProvider>
+            </AccentProviderWithConfig>
           </FontProviderWithConfig>
         </UserSystemProvider>
       </AppNavigationProvider>
