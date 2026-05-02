@@ -88,6 +88,8 @@ export const VirtualizedProcessLogs = forwardRef<LogViewerHandle, VirtualizedPro
     const isAtBottomRef = useRef(true);
     const blockCursorRef = useRef(0);
     const isAtTopRef = useRef(true);
+    const lastCommitTimeRef = useRef(0);
+    const totalItemsRef = useRef(0);
 
     const scrollToTop = useCallback(() => {
       messageListRef.current?.scrollToItem({ index: 0, align: 'start', behavior: 'smooth' });
@@ -97,31 +99,50 @@ export const VirtualizedProcessLogs = forwardRef<LogViewerHandle, VirtualizedPro
       messageListRef.current?.scrollToItem({ index: 'LAST', align: 'end', behavior: 'smooth' });
     }, []);
 
+    const syncCursorToViewport = useCallback(() => {
+      if (blockStartIndices.length === 0) return;
+      const location = messageListRef.current?.getScrollLocation();
+      if (!location) return;
+      const { listOffset, scrollHeight } = location;
+      const fraction = scrollHeight > 0 ? listOffset / scrollHeight : 0;
+      const approxItemIndex = Math.round(fraction * totalItemsRef.current);
+      let lo = 0;
+      let hi = blockStartIndices.length - 1;
+      while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2);
+        if (blockStartIndices[mid] <= approxItemIndex) lo = mid;
+        else hi = mid - 1;
+      }
+      blockCursorRef.current = lo;
+    }, [blockStartIndices]);
+
     const scrollToPrevBlock = useCallback(() => {
       if (blockStartIndices.length === 0) {
         messageListRef.current?.scrollToItem({ index: 0, align: 'start', behavior: 'smooth' });
         return;
       }
+      syncCursorToViewport();
       blockCursorRef.current = Math.max(0, blockCursorRef.current - 1);
       messageListRef.current?.scrollToItem({
         index: blockStartIndices[blockCursorRef.current],
         align: 'start',
         behavior: 'smooth',
       });
-    }, [blockStartIndices]);
+    }, [blockStartIndices, syncCursorToViewport]);
 
     const scrollToNextBlock = useCallback(() => {
       if (blockStartIndices.length === 0 || blockCursorRef.current >= blockStartIndices.length - 1) {
         messageListRef.current?.scrollToItem({ index: 'LAST', align: 'end', behavior: 'smooth' });
         return;
       }
+      syncCursorToViewport();
       blockCursorRef.current = Math.min(blockStartIndices.length - 1, blockCursorRef.current + 1);
       messageListRef.current?.scrollToItem({
         index: blockStartIndices[blockCursorRef.current],
         align: 'start',
         behavior: 'smooth',
       });
-    }, [blockStartIndices]);
+    }, [blockStartIndices, syncCursorToViewport]);
 
     useImperativeHandle(ref, () => ({
       scrollToTop,
@@ -137,15 +158,34 @@ export const VirtualizedProcessLogs = forwardRef<LogViewerHandle, VirtualizedPro
         originalIndex: index,
       }));
 
+      totalItemsRef.current = logsWithKeys.length;
+
       // Initial load: fire immediately — bypasses the per-entry debounce reset cascade
       if (!hasInitializedRef.current && logs.length > 0) {
         hasInitializedRef.current = true;
+        lastCommitTimeRef.current = Date.now();
         setChannelData({ data: logsWithKeys, scrollModifier: InitialDataScrollModifier });
         return;
       }
 
-      // Streaming updates: debounce to batch rapid appends
+      const now = Date.now();
+      const timeSinceLastCommit = now - lastCommitTimeRef.current;
+
+      // Max-wait: if it's been >=500ms since last commit, fire immediately to avoid starvation
+      if (timeSinceLastCommit >= 500) {
+        lastCommitTimeRef.current = now;
+        const scrollModifier = isAtBottomRef.current ? ScrollToLastItem : null;
+        if (scrollModifier) {
+          setChannelData({ data: logsWithKeys, scrollModifier });
+        } else {
+          setChannelData({ data: logsWithKeys });
+        }
+        return;
+      }
+
+      // Otherwise debounce to batch rapid appends
       const timeoutId = setTimeout(() => {
+        lastCommitTimeRef.current = Date.now();
         const scrollModifier = isAtBottomRef.current ? ScrollToLastItem : null;
         if (scrollModifier) {
           setChannelData({ data: logsWithKeys, scrollModifier });

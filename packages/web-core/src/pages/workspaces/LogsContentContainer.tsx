@@ -56,6 +56,7 @@ function NavButton({
 function NavOverlay({
   isAtTop,
   isAtBottom,
+  hasBlocks,
   onScrollToTop,
   onScrollToPrev,
   onScrollToNext,
@@ -63,26 +64,25 @@ function NavOverlay({
 }: {
   isAtTop: boolean;
   isAtBottom: boolean;
+  hasBlocks: boolean;
   onScrollToTop: () => void;
   onScrollToPrev: () => void;
   onScrollToNext: () => void;
   onScrollToBottom: () => void;
 }) {
-  if (isAtTop && isAtBottom) return null;
+  const showTop = !isAtTop;
+  const showBottom = !isAtBottom;
+  const showPrev = !isAtTop || hasBlocks;
+  const showNext = !isAtBottom || hasBlocks;
+
+  if (!showTop && !showBottom && !showPrev && !showNext) return null;
+
   return (
     <div className="absolute right-2 bottom-2 z-10 flex flex-col gap-1 pointer-events-none">
-      {!isAtTop && (
-        <>
-          <NavButton icon={ArrowLineUpIcon} label="Go to top" onClick={onScrollToTop} />
-          <NavButton icon={ArrowUpIcon} label="Previous section" onClick={onScrollToPrev} />
-        </>
-      )}
-      {!isAtBottom && (
-        <>
-          <NavButton icon={ArrowDownIcon} label="Next section" onClick={onScrollToNext} />
-          <NavButton icon={ArrowLineDownIcon} label="Go to bottom" onClick={onScrollToBottom} />
-        </>
-      )}
+      {showTop && <NavButton icon={ArrowLineUpIcon} label="Go to top" onClick={onScrollToTop} />}
+      {showPrev && <NavButton icon={ArrowUpIcon} label="Previous section" onClick={onScrollToPrev} />}
+      {showNext && <NavButton icon={ArrowDownIcon} label="Next section" onClick={onScrollToNext} />}
+      {showBottom && <NavButton icon={ArrowLineDownIcon} label="Go to bottom" onClick={onScrollToBottom} />}
     </div>
   );
 }
@@ -178,6 +178,7 @@ export function LogsContentContainer({ className }: LogsContentContainerProps) {
         <div className="flex-1 min-h-0">
           <VirtualizedProcessLogs
             ref={logViewerRef}
+            key={content.toolName}
             logs={toolLogs}
             error={null}
             searchQuery={searchQuery}
@@ -190,6 +191,7 @@ export function LogsContentContainer({ className }: LogsContentContainerProps) {
         <NavOverlay
           isAtTop={isAtTop}
           isAtBottom={isAtBottom}
+          hasBlocks={false}
           onScrollToTop={() => logViewerRef.current?.scrollToTop()}
           onScrollToPrev={() => logViewerRef.current?.scrollToPrevBlock()}
           onScrollToNext={() => logViewerRef.current?.scrollToNextBlock()}
@@ -242,6 +244,7 @@ export function LogsContentContainer({ className }: LogsContentContainerProps) {
       <NavOverlay
         isAtTop={isAtTop}
         isAtBottom={isAtBottom}
+        hasBlocks={blockStartIndices.length > 0}
         onScrollToTop={() => logViewerRef.current?.scrollToTop()}
         onScrollToPrev={() => logViewerRef.current?.scrollToPrevBlock()}
         onScrollToNext={() => logViewerRef.current?.scrollToNextBlock()}
