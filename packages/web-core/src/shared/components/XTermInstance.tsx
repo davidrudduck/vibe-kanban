@@ -68,7 +68,10 @@ export function XTermInstance({
     const terminal = new Terminal({
       cursorBlink: true,
       fontSize: 12,
-      fontFamily: '"IBM Plex Mono", monospace',
+      fontFamily:
+        getComputedStyle(document.documentElement)
+          .getPropertyValue('--font-code')
+          .trim() || '"IBM Plex Mono", monospace',
       theme: getTerminalTheme(),
     });
 

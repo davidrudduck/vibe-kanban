@@ -1,3 +1,4 @@
+import React from 'react';
 import { RouterProvider } from '@tanstack/react-router';
 import { HotkeysProvider } from 'react-hotkeys-hook';
 import { UserSystemProvider } from '@web/app/providers/ConfigProvider';
@@ -11,11 +12,22 @@ import { useTauriUpdateReady } from '@web/app/hooks/useTauriUpdateReady';
 import { AppSystemNotifications } from '@web/app/notifications/AppSystemNotifications';
 import { router } from '@web/app/router';
 import { ToastViewport } from '@vibe/ui/components/Toast';
+import { FontProvider } from '@/shared/components/FontProvider';
+import { useUserSystem } from '@/shared/hooks/useUserSystem';
 
 function TauriListeners() {
   useTauriNotificationNavigation();
   useTauriUpdateReady();
   return null;
+}
+
+function FontProviderWithConfig({ children }: { children: React.ReactNode }) {
+  const { config } = useUserSystem();
+  return (
+    <FontProvider initialFonts={config?.appearance?.fonts}>
+      {children}
+    </FontProvider>
+  );
 }
 
 function App() {
@@ -24,23 +36,25 @@ function App() {
       <AppNavigationProvider value={localAppNavigation}>
         <TauriListeners />
         <UserSystemProvider>
-          <LocalAuthProvider>
-            <AppSystemNotifications />
-            <ClickedElementsProvider>
-              <HotkeysProvider
-                initiallyActiveScopes={[
-                  'global',
-                  'workspace',
-                  'kanban',
-                  'projects',
-                ]}
-              >
-                <ToastViewport>
-                  <RouterProvider router={router} />
-                </ToastViewport>
-              </HotkeysProvider>
-            </ClickedElementsProvider>
-          </LocalAuthProvider>
+          <FontProviderWithConfig>
+            <LocalAuthProvider>
+              <AppSystemNotifications />
+              <ClickedElementsProvider>
+                <HotkeysProvider
+                  initiallyActiveScopes={[
+                    'global',
+                    'workspace',
+                    'kanban',
+                    'projects',
+                  ]}
+                >
+                  <ToastViewport>
+                    <RouterProvider router={router} />
+                  </ToastViewport>
+                </HotkeysProvider>
+              </ClickedElementsProvider>
+            </LocalAuthProvider>
+          </FontProviderWithConfig>
         </UserSystemProvider>
       </AppNavigationProvider>
     </AppRuntimeProvider>

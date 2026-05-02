@@ -1224,7 +1224,7 @@ function SessionNotFoundEntry({
                 type="button"
                 onClick={() => setSelectedIdx(i)}
                 className={cn(
-                  'flex items-center gap-base px-base py-1 rounded text-xs text-left font-ibm-plex-mono transition-colors',
+                  'flex items-center gap-base px-base py-1 rounded text-xs text-left font-code transition-colors',
                   i === selectedIdx
                     ? 'bg-brand/10 text-high ring-1 ring-brand'
                     : 'bg-secondary text-normal hover:bg-panel'

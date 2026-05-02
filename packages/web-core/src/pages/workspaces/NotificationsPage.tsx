@@ -32,10 +32,7 @@ function NotificationMessage({
         }
         if (seg.type === 'issue') {
           return (
-            <span
-              key={i}
-              className="font-ibm-plex-mono text-high text-[0.95em]"
-            >
+            <span key={i} className="font-code text-high text-[0.95em]">
               {seg.value}
             </span>
           );
