@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cloneDeep, isEqual } from 'lodash';
 import { CheckIcon } from '@phosphor-icons/react';
@@ -14,6 +14,7 @@ import { useTheme } from '@/shared/hooks/useTheme';
 import { useFonts } from '@/shared/components/FontProvider';
 import { applyAccent } from '@/shared/components/AccentProvider';
 import { hexToHslChannels } from '@/lib/colorUtils';
+import { safeUrl } from '@/lib/urlUtils';
 import {
   getCodeFontFamily,
   getProseFontFamily,
@@ -52,6 +53,10 @@ export function AppearanceSettings() {
   const [success, setSuccess] = useState(false);
   const [hexInput, setHexInput] = useState('');
   const [hexError, setHexError] = useState(false);
+  const [urlErrors, setUrlErrors] = useState<{
+    discordUrl?: string;
+    feedbackUrl?: string;
+  }>({});
 
   // Sync draft when config loads
   useEffect(() => {
@@ -61,13 +66,34 @@ export function AppearanceSettings() {
   }, [config, draft]);
 
   const isDirty =
-    draft && config ? !isEqual(draft.appearance, config.appearance) : false;
+    draft && config
+      ? !isEqual(draft.appearance, config.appearance) ||
+        draft.theme !== config.theme
+      : false;
 
   // Track dirty state in context
   useEffect(() => {
     setContextDirty('appearance', isDirty);
     return () => setContextDirty('appearance', false);
   }, [isDirty, setContextDirty]);
+
+  // Keep a ref to the latest config so the unmount cleanup uses it
+  const configRef = useRef(config);
+  useEffect(() => {
+    configRef.current = config;
+  }, [config]);
+
+  // Revert live preview on unmount (e.g. dialog dismissed without explicit Cancel)
+  useEffect(() => {
+    return () => {
+      const cfg = configRef.current;
+      if (cfg) {
+        applyAccent(cfg.appearance.accent_color);
+        setFonts(cfg.appearance.fonts);
+        setTheme(cfg.theme);
+      }
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const updateAppearance = (updates: Partial<AppearanceConfig>) => {
     setDraft((prev) =>
@@ -85,6 +111,21 @@ export function AppearanceSettings() {
     setSaving(true);
     setError(null);
     setSuccess(false);
+    const newUrlErrors: typeof urlErrors = {};
+    const discordUrlVal = draft.appearance.links.discord_url;
+    const feedbackUrlVal = draft.appearance.links.feedback_url;
+    if (discordUrlVal && !safeUrl(discordUrlVal)) {
+      newUrlErrors.discordUrl = 'Must be a valid https:// URL';
+    }
+    if (feedbackUrlVal && !safeUrl(feedbackUrlVal)) {
+      newUrlErrors.feedbackUrl = 'Must be a valid https:// URL';
+    }
+    if (Object.keys(newUrlErrors).length > 0) {
+      setUrlErrors(newUrlErrors);
+      setSaving(false);
+      return;
+    }
+    setUrlErrors({});
     try {
       await updateAndSaveConfig(draft);
       // Apply live updates after save
@@ -101,15 +142,16 @@ export function AppearanceSettings() {
   };
 
   const handleCancel = () => {
-    if (config) setDraft(cloneDeep(config));
-    setHexInput('');
-    setHexError(false);
-    setContextDirty('appearance', false);
-    // Revert live preview
     if (config) {
+      setDraft(cloneDeep(config));
       applyAccent(config.appearance.accent_color);
       setFonts(config.appearance.fonts);
+      setTheme(config.theme);
     }
+    setHexInput('');
+    setHexError(false);
+    setUrlErrors({});
+    setContextDirty('appearance', false);
   };
 
   if (loading || !draft) {
@@ -495,6 +537,11 @@ export function AppearanceSettings() {
                   }
                   placeholder="https://discord.gg/..."
                 />
+                {urlErrors.discordUrl && (
+                  <p className="text-xs text-red-500 mt-0.5">
+                    {urlErrors.discordUrl}
+                  </p>
+                )}
               </SettingsField>
             )}
             <SettingsField
@@ -514,6 +561,11 @@ export function AppearanceSettings() {
                 }
                 placeholder="https://github.com/owner/repo/issues"
               />
+              {urlErrors.feedbackUrl && (
+                <p className="text-xs text-red-500 mt-0.5">
+                  {urlErrors.feedbackUrl}
+                </p>
+              )}
             </SettingsField>
           </SettingsCard>
         </div>
@@ -532,7 +584,7 @@ export function AppearanceSettings() {
               <div className="flex items-center gap-2 px-2 py-1 rounded-sm bg-panel text-xs text-normal">
                 <span className="text-brand">●</span>
                 {draft.appearance.host_banner.show_hostname && (
-                  <span>hostname</span>
+                  <span>{typeof window !== 'undefined' ? window.location.hostname : 'hostname'}</span>
                 )}
                 {draft.appearance.host_banner.env_label && (
                   <span className="px-1 rounded bg-brand/20 text-brand text-xs">
