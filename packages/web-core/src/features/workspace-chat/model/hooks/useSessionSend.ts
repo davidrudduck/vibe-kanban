@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import type { ExecutorConfig } from 'shared/types';
-import { sessionsApi } from '@/shared/lib/api';
+import { executionProcessesApi, sessionsApi } from '@/shared/lib/api';
 import { useCreateSession } from './useCreateSession';
 
 interface UseSessionSendOptions {
@@ -14,6 +14,12 @@ interface UseSessionSendOptions {
   onSelectSession?: (sessionId: string) => void;
   /** Unified executor config (executor + variant + overrides) */
   executorConfig?: ExecutorConfig | null;
+  /**
+   * ID of the currently-running execution process for this session.
+   * When set, the hook will attempt live injection before falling back
+   * to a queued follow-up.
+   */
+  runningExecutionProcessId?: string | null;
 }
 
 interface UseSessionSendResult {
@@ -42,6 +48,7 @@ export function useSessionSend({
   isNewSessionMode,
   onSelectSession,
   executorConfig,
+  runningExecutionProcessId,
 }: UseSessionSendOptions): UseSessionSendResult {
   const { mutateAsync: createSession, isPending: isCreatingSession } =
     useCreateSession();
@@ -85,6 +92,22 @@ export function useSessionSend({
         if (!sessionId) return false;
         setIsSendingFollowUp(true);
         try {
+          // If there is a running process, attempt live injection first.
+          // If the executor doesn't support it (injected === false) fall
+          // through to the normal follow-up path which queues the message.
+          if (runningExecutionProcessId) {
+            try {
+              const { injected } =
+                await executionProcessesApi.injectMessage(
+                  runningExecutionProcessId,
+                  trimmed
+                );
+              if (injected) return true;
+            } catch {
+              // Injection failed (e.g. process just exited) — fall through to queue
+            }
+          }
+
           await sessionsApi.followUp(sessionId, {
             prompt: trimmed,
             executor_config: executorConfig,
@@ -110,6 +133,7 @@ export function useSessionSend({
       createSession,
       onSelectSession,
       executorConfig,
+      runningExecutionProcessId,
     ]
   );
 

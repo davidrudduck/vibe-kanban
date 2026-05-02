@@ -35,7 +35,7 @@ use executors::{
     env::{ExecutionEnv, RepoContext},
     executors::{
         BaseCodingAgent, CancellationToken, ExecutorExitResult, ExecutorExitSignal,
-        claude::session_recovery,
+        claude::{protocol::ProtocolPeer, session_recovery},
     },
     logs::{
         NormalizedEntry, NormalizedEntryError, NormalizedEntryType,
@@ -91,6 +91,9 @@ pub struct LocalContainerService {
     queued_message_service: QueuedMessageService,
     notification_service: NotificationService,
     remote_client: Option<RemoteClient>,
+    /// Holds the live ProtocolPeer for every running Claude Code process so that
+    /// messages can be injected while the process is active.
+    protocol_peers: Arc<RwLock<HashMap<Uuid, ProtocolPeer>>>,
 }
 
 impl LocalContainerService {
@@ -112,6 +115,7 @@ impl LocalContainerService {
         let db_stream_handles = Arc::new(RwLock::new(HashMap::new()));
         let exit_monitor_handles = Arc::new(RwLock::new(HashMap::new()));
         let workspace_touch_times = Arc::new(RwLock::new(HashMap::new()));
+        let protocol_peers = Arc::new(RwLock::new(HashMap::new()));
         let notification_service = NotificationService::new(config.clone());
 
         let container = LocalContainerService {
@@ -131,6 +135,7 @@ impl LocalContainerService {
             queued_message_service,
             notification_service,
             remote_client,
+            protocol_peers,
         };
 
         container.spawn_workspace_cleanup();
@@ -495,6 +500,7 @@ impl LocalContainerService {
         let config = self.config.clone();
         let container = self.clone();
         let analytics = self.analytics.clone();
+        let protocol_peers = self.protocol_peers.clone();
 
         let mut process_exit_rx = self.spawn_os_exit_watcher(exec_id);
 
@@ -892,6 +898,9 @@ impl LocalContainerService {
                 let _ = child.start_kill();
             }
             child_store.write().await.remove(&exec_id);
+
+            // Drop the ProtocolPeer so the stdin handle is released.
+            protocol_peers.write().await.remove(&exec_id);
         })
     }
 
@@ -1482,6 +1491,18 @@ impl ContainerService for LocalContainerService {
         let hn = self.spawn_exit_monitor(&execution_process.id, spawned.exit_signal);
         self.add_exit_monitor_handle(execution_process.id, hn).await;
 
+        // If the executor vended a ProtocolPeer (e.g. Claude Code), receive it and
+        // store it so that inject_message() can reach it while the process is running.
+        if let Some(peer_rx) = spawned.protocol_peer.take() {
+            let peers = self.protocol_peers.clone();
+            let exec_id = execution_process.id;
+            tokio::spawn(async move {
+                if let Ok(peer) = peer_rx.await {
+                    peers.write().await.insert(exec_id, peer);
+                }
+            });
+        }
+
         Ok(())
     }
 
@@ -1504,6 +1525,9 @@ impl ContainerService for LocalContainerService {
 
         ExecutionProcess::update_completion(&self.db.pool, execution_process.id, status, exit_code)
             .await?;
+
+        // Release the ProtocolPeer immediately so no further injections are accepted.
+        self.protocol_peers.write().await.remove(&execution_process.id);
 
         // Try graceful cancellation first, then force kill
         if let Some(cancel) = self.take_cancellation_token(&execution_process.id).await {
@@ -1558,6 +1582,7 @@ impl ContainerService for LocalContainerService {
 
         Ok(())
     }
+
 
     async fn stream_diff(
         &self,
@@ -1713,6 +1738,27 @@ impl ContainerService for LocalContainerService {
         }
 
         Ok(())
+    }
+
+    async fn inject_message(
+        &self,
+        execution_process_id: Uuid,
+        content: String,
+    ) -> Result<bool, ContainerError> {
+        let peer = {
+            let peers = self.protocol_peers.read().await;
+            peers.get(&execution_process_id).cloned()
+        };
+
+        match peer {
+            Some(peer) => {
+                peer.send_user_message(content)
+                    .await
+                    .map_err(|e| ContainerError::Other(anyhow!("Failed to inject message: {e}")))?;
+                Ok(true)
+            }
+            None => Ok(false),
+        }
     }
 }
 fn success_exit_status() -> std::process::ExitStatus {

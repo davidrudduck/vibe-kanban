@@ -507,6 +507,9 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     isNewSessionMode,
     onSelectSession,
     executorConfig,
+    runningExecutionProcessId:
+      processes.find((p) => p.status === ExecutionProcessStatus.running)?.id ??
+      null,
   });
 
   const handleSend = useCallback(async () => {

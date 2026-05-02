@@ -129,6 +129,7 @@ impl AcpAgentHarness {
             child,
             exit_signal: Some(exit_rx),
             cancel: Some(cancel),
+            protocol_peer: None,
         })
     }
 
@@ -182,6 +183,7 @@ impl AcpAgentHarness {
             child,
             exit_signal: Some(exit_rx),
             cancel: Some(cancel),
+            protocol_peer: None,
         })
     }
 
