@@ -238,26 +238,28 @@ export const VirtualizedProcessLogs = forwardRef<
       } else {
         setChannelData({ data: logsWithKeys });
       }
+      syncCursorToViewport();
       blockCursorRef.current = Math.max(0, blockCursorRef.current - 1);
       messageListRef.current?.scrollToItem({
         index: blockStartIndices[blockCursorRef.current],
         align: 'start',
         behavior: 'smooth',
       });
-    }, [blockStartIndices]);
+    }, [blockStartIndices, syncCursorToViewport]);
 
     const scrollToNextBlock = useCallback(() => {
       if (blockStartIndices.length === 0 || blockCursorRef.current >= blockStartIndices.length - 1) {
         messageListRef.current?.scrollToItem({ index: 'LAST', align: 'end', behavior: 'smooth' });
         return;
       }
+      syncCursorToViewport();
       blockCursorRef.current = Math.min(blockStartIndices.length - 1, blockCursorRef.current + 1);
       messageListRef.current?.scrollToItem({
         index: blockStartIndices[blockCursorRef.current],
         align: 'start',
         behavior: 'smooth',
       });
-    }, [blockStartIndices]);
+    }, [blockStartIndices, syncCursorToViewport]);
 
     useImperativeHandle(ref, () => ({
       scrollToTop,
@@ -273,15 +275,34 @@ export const VirtualizedProcessLogs = forwardRef<
         originalIndex: index,
       }));
 
+      totalItemsRef.current = logsWithKeys.length;
+
       // Initial load: fire immediately — bypasses the per-entry debounce reset cascade
       if (!hasInitializedRef.current && logs.length > 0) {
         hasInitializedRef.current = true;
+        lastCommitTimeRef.current = Date.now();
         setChannelData({ data: logsWithKeys, scrollModifier: InitialDataScrollModifier });
         return;
       }
 
-      // Streaming updates: debounce to batch rapid appends
+      const now = Date.now();
+      const timeSinceLastCommit = now - lastCommitTimeRef.current;
+
+      // Max-wait: if it's been >=500ms since last commit, fire immediately to avoid starvation
+      if (timeSinceLastCommit >= 500) {
+        lastCommitTimeRef.current = now;
+        const scrollModifier = isAtBottomRef.current ? ScrollToLastItem : null;
+        if (scrollModifier) {
+          setChannelData({ data: logsWithKeys, scrollModifier });
+        } else {
+          setChannelData({ data: logsWithKeys });
+        }
+        return;
+      }
+
+      // Otherwise debounce to batch rapid appends
       const timeoutId = setTimeout(() => {
+        lastCommitTimeRef.current = Date.now();
         const scrollModifier = isAtBottomRef.current ? ScrollToLastItem : null;
         if (scrollModifier) {
           setChannelData({ data: logsWithKeys, scrollModifier });
