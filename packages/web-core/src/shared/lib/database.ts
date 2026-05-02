@@ -88,7 +88,9 @@ export async function getLogStats(
     params.set('older_than_days', String(olderThanDays));
   }
   const query = params.size > 0 ? `?${params.toString()}` : '';
-  const response = await makeLocalApiRequest(`/api/database/log-stats${query}`);
+  const response = await makeLocalApiRequest(
+    `/api/database/log-stats${query}`
+  );
   if (!response.ok) {
     throw new Error(`Failed to fetch log stats: ${response.status}`);
   }
