@@ -277,6 +277,37 @@ export function LogsContentContainer({ className }: LogsContentContainerProps) {
         onScrollToNext={() => logViewerRef.current?.scrollToNextBlock()}
         onScrollToBottom={() => logViewerRef.current?.scrollToBottom()}
       />
+      {/* Nav overlay */}
+      <div className="absolute right-2 bottom-2 z-10 flex flex-col gap-1 pointer-events-none">
+        {!isAtTop && (
+          <>
+            <NavButton
+              icon={ArrowLineUpIcon}
+              label="Go to top"
+              onClick={() => logViewerRef.current?.scrollToTop()}
+            />
+            <NavButton
+              icon={ArrowUpIcon}
+              label="Previous section"
+              onClick={() => logViewerRef.current?.scrollToPrevBlock()}
+            />
+          </>
+        )}
+        {!isAtBottom && (
+          <>
+            <NavButton
+              icon={ArrowDownIcon}
+              label="Next section"
+              onClick={() => logViewerRef.current?.scrollToNextBlock()}
+            />
+            <NavButton
+              icon={ArrowLineDownIcon}
+              label="Go to bottom"
+              onClick={() => logViewerRef.current?.scrollToBottom()}
+            />
+          </>
+        )}
+      </div>
     </div>
   );
 }
