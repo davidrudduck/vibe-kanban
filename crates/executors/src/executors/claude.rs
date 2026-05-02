@@ -688,10 +688,6 @@ impl ClaudeCode {
             let protocol_peer =
                 ProtocolPeer::spawn(child_stdin, child_stdout, client.clone(), cancel_for_task);
 
-            // Send a clone to the container *before* any await point so the receiver
-            // is resolved immediately after the spawn is scheduled.
-            let _ = peer_tx.send(protocol_peer.clone());
-
             // Initialize control protocol
             if let Err(e) = protocol_peer.initialize(hooks).await {
                 tracing::error!("Failed to initialize control protocol: {e}");
@@ -711,7 +707,16 @@ impl ClaudeCode {
                 let _ = log_writer
                     .log_raw(&format!("Error: Failed to send prompt - {e}"))
                     .await;
+                return;
             }
+
+            // Publish the peer only after initialization and the initial user
+            // message have been successfully delivered so that the container
+            // can safely inject follow-up messages without racing the init
+            // sequence.  If any earlier step failed we return early, dropping
+            // peer_tx; the container's background task sees Err and skips
+            // registration.
+            let _ = peer_tx.send(protocol_peer);
         });
 
         Ok(SpawnedChild {

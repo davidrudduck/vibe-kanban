@@ -1752,6 +1752,20 @@ impl ContainerService for LocalContainerService {
 
         match peer {
             Some(peer) => {
+                // Persist the injected user message to the MsgStore so the
+                // frontend conversation stream shows it immediately, matching
+                // the UX for regular follow-up messages.
+                if let Some(store) = self.get_msg_store_by_id(&execution_process_id).await {
+                    let entry = NormalizedEntry {
+                        timestamp: None,
+                        entry_type: NormalizedEntryType::UserMessage,
+                        content: content.clone(),
+                        metadata: None,
+                    };
+                    let patch = ConversationPatch::add_normalized_entry(999999, entry);
+                    store.push_patch(patch);
+                }
+
                 peer.send_user_message(content)
                     .await
                     .map_err(|e| ContainerError::Other(anyhow!("Failed to inject message: {e}")))?;

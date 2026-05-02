@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import type { ExecutorConfig } from 'shared/types';
-import { executionProcessesApi, sessionsApi } from '@/shared/lib/api';
+import { executionProcessesApi, queueApi, sessionsApi } from '@/shared/lib/api';
 import { useCreateSession } from './useCreateSession';
 
 interface UseSessionSendOptions {
@@ -93,8 +93,6 @@ export function useSessionSend({
         setIsSendingFollowUp(true);
         try {
           // If there is a running process, attempt live injection first.
-          // If the executor doesn't support it (injected === false) fall
-          // through to the normal follow-up path which queues the message.
           if (runningExecutionProcessId) {
             try {
               const { injected } =
@@ -106,6 +104,15 @@ export function useSessionSend({
             } catch {
               // Injection failed (e.g. process just exited) — fall through to queue
             }
+            // The executor didn't accept live injection (unsupported or process
+            // exited between the status check and this call).  Queue the
+            // message to fire when execution finishes rather than starting a
+            // second concurrent execution via followUp.
+            await queueApi.queue(sessionId, {
+              message: trimmed,
+              executor_config: executorConfig,
+            });
+            return true;
           }
 
           await sessionsApi.followUp(sessionId, {
