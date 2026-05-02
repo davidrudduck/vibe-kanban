@@ -1,6 +1,24 @@
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
 import { cn } from '@/shared/lib/utils';
 
+function getOsInfo(): string {
+  // Prefer modern userAgentData API (Chrome/Edge)
+  if (typeof navigator !== 'undefined') {
+    const uad = (
+      navigator as Navigator & { userAgentData?: { platform?: string } }
+    ).userAgentData;
+    if (uad?.platform) return uad.platform;
+    // Fallback: extract OS from userAgent string
+    const ua = navigator.userAgent;
+    if (ua.includes('Mac OS X')) return 'macOS';
+    if (ua.includes('Windows')) return 'Windows';
+    if (ua.includes('Linux')) return 'Linux';
+    if (ua.includes('Android')) return 'Android';
+    if (ua.includes('iPhone') || ua.includes('iPad')) return 'iOS';
+  }
+  return 'Unknown OS';
+}
+
 export function HostBanner() {
   const { config } = useUserSystem();
   const bannerConfig = config?.appearance?.host_banner;
@@ -12,8 +30,12 @@ export function HostBanner() {
   // Don't render if nothing is configured to show
   if (!show_hostname && !show_os_info && !env_label) return null;
 
-  const hostname = show_hostname ? window.location.hostname : null;
-  const osInfo = show_os_info ? navigator.platform : null;
+  const hostname = show_hostname
+    ? typeof window !== 'undefined'
+      ? window.location.hostname
+      : 'localhost'
+    : null;
+  const osInfo = show_os_info ? getOsInfo() : null;
 
   return (
     <div

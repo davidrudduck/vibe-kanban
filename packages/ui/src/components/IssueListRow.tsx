@@ -1,18 +1,18 @@
-'use client';
+"use client";
 
-import type { MouseEvent } from 'react';
-import { cn } from '../lib/cn';
-import { Draggable } from '@hello-pangea/dnd';
-import { DotsSixVerticalIcon } from '@phosphor-icons/react';
-import { PriorityIcon, type PriorityLevel } from './PriorityIcon';
-import { StatusDot } from './StatusDot';
-import { KanbanBadge } from './KanbanBadge';
-import { KanbanAssignee, type KanbanAssigneeUser } from './KanbanAssignee';
+import type { MouseEvent } from "react";
+import { cn } from "../lib/cn";
+import { Draggable } from "@hello-pangea/dnd";
+import { DotsSixVerticalIcon } from "@phosphor-icons/react";
+import { PriorityIcon, type PriorityLevel } from "./PriorityIcon";
+import { StatusDot } from "./StatusDot";
+import { KanbanBadge } from "./KanbanBadge";
+import { KanbanAssignee, type KanbanAssigneeUser } from "./KanbanAssignee";
 import {
   RelationshipBadge,
   type RelationshipDisplayType,
-} from './RelationshipBadge';
-import { Checkbox } from './Checkbox';
+} from "./RelationshipBadge";
+import { Checkbox } from "./Checkbox";
 
 /**
  * Formats a date as a relative time string (e.g., "1d", "2h", "3m")
@@ -34,7 +34,7 @@ function formatRelativeTime(dateString: string): string {
   if (diffMinutes > 0) {
     return `${diffMinutes}m`;
   }
-  return 'now';
+  return "now";
 }
 
 const MAX_VISIBLE_TAGS = 2;
@@ -101,18 +101,18 @@ export function IssueListRow({
           tabIndex={0}
           onClick={onClick}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
+            if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
               onClick(e as unknown as MouseEvent);
             }
           }}
           className={cn(
-            'group/row flex items-center justify-between gap-double px-double py-half',
-            'transition-colors',
-            'hover:bg-secondary',
-            (isSelected || isChecked) && 'bg-secondary',
-            snapshot.isDragging && 'bg-secondary shadow-lg cursor-grabbing',
-            className
+            "group/row flex items-center justify-between gap-double px-double py-half",
+            "transition-colors",
+            "hover:bg-secondary",
+            (isSelected || isChecked) && "bg-secondary",
+            snapshot.isDragging && "bg-secondary shadow-lg cursor-grabbing",
+            className,
           )}
         >
           {/* Left side: Checkbox/Drag handle, Priority, ID, Status, Title */}
@@ -122,8 +122,8 @@ export function IssueListRow({
               <div
                 {...provided.dragHandleProps}
                 className={cn(
-                  'cursor-grab',
-                  showCheckbox ? 'hidden' : 'flex group-hover/row:hidden'
+                  "cursor-grab",
+                  showCheckbox ? "hidden" : "flex group-hover/row:hidden",
                 )}
                 onClick={(e) => e.stopPropagation()}
               >
@@ -135,8 +135,8 @@ export function IssueListRow({
               {/* Checkbox — shown on hover or when multi-select active */}
               <div
                 className={cn(
-                  'items-center justify-center',
-                  showCheckbox ? 'flex' : 'hidden group-hover/row:flex'
+                  "items-center justify-center",
+                  showCheckbox ? "flex" : "hidden group-hover/row:flex",
                 )}
                 onClick={(e) => e.stopPropagation()}
               >
@@ -149,7 +149,7 @@ export function IssueListRow({
               </div>
             </div>
             <PriorityIcon priority={issue.priority} />
-            <span className="font-ibm-plex-mono text-sm text-normal shrink-0">
+            <span className="font-code text-sm text-normal shrink-0">
               {issue.simple_id}
             </span>
             <StatusDot color={statusColor} />
