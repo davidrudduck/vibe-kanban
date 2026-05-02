@@ -212,8 +212,7 @@ mod tests {
         assert!(stats.page_count > 0, "Page count should be positive");
         assert_eq!(stats.task_count, 0, "Task count should be zero on empty DB");
         assert_eq!(
-            stats.workspace_count,
-            0,
+            stats.workspace_count, 0,
             "Workspace count should be zero on empty DB"
         );
         assert!(

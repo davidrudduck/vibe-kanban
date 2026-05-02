@@ -261,11 +261,12 @@ impl AuthorizationProvider for GitHubOAuthProvider {
             None
         };
 
+        let email_verified = verified_email.is_some();
         Ok(ProviderUser {
             id: user.id.to_string(),
             login: Some(user.login),
             email: verified_email.or(user.email),
-            email_verified: verified_email.is_some(),
+            email_verified,
             name: user.name,
             avatar_url: user.avatar_url,
         })

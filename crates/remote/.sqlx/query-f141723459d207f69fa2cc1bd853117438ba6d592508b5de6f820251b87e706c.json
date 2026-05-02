@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO host_repos (host_id, path, name, display_name)\n                VALUES ($1, $2, $3, $4)\n                ON CONFLICT (host_id, path) DO UPDATE\n                SET name = EXCLUDED.name,\n                    display_name = EXCLUDED.display_name,\n                    updated_at = NOW()\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f141723459d207f69fa2cc1bd853117438ba6d592508b5de6f820251b87e706c"
+}

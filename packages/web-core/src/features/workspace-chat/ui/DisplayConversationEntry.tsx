@@ -1224,7 +1224,7 @@ function SessionNotFoundEntry({
                 type="button"
                 onClick={() => setSelectedIdx(i)}
                 className={cn(
-                  'flex items-center gap-base px-base py-1 rounded text-xs text-left font-ibm-plex-mono transition-colors',
+                  'flex items-center gap-base px-base py-1 rounded text-xs text-left font-code transition-colors',
                   i === selectedIdx
                     ? 'bg-brand/10 text-high ring-1 ring-brand'
                     : 'bg-secondary text-normal hover:bg-panel'
@@ -1556,7 +1556,7 @@ function AggregatedDiffGroupEntry({ group }: { group: AggregatedDiffGroup }) {
       isHovered={isHovered}
       onToggle={handleToggle}
       onHoverChange={handleHoverChange}
-      onOpenInChanges={canOpenInChanges ? handleOpenInChanges : undefined}
+      onOpenInChanges={canOpenInChanges ? handleOpenInChanges : null}
       fileIcon={FileIcon}
       isVSCode={isVSCode}
       onOpenInVSCode={handleOpenInVSCode}

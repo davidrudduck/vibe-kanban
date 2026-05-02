@@ -184,7 +184,11 @@ export function GeneralSettingsSection() {
     setSuccess(false);
 
     try {
-      await updateAndSaveConfig(draft);
+      const ok = await updateAndSaveConfig(draft);
+      if (!ok) {
+        setError(t('settings.general.save.error'));
+        return;
+      }
       setTheme(draft.theme);
       setDirty(false);
       setSuccess(true);

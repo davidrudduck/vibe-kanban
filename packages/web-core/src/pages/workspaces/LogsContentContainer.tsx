@@ -1,14 +1,22 @@
-import { useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/shared/lib/utils';
 import {
   type LogEntry,
   VirtualizedProcessLogs,
 } from '@/shared/components/VirtualizedProcessLogs';
+import type { LogViewerHandle } from '@/shared/components/VirtualizedProcessLogs';
 import { useLogStream } from '@/shared/hooks/useLogStream';
 import { useLogsPanel } from '@/shared/hooks/useLogsPanel';
 import { TerminalPanelContainer } from '@/shared/components/TerminalPanelContainer';
-import { ArrowsInSimpleIcon } from '@phosphor-icons/react';
+import {
+  ArrowsInSimpleIcon,
+  ArrowLineUpIcon,
+  ArrowUpIcon,
+  ArrowDownIcon,
+  ArrowLineDownIcon,
+  type Icon as PhosphorIcon,
+} from '@phosphor-icons/react';
 
 export type LogsPanelContent =
   | { type: 'process'; processId: string }
@@ -24,6 +32,62 @@ interface LogsContentContainerProps {
   className: string;
 }
 
+function NavButton({
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  icon: PhosphorIcon;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="pointer-events-auto flex items-center justify-center size-8 rounded-full bg-secondary/80 backdrop-blur-sm border border-secondary text-low hover:text-normal hover:bg-secondary shadow-md transition-all"
+      aria-label={label}
+      title={label}
+    >
+      <Icon className="size-icon-base" weight="bold" />
+    </button>
+  );
+}
+
+function NavOverlay({
+  isAtTop,
+  isAtBottom,
+  hasBlocks,
+  onScrollToTop,
+  onScrollToPrev,
+  onScrollToNext,
+  onScrollToBottom,
+}: {
+  isAtTop: boolean;
+  isAtBottom: boolean;
+  hasBlocks: boolean;
+  onScrollToTop: () => void;
+  onScrollToPrev: () => void;
+  onScrollToNext: () => void;
+  onScrollToBottom: () => void;
+}) {
+  const showTop = !isAtTop;
+  const showBottom = !isAtBottom;
+  const showPrev = !isAtTop || hasBlocks;
+  const showNext = !isAtBottom || hasBlocks;
+
+  if (!showTop && !showBottom && !showPrev && !showNext) return null;
+
+  return (
+    <div className="absolute right-2 bottom-2 z-10 flex flex-col gap-1 pointer-events-none">
+      {showTop && <NavButton icon={ArrowLineUpIcon} label="Go to top" onClick={onScrollToTop} />}
+      {showPrev && <NavButton icon={ArrowUpIcon} label="Previous section" onClick={onScrollToPrev} />}
+      {showNext && <NavButton icon={ArrowDownIcon} label="Next section" onClick={onScrollToNext} />}
+      {showBottom && <NavButton icon={ArrowLineDownIcon} label="Go to bottom" onClick={onScrollToBottom} />}
+    </div>
+  );
+}
+
 export function LogsContentContainer({ className }: LogsContentContainerProps) {
   const {
     logsPanelContent: content,
@@ -35,7 +99,31 @@ export function LogsContentContainer({ className }: LogsContentContainerProps) {
   const { t } = useTranslation('common');
   // Get logs for process content (only when type is 'process')
   const processId = content?.type === 'process' ? content.processId : '';
-  const { logs, error } = useLogStream(processId);
+  const logViewerRef = useRef<LogViewerHandle>(null);
+  const [isAtTop, setIsAtTop] = useState(true);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+
+  const handleScrollPositionChange = useCallback(
+    ({
+      isAtTop: top,
+      isAtBottom: bottom,
+    }: {
+      isAtTop: boolean;
+      isAtBottom: boolean;
+    }) => {
+      setIsAtTop(top);
+      setIsAtBottom(bottom);
+    },
+    [],
+  );
+
+  // Reset scroll position state when the active process changes
+  useEffect(() => {
+    setIsAtTop(true);
+    setIsAtBottom(true); // Assume bottom since scroll-to-bottom fires on new process load
+  }, [processId]);
+
+  const { logs, error, blockStartIndices } = useLogStream(processId);
 
   // Get the current logs based on content type
   const currentLogs = useMemo(() => {
@@ -79,7 +167,7 @@ export function LogsContentContainer({ className }: LogsContentContainerProps) {
       .map((line) => ({ type: 'STDOUT' as const, content: line }));
 
     return (
-      <div className={cn('h-full bg-secondary flex flex-col', className)}>
+      <div className={cn('h-full bg-secondary flex flex-col relative', className)}>
         <div className="px-4 py-2 border-b border-border text-sm font-medium text-normal shrink-0">
           {content.toolName}
         </div>
@@ -90,13 +178,26 @@ export function LogsContentContainer({ className }: LogsContentContainerProps) {
         )}
         <div className="flex-1 min-h-0">
           <VirtualizedProcessLogs
+            ref={logViewerRef}
+            key={content.toolName}
             logs={toolLogs}
             error={null}
             searchQuery={searchQuery}
             matchIndices={matchIndices}
             currentMatchIndex={currentMatchIndex}
+            blockStartIndices={[]}
+            onScrollPositionChange={handleScrollPositionChange}
           />
         </div>
+        <NavOverlay
+          isAtTop={isAtTop}
+          isAtBottom={isAtBottom}
+          hasBlocks={false}
+          onScrollToTop={() => logViewerRef.current?.scrollToTop()}
+          onScrollToPrev={() => logViewerRef.current?.scrollToPrevBlock()}
+          onScrollToNext={() => logViewerRef.current?.scrollToNextBlock()}
+          onScrollToBottom={() => logViewerRef.current?.scrollToBottom()}
+        />
       </div>
     );
   }
@@ -129,14 +230,26 @@ export function LogsContentContainer({ className }: LogsContentContainerProps) {
 
   // Process logs - render with VirtualizedProcessLogs
   return (
-    <div className={cn('h-full bg-secondary', className)}>
+    <div className={cn('h-full bg-secondary relative', className)}>
       <VirtualizedProcessLogs
+        ref={logViewerRef}
         key={processId}
         logs={logs}
         error={error}
         searchQuery={searchQuery}
         matchIndices={matchIndices}
         currentMatchIndex={currentMatchIndex}
+        blockStartIndices={blockStartIndices}
+        onScrollPositionChange={handleScrollPositionChange}
+      />
+      <NavOverlay
+        isAtTop={isAtTop}
+        isAtBottom={isAtBottom}
+        hasBlocks={blockStartIndices.length > 0}
+        onScrollToTop={() => logViewerRef.current?.scrollToTop()}
+        onScrollToPrev={() => logViewerRef.current?.scrollToPrevBlock()}
+        onScrollToNext={() => logViewerRef.current?.scrollToNextBlock()}
+        onScrollToBottom={() => logViewerRef.current?.scrollToBottom()}
       />
     </div>
   );

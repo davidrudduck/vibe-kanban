@@ -25,13 +25,15 @@ const MAX_CONCURRENT_DELIVERIES: usize = 128;
 
 /// Subscribes to the events MsgStore and POSTs JSON-patch payloads to all
 /// registered and enabled webhook URLs.
+type WebhookCache = Arc<RwLock<Option<(Instant, Vec<Webhook>)>>>;
+
 pub struct WebhookDispatcher {
     pool: SqlitePool,
     msg_store: Arc<MsgStore>,
     http: Client,
     /// Cached list of enabled webhooks plus the timestamp when the cache was
     /// last refreshed. Refreshed on a TTL so we don't hit the DB on every event.
-    cache: Arc<RwLock<Option<(Instant, Vec<Webhook>)>>>,
+    cache: WebhookCache,
     /// Caps concurrent in-flight delivery tasks so a slow webhook can't
     /// cause unbounded task growth under bursty event traffic.
     semaphore: Arc<Semaphore>,

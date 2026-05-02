@@ -6,7 +6,9 @@ import {
   useParams,
 } from "@tanstack/react-router";
 import { Provider as NiceModalProvider } from "@ebay/nice-modal-react";
-import { useSystemTheme } from "@remote/shared/hooks/useSystemTheme";
+import { ThemeMode } from "shared/types";
+import { ThemeProvider } from "@/shared/providers/ThemeProvider";
+import { useUserSystem } from "@/shared/hooks/useUserSystem";
 import { RemoteActionsProvider } from "@remote/app/providers/RemoteActionsProvider";
 import { RemoteUserSystemProvider } from "@remote/app/providers/RemoteUserSystemProvider";
 import { RemoteAppShell } from "@remote/app/layout/RemoteAppShell";
@@ -88,6 +90,19 @@ function WorkspaceKeyboardShortcuts() {
   return null;
 }
 
+/**
+ * Reads the user's saved theme preference from useUserSystem and feeds it to
+ * the shared ThemeProvider. Must render inside RemoteUserSystemProvider.
+ */
+function RemoteThemeBridge({ children }: { children: ReactNode }) {
+  const { config } = useUserSystem();
+  return (
+    <ThemeProvider initialTheme={config?.theme ?? ThemeMode.SYSTEM}>
+      {children}
+    </ThemeProvider>
+  );
+}
+
 function WorkspaceRouteProviders({ children }: { children: ReactNode }) {
   return (
     <WorkspaceProvider>
@@ -106,7 +121,6 @@ function WorkspaceRouteProviders({ children }: { children: ReactNode }) {
 }
 
 function RootLayout() {
-  useSystemTheme();
   useUiPreferencesScratch();
   const { isSignedIn } = useAuth();
   const location = useLocation();
@@ -161,7 +175,9 @@ function RootLayout() {
     <AppNavigationProvider value={appNavigation}>
       <UserProvider>
         <RemoteActionsProvider>
-          <RemoteUserSystemProvider>{content}</RemoteUserSystemProvider>
+          <RemoteUserSystemProvider>
+            <RemoteThemeBridge>{content}</RemoteThemeBridge>
+          </RemoteUserSystemProvider>
         </RemoteActionsProvider>
       </UserProvider>
     </AppNavigationProvider>
