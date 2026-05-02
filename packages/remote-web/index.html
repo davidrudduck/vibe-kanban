@@ -6,6 +6,29 @@
     <meta name="robots" content="noindex, nofollow" />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <title>Vibe Kanban Remote</title>
+    <script>
+      // Apply theme class before React mounts to prevent FOUC. Mirrors the
+      // logic in ThemeProvider: localStorage value wins; otherwise follow OS.
+      // Stored 'SYSTEM' (or any unrecognized value) intentionally falls
+      // through to prefers-color-scheme.
+      (function () {
+        var stored = null;
+        try { stored = localStorage.getItem('vk-theme'); } catch (e) {}
+        var mode;
+        if (stored === 'LIGHT' || stored === 'DARK') {
+          mode = stored.toLowerCase();
+        } else {
+          try {
+            mode = window.matchMedia('(prefers-color-scheme: dark)').matches
+              ? 'dark'
+              : 'light';
+          } catch (e) {
+            mode = 'light';
+          }
+        }
+        try { document.documentElement.classList.add(mode); } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
