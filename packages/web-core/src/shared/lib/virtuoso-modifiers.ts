@@ -8,7 +8,6 @@ export const INITIAL_TOP_ITEM = {
 export const InitialDataScrollModifier: ScrollModifier = {
   type: 'item-location',
   location: INITIAL_TOP_ITEM,
-  purgeItemSizes: true,
 };
 
 export const ScrollToBottomModifier: ScrollModifier = {

@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   DataWithScrollModifier,
-  ScrollModifier,
   VirtuosoMessageList,
   VirtuosoMessageListLicense,
   VirtuosoMessageListMethods,
@@ -82,25 +81,22 @@ export function VirtualizedProcessLogs({
   const isAtBottomRef = useRef(true);
 
   useEffect(() => {
+    const logsWithKeys: LogEntryWithKey[] = logs.map((entry, index) => ({
+      ...entry,
+      key: `log-${index}`,
+      originalIndex: index,
+    }));
+
+    // Initial load: fire immediately — bypasses the per-entry debounce reset cascade
+    if (!hasInitializedRef.current && logs.length > 0) {
+      hasInitializedRef.current = true;
+      setChannelData({ data: logsWithKeys, scrollModifier: InitialDataScrollModifier });
+      return;
+    }
+
+    // Streaming updates: debounce to batch rapid appends
     const timeoutId = setTimeout(() => {
-      const logsWithKeys: LogEntryWithKey[] = logs.map((entry, index) => ({
-        ...entry,
-        key: `log-${index}`,
-        originalIndex: index,
-      }));
-
-      // Use InitialDataScrollModifier (with purgeItemSizes) only on the
-      // very first data load. For all subsequent updates, use ScrollToLastItem
-      // which always jumps to the end — unlike auto-scroll-to-bottom which
-      // only follows if the viewport is already at the bottom.
-      let scrollModifier: ScrollModifier | null = null;
-      if (!hasInitializedRef.current && logs.length > 0) {
-        hasInitializedRef.current = true;
-        scrollModifier = InitialDataScrollModifier;
-      } else if (isAtBottomRef.current) {
-        scrollModifier = ScrollToLastItem;
-      }
-
+      const scrollModifier = isAtBottomRef.current ? ScrollToLastItem : null;
       if (scrollModifier) {
         setChannelData({ data: logsWithKeys, scrollModifier });
       } else {
