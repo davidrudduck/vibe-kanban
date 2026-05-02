@@ -1,4 +1,5 @@
 import { makeLocalApiRequest } from '@/shared/lib/localApiTransport';
+import { handleApiResponse } from '@/shared/lib/api';
 import type {
   DatabaseStats,
   VacuumResult,
@@ -14,7 +15,7 @@ export async function getDatabaseStats(): Promise<DatabaseStats> {
   if (!response.ok) {
     throw new Error(`Failed to fetch database stats: ${response.status}`);
   }
-  return response.json();
+  return handleApiResponse<DatabaseStats>(response);
 }
 
 export async function runVacuum(): Promise<VacuumResult> {
@@ -31,7 +32,7 @@ export async function runVacuum(): Promise<VacuumResult> {
   if (!response.ok) {
     throw new Error(`Failed to run VACUUM: ${response.status}`);
   }
-  return response.json();
+  return handleApiResponse<VacuumResult>(response);
 }
 
 export async function runAnalyze(): Promise<AnalyzeResult> {
@@ -41,7 +42,7 @@ export async function runAnalyze(): Promise<AnalyzeResult> {
   if (!response.ok) {
     throw new Error(`Failed to run ANALYZE: ${response.status}`);
   }
-  return response.json();
+  return handleApiResponse<AnalyzeResult>(response);
 }
 
 export async function getArchivedStats(
@@ -58,7 +59,7 @@ export async function getArchivedStats(
   if (!response.ok) {
     throw new Error(`Failed to fetch archived stats: ${response.status}`);
   }
-  return response.json();
+  return handleApiResponse<ArchivedStatsResponse>(response);
 }
 
 export async function purgeArchived(
@@ -76,7 +77,7 @@ export async function purgeArchived(
   if (!response.ok) {
     throw new Error(`Failed to purge archived workspaces: ${response.status}`);
   }
-  return response.json();
+  return handleApiResponse<ArchivedPurgeResult>(response);
 }
 
 export async function getLogStats(
@@ -87,11 +88,13 @@ export async function getLogStats(
     params.set('older_than_days', String(olderThanDays));
   }
   const query = params.size > 0 ? `?${params.toString()}` : '';
-  const response = await makeLocalApiRequest(`/api/database/log-stats${query}`);
+  const response = await makeLocalApiRequest(
+    `/api/database/log-stats${query}`
+  );
   if (!response.ok) {
     throw new Error(`Failed to fetch log stats: ${response.status}`);
   }
-  return response.json();
+  return handleApiResponse<LogStatsResponse>(response);
 }
 
 export async function purgeLogs(
@@ -109,5 +112,5 @@ export async function purgeLogs(
   if (!response.ok) {
     throw new Error(`Failed to purge logs: ${response.status}`);
   }
-  return response.json();
+  return handleApiResponse<LogPurgeResult>(response);
 }
