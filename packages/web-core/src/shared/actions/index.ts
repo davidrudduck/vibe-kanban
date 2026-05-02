@@ -75,6 +75,7 @@ import { getIdeName } from '@/shared/lib/ideName';
 import { EditorSelectionDialog } from '@/shared/dialogs/command-bar/EditorSelectionDialog';
 import { StartReviewDialog } from '@/shared/dialogs/command-bar/StartReviewDialog';
 import { WorkspacesGuideDialog } from '@/shared/dialogs/shared/WorkspacesGuideDialog';
+import { safeUrl } from '@/lib/urlUtils';
 import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
 import { CreateWorkspaceFromPrDialog } from '@/shared/dialogs/command-bar/CreateWorkspaceFromPrDialog';
 import { buildWorkspaceCreateInitialState } from '@/shared/lib/workspaceCreateState';
@@ -601,7 +602,7 @@ export const Actions = {
     requiresTarget: ActionTargetType.NONE,
     execute: () => {
       const url =
-        _feedbackUrl || 'https://github.com/BloopAI/vibe-kanban/issues';
+        safeUrl(_feedbackUrl) ?? 'https://github.com/BloopAI/vibe-kanban/issues';
       window.open(url, '_blank', 'noopener,noreferrer');
     },
   },
