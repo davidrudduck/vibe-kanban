@@ -213,8 +213,11 @@ export const VirtualizedProcessLogs = forwardRef<LogViewerHandle, VirtualizedPro
             context={context}
             initialLocation={INITIAL_TOP_ITEM}
             onScroll={(location) => {
+              // Capture previous values before mutating refs (for transition detection)
+              const prevAtBottom = isAtBottomRef.current;
+              const prevAtTop = isAtTopRef.current;
               isAtBottomRef.current = location.isAtBottom;
-              // Detect top by checking if the list offset is at or near 0
+              // Detect top by checking if the scroll element is at or near 0
               const scroller = messageListRef.current?.scrollerElement();
               const atTop = scroller ? scroller.scrollTop <= 0 : false;
               isAtTopRef.current = atTop;
@@ -222,7 +225,10 @@ export const VirtualizedProcessLogs = forwardRef<LogViewerHandle, VirtualizedPro
                 // Reset cursor to last block when reaching bottom
                 blockCursorRef.current = blockStartIndices.length > 0 ? blockStartIndices.length - 1 : 0;
               }
-              onScrollPositionChange?.({ isAtTop: atTop, isAtBottom: location.isAtBottom });
+              // Only notify parent on edge transitions to avoid re-rendering on every scroll pixel
+              if (atTop !== prevAtTop || location.isAtBottom !== prevAtBottom) {
+                onScrollPositionChange?.({ isAtTop: atTop, isAtBottom: location.isAtBottom });
+              }
             }}
             computeItemKey={computeItemKey}
             ItemContent={ItemContent}
