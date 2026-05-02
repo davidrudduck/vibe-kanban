@@ -247,6 +247,7 @@ impl Opencode {
             child,
             exit_signal: Some(exit_signal_rx),
             cancel: Some(cancel),
+            protocol_peer: None,
         })
     }
 

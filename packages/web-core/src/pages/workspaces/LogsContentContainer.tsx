@@ -15,6 +15,7 @@ import {
   ArrowUpIcon,
   ArrowDownIcon,
   ArrowLineDownIcon,
+  type Icon as PhosphorIcon,
 } from '@phosphor-icons/react';
 
 export type LogsPanelContent =
@@ -36,7 +37,7 @@ function NavButton({
   label,
   onClick,
 }: {
-  icon: React.ComponentType<{ className?: string; weight?: string }>;
+  icon: PhosphorIcon;
   label: string;
   onClick: () => void;
 }) {

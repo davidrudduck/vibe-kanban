@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import type { ExecutorConfig } from 'shared/types';
-import { sessionsApi } from '@/shared/lib/api';
+import { executionProcessesApi, queueApi, sessionsApi } from '@/shared/lib/api';
 import { useCreateSession } from './useCreateSession';
 
 interface UseSessionSendOptions {
@@ -14,6 +14,12 @@ interface UseSessionSendOptions {
   onSelectSession?: (sessionId: string) => void;
   /** Unified executor config (executor + variant + overrides) */
   executorConfig?: ExecutorConfig | null;
+  /**
+   * ID of the currently-running execution process for this session.
+   * When set, the hook will attempt live injection before falling back
+   * to a queued follow-up.
+   */
+  runningExecutionProcessId?: string | null;
 }
 
 interface UseSessionSendResult {
@@ -42,6 +48,7 @@ export function useSessionSend({
   isNewSessionMode,
   onSelectSession,
   executorConfig,
+  runningExecutionProcessId,
 }: UseSessionSendOptions): UseSessionSendResult {
   const { mutateAsync: createSession, isPending: isCreatingSession } =
     useCreateSession();
@@ -85,6 +92,29 @@ export function useSessionSend({
         if (!sessionId) return false;
         setIsSendingFollowUp(true);
         try {
+          // If there is a running process, attempt live injection first.
+          if (runningExecutionProcessId) {
+            try {
+              const { injected } =
+                await executionProcessesApi.injectMessage(
+                  runningExecutionProcessId,
+                  trimmed
+                );
+              if (injected) return true;
+            } catch {
+              // Injection failed (e.g. process just exited) — fall through to queue
+            }
+            // The executor didn't accept live injection (unsupported or process
+            // exited between the status check and this call).  Queue the
+            // message to fire when execution finishes rather than starting a
+            // second concurrent execution via followUp.
+            await queueApi.queue(sessionId, {
+              message: trimmed,
+              executor_config: executorConfig,
+            });
+            return true;
+          }
+
           await sessionsApi.followUp(sessionId, {
             prompt: trimmed,
             executor_config: executorConfig,
@@ -110,6 +140,7 @@ export function useSessionSend({
       createSession,
       onSelectSession,
       executorConfig,
+      runningExecutionProcessId,
     ]
   );
 

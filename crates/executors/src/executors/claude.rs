@@ -671,6 +671,11 @@ impl ClaudeCode {
         let repo_context = env.repo_context.clone();
         let commit_reminder_prompt = env.commit_reminder_prompt.clone();
         let cancel_for_task = cancel.clone();
+
+        // Oneshot channel to surface the ProtocolPeer to the container so it can inject
+        // messages into this process while it is running.
+        let (peer_tx, peer_rx) = tokio::sync::oneshot::channel::<ProtocolPeer>();
+
         tokio::spawn(async move {
             let log_writer = LogWriter::new(new_stdout);
             let client = ClaudeAgentClient::new(
@@ -702,13 +707,23 @@ impl ClaudeCode {
                 let _ = log_writer
                     .log_raw(&format!("Error: Failed to send prompt - {e}"))
                     .await;
+                return;
             }
+
+            // Publish the peer only after initialization and the initial user
+            // message have been successfully delivered so that the container
+            // can safely inject follow-up messages without racing the init
+            // sequence.  If any earlier step failed we return early, dropping
+            // peer_tx; the container's background task sees Err and skips
+            // registration.
+            let _ = peer_tx.send(protocol_peer);
         });
 
         Ok(SpawnedChild {
             child,
             exit_signal: None,
             cancel: Some(cancel),
+            protocol_peer: Some(peer_rx),
         })
     }
 }

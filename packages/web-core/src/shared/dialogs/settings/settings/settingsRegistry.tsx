@@ -8,9 +8,11 @@ import {
   BroadcastIcon,
   WrenchIcon,
   PulseIcon,
+  PaintBrushIcon,
 } from '@phosphor-icons/react';
 import type { Icon } from '@phosphor-icons/react';
 import { GeneralSettingsSection } from './GeneralSettingsSection';
+import { AppearanceSettings } from './AppearanceSettings';
 import { ReposSettingsSection } from './ReposSettingsSection';
 import { OrganizationsSettingsSection } from './OrganizationsSettingsSection';
 import { RemoteProjectsSettingsSection } from './RemoteProjectsSettingsSection';
@@ -22,6 +24,7 @@ import { DiagnosticsPanel } from './DiagnosticsPanel';
 
 export type SettingsSectionType =
   | 'general'
+  | 'appearance'
   | 'repos'
   | 'organizations'
   | 'remote-projects'
@@ -35,6 +38,7 @@ export type SettingsSectionGroup = 'host' | 'universal';
 
 export type SettingsSectionInitialState = {
   general: undefined;
+  appearance: undefined;
   repos: { repoId?: string } | undefined;
   organizations: { organizationId?: string } | undefined;
   'remote-projects':
@@ -55,6 +59,7 @@ export interface SettingsSectionDefinition {
 
 export const SETTINGS_SECTION_DEFINITIONS: SettingsSectionDefinition[] = [
   { id: 'general', icon: GearIcon, group: 'host' },
+  { id: 'appearance', icon: PaintBrushIcon, group: 'host' },
   { id: 'repos', icon: GitBranchIcon, group: 'host' },
   { id: 'agents', icon: CpuIcon, group: 'host' },
   { id: 'mcp', icon: PlugIcon, group: 'host' },
@@ -82,6 +87,8 @@ export function renderSettingsSection(
   switch (type) {
     case 'general':
       return <GeneralSettingsSection />;
+    case 'appearance':
+      return <AppearanceSettings />;
     case 'repos':
       return (
         <ReposSettingsSection

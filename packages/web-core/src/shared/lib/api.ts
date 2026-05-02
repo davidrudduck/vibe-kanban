@@ -810,6 +810,25 @@ export const executionProcessesApi = {
     );
     return handleApiResponse<void>(response);
   },
+
+  /**
+   * Inject a message into a currently-running executor process.
+   * Returns `{ injected: true }` if delivered live, `{ injected: false }` if the
+   * executor doesn't support live injection (caller should fall back to queue).
+   */
+  injectMessage: async (
+    processId: string,
+    content: string
+  ): Promise<{ injected: boolean }> => {
+    const response = await makeRequest(
+      `/api/execution-processes/${processId}/inject-message`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ content }),
+      }
+    );
+    return handleApiResponse<{ injected: boolean }>(response);
+  },
 };
 
 // File System APIs

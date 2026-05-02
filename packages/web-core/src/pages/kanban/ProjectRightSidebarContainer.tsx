@@ -105,7 +105,7 @@ function WorkspaceCreatePanel({
   return (
     <div className="relative flex h-full flex-1 flex-col bg-primary">
       <div className="flex items-center justify-between px-base py-half border-b shrink-0">
-        <div className="flex items-center gap-half min-w-0 font-ibm-plex-mono">
+        <div className="flex items-center gap-half min-w-0 font-code">
           <button
             type="button"
             onClick={handleOpenIssue}
@@ -240,7 +240,7 @@ function WorkspaceSessionPanel({
           <MessageEditProvider>
             <div className="relative flex h-full flex-1 flex-col bg-primary">
               <div className="flex items-center justify-between px-base py-half border-b shrink-0">
-                <div className="flex items-center gap-half min-w-0 font-ibm-plex-mono">
+                <div className="flex items-center gap-half min-w-0 font-code">
                   <button
                     type="button"
                     onClick={handleOpenIssuePanel}

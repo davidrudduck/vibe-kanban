@@ -14,7 +14,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/hosts", get(list_hosts))
         .route("/hosts/repos", post(report_host_repos))
-        .route("/hosts/:host_id/repos", get(list_host_repos))
+        .route("/hosts/{host_id}/repos", get(list_host_repos))
 }
 
 async fn list_hosts(

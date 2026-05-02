@@ -229,8 +229,7 @@ mod tests {
         // so we just verify the function signature works with the Option
         let result = claude_projects_dir(Path::new("/some/path"));
         // On CI/test systems home_dir() should return Some
-        if result.is_some() {
-            let dir = result.unwrap();
+        if let Some(dir) = result {
             assert!(dir.to_string_lossy().contains(".claude"));
             assert!(dir.to_string_lossy().contains("projects"));
         }

@@ -159,7 +159,7 @@ export function MarkdownPreview({
         }
         return (
           <pre
-            className="text-xs p-base rounded-sm bg-panel overflow-auto mb-3 font-ibm-plex-mono"
+            className="text-xs p-base rounded-sm bg-panel overflow-auto mb-3 font-code"
             {...props}
           >
             {children}
@@ -183,7 +183,7 @@ export function MarkdownPreview({
         // All code elements: fenced blocks get styling from the <pre> wrapper,
         // inline code gets styling via the wrapper div's CSS selector.
         return (
-          <code className={cn(codeClassName, 'font-ibm-plex-mono')} {...props}>
+          <code className={cn(codeClassName, 'font-code')} {...props}>
             {children}
           </code>
         );

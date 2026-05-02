@@ -169,7 +169,7 @@ function ShortcutRow({ item }: { item: ShortcutItem }) {
               'inline-flex items-center justify-center',
               'min-w-[24px] h-6 px-1.5',
               'rounded-sm border border-border bg-secondary',
-              'font-ibm-plex-mono text-xs text-high'
+              'font-code text-xs text-high'
             )}
           >
             {key}

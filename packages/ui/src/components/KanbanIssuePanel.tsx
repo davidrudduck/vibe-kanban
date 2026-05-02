@@ -5,10 +5,10 @@ import {
   useCallback,
   type ReactNode,
   type RefObject,
-} from 'react';
-import { useTranslation } from 'react-i18next';
-import type { LocalAttachmentMetadata } from './WorkspaceContext';
-import { cn } from '../lib/cn';
+} from "react";
+import { useTranslation } from "react-i18next";
+import type { LocalAttachmentMetadata } from "./WorkspaceContext";
+import { cn } from "../lib/cn";
 import {
   XIcon,
   LinkIcon,
@@ -16,36 +16,36 @@ import {
   TrashIcon,
   PaperclipIcon,
   ImageIcon,
-} from '@phosphor-icons/react';
+} from "@phosphor-icons/react";
 import {
   IssueTagsRow,
   type IssueTagBase,
   type IssueTagsRowAddTagControlProps,
   type LinkedPullRequest as IssueTagsLinkedPullRequest,
-} from './IssueTagsRow';
-import { PrimaryButton } from './PrimaryButton';
-import { Toggle } from './Toggle';
+} from "./IssueTagsRow";
+import { PrimaryButton } from "./PrimaryButton";
+import { Toggle } from "./Toggle";
 import {
   IssuePropertyRow,
   type IssuePropertyRowProps,
-} from './IssuePropertyRow';
-import { IconButton } from './IconButton';
-import { AutoResizeTextarea } from './AutoResizeTextarea';
+} from "./IssuePropertyRow";
+import { IconButton } from "./IconButton";
+import { AutoResizeTextarea } from "./AutoResizeTextarea";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from './RadixTooltip';
-import { ErrorAlert } from './ErrorAlert';
+} from "./RadixTooltip";
+import { ErrorAlert } from "./ErrorAlert";
 
-export type IssuePanelMode = 'create' | 'edit';
-type IssuePriority = IssuePropertyRowProps['priority'];
-type IssueStatus = IssuePropertyRowProps['statuses'][number];
+export type IssuePanelMode = "create" | "edit";
+type IssuePriority = IssuePropertyRowProps["priority"];
+type IssueStatus = IssuePropertyRowProps["statuses"][number];
 type IssueAssignee = NonNullable<
-  IssuePropertyRowProps['assigneeUsers']
+  IssuePropertyRowProps["assigneeUsers"]
 >[number];
-type IssueCreator = Exclude<IssuePropertyRowProps['creatorUser'], undefined>;
+type IssueCreator = Exclude<IssuePropertyRowProps["creatorUser"], undefined>;
 export interface KanbanIssueTag extends IssueTagBase {
   project_id: string;
 }
@@ -73,7 +73,7 @@ export interface KanbanIssueDescriptionEditorProps {
   className?: string;
   localAttachments?: LocalAttachmentMetadata[];
   showStaticToolbar?: boolean;
-  saveStatus?: 'idle' | 'saved';
+  saveStatus?: "idle" | "saved";
   staticToolbarActions?: ReactNode;
   onRequestEdit?: () => void;
   hideActions?: boolean;
@@ -87,7 +87,7 @@ export interface KanbanIssuePanelProps {
   formData: IssueFormData;
   onFormChange: <K extends keyof IssueFormData>(
     field: K,
-    value: IssueFormData[K]
+    value: IssueFormData[K],
   ) => void;
 
   // Options for dropdowns
@@ -115,17 +115,17 @@ export interface KanbanIssuePanelProps {
   // Tag create callback - returns the new tag ID
   onCreateTag?: (data: { name: string; color: string }) => string;
   renderAddTagControl?: (
-    props: IssueTagsRowAddTagControlProps<KanbanIssueTag>
+    props: IssueTagsRowAddTagControlProps<KanbanIssueTag>,
   ) => ReactNode;
   renderDescriptionEditor: (
-    props: KanbanIssueDescriptionEditorProps
+    props: KanbanIssueDescriptionEditorProps,
   ) => ReactNode;
 
   // Loading states
   isSubmitting?: boolean;
 
   // Save status for description field
-  descriptionSaveStatus?: 'idle' | 'saved';
+  descriptionSaveStatus?: "idle" | "saved";
 
   // Ref for title input (created in container)
   titleInputRef: RefObject<HTMLTextAreaElement>;
@@ -195,10 +195,10 @@ export function KanbanIssuePanel({
   renderSubIssuesSection,
   renderCommentsSection,
 }: KanbanIssuePanelProps) {
-  const { t } = useTranslation('common');
-  const isCreateMode = mode === 'create';
+  const { t } = useTranslation("common");
+  const isCreateMode = mode === "create";
   const breadcrumbTextClass =
-    'min-w-0 text-sm text-normal truncate rounded-sm px-1 py-0.5 hover:bg-panel hover:text-high transition-colors';
+    "min-w-0 text-sm text-normal truncate rounded-sm px-1 py-0.5 hover:bg-panel hover:text-high transition-colors";
   const creatorName =
     creatorUser?.first_name?.trim() || creatorUser?.username?.trim() || null;
   const showCreator = !isCreateMode && Boolean(creatorName);
@@ -221,11 +221,11 @@ export function KanbanIssuePanel({
   }, [isCreateMode]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
+    if (e.key === "Escape") {
       const target = e.target as HTMLElement;
       const isEditable =
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
         target.isContentEditable;
       if (isEditable) {
         // If editing description, exit edit mode first
@@ -246,7 +246,7 @@ export function KanbanIssuePanel({
   };
 
   const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
       onCmdEnterSubmit?.();
     }
@@ -260,14 +260,14 @@ export function KanbanIssuePanel({
     >
       {/* Header */}
       <div className="flex items-center justify-between px-base py-half border-b shrink-0">
-        <div className="flex items-center gap-half min-w-0 font-ibm-plex-mono">
+        <div className="flex items-center gap-half min-w-0 font-code">
           <span className={`${breadcrumbTextClass} shrink-0`}>{displayId}</span>
           {!isCreateMode && onCopyLink && (
             <button
               type="button"
               onClick={onCopyLink}
               className="p-half rounded-sm text-low hover:text-normal hover:bg-panel transition-colors"
-              aria-label={t('kanban.copyLink')}
+              aria-label={t("kanban.copyLink")}
             >
               <LinkIcon className="size-icon-sm" weight="bold" />
             </button>
@@ -279,7 +279,7 @@ export function KanbanIssuePanel({
               type="button"
               onClick={onMoreActions}
               className="p-half rounded-sm text-low hover:text-normal hover:bg-panel transition-colors"
-              aria-label={t('kanban.moreActions')}
+              aria-label={t("kanban.moreActions")}
             >
               <DotsThreeIcon className="size-icon-sm" weight="bold" />
             </button>
@@ -288,7 +288,7 @@ export function KanbanIssuePanel({
             type="button"
             onClick={onClose}
             className="p-half rounded-sm text-low hover:text-normal hover:bg-panel transition-colors"
-            aria-label={t('kanban.closePanel')}
+            aria-label={t("kanban.closePanel")}
           >
             <XIcon className="size-icon-sm" weight="bold" />
           </button>
@@ -309,10 +309,10 @@ export function KanbanIssuePanel({
             parentIssue={parentIssue}
             onParentIssueClick={onParentIssueClick}
             onRemoveParentIssue={onRemoveParentIssue}
-            onStatusClick={() => onFormChange('statusId', formData.statusId)}
-            onPriorityClick={() => onFormChange('priority', formData.priority)}
+            onStatusClick={() => onFormChange("statusId", formData.statusId)}
+            onPriorityClick={() => onFormChange("priority", formData.priority)}
             onAssigneeClick={() =>
-              onFormChange('assigneeIds', formData.assigneeIds)
+              onFormChange("assigneeIds", formData.assigneeIds)
             }
             disabled={isSubmitting}
           />
@@ -324,7 +324,7 @@ export function KanbanIssuePanel({
             selectedTagIds={formData.tagIds}
             availableTags={tags}
             linkedPrs={isCreateMode ? [] : linkedPrs}
-            onTagsChange={(tagIds) => onFormChange('tagIds', tagIds)}
+            onTagsChange={(tagIds) => onFormChange("tagIds", tagIds)}
             onCreateTag={onCreateTag}
             renderAddTagControl={renderAddTagControl}
             onLinkPr={!isCreateMode ? onLinkPr : undefined}
@@ -339,28 +339,28 @@ export function KanbanIssuePanel({
             <AutoResizeTextarea
               ref={titleInputRef}
               value={formData.title}
-              onChange={(value) => onFormChange('title', value)}
+              onChange={(value) => onFormChange("title", value)}
               onKeyDown={handleTitleKeyDown}
               placeholder="Issue Title..."
               autoFocus={isCreateMode}
               aria-label="Issue title"
               disabled={isSubmitting}
               className={cn(
-                'px-base text-lg font-medium text-high',
-                'placeholder:text-high/50',
-                isSubmitting && 'opacity-50 pointer-events-none'
+                "px-base text-lg font-medium text-high",
+                "placeholder:text-high/50",
+                isSubmitting && "opacity-50 pointer-events-none",
               )}
             />
 
             <div
               className={cn(
-                'pointer-events-none absolute inset-0 px-base',
-                'text-high/50 font-medium text-lg',
-                'hidden',
-                "[[data-empty='true']_+_&]:block" // show placeholder when previous sibling data-empty=true
+                "pointer-events-none absolute inset-0 px-base",
+                "text-high/50 font-medium text-lg",
+                "hidden",
+                "[[data-empty='true']_+_&]:block", // show placeholder when previous sibling data-empty=true
               )}
             >
-              {t('kanban.issueTitlePlaceholder')}
+              {t("kanban.issueTitlePlaceholder")}
             </div>
           </div>
 
@@ -369,8 +369,8 @@ export function KanbanIssuePanel({
             ref={descriptionContainerRef}
             {...(isDescriptionEditing ? dropzoneProps?.getRootProps() : {})}
             className={cn(
-              'relative mt-base',
-              !isDescriptionEditing && !isCreateMode && 'cursor-text'
+              "relative mt-base",
+              !isDescriptionEditing && !isCreateMode && "cursor-text",
             )}
             onClick={() => {
               if (!isDescriptionEditing && !isCreateMode && !isSubmitting) {
@@ -385,7 +385,7 @@ export function KanbanIssuePanel({
               if (
                 descriptionContainerRef.current &&
                 !descriptionContainerRef.current.contains(
-                  e.relatedTarget as Node
+                  e.relatedTarget as Node,
                 )
               ) {
                 handleDescriptionBlur();
@@ -400,20 +400,20 @@ export function KanbanIssuePanel({
             )}
             {renderDescriptionEditor({
               placeholder: isDescriptionEditing
-                ? t('kanban.issueDescriptionPlaceholder')
+                ? t("kanban.issueDescriptionPlaceholder")
                 : formData.description
-                  ? ''
-                  : t('kanban.issueDescriptionPlaceholder'),
-              value: formData.description ?? '',
-              onChange: (value) => onFormChange('description', value || null),
+                  ? ""
+                  : t("kanban.issueDescriptionPlaceholder"),
+              value: formData.description ?? "",
+              onChange: (value) => onFormChange("description", value || null),
               onCmdEnter: onCmdEnterSubmit,
               onPasteFiles: isDescriptionEditing ? onPasteFiles : undefined,
               disabled: !isDescriptionEditing || isSubmitting,
               autoFocus: false,
               className: cn(
-                'px-base',
-                isDescriptionEditing ? 'min-h-[100px]' : 'min-h-[2rem]',
-                !isDescriptionEditing && !formData.description && 'text-low'
+                "px-base",
+                isDescriptionEditing ? "min-h-[100px]" : "min-h-[2rem]",
+                !isDescriptionEditing && !formData.description && "text-low",
               ),
               localAttachments,
               showStaticToolbar: !isCreateMode || isDescriptionEditing,
@@ -438,18 +438,18 @@ export function KanbanIssuePanel({
                             }}
                             disabled={isSubmitting || isUploading}
                             className={cn(
-                              'p-half rounded-sm transition-colors',
-                              'text-low hover:text-normal hover:bg-panel/50',
-                              'disabled:opacity-50 disabled:cursor-not-allowed'
+                              "p-half rounded-sm transition-colors",
+                              "text-low hover:text-normal hover:bg-panel/50",
+                              "disabled:opacity-50 disabled:cursor-not-allowed",
                             )}
-                            title={t('kanban.attachFile')}
-                            aria-label={t('kanban.attachFile')}
+                            title={t("kanban.attachFile")}
+                            aria-label={t("kanban.attachFile")}
                           >
                             <PaperclipIcon className="size-icon-sm" />
                           </button>
                         </TooltipTrigger>
                         <TooltipContent>
-                          {t('kanban.attachFileHint')}
+                          {t("kanban.attachFileHint")}
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -463,7 +463,7 @@ export function KanbanIssuePanel({
                   message={attachmentError}
                   className="mt-half mb-half"
                   onDismiss={onDismissAttachmentError}
-                  dismissLabel={t('buttons.close')}
+                  dismissLabel={t("buttons.close")}
                 />
               </div>
             )}
@@ -474,10 +474,10 @@ export function KanbanIssuePanel({
                     <ImageIcon className="h-5 w-5 text-brand" />
                   </div>
                   <p className="text-sm font-medium text-high">
-                    {t('kanban.dropFilesHere')}
+                    {t("kanban.dropFilesHere")}
                   </p>
                   <p className="text-xs text-low mt-0.5">
-                    {t('kanban.fileDropHint')}
+                    {t("kanban.fileDropHint")}
                   </p>
                 </div>
               </div>
@@ -491,10 +491,10 @@ export function KanbanIssuePanel({
             <Toggle
               checked={formData.createDraftWorkspace}
               onCheckedChange={(checked) =>
-                onFormChange('createDraftWorkspace', checked)
+                onFormChange("createDraftWorkspace", checked)
               }
-              label={t('kanban.createDraftWorkspaceImmediately')}
-              description={t('kanban.createDraftWorkspaceDescription')}
+              label={t("kanban.createDraftWorkspaceImmediately")}
+              description={t("kanban.createDraftWorkspaceDescription")}
               disabled={isSubmitting}
             />
           </div>
@@ -504,10 +504,10 @@ export function KanbanIssuePanel({
         {isCreateMode && (
           <div className="px-base pb-base flex items-center gap-half">
             <PrimaryButton
-              value={t('kanban.createIssue')}
+              value={t("kanban.createIssue")}
               onClick={onSubmit}
               disabled={isSubmitting || isUploading || !formData.title.trim()}
-              actionIcon={isSubmitting ? 'spinner' : undefined}
+              actionIcon={isSubmitting ? "spinner" : undefined}
               variant="default"
             />
             {onDeleteDraft && (

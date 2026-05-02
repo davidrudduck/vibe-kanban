@@ -101,8 +101,7 @@ impl CodingAgentTurn {
         for chunk in execution_process_ids.chunks(500) {
             // SQLite doesn't support binding arrays directly — build a query
             // with the right number of `?` placeholders and bind each UUID.
-            let placeholders = std::iter::repeat("?")
-                .take(chunk.len())
+            let placeholders = std::iter::repeat_n("?", chunk.len())
                 .collect::<Vec<_>>()
                 .join(", ");
             let query = format!(

@@ -1,19 +1,14 @@
-use axum::{
-    Router,
-    extract::State,
-    response::Json as ResponseJson,
-    routing::get,
-};
+use axum::{Router, extract::State, response::Json as ResponseJson, routing::get};
 use db::{
     database_stats::{DatabaseStats, get_database_stats},
     metrics::PoolStats,
     models::workspace::Workspace,
 };
+use deployment::Deployment;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
-use uuid::Uuid;
-use deployment::Deployment;
 use utils::{assets::asset_dir, response::ApiResponse};
+use uuid::Uuid;
 
 use crate::{DeploymentImpl, error::ApiError};
 

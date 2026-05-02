@@ -55,6 +55,8 @@ import { WorkspacesSidebarContainer } from '@/pages/workspaces/WorkspacesSidebar
 import { WorkspacesSidebarReopenTag } from '@vibe/ui/components/WorkspacesSidebar';
 import { useRemoteCloudHostsAppBarModel } from '@/shared/hooks/useRemoteCloudHosts';
 import { CloudShutdownExportBanner } from '@/shared/components/CloudShutdownExportBanner';
+import { HostBanner } from '@/shared/components/HostBanner';
+import { FeedbackUrlSync } from '@/shared/components/FeedbackUrlSync';
 
 export function SharedAppLayout() {
   const appNavigation = useAppNavigation();
@@ -65,7 +67,7 @@ export function SharedAppLayout() {
     (s) => s.isLeftSidebarVisible
   );
   const { isSignedIn } = useAuth();
-  const { appVersion } = useUserSystem();
+  const { appVersion, config } = useUserSystem();
   const updateVersion = useAppUpdateStore((s) => s.updateVersion);
   const restartForUpdate = useAppUpdateStore((s) => s.restart);
   const { data: onlineCount } = useDiscordOnlineCount();
@@ -298,6 +300,7 @@ export function SharedAppLayout() {
 
   return (
     <SyncErrorProvider>
+      <FeedbackUrlSync />
       <div
         className={cn(
           'bg-primary',
@@ -324,11 +327,14 @@ export function SharedAppLayout() {
               className="bg-secondary"
               style={isTauriMac() ? { minWidth: 56 } : undefined}
             />
-            {/* Desktop navbar. */}
-            <NavbarContainer
-              onOrgSelect={setSelectedOrgId}
-              onOpenDrawer={() => setIsDrawerOpen(true)}
-            />
+            {/* Desktop host banner + navbar. */}
+            <div className="flex flex-col min-h-0">
+              <HostBanner />
+              <NavbarContainer
+                onOrgSelect={setSelectedOrgId}
+                onOpenDrawer={() => setIsDrawerOpen(true)}
+              />
+            </div>
             {/* Desktop AppBar sidebar. */}
             <AppBar
               projects={orderedProjects}
@@ -367,6 +373,10 @@ export function SharedAppLayout() {
               onUpdateClick={restartForUpdate ?? undefined}
               githubIconPath={siGithub.path}
               discordIconPath={siDiscord.path}
+              discordEnabled={
+                config?.appearance?.links?.discord_enabled ?? true
+              }
+              discordUrl={config?.appearance?.links?.discord_url ?? undefined}
             />
             {/* Desktop content. */}
             <div className="relative min-h-0 overflow-hidden">
@@ -408,6 +418,7 @@ export function SharedAppLayout() {
             {showCloudShutdownBanner && (
               <CloudShutdownExportBanner onClick={handleExportClick} />
             )}
+            <HostBanner />
             <NavbarContainer
               mobileMode={isMobile}
               onOrgSelect={setSelectedOrgId}

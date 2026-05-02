@@ -1,4 +1,5 @@
 import { makeLocalApiRequest } from '@/shared/lib/localApiTransport';
+import { handleApiResponse } from '@/shared/lib/api';
 import type { DiagnosticsResponse, DiskUsageResponse } from 'shared/types';
 
 export async function getDiagnostics(): Promise<DiagnosticsResponse> {
@@ -6,7 +7,7 @@ export async function getDiagnostics(): Promise<DiagnosticsResponse> {
   if (!response.ok) {
     throw new Error(`Failed to fetch diagnostics: ${response.status}`);
   }
-  return response.json();
+  return handleApiResponse<DiagnosticsResponse>(response);
 }
 
 export async function getDiskUsage(): Promise<DiskUsageResponse> {
@@ -14,5 +15,5 @@ export async function getDiskUsage(): Promise<DiskUsageResponse> {
   if (!response.ok) {
     throw new Error(`Failed to fetch disk usage: ${response.status}`);
   }
-  return response.json();
+  return handleApiResponse<DiskUsageResponse>(response);
 }
