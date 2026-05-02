@@ -175,7 +175,7 @@ export function useToast(): ToastContextValue {
     // Graceful fallback — log a warning but don't crash if ToastViewport is
     // missing (e.g. in tests or Storybook).
     return {
-      show: (message, _opts) => {
+      show: (message) => {
         console.warn('[Toast] ToastViewport is not mounted. Message:', message);
       },
     };

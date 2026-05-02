@@ -1,3 +1,9 @@
+#![allow(clippy::type_complexity)]
+#![allow(clippy::items_after_test_module)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::needless_borrow)]
+#![allow(clippy::result_large_err)]
+
 pub mod error;
 pub mod mcp_http;
 pub mod middleware;
