@@ -13,6 +13,7 @@ export function hexToHslChannels(hex: string): string | null {
     g = parseInt(clean[1] + clean[1], 16);
     b = parseInt(clean[2] + clean[2], 16);
   } else if (clean.length === 6) {
+    if (!/^[0-9a-fA-F]{6}$/.test(clean)) return null;
     r = parseInt(clean.slice(0, 2), 16);
     g = parseInt(clean.slice(2, 4), 16);
     b = parseInt(clean.slice(4, 6), 16);
@@ -63,16 +64,18 @@ export function deriveAccentVariants(hslChannels: string): {
   hover: string;
   secondary: string;
 } {
-  const match = hslChannels.match(/^(\d+)\s+(\d+)%\s+(\d+)%$/);
+  const match = hslChannels.match(/^(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)%\s+(\d+(?:\.\d+)?)%$/);
   if (!match) {
     return { hover: hslChannels, secondary: hslChannels };
   }
 
-  const h = parseInt(match[1]);
-  const s = parseInt(match[2]);
-  const l = parseInt(match[3]);
+  const h = parseFloat(match[1]);
+  const s = parseFloat(match[2]);
+  const l = parseFloat(match[3]);
 
-  const hover = `${h} ${Math.min(s + 0, 100)}% ${Math.min(l + 8, 100)}%`;
+  // Hover: lighter for dark accents, darker for light accents
+  const hoverL = l > 50 ? Math.max(l - 8, 0) : Math.min(l + 8, 100);
+  const hover = `${h} ${s}% ${hoverL}%`;
   const secondary = `${h} ${s}% ${Math.max(l - 17, 0)}%`;
 
   return { hover, secondary };

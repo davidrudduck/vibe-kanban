@@ -24,10 +24,13 @@ export function AccentProvider({
     initialAccent ?? null
   );
 
-  // Update when initialAccent changes (config loaded)
+  // Update when initialAccent changes (config loaded), skip if value is identical
   useEffect(() => {
-    setAccentColorState(initialAccent ?? null);
-  }, [initialAccent]);
+    const next = initialAccent ?? null;
+    if (next !== accentColor) {
+      setAccentColorState(next);
+    }
+  }, [initialAccent]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Apply accent when it changes
   useEffect(() => {

@@ -7,6 +7,7 @@ import '@xterm/xterm/css/xterm.css';
 import { useTheme } from '@/shared/hooks/useTheme';
 import { getTerminalTheme } from '@/shared/lib/terminalTheme';
 import { useTerminal } from '@/shared/hooks/useTerminal';
+import { useFonts } from '@/shared/components/FontProvider';
 
 interface XTermInstanceProps {
   tabId: string;
@@ -27,6 +28,7 @@ export function XTermInstance({
   const fitAddonRef = useRef<FitAddon | null>(null);
   const initialSizeRef = useRef({ cols: 80, rows: 24 });
   const { theme } = useTheme();
+  const { fonts } = useFonts();
   const {
     registerTerminalInstance,
     getTerminalInstance,
@@ -137,6 +139,16 @@ export function XTermInstance({
       terminalRef.current.options.theme = getTerminalTheme();
     }
   }, [theme]);
+
+  useEffect(() => {
+    if (!terminalRef.current) return;
+    const fontFamily =
+      getComputedStyle(document.documentElement)
+        .getPropertyValue('--font-code')
+        .trim() || '"IBM Plex Mono", monospace';
+    terminalRef.current.options.fontFamily = fontFamily;
+    fitAddonRef.current?.fit();
+  }, [fonts.code_font]);
 
   return (
     <div ref={resizeRef} className="w-full h-full px-2 py-1">

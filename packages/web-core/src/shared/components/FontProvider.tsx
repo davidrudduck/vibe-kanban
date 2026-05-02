@@ -37,12 +37,18 @@ export function FontProvider({ children, initialFonts }: FontProviderProps) {
     initialFonts ?? defaultFonts
   );
 
-  // Update when initialFonts changes (config loaded)
+  // Update when initialFonts changes (config loaded), skip if values are identical
   useEffect(() => {
-    if (initialFonts) {
+    if (
+      initialFonts &&
+      (initialFonts.ui_font !== fonts.ui_font ||
+        initialFonts.code_font !== fonts.code_font ||
+        initialFonts.prose_font !== fonts.prose_font ||
+        initialFonts.disable_ligatures !== fonts.disable_ligatures)
+    ) {
       setFontsState(initialFonts);
     }
-  }, [initialFonts]);
+  }, [initialFonts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Apply fonts when they change
   useEffect(() => {
