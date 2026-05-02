@@ -1556,7 +1556,7 @@ function AggregatedDiffGroupEntry({ group }: { group: AggregatedDiffGroup }) {
       isHovered={isHovered}
       onToggle={handleToggle}
       onHoverChange={handleHoverChange}
-      onOpenInChanges={canOpenInChanges ? handleOpenInChanges : undefined}
+      onOpenInChanges={canOpenInChanges ? handleOpenInChanges : null}
       fileIcon={FileIcon}
       isVSCode={isVSCode}
       onOpenInVSCode={handleOpenInVSCode}

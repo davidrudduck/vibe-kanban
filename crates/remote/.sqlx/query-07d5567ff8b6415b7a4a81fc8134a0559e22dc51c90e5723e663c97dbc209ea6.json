@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM host_repos WHERE host_id = $1 AND NOT (path = ANY($2))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "07d5567ff8b6415b7a4a81fc8134a0559e22dc51c90e5723e663c97dbc209ea6"
+}
