@@ -53,6 +53,40 @@ function NavButton({
   );
 }
 
+function NavOverlay({
+  isAtTop,
+  isAtBottom,
+  onScrollToTop,
+  onScrollToPrev,
+  onScrollToNext,
+  onScrollToBottom,
+}: {
+  isAtTop: boolean;
+  isAtBottom: boolean;
+  onScrollToTop: () => void;
+  onScrollToPrev: () => void;
+  onScrollToNext: () => void;
+  onScrollToBottom: () => void;
+}) {
+  if (isAtTop && isAtBottom) return null;
+  return (
+    <div className="absolute right-2 bottom-2 z-10 flex flex-col gap-1 pointer-events-none">
+      {!isAtTop && (
+        <>
+          <NavButton icon={ArrowLineUpIcon} label="Go to top" onClick={onScrollToTop} />
+          <NavButton icon={ArrowUpIcon} label="Previous section" onClick={onScrollToPrev} />
+        </>
+      )}
+      {!isAtBottom && (
+        <>
+          <NavButton icon={ArrowDownIcon} label="Next section" onClick={onScrollToNext} />
+          <NavButton icon={ArrowLineDownIcon} label="Go to bottom" onClick={onScrollToBottom} />
+        </>
+      )}
+    </div>
+  );
+}
+
 export function LogsContentContainer({ className }: LogsContentContainerProps) {
   const {
     logsPanelContent: content,
@@ -66,7 +100,7 @@ export function LogsContentContainer({ className }: LogsContentContainerProps) {
   const processId = content?.type === 'process' ? content.processId : '';
   const logViewerRef = useRef<LogViewerHandle>(null);
   const [isAtTop, setIsAtTop] = useState(true);
-  const [isAtBottom, setIsAtBottom] = useState(false);
+  const [isAtBottom, setIsAtBottom] = useState(true);
 
   const handleScrollPositionChange = useCallback(
     ({
@@ -81,6 +115,12 @@ export function LogsContentContainer({ className }: LogsContentContainerProps) {
     },
     [],
   );
+
+  // Reset scroll position state when the active process changes
+  useEffect(() => {
+    setIsAtTop(true);
+    setIsAtBottom(true); // Assume bottom since scroll-to-bottom fires on new process load
+  }, [processId]);
 
   const { logs, error, blockStartIndices } = useLogStream(processId);
 
@@ -147,37 +187,14 @@ export function LogsContentContainer({ className }: LogsContentContainerProps) {
             onScrollPositionChange={handleScrollPositionChange}
           />
         </div>
-        {/* Nav overlay */}
-        <div className="absolute right-2 bottom-2 z-10 flex flex-col gap-1 pointer-events-none">
-          {!isAtTop && (
-            <>
-              <NavButton
-                icon={ArrowLineUpIcon}
-                label="Go to top"
-                onClick={() => logViewerRef.current?.scrollToTop()}
-              />
-              <NavButton
-                icon={ArrowUpIcon}
-                label="Previous section"
-                onClick={() => logViewerRef.current?.scrollToPrevBlock()}
-              />
-            </>
-          )}
-          {!isAtBottom && (
-            <>
-              <NavButton
-                icon={ArrowDownIcon}
-                label="Next section"
-                onClick={() => logViewerRef.current?.scrollToNextBlock()}
-              />
-              <NavButton
-                icon={ArrowLineDownIcon}
-                label="Go to bottom"
-                onClick={() => logViewerRef.current?.scrollToBottom()}
-              />
-            </>
-          )}
-        </div>
+        <NavOverlay
+          isAtTop={isAtTop}
+          isAtBottom={isAtBottom}
+          onScrollToTop={() => logViewerRef.current?.scrollToTop()}
+          onScrollToPrev={() => logViewerRef.current?.scrollToPrevBlock()}
+          onScrollToNext={() => logViewerRef.current?.scrollToNextBlock()}
+          onScrollToBottom={() => logViewerRef.current?.scrollToBottom()}
+        />
       </div>
     );
   }
@@ -222,37 +239,14 @@ export function LogsContentContainer({ className }: LogsContentContainerProps) {
         blockStartIndices={blockStartIndices}
         onScrollPositionChange={handleScrollPositionChange}
       />
-      {/* Nav overlay */}
-      <div className="absolute right-2 bottom-2 z-10 flex flex-col gap-1 pointer-events-none">
-        {!isAtTop && (
-          <>
-            <NavButton
-              icon={ArrowLineUpIcon}
-              label="Go to top"
-              onClick={() => logViewerRef.current?.scrollToTop()}
-            />
-            <NavButton
-              icon={ArrowUpIcon}
-              label="Previous section"
-              onClick={() => logViewerRef.current?.scrollToPrevBlock()}
-            />
-          </>
-        )}
-        {!isAtBottom && (
-          <>
-            <NavButton
-              icon={ArrowDownIcon}
-              label="Next section"
-              onClick={() => logViewerRef.current?.scrollToNextBlock()}
-            />
-            <NavButton
-              icon={ArrowLineDownIcon}
-              label="Go to bottom"
-              onClick={() => logViewerRef.current?.scrollToBottom()}
-            />
-          </>
-        )}
-      </div>
+      <NavOverlay
+        isAtTop={isAtTop}
+        isAtBottom={isAtBottom}
+        onScrollToTop={() => logViewerRef.current?.scrollToTop()}
+        onScrollToPrev={() => logViewerRef.current?.scrollToPrevBlock()}
+        onScrollToNext={() => logViewerRef.current?.scrollToNextBlock()}
+        onScrollToBottom={() => logViewerRef.current?.scrollToBottom()}
+      />
     </div>
   );
 }
