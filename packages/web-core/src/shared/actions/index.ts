@@ -74,12 +74,18 @@ import { CreatePRDialog } from '@/shared/dialogs/command-bar/CreatePRDialog';
 import { getIdeName } from '@/shared/lib/ideName';
 import { EditorSelectionDialog } from '@/shared/dialogs/command-bar/EditorSelectionDialog';
 import { StartReviewDialog } from '@/shared/dialogs/command-bar/StartReviewDialog';
-import posthog from 'posthog-js';
 import { WorkspacesGuideDialog } from '@/shared/dialogs/shared/WorkspacesGuideDialog';
 import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
 import { CreateWorkspaceFromPrDialog } from '@/shared/dialogs/command-bar/CreateWorkspaceFromPrDialog';
 import { buildWorkspaceCreateInitialState } from '@/shared/lib/workspaceCreateState';
 import { setCreateModeSeedState } from '@/features/create-mode/model/createModeSeedStore';
+
+// Configurable feedback URL — set by FeedbackUrlSync component via setFeedbackUrl()
+let _feedbackUrl: string | null = null;
+
+export function setFeedbackUrl(url: string | null): void {
+  _feedbackUrl = url;
+}
 
 // Mirrored sidebar icon for right sidebar toggle
 const RightSidebarIcon: Icon = forwardRef<SVGSVGElement, IconProps>(
@@ -594,7 +600,9 @@ export const Actions = {
     icon: MegaphoneIcon,
     requiresTarget: ActionTargetType.NONE,
     execute: () => {
-      posthog.displaySurvey('019bb6e8-3d36-0000-1806-7330cd3c727e');
+      const url =
+        _feedbackUrl || 'https://github.com/BloopAI/vibe-kanban/issues';
+      window.open(url, '_blank', 'noopener,noreferrer');
     },
   },
 

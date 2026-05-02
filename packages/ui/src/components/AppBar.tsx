@@ -73,6 +73,8 @@ interface AppBarProps {
   onUpdateClick?: () => void;
   githubIconPath: string;
   discordIconPath: string;
+  discordEnabled?: boolean;
+  discordUrl?: string;
 }
 
 export interface AppBarProject {
@@ -225,6 +227,8 @@ export function AppBar({
   onUpdateClick,
   githubIconPath,
   discordIconPath,
+  discordEnabled = true,
+  discordUrl = 'https://discord.gg/AC4nwVtJM3',
 }: AppBarProps) {
   const { t } = useTranslation('common');
   const sections: AppBarSection[] = [];
@@ -550,14 +554,16 @@ export function AppBar({
             )
           }
         />
-        <AppBarSocialLink
-          href="https://discord.gg/AC4nwVtJM3"
-          label="Join our Discord"
-          iconPath={discordIconPath}
-          badge={
-            onlineCount != null && (onlineCount > 999 ? '999+' : onlineCount)
-          }
-        />
+        {discordEnabled && (
+          <AppBarSocialLink
+            href={discordUrl}
+            label="Join our Discord"
+            iconPath={discordIconPath}
+            badge={
+              onlineCount != null && (onlineCount > 999 ? '999+' : onlineCount)
+            }
+          />
+        )}
         {updateVersion ? (
           <Tooltip content={`Update to v${updateVersion}`} side="right">
             <button
