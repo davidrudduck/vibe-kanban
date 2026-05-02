@@ -212,7 +212,13 @@ impl From<String> for Config {
                 config
             }
             Err(e) => {
-                tracing::warn!("Config migration failed: {}, using default", e);
+                tracing::error!(
+                    "Config migration failed ({}). Resetting to defaults. \
+                     IMPORTANT: the original config.json has NOT been backed up — \
+                     any customisations are lost. To recover, restore from a backup \
+                     before the next app launch overwrites the file.",
+                    e
+                );
                 Self::default()
             }
         }
