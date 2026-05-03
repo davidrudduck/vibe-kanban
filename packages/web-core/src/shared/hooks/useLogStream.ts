@@ -234,5 +234,9 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
     };
   }, [processId]);
 
-  return { logs: state.logs, error, blockStartIndices: state.blockStartIndices };
+  return {
+    logs: state.logs,
+    error,
+    blockStartIndices: state.blockStartIndices,
+  };
 };

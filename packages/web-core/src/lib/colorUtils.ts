@@ -64,7 +64,9 @@ export function deriveAccentVariants(hslChannels: string): {
   hover: string;
   secondary: string;
 } {
-  const match = hslChannels.match(/^(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)%\s+(\d+(?:\.\d+)?)%$/);
+  const match = hslChannels.match(
+    /^(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)%\s+(\d+(?:\.\d+)?)%$/
+  );
   if (!match) {
     return { hover: hslChannels, secondary: hslChannels };
   }

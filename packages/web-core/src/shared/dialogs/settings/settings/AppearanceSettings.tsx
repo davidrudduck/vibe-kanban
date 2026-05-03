@@ -584,7 +584,11 @@ export function AppearanceSettings() {
               <div className="flex items-center gap-2 px-2 py-1 rounded-sm bg-panel text-xs text-normal">
                 <span className="text-brand">●</span>
                 {draft.appearance.host_banner.show_hostname && (
-                  <span>{typeof window !== 'undefined' ? window.location.hostname : 'hostname'}</span>
+                  <span>
+                    {typeof window !== 'undefined'
+                      ? window.location.hostname
+                      : 'hostname'}
+                  </span>
                 )}
                 {draft.appearance.host_banner.env_label && (
                   <span className="px-1 rounded bg-brand/20 text-brand text-xs">

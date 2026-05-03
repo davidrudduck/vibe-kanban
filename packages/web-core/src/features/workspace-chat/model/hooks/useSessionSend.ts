@@ -95,11 +95,10 @@ export function useSessionSend({
           // If there is a running process, attempt live injection first.
           if (runningExecutionProcessId) {
             try {
-              const { injected } =
-                await executionProcessesApi.injectMessage(
-                  runningExecutionProcessId,
-                  trimmed
-                );
+              const { injected } = await executionProcessesApi.injectMessage(
+                runningExecutionProcessId,
+                trimmed
+              );
               if (injected) return true;
             } catch {
               // Injection failed (e.g. process just exited) — fall through to queue

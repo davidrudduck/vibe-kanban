@@ -80,10 +80,34 @@ function NavOverlay({
 
   return (
     <div className="absolute right-2 bottom-2 z-10 flex flex-col gap-1 pointer-events-none">
-      {showTop && <NavButton icon={ArrowLineUpIcon} label="Go to top" onClick={onScrollToTop} />}
-      {showPrev && <NavButton icon={ArrowUpIcon} label="Previous section" onClick={onScrollToPrev} />}
-      {showNext && <NavButton icon={ArrowDownIcon} label="Next section" onClick={onScrollToNext} />}
-      {showBottom && <NavButton icon={ArrowLineDownIcon} label="Go to bottom" onClick={onScrollToBottom} />}
+      {showTop && (
+        <NavButton
+          icon={ArrowLineUpIcon}
+          label="Go to top"
+          onClick={onScrollToTop}
+        />
+      )}
+      {showPrev && (
+        <NavButton
+          icon={ArrowUpIcon}
+          label="Previous section"
+          onClick={onScrollToPrev}
+        />
+      )}
+      {showNext && (
+        <NavButton
+          icon={ArrowDownIcon}
+          label="Next section"
+          onClick={onScrollToNext}
+        />
+      )}
+      {showBottom && (
+        <NavButton
+          icon={ArrowLineDownIcon}
+          label="Go to bottom"
+          onClick={onScrollToBottom}
+        />
+      )}
     </div>
   );
 }
@@ -114,7 +138,7 @@ export function LogsContentContainer({ className }: LogsContentContainerProps) {
       setIsAtTop(top);
       setIsAtBottom(bottom);
     },
-    [],
+    []
   );
 
   // Reset scroll position state when the active process changes
@@ -167,7 +191,9 @@ export function LogsContentContainer({ className }: LogsContentContainerProps) {
       .map((line) => ({ type: 'STDOUT' as const, content: line }));
 
     return (
-      <div className={cn('h-full bg-secondary flex flex-col relative', className)}>
+      <div
+        className={cn('h-full bg-secondary flex flex-col relative', className)}
+      >
         <div className="px-4 py-2 border-b border-border text-sm font-medium text-normal shrink-0">
           {content.toolName}
         </div>
