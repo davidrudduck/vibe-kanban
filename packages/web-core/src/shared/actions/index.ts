@@ -602,7 +602,8 @@ export const Actions = {
     requiresTarget: ActionTargetType.NONE,
     execute: () => {
       const url =
-        safeUrl(_feedbackUrl) ?? 'https://github.com/BloopAI/vibe-kanban/issues';
+        safeUrl(_feedbackUrl) ??
+        'https://github.com/BloopAI/vibe-kanban/issues';
       window.open(url, '_blank', 'noopener,noreferrer');
     },
   },

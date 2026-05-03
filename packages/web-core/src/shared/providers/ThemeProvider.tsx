@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { ThemeMode } from 'shared/types';
 import { ThemeProviderContext } from '@/shared/hooks/useTheme';
 
@@ -17,7 +23,9 @@ type ThemeProviderProps = {
 };
 
 function isValidThemeMode(v: unknown): v is ThemeMode {
-  return v === ThemeMode.LIGHT || v === ThemeMode.DARK || v === ThemeMode.SYSTEM;
+  return (
+    v === ThemeMode.LIGHT || v === ThemeMode.DARK || v === ThemeMode.SYSTEM
+  );
 }
 
 function readStoredTheme(): ThemeMode | null {
@@ -34,7 +42,7 @@ export function ThemeProvider({
   initialTheme = ThemeMode.SYSTEM,
 }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<ThemeMode>(
-    () => readStoredTheme() ?? initialTheme,
+    () => readStoredTheme() ?? initialTheme
   );
 
   // Tracks whether the user has explicitly chosen a theme. Once true, server
@@ -75,7 +83,8 @@ export function ThemeProvider({
     if (theme === ThemeMode.SYSTEM) {
       const media = window.matchMedia('(prefers-color-scheme: dark)');
       apply(media.matches ? 'dark' : 'light');
-      const onChange = (e: MediaQueryListEvent) => apply(e.matches ? 'dark' : 'light');
+      const onChange = (e: MediaQueryListEvent) =>
+        apply(e.matches ? 'dark' : 'light');
       media.addEventListener('change', onChange);
       return () => media.removeEventListener('change', onChange);
     }
