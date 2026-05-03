@@ -5,7 +5,7 @@ use tokio::{
     process::{ChildStdin, ChildStdout},
     sync::Mutex,
 };
-use tokio_util::sync::CancellationToken;
+use tokio_util::sync::{CancellationToken, DropGuard};
 
 use super::types::{CLIMessage, ControlRequestType, ControlResponseMessage, ControlResponseType};
 use crate::{
@@ -19,10 +19,28 @@ use crate::{
     },
 };
 
-/// Handles bidirectional control protocol communication
+/// Handles bidirectional control protocol communication.
+///
+/// `ProtocolPeer` owns the write half (`ChildStdin`) and spawns a background
+/// reader task that owns the read half (`ChildStdout`). The reader task is
+/// driven by a private `CancellationToken` that is fired automatically when
+/// the **last** clone of `ProtocolPeer` is dropped. This guarantees that
+/// removing the peer from `LocalContainerService::protocol_peers` causes the
+/// reader to exit promptly, releases the `ChildStdin` write end so the child
+/// sees EOF, and lets process reaping complete.
+///
+/// CRITICAL invariant: the reader task itself must NOT hold a clone of the
+/// `Arc<DropGuard>` (it only carries a `CancellationToken` clone), otherwise
+/// the reader would keep itself alive forever — turning the leak this struct
+/// was designed to prevent into a self-referential one.
 #[derive(Clone)]
 pub struct ProtocolPeer {
     stdin: Arc<Mutex<ChildStdin>>,
+    /// Wrapped in `Arc` so all clones share. When the last clone of the peer
+    /// is dropped (typically when the `LocalContainerService::protocol_peers`
+    /// HashMap entry is removed), `DropGuard::drop` cancels `reader_cancel`
+    /// and the reader task exits.
+    _reader_drop_guard: Arc<DropGuard>,
 }
 
 impl ProtocolPeer {
@@ -30,15 +48,26 @@ impl ProtocolPeer {
         stdin: ChildStdin,
         stdout: ChildStdout,
         client: Arc<ClaudeAgentClient>,
-        cancel: CancellationToken,
+        executor_cancel: CancellationToken,
     ) -> Self {
+        let stdin = Arc::new(Mutex::new(stdin));
+        let reader_cancel = CancellationToken::new();
+        let reader_drop_guard = Arc::new(reader_cancel.clone().drop_guard());
+
         let peer = Self {
-            stdin: Arc::new(Mutex::new(stdin)),
+            stdin: stdin.clone(),
+            _reader_drop_guard: reader_drop_guard,
         };
 
-        let reader_peer = peer.clone();
+        // Reader task: owns the stdout pipe + a clone of the stdin Arc (for
+        // sending interrupts and control responses). It does NOT hold the
+        // `_reader_drop_guard` Arc, so the reader cannot keep itself alive
+        // past the last public clone of `ProtocolPeer`.
+        let reader_stdin = stdin;
         tokio::spawn(async move {
-            if let Err(e) = reader_peer.read_loop(stdout, client, cancel).await {
+            if let Err(e) =
+                read_loop(reader_stdin, stdout, client, executor_cancel, reader_cancel).await
+            {
                 tracing::error!("Protocol reader loop error: {}", e);
             }
         });
@@ -46,123 +75,33 @@ impl ProtocolPeer {
         peer
     }
 
-    async fn read_loop(
-        &self,
-        stdout: ChildStdout,
-        client: Arc<ClaudeAgentClient>,
-        cancel: CancellationToken,
-    ) -> Result<(), ExecutorError> {
-        let mut reader = BufReader::new(stdout);
-        let mut buffer = String::new();
-        let mut interrupt_sent = false;
-
-        loop {
-            buffer.clear();
-            tokio::select! {
-                biased;
-                _ = cancel.cancelled(), if !interrupt_sent => {
-                    interrupt_sent = true;
-                    tracing::info!("Cancellation received in read_loop, sending interrupt to Claude");
-                    if let Err(e) = self.interrupt().await {
-                        tracing::warn!("Failed to send interrupt to Claude: {e}");
-                    }
-                    // Continue the loop to read Claude's response (it should send a result)
-                }
-                line_result = reader.read_line(&mut buffer) => {
-                    match line_result {
-                        Ok(0) => break, // EOF
-                        Ok(_) => {
-                            let line = buffer.trim();
-                            if line.is_empty() {
-                                continue;
-                            }
-                            client.log_message(line).await?;
-
-                            // Parse and handle control messages
-                            match serde_json::from_str::<CLIMessage>(line) {
-                                Ok(CLIMessage::ControlRequest {
-                                    request_id,
-                                    request,
-                                }) => {
-                                    self.handle_control_request(&client, request_id, request)
-                                        .await;
-                                }
-                                Ok(CLIMessage::Result(_)) => {
-                                    break;
-                                }
-                                _ => {}
-                            }
-                        }
-                        Err(e) => {
-                            tracing::error!("Error reading stdout: {}", e);
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        Ok(())
+    pub async fn send_user_message(&self, content: String) -> Result<(), ExecutorError> {
+        let message = Message::new_user(content);
+        write_json(&self.stdin, &message).await
     }
 
-    async fn handle_control_request(
-        &self,
-        client: &Arc<ClaudeAgentClient>,
-        request_id: String,
-        request: ControlRequestType,
-    ) {
-        match request {
-            ControlRequestType::CanUseTool {
-                tool_name,
-                input,
-                permission_suggestions,
-                blocked_paths: _,
-                tool_use_id,
-            } => {
-                match client
-                    .on_can_use_tool(tool_name, input, permission_suggestions, tool_use_id)
-                    .await
-                {
-                    Ok(result) => {
-                        if let Err(e) = self
-                            .send_hook_response(request_id, serde_json::to_value(result).unwrap())
-                            .await
-                        {
-                            tracing::error!("Failed to send permission result: {e}");
-                        }
-                    }
-                    Err(ExecutorError::ExecutorApprovalError(ExecutorApprovalError::Cancelled)) => {
-                    }
-                    Err(e) => {
-                        tracing::error!("Error in on_can_use_tool: {e}");
-                        if let Err(e2) = self.send_error(request_id, e.to_string()).await {
-                            tracing::error!("Failed to send error response: {e2}");
-                        }
-                    }
-                }
-            }
-            ControlRequestType::HookCallback {
-                callback_id,
-                input,
-                tool_use_id,
-            } => {
-                match client
-                    .on_hook_callback(callback_id, input, tool_use_id)
-                    .await
-                {
-                    Ok(hook_output) => {
-                        if let Err(e) = self.send_hook_response(request_id, hook_output).await {
-                            tracing::error!("Failed to send hook callback result: {e}");
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!("Error in on_hook_callback: {e}");
-                        if let Err(e2) = self.send_error(request_id, e.to_string()).await {
-                            tracing::error!("Failed to send error response: {e2}");
-                        }
-                    }
-                }
-            }
-        }
+    pub async fn initialize(&self, hooks: Option<serde_json::Value>) -> Result<(), ExecutorError> {
+        write_json(
+            &self.stdin,
+            &SDKControlRequest::new(SDKControlRequestType::Initialize { hooks }),
+        )
+        .await
+    }
+
+    pub async fn interrupt(&self) -> Result<(), ExecutorError> {
+        write_json(
+            &self.stdin,
+            &SDKControlRequest::new(SDKControlRequestType::Interrupt {}),
+        )
+        .await
+    }
+
+    pub async fn set_permission_mode(&self, mode: PermissionMode) -> Result<(), ExecutorError> {
+        write_json(
+            &self.stdin,
+            &SDKControlRequest::new(SDKControlRequestType::SetPermissionMode { mode }),
+        )
+        .await
     }
 
     pub async fn send_hook_response(
@@ -170,51 +109,231 @@ impl ProtocolPeer {
         request_id: String,
         hook_output: serde_json::Value,
     ) -> Result<(), ExecutorError> {
-        self.send_json(&ControlResponseMessage::new(ControlResponseType::Success {
+        send_hook_response(&self.stdin, request_id, hook_output).await
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Free helpers used by both the public `ProtocolPeer` API and the background
+// reader task. Keeping them as free functions taking `&Arc<Mutex<ChildStdin>>`
+// is what allows the reader task to use them WITHOUT holding a clone of
+// `ProtocolPeer` (and therefore without holding the drop guard).
+// ---------------------------------------------------------------------------
+
+async fn write_json<T: serde::Serialize>(
+    stdin: &Mutex<ChildStdin>,
+    message: &T,
+) -> Result<(), ExecutorError> {
+    let json = serde_json::to_string(message)?;
+    let mut stdin = stdin.lock().await;
+    stdin.write_all(json.as_bytes()).await?;
+    stdin.write_all(b"\n").await?;
+    stdin.flush().await?;
+    Ok(())
+}
+
+async fn send_hook_response(
+    stdin: &Mutex<ChildStdin>,
+    request_id: String,
+    hook_output: serde_json::Value,
+) -> Result<(), ExecutorError> {
+    write_json(
+        stdin,
+        &ControlResponseMessage::new(ControlResponseType::Success {
             request_id,
             response: Some(hook_output),
-        }))
-        .await
-    }
+        }),
+    )
+    .await
+}
 
-    /// Send error response to CLI
-    async fn send_error(&self, request_id: String, error: String) -> Result<(), ExecutorError> {
-        self.send_json(&ControlResponseMessage::new(ControlResponseType::Error {
+async fn send_error(
+    stdin: &Mutex<ChildStdin>,
+    request_id: String,
+    error: String,
+) -> Result<(), ExecutorError> {
+    write_json(
+        stdin,
+        &ControlResponseMessage::new(ControlResponseType::Error {
             request_id,
             error: Some(error),
-        }))
-        .await
-    }
+        }),
+    )
+    .await
+}
 
-    async fn send_json<T: serde::Serialize>(&self, message: &T) -> Result<(), ExecutorError> {
-        let json = serde_json::to_string(message)?;
-        let mut stdin = self.stdin.lock().await;
-        stdin.write_all(json.as_bytes()).await?;
-        stdin.write_all(b"\n").await?;
-        stdin.flush().await?;
-        Ok(())
-    }
+async fn send_interrupt(stdin: &Mutex<ChildStdin>) -> Result<(), ExecutorError> {
+    write_json(
+        stdin,
+        &SDKControlRequest::new(SDKControlRequestType::Interrupt {}),
+    )
+    .await
+}
 
-    pub async fn send_user_message(&self, content: String) -> Result<(), ExecutorError> {
-        let message = Message::new_user(content);
-        self.send_json(&message).await
-    }
-
-    pub async fn initialize(&self, hooks: Option<serde_json::Value>) -> Result<(), ExecutorError> {
-        self.send_json(&SDKControlRequest::new(SDKControlRequestType::Initialize {
-            hooks,
-        }))
-        .await
-    }
-    pub async fn interrupt(&self) -> Result<(), ExecutorError> {
-        self.send_json(&SDKControlRequest::new(SDKControlRequestType::Interrupt {}))
+async fn handle_control_request(
+    stdin: &Arc<Mutex<ChildStdin>>,
+    client: &Arc<ClaudeAgentClient>,
+    request_id: String,
+    request: ControlRequestType,
+) {
+    match request {
+        ControlRequestType::CanUseTool {
+            tool_name,
+            input,
+            permission_suggestions,
+            blocked_paths: _,
+            tool_use_id,
+        } => match client
+            .on_can_use_tool(tool_name, input, permission_suggestions, tool_use_id)
             .await
+        {
+            Ok(result) => {
+                if let Err(e) =
+                    send_hook_response(stdin, request_id, serde_json::to_value(result).unwrap())
+                        .await
+                {
+                    tracing::error!("Failed to send permission result: {e}");
+                }
+            }
+            Err(ExecutorError::ExecutorApprovalError(ExecutorApprovalError::Cancelled)) => {}
+            Err(e) => {
+                tracing::error!("Error in on_can_use_tool: {e}");
+                if let Err(e2) = send_error(stdin, request_id, e.to_string()).await {
+                    tracing::error!("Failed to send error response: {e2}");
+                }
+            }
+        },
+        ControlRequestType::HookCallback {
+            callback_id,
+            input,
+            tool_use_id,
+        } => match client
+            .on_hook_callback(callback_id, input, tool_use_id)
+            .await
+        {
+            Ok(hook_output) => {
+                if let Err(e) = send_hook_response(stdin, request_id, hook_output).await {
+                    tracing::error!("Failed to send hook callback result: {e}");
+                }
+            }
+            Err(e) => {
+                tracing::error!("Error in on_hook_callback: {e}");
+                if let Err(e2) = send_error(stdin, request_id, e.to_string()).await {
+                    tracing::error!("Failed to send error response: {e2}");
+                }
+            }
+        },
     }
+}
 
-    pub async fn set_permission_mode(&self, mode: PermissionMode) -> Result<(), ExecutorError> {
-        self.send_json(&SDKControlRequest::new(
-            SDKControlRequestType::SetPermissionMode { mode },
-        ))
-        .await
+async fn read_loop(
+    stdin: Arc<Mutex<ChildStdin>>,
+    stdout: ChildStdout,
+    client: Arc<ClaudeAgentClient>,
+    executor_cancel: CancellationToken,
+    reader_cancel: CancellationToken,
+) -> Result<(), ExecutorError> {
+    let mut reader = BufReader::new(stdout);
+    let mut buffer = String::new();
+    let mut interrupt_sent = false;
+
+    loop {
+        buffer.clear();
+        tokio::select! {
+            biased;
+            // Last public clone of ProtocolPeer was dropped — exit immediately
+            // so the ChildStdin Arc held by this task is released and the child
+            // sees EOF on its stdin.
+            _ = reader_cancel.cancelled() => {
+                tracing::debug!("Protocol reader exiting: peer dropped");
+                break;
+            }
+            _ = executor_cancel.cancelled(), if !interrupt_sent => {
+                interrupt_sent = true;
+                tracing::info!("Cancellation received in read_loop, sending interrupt to Claude");
+                if let Err(e) = send_interrupt(&stdin).await {
+                    tracing::warn!("Failed to send interrupt to Claude: {e}");
+                }
+                // Continue the loop to read Claude's response (it should send a result)
+            }
+            line_result = reader.read_line(&mut buffer) => {
+                match line_result {
+                    Ok(0) => break, // EOF
+                    Ok(_) => {
+                        let line = buffer.trim();
+                        if line.is_empty() {
+                            continue;
+                        }
+                        client.log_message(line).await?;
+
+                        // Parse and handle control messages
+                        match serde_json::from_str::<CLIMessage>(line) {
+                            Ok(CLIMessage::ControlRequest {
+                                request_id,
+                                request,
+                            }) => {
+                                handle_control_request(&stdin, &client, request_id, request).await;
+                            }
+                            Ok(CLIMessage::Result(_)) => {
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Error reading stdout: {}", e);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use tokio::time::timeout;
+
+    use super::*;
+
+    /// When the last clone of `ProtocolPeer` is dropped, the reader task's
+    /// `reader_cancel` token must fire so the task exits promptly.
+    /// This is the invariant that prevents the lifecycle leak that caused
+    /// the "executor end no longer detected" regression.
+    #[tokio::test]
+    async fn last_peer_clone_drop_cancels_reader() {
+        // Create a token we can observe from the test, then build an Arc<DropGuard>
+        // exactly the way ProtocolPeer::spawn does it.
+        let reader_cancel = CancellationToken::new();
+        let observable = reader_cancel.clone();
+        let drop_guard = Arc::new(reader_cancel.clone().drop_guard());
+
+        // Peer-shaped struct: two "clones" share the guard.
+        let peer_a = drop_guard.clone();
+        let peer_b = drop_guard;
+
+        // Drop one clone: the other still holds the guard, so the token must
+        // remain un-cancelled.
+        drop(peer_a);
+        assert!(
+            !observable.is_cancelled(),
+            "reader cancel must not fire while another peer clone exists"
+        );
+
+        // Drop the last clone: the underlying DropGuard runs, cancelling.
+        drop(peer_b);
+        assert!(
+            observable.is_cancelled(),
+            "reader cancel must fire when the last peer clone is dropped"
+        );
+
+        // And `cancelled().await` must resolve immediately — what the reader
+        // loop relies on to exit.
+        timeout(Duration::from_millis(100), observable.cancelled())
+            .await
+            .expect("reader_cancel.cancelled() must resolve after last peer drop");
     }
 }

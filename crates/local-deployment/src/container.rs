@@ -890,6 +890,25 @@ impl LocalContainerService {
                 let _ = tokio::time::timeout(Duration::from_secs(5), handle).await;
             }
 
+            // Drop the ProtocolPeer and reap the child under a single
+            // `protocol_peers` write guard. Holding the guard across the
+            // `child_store` removal is what actually closes the late-
+            // registration race: the late-register task in `start_execution`
+            // takes `peers.write()` BEFORE checking `child_store.contains_key`,
+            // so by holding `peers.write()` across the child removal we force
+            // it to wait until child_store is also empty. When it then checks,
+            // `contains_key` returns false and it drops the peer. Without
+            // holding the guard across the gap, a late insert could land
+            // between our `peers.remove` and `child_store.remove` and leak
+            // a peer (and its live ChildStdin write end) forever.
+            //
+            // Note the lock ordering: peers.write() then child_store.{read,
+            // write}(). All other code paths that touch both maps follow the
+            // same order (start_execution late-register, inject_message), so
+            // there is no deadlock risk.
+            let mut peers_guard = protocol_peers.write().await;
+            peers_guard.remove(&exec_id);
+
             // SIGKILL any orphaned children (e.g. MCP servers) still in the
             // process group. The executor itself is already done — either it
             // exited naturally or was killed in the exit-signal branch above.
@@ -898,9 +917,7 @@ impl LocalContainerService {
                 let _ = child.start_kill();
             }
             child_store.write().await.remove(&exec_id);
-
-            // Drop the ProtocolPeer so the stdin handle is released.
-            protocol_peers.write().await.remove(&exec_id);
+            drop(peers_guard);
         })
     }
 
@@ -1493,12 +1510,31 @@ impl ContainerService for LocalContainerService {
 
         // If the executor vended a ProtocolPeer (e.g. Claude Code), receive it and
         // store it so that inject_message() can reach it while the process is running.
+        //
+        // The receiver task races the exit monitor: `peer_rx` only resolves once the
+        // executor's spawned init task completes `initialize()` + first user message,
+        // which can take long enough for a fast-exiting process to be cleaned up first.
+        // We guard the insert against the cleanup that runs at the end of
+        // `spawn_exit_monitor`: if the child has already been removed from
+        // `child_store`, drop the peer instead of inserting it. Combined with the
+        // cleanup-order guarantee in `spawn_exit_monitor` (protocol_peers removed
+        // BEFORE child_store), this closes the TOCTOU window so the peer can never
+        // outlive the process. Dropping the peer also fires `ProtocolPeer`'s drop
+        // guard, which cancels the reader task and releases `ChildStdin`.
         if let Some(peer_rx) = spawned.protocol_peer.take() {
             let peers = self.protocol_peers.clone();
+            let child_store = self.child_store.clone();
             let exec_id = execution_process.id;
             tokio::spawn(async move {
                 if let Ok(peer) = peer_rx.await {
-                    peers.write().await.insert(exec_id, peer);
+                    let mut peers_guard = peers.write().await;
+                    if child_store.read().await.contains_key(&exec_id) {
+                        peers_guard.insert(exec_id, peer);
+                    } else {
+                        // Process has already exited and been cleaned up; drop the
+                        // peer so its reader task and ChildStdin handle are released.
+                        drop(peer);
+                    }
                 }
             });
         }
@@ -1527,7 +1563,10 @@ impl ContainerService for LocalContainerService {
             .await?;
 
         // Release the ProtocolPeer immediately so no further injections are accepted.
-        self.protocol_peers.write().await.remove(&execution_process.id);
+        self.protocol_peers
+            .write()
+            .await
+            .remove(&execution_process.id);
 
         // Try graceful cancellation first, then force kill
         if let Some(cancel) = self.take_cancellation_token(&execution_process.id).await {
@@ -1582,7 +1621,6 @@ impl ContainerService for LocalContainerService {
 
         Ok(())
     }
-
 
     async fn stream_diff(
         &self,
@@ -1749,6 +1787,21 @@ impl ContainerService for LocalContainerService {
             let peers = self.protocol_peers.read().await;
             peers.get(&execution_process_id).cloned()
         };
+
+        // Defense in depth: a peer should never outlive its child (the
+        // cleanup path in `spawn_exit_monitor` guarantees this by holding
+        // `protocol_peers.write()` across `child_store` removal). If we
+        // somehow find a peer with no live child — e.g. due to a future
+        // refactor breaking that invariant — drop the stale entry instead
+        // of writing to a closed pipe. Dropping fires the peer's drop
+        // guard, cancelling the reader and releasing ChildStdin.
+        if peer.is_some() && !self.child_store.read().await.contains_key(&execution_process_id) {
+            self.protocol_peers
+                .write()
+                .await
+                .remove(&execution_process_id);
+            return Ok(false);
+        }
 
         match peer {
             Some(peer) => {
