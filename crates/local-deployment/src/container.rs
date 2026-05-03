@@ -1508,33 +1508,66 @@ impl ContainerService for LocalContainerService {
         let hn = self.spawn_exit_monitor(&execution_process.id, spawned.exit_signal);
         self.add_exit_monitor_handle(execution_process.id, hn).await;
 
-        // If the executor vended a ProtocolPeer (e.g. Claude Code), receive it and
-        // store it so that inject_message() can reach it while the process is running.
+        // If the executor vended a ProtocolPeer (e.g. Claude Code), receive it
+        // and store it so `inject_message()` can reach it while the SDK is
+        // mid-turn. Then wait for the per-turn-idle signal and drop the peer
+        // when the SDK emits `Result`, which closes the last `ChildStdin`
+        // clone and lets the SDK exit naturally so the OS-exit watcher can
+        // fire and the UI spinner can clear.
         //
-        // The receiver task races the exit monitor: `peer_rx` only resolves once the
-        // executor's spawned init task completes `initialize()` + first user message,
-        // which can take long enough for a fast-exiting process to be cleaned up first.
-        // We guard the insert against the cleanup that runs at the end of
-        // `spawn_exit_monitor`: if the child has already been removed from
-        // `child_store`, drop the peer instead of inserting it. Combined with the
-        // cleanup-order guarantee in `spawn_exit_monitor` (protocol_peers removed
-        // BEFORE child_store), this closes the TOCTOU window so the peer can never
-        // outlive the process. Dropping the peer also fires `ProtocolPeer`'s drop
-        // guard, which cancels the reader task and releases `ChildStdin`.
+        // We combine the late-register and the listener into ONE linear task
+        // to eliminate races: insert → await idle → remove. If we used two
+        // separate tasks (one to insert on `peer_rx`, one to remove on
+        // `turn_idle_rx`), a fast turn could fire `turn_idle` before the
+        // insert lands, leaving the peer leaked in the HashMap.
+        //
+        // The insert is guarded against an already-cleaned-up child (e.g.
+        // process crashed during init): if `child_store` no longer contains
+        // `exec_id`, drop the peer instead of inserting. Combined with the
+        // cleanup-order guarantee in `spawn_exit_monitor` (protocol_peers
+        // removed BEFORE child_store under one write guard), this closes the
+        // TOCTOU window so the peer can never outlive the process.
         if let Some(peer_rx) = spawned.protocol_peer.take() {
             let peers = self.protocol_peers.clone();
             let child_store = self.child_store.clone();
             let exec_id = execution_process.id;
+            let turn_idle_signal = spawned.turn_idle_signal.take();
             tokio::spawn(async move {
-                if let Ok(peer) = peer_rx.await {
+                let Ok(peer) = peer_rx.await else {
+                    // Executor's init/send failed; peer_tx was dropped.
+                    return;
+                };
+                {
                     let mut peers_guard = peers.write().await;
-                    if child_store.read().await.contains_key(&exec_id) {
-                        peers_guard.insert(exec_id, peer);
-                    } else {
-                        // Process has already exited and been cleaned up; drop the
-                        // peer so its reader task and ChildStdin handle are released.
+                    if !child_store.read().await.contains_key(&exec_id) {
+                        // Process already exited and was cleaned up; drop the
+                        // peer so its reader task and ChildStdin handle are
+                        // released.
                         drop(peer);
+                        return;
                     }
+                    peers_guard.insert(exec_id, peer);
+                }
+
+                // Wait for the SDK to emit `Result` (end-of-turn). When this
+                // fires we drop the peer, releasing the last ChildStdin Arc
+                // clone. The SDK then sees EOF on stdin and exits, the OS-exit
+                // watcher catches it, and `spawn_exit_monitor`'s cleanup runs
+                // — updating execution_process status to 'completed' and
+                // pushing the patch that clears the UI spinner.
+                //
+                // If `turn_idle_signal` is None (non-Claude executor) or the
+                // sender drops without firing (read_loop EOF before Result,
+                // e.g. cancellation), we leave the peer in the HashMap; the
+                // exit monitor's cleanup will remove it when the process
+                // actually exits.
+                if let Some(mut turn_idle_rx) = turn_idle_signal
+                    && turn_idle_rx.recv().await.is_some()
+                {
+                    tracing::debug!(
+                        "Turn ended for execution {exec_id}; dropping peer to close stdin"
+                    );
+                    peers.write().await.remove(&exec_id);
                 }
             });
         }
@@ -1811,20 +1844,18 @@ impl ContainerService for LocalContainerService {
 
         match peer {
             Some(peer) => {
-                // Persist the injected user message to the MsgStore so the
-                // frontend conversation stream shows it immediately, matching
-                // the UX for regular follow-up messages.
-                if let Some(store) = self.get_msg_store_by_id(&execution_process_id).await {
-                    let entry = NormalizedEntry {
-                        timestamp: None,
-                        entry_type: NormalizedEntryType::UserMessage,
-                        content: content.clone(),
-                        metadata: Some(json!({"injected": true})),
-                    };
-                    let patch = ConversationPatch::add_normalized_entry(999999, entry);
-                    store.push_patch(patch);
-                }
-
+                // Do NOT push a synthetic UserMessage patch here. The Claude
+                // Agent SDK echoes the injected message back as a `user`
+                // ClaudeJson event, which the normalizer in
+                // `crates/executors/src/executors/claude.rs` (ClaudeJson::User
+                // arm) emits as a properly indexed, durable patch.
+                //
+                // Pushing a second synthetic patch with a fake index (e.g.
+                // 999999) caused two visible entries per injected message,
+                // and one of them appeared to "disappear" on conversation
+                // reload because the synthetic patch is not stored in
+                // `executor_session` raw logs and so is not replayed when
+                // `useConversationHistory` rebuilds from DB.
                 peer.send_user_message(content)
                     .await
                     .map_err(|e| ContainerError::Other(anyhow!("Failed to inject message: {e}")))?;

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::{ChildStdin, ChildStdout},
-    sync::{Mutex, oneshot},
+    sync::{Mutex, mpsc},
 };
 use tokio_util::sync::{CancellationToken, DropGuard};
 
@@ -11,7 +11,7 @@ use super::types::{CLIMessage, ControlRequestType, ControlResponseMessage, Contr
 use crate::{
     approvals::ExecutorApprovalError,
     executors::{
-        ExecutorError, ExecutorExitResult,
+        ExecutorError,
         claude::{
             client::ClaudeAgentClient,
             types::{Message, PermissionMode, SDKControlRequest, SDKControlRequestType},
@@ -34,14 +34,20 @@ use crate::{
 /// the reader would keep itself alive forever — turning the leak this struct
 /// was designed to prevent into a self-referential one.
 ///
-/// END-OF-EXECUTION SIGNALLING: the Claude Agent SDK does NOT exit on its own
-/// after emitting the terminal `Result` message — it stays alive on stdin so
-/// follow-up messages can be injected. Because of this the OS-exit watcher
-/// would never fire on a normal turn-end. To bridge that gap the reader task
-/// owns a `oneshot::Sender<ExecutorExitResult>` and fires it the moment it
-/// observes a `CLIMessage::Result`, deriving Success/Failure from the result
-/// payload's `is_error` field. The container's `spawn_exit_monitor` listens
-/// on the matching receiver via `SpawnedChild::exit_signal`.
+/// TURN-END handling: the Claude Agent SDK CLI keeps reading stdin until it
+/// sees EOF, so the *process* would otherwise stay alive after a turn ends
+/// even though `CLIMessage::Result` already signaled end-of-turn. To make the
+/// UI spinner clear when the agent finishes, the reader fires
+/// `turn_idle_tx` on Result and the container drops this peer in response.
+/// Dropping releases the last `ChildStdin` clone, the SDK sees EOF, exits,
+/// and the OS-exit watcher catches it — running the normal cleanup that
+/// updates `execution_process.status` to `'completed'` and broadcasts the
+/// patch the frontend needs to clear the spinner.
+///
+/// Follow-up messages from the user during the brief mid-turn window go
+/// through `inject_message`. After the turn ends and the peer is dropped,
+/// follow-ups go through `sessionsApi.followUp` (which spawns a new process
+/// with `--resume`) — same as before commit b9cfdd27d.
 #[derive(Clone)]
 pub struct ProtocolPeer {
     stdin: Arc<Mutex<ChildStdin>>,
@@ -58,7 +64,7 @@ impl ProtocolPeer {
         stdout: ChildStdout,
         client: Arc<ClaudeAgentClient>,
         executor_cancel: CancellationToken,
-        exit_signal_tx: oneshot::Sender<ExecutorExitResult>,
+        turn_idle_tx: mpsc::UnboundedSender<()>,
     ) -> Self {
         let stdin = Arc::new(Mutex::new(stdin));
         let reader_cancel = CancellationToken::new();
@@ -81,7 +87,7 @@ impl ProtocolPeer {
                 client,
                 executor_cancel,
                 reader_cancel,
-                exit_signal_tx,
+                turn_idle_tx,
             )
             .await
             {
@@ -243,36 +249,17 @@ async fn handle_control_request(
     }
 }
 
-/// Map a Claude Agent SDK terminal `Result` payload to an `ExecutorExitResult`.
-///
-/// The SDK marks a turn as failed by setting `is_error: true` on the result
-/// envelope (see fixtures + integration logs). Anything else — including a
-/// missing `is_error` field — is treated as success.
-fn result_from_payload(value: &serde_json::Value) -> ExecutorExitResult {
-    let is_error = value
-        .get("is_error")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    if is_error {
-        ExecutorExitResult::Failure
-    } else {
-        ExecutorExitResult::Success
-    }
-}
-
 async fn read_loop(
     stdin: Arc<Mutex<ChildStdin>>,
     stdout: ChildStdout,
     client: Arc<ClaudeAgentClient>,
     executor_cancel: CancellationToken,
     reader_cancel: CancellationToken,
-    exit_signal_tx: oneshot::Sender<ExecutorExitResult>,
+    turn_idle_tx: mpsc::UnboundedSender<()>,
 ) -> Result<(), ExecutorError> {
     let mut reader = BufReader::new(stdout);
     let mut buffer = String::new();
     let mut interrupt_sent = false;
-    // Wrapped in Option<> so we can `.take()` on the single fire site.
-    let mut exit_signal_tx = Some(exit_signal_tx);
 
     loop {
         buffer.clear();
@@ -311,16 +298,22 @@ async fn read_loop(
                             }) => {
                                 handle_control_request(&stdin, &client, request_id, request).await;
                             }
-                            Ok(CLIMessage::Result(value)) => {
-                                // The Claude Agent SDK does NOT exit on Result —
-                                // it stays alive on stdin waiting for the next
-                                // user message (so message injection works).
-                                // We must explicitly signal end-of-execution to
-                                // the container, otherwise spawn_exit_monitor
-                                // never fires and the UI spinner spins forever.
-                                if let Some(tx) = exit_signal_tx.take() {
-                                    let _ = tx.send(result_from_payload(&value));
-                                }
+                            Ok(CLIMessage::Result(_)) => {
+                                // End-of-turn, NOT end-of-execution. The SDK
+                                // stays alive on stdin so a follow-up turn can
+                                // be injected via ProtocolPeer. We break out
+                                // of the read so the per-turn select can
+                                // re-arm; the process keeps running until the
+                                // OS-exit watcher catches it.
+                                //
+                                // Notify the container that this turn is
+                                // idle so the UI's spinner can clear even
+                                // though the underlying process keeps
+                                // running. Send is best-effort: if the
+                                // container has already torn down its
+                                // listener, the receiver will be dropped
+                                // and this errors silently — acceptable.
+                                let _ = turn_idle_tx.send(());
                                 break;
                             }
                             _ => {}
@@ -381,54 +374,5 @@ mod tests {
         timeout(Duration::from_millis(100), observable.cancelled())
             .await
             .expect("reader_cancel.cancelled() must resolve after last peer drop");
-    }
-
-    /// The terminal `Result` payload's `is_error: true` must map to Failure.
-    /// This is the discriminator that drives the run-status patch the UI uses
-    /// to clear its spinner.
-    #[test]
-    fn result_payload_with_is_error_true_maps_to_failure() {
-        let payload = serde_json::json!({
-            "type": "result",
-            "subtype": "error",
-            "is_error": true,
-            "duration_ms": 1234,
-        });
-        assert!(matches!(
-            result_from_payload(&payload),
-            ExecutorExitResult::Failure
-        ));
-    }
-
-    /// `is_error: false` (the success path observed in execution logs:
-    /// `"stop_reason":"end_turn"..."terminal_reason":"completed"`) maps to
-    /// Success.
-    #[test]
-    fn result_payload_with_is_error_false_maps_to_success() {
-        let payload = serde_json::json!({
-            "type": "result",
-            "subtype": "success",
-            "is_error": false,
-            "stop_reason": "end_turn",
-            "terminal_reason": "completed",
-        });
-        assert!(matches!(
-            result_from_payload(&payload),
-            ExecutorExitResult::Success
-        ));
-    }
-
-    /// Defensive default: missing `is_error` must NOT block container cleanup.
-    /// We bias to Success so the spinner clears even if the SDK changes shape.
-    #[test]
-    fn result_payload_without_is_error_defaults_to_success() {
-        let payload = serde_json::json!({
-            "type": "result",
-            "subtype": "success",
-        });
-        assert!(matches!(
-            result_from_payload(&payload),
-            ExecutorExitResult::Success
-        ));
     }
 }

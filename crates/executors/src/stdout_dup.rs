@@ -81,6 +81,7 @@ pub fn spawn_local_output_process()
         exit_signal: None,
         cancel: None,
         protocol_peer: None,
+        turn_idle_signal: None,
     };
 
     Ok((spawned, writer))

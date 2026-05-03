@@ -130,6 +130,7 @@ impl AcpAgentHarness {
             exit_signal: Some(exit_rx),
             cancel: Some(cancel),
             protocol_peer: None,
+            turn_idle_signal: None,
         })
     }
 
@@ -184,6 +185,7 @@ impl AcpAgentHarness {
             exit_signal: Some(exit_rx),
             cancel: Some(cancel),
             protocol_peer: None,
+            turn_idle_signal: None,
         })
     }
 

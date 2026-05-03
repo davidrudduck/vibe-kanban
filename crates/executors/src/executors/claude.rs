@@ -39,9 +39,8 @@ use crate::{
     command::{CmdOverrides, CommandBuildError, CommandBuilder, CommandParts, apply_overrides},
     env::ExecutionEnv,
     executors::{
-        AppendPrompt, AvailabilityInfo, BaseCodingAgent, ExecutorError, ExecutorExitResult,
-        SpawnedChild, StandardCodingAgentExecutor, codex::client::LogWriter,
-        utils::reorder_slash_commands,
+        AppendPrompt, AvailabilityInfo, BaseCodingAgent, ExecutorError, SpawnedChild,
+        StandardCodingAgentExecutor, codex::client::LogWriter, utils::reorder_slash_commands,
     },
     logs::{
         ActionType, AnsweredQuestion, AskUserQuestionItem, AskUserQuestionOption, FileChange,
@@ -677,14 +676,14 @@ impl ClaudeCode {
         // messages into this process while it is running.
         let (peer_tx, peer_rx) = tokio::sync::oneshot::channel::<ProtocolPeer>();
 
-        // Oneshot channel that lets the read_loop signal end-of-execution to
-        // the container's exit monitor. The Claude Agent SDK does NOT exit on
-        // its own after emitting the terminal Result message — it stays alive
-        // on stdin so we can inject follow-up messages. Without this signal
-        // the OS-exit watcher would never fire and the UI spinner would spin
-        // forever.
-        let (exit_signal_tx, exit_signal_rx) =
-            tokio::sync::oneshot::channel::<ExecutorExitResult>();
+        // Per-turn idle signal. The Claude Agent SDK CLI does not exit on its
+        // own when a turn ends — it sits on stdin waiting for the next user
+        // message. The reader sends `()` on this channel when it observes
+        // `CLIMessage::Result`. The container's listener task drops the
+        // ProtocolPeer in response, releasing the last `ChildStdin` clone so
+        // the SDK sees EOF and exits naturally, letting the OS-exit watcher
+        // run normal cleanup (status='completed', UI spinner clears).
+        let (turn_idle_tx, turn_idle_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
 
         tokio::spawn(async move {
             let log_writer = LogWriter::new(new_stdout);
@@ -700,7 +699,7 @@ impl ClaudeCode {
                 child_stdout,
                 client.clone(),
                 cancel_for_task,
-                exit_signal_tx,
+                turn_idle_tx,
             );
 
             // Initialize control protocol
@@ -736,9 +735,10 @@ impl ClaudeCode {
 
         Ok(SpawnedChild {
             child,
-            exit_signal: Some(exit_signal_rx),
+            exit_signal: None,
             cancel: Some(cancel),
             protocol_peer: Some(peer_rx),
+            turn_idle_signal: Some(turn_idle_rx),
         })
     }
 }
