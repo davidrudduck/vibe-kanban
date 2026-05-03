@@ -413,6 +413,24 @@ export function findPreviousUserMessageIndex(
   return -1;
 }
 
+/**
+ * Find the index of the next user-message row after `afterIndex`.
+ *
+ * Used by `scrollToNextUserMessage` to locate the scroll target
+ * without re-scanning entry internals.
+ *
+ * @returns The index of the next user message, or -1 if none found.
+ */
+export function findNextUserMessageIndex(
+  rows: ConversationRow[],
+  afterIndex: number
+): number {
+  for (let i = afterIndex + 1; i < rows.length; i++) {
+    if (rows[i].isUserMessage) return i;
+  }
+  return -1;
+}
+
 // ---------------------------------------------------------------------------
 // Key Contract Audit Notes
 // ---------------------------------------------------------------------------

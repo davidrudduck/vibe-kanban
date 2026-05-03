@@ -7,7 +7,15 @@ import {
   type ReactNode,
 } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowDownIcon, ArrowsOutIcon, XIcon } from '@phosphor-icons/react';
+import {
+  ArrowDownIcon,
+  ArrowLineDownIcon,
+  ArrowLineUpIcon,
+  ArrowsOutIcon,
+  ArrowUpIcon,
+  XIcon,
+  type Icon as PhosphorIcon,
+} from '@phosphor-icons/react';
 import { useProjectContext } from '@/shared/hooks/useProjectContext';
 import { useUserContext } from '@/shared/hooks/useUserContext';
 import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
@@ -34,6 +42,28 @@ import {
   closeKanbanIssueComposer,
   useKanbanIssueComposer,
 } from '@/shared/stores/useKanbanIssueComposerStore';
+
+function NavButton({
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  icon: PhosphorIcon;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="pointer-events-auto flex items-center justify-center size-8 rounded-full bg-secondary/80 backdrop-blur-sm border border-secondary text-low hover:text-normal hover:bg-secondary shadow-md transition-all"
+      aria-label={label}
+      title={label}
+    >
+      <Icon className="size-icon-base" weight="bold" />
+    </button>
+  );
+}
 
 interface WorkspaceSessionPanelProps {
   workspaceId: string;
@@ -146,6 +176,7 @@ function WorkspaceSessionPanel({
   const { activeWorkspaces, archivedWorkspaces } = useWorkspaceContext();
   const conversationListRef = useRef<ConversationListHandle>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const [isAtTop, setIsAtTop] = useState(true);
   const { data: workspace, isLoading: isWorkspaceLoading } = useWorkspaceRecord(
     workspaceId,
     { enabled: !!workspaceId }
@@ -211,6 +242,10 @@ function WorkspaceSessionPanel({
     conversationListRef.current?.scrollToPreviousUserMessage();
   }, []);
 
+  const handleScrollToNextMessage = useCallback(() => {
+    conversationListRef.current?.scrollToNextUserMessage();
+  }, []);
+
   const handleScrollToUserMessage = useCallback((patchKey: string) => {
     conversationListRef.current?.scrollToEntryByPatchKey(patchKey);
   }, []);
@@ -226,8 +261,19 @@ function WorkspaceSessionPanel({
     []
   );
 
+  const handleScrollToTop = useCallback(
+    (behavior: 'auto' | 'smooth' = 'smooth') => {
+      conversationListRef.current?.scrollToTop(behavior);
+    },
+    []
+  );
+
   const handleAtBottomChange = useCallback((atBottom: boolean) => {
     setIsAtBottom(atBottom);
+  }, []);
+
+  const handleAtTopChange = useCallback((atTop: boolean) => {
+    setIsAtTop(atTop);
   }, []);
 
   return (
@@ -289,6 +335,7 @@ function WorkspaceSessionPanel({
                         ref={conversationListRef}
                         attempt={workspaceWithSession}
                         onAtBottomChange={handleAtBottomChange}
+                        onAtTopChange={handleAtTopChange}
                         sessionScopeId={selectedSessionId}
                       />
                     </RetryUiProvider>
@@ -298,18 +345,39 @@ function WorkspaceSessionPanel({
                 <div className="flex-1" />
               )}
 
-              {workspaceWithSession && !isAtBottom && (
+              {workspaceWithSession && (!isAtTop || !isAtBottom) && (
                 <div className="flex justify-center pointer-events-none">
                   <div className="w-chat max-w-full relative">
-                    <button
-                      type="button"
-                      onClick={() => handleScrollToBottom('auto')}
-                      className="absolute bottom-2 right-4 z-10 pointer-events-auto flex items-center justify-center size-8 rounded-full bg-secondary/80 backdrop-blur-sm border border-secondary text-low hover:text-normal hover:bg-secondary shadow-md transition-all"
-                      aria-label="Scroll to bottom"
-                      title="Scroll to bottom"
-                    >
-                      <ArrowDownIcon className="size-icon-base" weight="bold" />
-                    </button>
+                    <div className="absolute bottom-2 right-4 z-10 flex flex-col gap-1 pointer-events-none">
+                      {!isAtTop && (
+                        <NavButton
+                          icon={ArrowLineUpIcon}
+                          label="Go to top"
+                          onClick={() => handleScrollToTop('auto')}
+                        />
+                      )}
+                      {!isAtTop && (
+                        <NavButton
+                          icon={ArrowUpIcon}
+                          label="Previous user message"
+                          onClick={handleScrollToPreviousMessage}
+                        />
+                      )}
+                      {!isAtBottom && (
+                        <NavButton
+                          icon={ArrowDownIcon}
+                          label="Next user message"
+                          onClick={handleScrollToNextMessage}
+                        />
+                      )}
+                      {!isAtBottom && (
+                        <NavButton
+                          icon={ArrowLineDownIcon}
+                          label="Scroll to bottom"
+                          onClick={() => handleScrollToBottom('auto')}
+                        />
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
