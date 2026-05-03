@@ -1760,7 +1760,7 @@ impl ContainerService for LocalContainerService {
                         timestamp: None,
                         entry_type: NormalizedEntryType::UserMessage,
                         content: content.clone(),
-                        metadata: None,
+                        metadata: Some(json!({"injected": true})),
                     };
                     let patch = ConversationPatch::add_normalized_entry(999999, entry);
                     store.push_patch(patch);
