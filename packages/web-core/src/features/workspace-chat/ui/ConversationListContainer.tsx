@@ -12,6 +12,7 @@ import { SpinnerIcon } from '@phosphor-icons/react';
 import { useTranslation } from 'react-i18next';
 
 import {
+  findNextUserMessageIndex,
   findPreviousUserMessageIndex,
   type ConversationRow,
 } from '../model/conversation-row-model';
@@ -49,11 +50,14 @@ interface ConversationListProps {
   attempt: WorkspaceWithSession;
   repos?: RepoWithTargetBranch[];
   onAtBottomChange?: (atBottom: boolean) => void;
+  onAtTopChange?: (atTop: boolean) => void;
   sessionScopeId?: string;
 }
 
 export interface ConversationListHandle {
   scrollToPreviousUserMessage: () => void;
+  scrollToNextUserMessage: () => void;
+  scrollToTop: (behavior?: 'auto' | 'smooth') => void;
   scrollToBottom: (behavior?: 'auto' | 'smooth') => void;
   adjustScrollBy: (delta: number) => void;
   getScrollElement: () => HTMLDivElement | null;
@@ -148,7 +152,13 @@ export const ConversationList = forwardRef<
   ConversationListHandle,
   ConversationListProps
 >(function ConversationList(
-  { attempt, repos: reposProp = [], onAtBottomChange, sessionScopeId },
+  {
+    attempt,
+    repos: reposProp = [],
+    onAtBottomChange,
+    onAtTopChange,
+    sessionScopeId,
+  },
   ref
 ) {
   const { t } = useTranslation('common');
@@ -464,6 +474,7 @@ export const ConversationList = forwardRef<
     totalRowCount: conversationRows.length,
     scrollContainerRef: tanstackScrollRef,
     onAtBottomChange,
+    onAtTopChange,
     shouldSuppressSizeAdjustment: shouldSuppressInteractionDrivenSizeAdjustment,
   });
 
@@ -637,11 +648,101 @@ export const ConversationList = forwardRef<
     scrollToAbsoluteIndex,
   ]);
 
+  const scrollToNextUserMessage = useCallback(() => {
+    conversationVirtualizer.releaseBottomLock();
+
+    const scrollEl = tanstackScrollRef.current;
+    if (!scrollEl || conversationRows.length === 0) return;
+
+    const containerTop = scrollEl.getBoundingClientRect().top;
+    const rowNodes = Array.from(
+      scrollEl.querySelectorAll<HTMLElement>('[data-row-index]')
+    );
+
+    // Find the first row whose top is at or below the viewport top.
+    // Anchoring forward ensures we skip past a row that is already pinned
+    // to the top of the viewport when stepping through user messages.
+    let referenceIndex = -1;
+
+    for (const node of rowNodes) {
+      const rect = node.getBoundingClientRect();
+      if (rect.top < containerTop - 1) continue;
+      const indexAttr = node.dataset.rowIndex;
+      if (!indexAttr) continue;
+      const parsedIndex = Number.parseInt(indexAttr, 10);
+      if (!Number.isFinite(parsedIndex)) continue;
+      referenceIndex = parsedIndex;
+      break;
+    }
+
+    if (referenceIndex < 0) referenceIndex = 0;
+
+    const targetIndex = findNextUserMessageIndex(
+      conversationRows,
+      referenceIndex
+    );
+
+    if (targetIndex < 0) return;
+
+    programmaticScrollDeadlineRef.current = performance.now() + 1000;
+
+    let attempts = 0;
+    const maxAttempts = 6;
+
+    const correctScroll = () => {
+      if (attempts >= maxAttempts) return;
+      attempts++;
+
+      programmaticScrollDeadlineRef.current = performance.now() + 500;
+
+      const node = scrollEl.querySelector<HTMLElement>(
+        `[data-row-index="${targetIndex}"]`
+      );
+      if (!node) {
+        if (attempts === 1) {
+          // Use the absolute scroll path because the next user message may
+          // live in the unvirtualized tail rows.
+          scrollToAbsoluteIndex(targetIndex, 'start', 'auto');
+        }
+        requestAnimationFrame(correctScroll);
+        return;
+      }
+
+      const nodeRect = node.getBoundingClientRect();
+      const contRect = scrollEl.getBoundingClientRect();
+      const delta = nodeRect.top - contRect.top;
+
+      if (Math.abs(delta) < 2) return;
+
+      scrollEl.scrollTop += delta;
+      requestAnimationFrame(correctScroll);
+    };
+
+    correctScroll();
+  }, [conversationRows, conversationVirtualizer, scrollToAbsoluteIndex]);
+
+  const scrollToTop = useCallback(
+    (behavior: 'auto' | 'smooth' = 'smooth') => {
+      conversationVirtualizer.releaseBottomLock();
+      if (planRevealSpacerRef.current) {
+        planRevealSpacerRef.current.style.height = '0px';
+      }
+      conversationVirtualizer.scrollToTop(behavior);
+    },
+    [conversationVirtualizer]
+  );
+
   useImperativeHandle(
     ref,
     () => ({
       scrollToPreviousUserMessage: () => {
         scrollToPreviousUserMessage();
+      },
+      scrollToNextUserMessage: () => {
+        scrollToNextUserMessage();
+      },
+      scrollToTop: (behavior = 'smooth') => {
+        scrollToTop(behavior);
       },
       scrollToBottom: (behavior = 'smooth') => {
         scrollToBottomAndClearSpacer(behavior);
@@ -737,7 +838,9 @@ export const ConversationList = forwardRef<
       conversationVirtualizer,
       scrollToAbsoluteIndex,
       scrollToBottomAndClearSpacer,
+      scrollToNextUserMessage,
       scrollToPreviousUserMessage,
+      scrollToTop,
     ]
   );
 
