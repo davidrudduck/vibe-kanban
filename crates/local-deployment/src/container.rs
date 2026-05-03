@@ -1795,7 +1795,13 @@ impl ContainerService for LocalContainerService {
         // refactor breaking that invariant — drop the stale entry instead
         // of writing to a closed pipe. Dropping fires the peer's drop
         // guard, cancelling the reader and releasing ChildStdin.
-        if peer.is_some() && !self.child_store.read().await.contains_key(&execution_process_id) {
+        if peer.is_some()
+            && !self
+                .child_store
+                .read()
+                .await
+                .contains_key(&execution_process_id)
+        {
             self.protocol_peers
                 .write()
                 .await

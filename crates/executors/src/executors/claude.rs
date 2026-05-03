@@ -39,8 +39,9 @@ use crate::{
     command::{CmdOverrides, CommandBuildError, CommandBuilder, CommandParts, apply_overrides},
     env::ExecutionEnv,
     executors::{
-        AppendPrompt, AvailabilityInfo, BaseCodingAgent, ExecutorError, SpawnedChild,
-        StandardCodingAgentExecutor, codex::client::LogWriter, utils::reorder_slash_commands,
+        AppendPrompt, AvailabilityInfo, BaseCodingAgent, ExecutorError, ExecutorExitResult,
+        SpawnedChild, StandardCodingAgentExecutor, codex::client::LogWriter,
+        utils::reorder_slash_commands,
     },
     logs::{
         ActionType, AnsweredQuestion, AskUserQuestionItem, AskUserQuestionOption, FileChange,
@@ -676,6 +677,15 @@ impl ClaudeCode {
         // messages into this process while it is running.
         let (peer_tx, peer_rx) = tokio::sync::oneshot::channel::<ProtocolPeer>();
 
+        // Oneshot channel that lets the read_loop signal end-of-execution to
+        // the container's exit monitor. The Claude Agent SDK does NOT exit on
+        // its own after emitting the terminal Result message — it stays alive
+        // on stdin so we can inject follow-up messages. Without this signal
+        // the OS-exit watcher would never fire and the UI spinner would spin
+        // forever.
+        let (exit_signal_tx, exit_signal_rx) =
+            tokio::sync::oneshot::channel::<ExecutorExitResult>();
+
         tokio::spawn(async move {
             let log_writer = LogWriter::new(new_stdout);
             let client = ClaudeAgentClient::new(
@@ -685,8 +695,13 @@ impl ClaudeCode {
                 commit_reminder_prompt,
                 cancel_for_task.clone(),
             );
-            let protocol_peer =
-                ProtocolPeer::spawn(child_stdin, child_stdout, client.clone(), cancel_for_task);
+            let protocol_peer = ProtocolPeer::spawn(
+                child_stdin,
+                child_stdout,
+                client.clone(),
+                cancel_for_task,
+                exit_signal_tx,
+            );
 
             // Initialize control protocol
             if let Err(e) = protocol_peer.initialize(hooks).await {
@@ -721,7 +736,7 @@ impl ClaudeCode {
 
         Ok(SpawnedChild {
             child,
-            exit_signal: None,
+            exit_signal: Some(exit_signal_rx),
             cancel: Some(cancel),
             protocol_peer: Some(peer_rx),
         })
