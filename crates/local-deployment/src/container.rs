@@ -1592,9 +1592,6 @@ impl ContainerService for LocalContainerService {
             None
         };
 
-        ExecutionProcess::update_completion(&self.db.pool, execution_process.id, status, exit_code)
-            .await?;
-
         // Release the ProtocolPeer immediately so no further injections are accepted.
         self.protocol_peers
             .write()
@@ -1643,6 +1640,10 @@ impl ContainerService for LocalContainerService {
         if let Some(handle) = db_stream_handle {
             let _ = tokio::time::timeout(Duration::from_secs(5), handle).await;
         }
+
+        // DB flip LAST — status event now always trails the Finished log frame
+        ExecutionProcess::update_completion(&self.db.pool, execution_process.id, status, exit_code)
+            .await?;
 
         tracing::debug!(
             "Execution process {} stopped successfully",

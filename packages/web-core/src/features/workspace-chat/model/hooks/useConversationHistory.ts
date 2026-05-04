@@ -44,9 +44,6 @@ export const useConversationHistory = ({
   const onTimelineUpdatedRef = useRef<
     UseConversationHistoryParams['onTimelineUpdated'] | null
   >(null);
-  const previousStatusMapRef = useRef<Map<string, ExecutionProcessStatus>>(
-    new Map()
-  );
   const [isLoadingHistoryState, setIsLoadingHistory] = useState(false);
 
   // Derive whether this is the first turn (no follow-up processes exist)
@@ -94,33 +91,34 @@ export const useConversationHistory = ({
     );
   }, [executionProcessesRaw]);
 
-  const loadEntriesForHistoricExecutionProcess = (
-    executionProcess: ExecutionProcess
-  ) => {
-    let url = '';
-    if (executionProcess.executor_action.typ.type === 'ScriptRequest') {
-      url = `/api/execution-processes/${executionProcess.id}/raw-logs/ws`;
-    } else {
-      url = `/api/execution-processes/${executionProcess.id}/normalized-logs/ws`;
-    }
+  const loadEntriesForHistoricExecutionProcess = useCallback(
+    (executionProcess: ExecutionProcess) => {
+      let url = '';
+      if (executionProcess.executor_action.typ.type === 'ScriptRequest') {
+        url = `/api/execution-processes/${executionProcess.id}/raw-logs/ws`;
+      } else {
+        url = `/api/execution-processes/${executionProcess.id}/normalized-logs/ws`;
+      }
 
-    return new Promise<PatchType[]>((resolve) => {
-      const controller = streamJsonPatchEntries<PatchType>(url, {
-        onFinished: (allEntries) => {
-          controller.close();
-          resolve(allEntries);
-        },
-        onError: (err) => {
-          console.warn(
-            `Error loading entries for historic execution process ${executionProcess.id}`,
-            err
-          );
-          controller.close();
-          resolve([]);
-        },
+      return new Promise<PatchType[]>((resolve) => {
+        const controller = streamJsonPatchEntries<PatchType>(url, {
+          onFinished: (allEntries) => {
+            controller.close();
+            resolve(allEntries);
+          },
+          onError: (err) => {
+            console.warn(
+              `Error loading entries for historic execution process ${executionProcess.id}`,
+              err
+            );
+            controller.close();
+            resolve([]);
+          },
+        });
       });
-    });
-  };
+    },
+    []
+  );
 
   const patchWithKey = (
     patch: PatchType,
@@ -250,13 +248,44 @@ export const useConversationHistory = ({
       for (let i = 0; i < 20; i++) {
         try {
           await loadRunningAndEmit(executionProcess);
-          break;
+          return; // onFinished fired; stream settled cleanly
         } catch (_) {
           await new Promise((resolve) => setTimeout(resolve, 500));
         }
       }
+
+      // All retries exhausted without a clean Finished frame.
+      // If the process has already transitioned to non-running, load its
+      // final entries from the historic endpoint as a last resort.
+      if (settledStreamProcessIdsRef.current.has(executionProcess.id)) {
+        return; // settled concurrently while we were in the last retry sleep
+      }
+
+      const currentProcess = executionProcesses.current.find(
+        (p) => p.id === executionProcess.id
+      );
+      if (
+        currentProcess &&
+        currentProcess.status !== ExecutionProcessStatus.running
+      ) {
+        const entries =
+          await loadEntriesForHistoricExecutionProcess(currentProcess);
+        if (settledStreamProcessIdsRef.current.has(executionProcess.id)) {
+          return; // late-arriving onFinished settled the stream during the fetch
+        }
+        const entriesWithKey = entries.map((e, idx) =>
+          patchWithKey(e, currentProcess.id, idx)
+        );
+        mergeIntoDisplayed((state) => {
+          state[currentProcess.id] = {
+            executionProcess: currentProcess,
+            entries: entriesWithKey,
+          };
+        });
+        emitEntries(displayedExecutionProcesses.current, 'running', false);
+      }
     },
-    [loadRunningAndEmit]
+    [loadRunningAndEmit, loadEntriesForHistoricExecutionProcess, emitEntries]
   );
 
   const loadHistoricEntries = useCallback(
@@ -292,7 +321,7 @@ export const useConversationHistory = ({
 
       return localDisplayedExecutionProcesses;
     },
-    [executionProcesses]
+    [executionProcesses, loadEntriesForHistoricExecutionProcess]
   );
 
   const loadRemainingEntriesInBatches = useCallback(
@@ -333,7 +362,7 @@ export const useConversationHistory = ({
       }
       return anyUpdated;
     },
-    [executionProcesses]
+    [executionProcesses, loadEntriesForHistoricExecutionProcess]
   );
 
   const ensureProcessVisible = useCallback((p: ExecutionProcess) => {
@@ -387,7 +416,6 @@ export const useConversationHistory = ({
     emittedEmptyInitialRef.current = false;
     streamingProcessIdsRef.current.clear();
     settledStreamProcessIdsRef.current.clear();
-    previousStatusMapRef.current.clear();
     emitEntries(displayedExecutionProcesses.current, 'initial', true);
   }, [scopeKey, emitEntries]);
 
@@ -472,61 +500,6 @@ export const useConversationHistory = ({
     ensureProcessVisible,
     loadRunningAndEmitWithBackoff,
   ]);
-
-  useEffect(() => {
-    if (!executionProcessesRaw) return;
-
-    const processesToReload: ExecutionProcess[] = [];
-
-    for (const process of executionProcessesRaw) {
-      const previousStatus = previousStatusMapRef.current.get(process.id);
-      const currentStatus = process.status;
-
-      // Skip re-fetch if the live stream already delivered a clean final state
-      // (onFinished fired → settled). Assumes the backend emits the Finished log
-      // frame before flipping the process status; if that ordering ever changes
-      // this guard may not fire in time and a duplicate emit may briefly recur.
-      // Effect C remains active for processes whose stream failed (onFinished
-      // never fired), preserving it as an error-recovery path.
-      if (
-        previousStatus === ExecutionProcessStatus.running &&
-        currentStatus !== ExecutionProcessStatus.running &&
-        displayedExecutionProcesses.current[process.id] &&
-        !settledStreamProcessIdsRef.current.has(process.id)
-      ) {
-        processesToReload.push(process);
-      }
-
-      previousStatusMapRef.current.set(process.id, currentStatus);
-    }
-
-    if (processesToReload.length === 0) return;
-
-    (async () => {
-      let anyUpdated = false;
-
-      for (const process of processesToReload) {
-        const entries = await loadEntriesForHistoricExecutionProcess(process);
-        if (entries.length === 0) continue;
-
-        const entriesWithKey = entries.map((e, idx) =>
-          patchWithKey(e, process.id, idx)
-        );
-
-        mergeIntoDisplayed((state) => {
-          state[process.id] = {
-            executionProcess: process,
-            entries: entriesWithKey,
-          };
-        });
-        anyUpdated = true;
-      }
-
-      if (anyUpdated) {
-        emitEntries(displayedExecutionProcesses.current, 'running', false);
-      }
-    })();
-  }, [idStatusKey, executionProcessesRaw, emitEntries]);
 
   // If an execution process is removed, remove it from the state
   useEffect(() => {
