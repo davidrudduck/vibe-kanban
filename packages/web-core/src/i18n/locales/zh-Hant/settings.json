@@ -14,6 +14,8 @@
       "nav": {
         "title": "設定",
         "general": "一般",
+        "appearance": "Appearance",
+        "appearanceDesc": "Fonts, accent colour, and display options",
         "generalDesc": "主題、通知與偏好設定",
         "projects": "專案",
         "projectsDesc": "專案儲存庫與設定",
@@ -680,8 +682,5 @@
         }
       }
     }
-  },
-  "layout": {
-    "nav": {}
   }
 }

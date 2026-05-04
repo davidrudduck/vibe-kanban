@@ -18,6 +18,8 @@
         "pairOtherMachines": "Pair other machines",
         "selectHost": "Select host",
         "general": "General",
+        "appearance": "Appearance",
+        "appearanceDesc": "Fonts, accent colour, and display options",
         "generalDesc": "Theme, notifications, and preferences",
         "projects": "Projects",
         "projectsDesc": "Project repositories and configuration",
@@ -680,8 +682,5 @@
         }
       }
     }
-  },
-  "layout": {
-    "nav": {}
   }
 }

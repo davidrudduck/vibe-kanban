@@ -14,6 +14,8 @@
       "nav": {
         "title": "설정",
         "general": "일반",
+        "appearance": "Appearance",
+        "appearanceDesc": "Fonts, accent colour, and display options",
         "generalDesc": "테마, 알림 및 환경설정",
         "projects": "프로젝트",
         "projectsDesc": "프로젝트 저장소 및 구성",
@@ -680,8 +682,5 @@
         }
       }
     }
-  },
-  "layout": {
-    "nav": {}
   }
 }

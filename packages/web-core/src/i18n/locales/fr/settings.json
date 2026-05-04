@@ -14,6 +14,8 @@
       "nav": {
         "title": "Paramètres",
         "general": "Général",
+        "appearance": "Appearance",
+        "appearanceDesc": "Fonts, accent colour, and display options",
         "generalDesc": "Thème, notifications et préférences",
         "projects": "Projets",
         "projectsDesc": "Dépôts de projet et configuration",
@@ -680,8 +682,5 @@
         }
       }
     }
-  },
-  "layout": {
-    "nav": {}
   }
 }
