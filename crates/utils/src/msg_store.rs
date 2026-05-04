@@ -36,7 +36,13 @@ impl Default for MsgStore {
 
 impl MsgStore {
     pub fn new() -> Self {
-        let (sender, _) = broadcast::channel(100000);
+        Self::with_capacity(100000)
+    }
+
+    /// Create a `MsgStore` with a custom broadcast channel capacity. Useful in
+    /// tests where a small capacity triggers lag/resync paths.
+    pub fn with_capacity(capacity: usize) -> Self {
+        let (sender, _) = broadcast::channel(capacity);
         Self {
             inner: RwLock::new(Inner {
                 history: VecDeque::with_capacity(32),
