@@ -64,6 +64,7 @@
     "eslint-config-prettier": "^10.1.5",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-unused-imports": "^4.1.4",
+    "i18next": "^25.5.2",
     "jsdom": "^29.1.1",
     "prettier": "^3.6.1",
     "typescript": "^5.9.2",
