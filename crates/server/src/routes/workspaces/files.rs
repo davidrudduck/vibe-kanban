@@ -402,7 +402,7 @@ fn read_file_git(repo_path: &Path, rel_path: &str) -> Result<(Vec<u8>, u64), Api
     let size: u64 = String::from_utf8_lossy(&size_out.stdout)
         .trim()
         .parse()
-        .unwrap_or(0);
+        .map_err(|e| ApiError::BadRequest(format!("git cat-file size: {e}")))?;
 
     // Stream content capped at MAX_BYTES + 1
     let mut child = std::process::Command::new("git")
@@ -419,7 +419,10 @@ fn read_file_git(repo_path: &Path, rel_path: &str) -> Result<(Vec<u8>, u64), Api
             .read_to_end(&mut bytes)
             .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     }
-    child.wait().ok();
+    // Kill the child explicitly so truncated large reads don't leave git
+    // blocking on a full pipe buffer waiting for SIGPIPE.
+    let _ = child.kill();
+    let _ = child.wait();
 
     Ok((bytes, size))
 }
@@ -560,10 +563,11 @@ mod tests {
 
         let (bytes, size) = read_file_fs(&inner, "big.txt").unwrap();
         assert_eq!(size, 600 * 1024, "size should be full file size from stat");
-        // With streaming, bytes read should be capped at MAX_BYTES + 1 = 512001
-        assert!(
-            bytes.len() <= (500 * 1024 + 1) as usize,
-            "read bytes should be capped, got {} bytes",
+        // With streaming, bytes read should be exactly MAX_BYTES + 1 = 512001
+        assert_eq!(
+            bytes.len(),
+            500 * 1024 + 1,
+            "read bytes should be exactly MAX_BYTES+1, got {}",
             bytes.len()
         );
     }
