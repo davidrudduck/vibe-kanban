@@ -219,6 +219,12 @@
           "label": "Envoyer le message avec",
           "helper": "Choisissez le raccourci clavier pour envoyer des messages.",
           "enterLabel": "Entrée (Maj+Entrée pour nouvelle ligne)"
+        },
+        "editorMode": {
+          "label": "Input mode",
+          "helper": "Choose between formatted (WYSIWYG) or plain text (raw markdown) input.",
+          "wysiwygLabel": "Formatted (WYSIWYG)",
+          "rawLabel": "Plain text (raw markdown)"
         }
       },
       "privacy": {

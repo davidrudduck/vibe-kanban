@@ -227,6 +227,12 @@
           "label": "Send message with",
           "helper": "Choose the keyboard shortcut to send messages.",
           "enterLabel": "Enter (Shift+Enter for new line)"
+        },
+        "editorMode": {
+          "label": "Input mode",
+          "helper": "Choose between formatted (WYSIWYG) or plain text (raw markdown) input.",
+          "wysiwygLabel": "Formatted (WYSIWYG)",
+          "rawLabel": "Plain text (raw markdown)"
         }
       },
       "privacy": {

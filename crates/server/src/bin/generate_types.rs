@@ -209,6 +209,7 @@ fn generate_types_content() -> String {
         services::services::config::AppearanceConfig::decl(),
         services::services::config::HostBannerConfig::decl(),
         services::services::config::LinksConfig::decl(),
+        services::services::config::InputEditorMode::decl(),
         git::GitBranch::decl(),
         services::services::queued_message::QueuedMessage::decl(),
         services::services::queued_message::QueueStatus::decl(),
