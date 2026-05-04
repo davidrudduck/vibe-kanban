@@ -246,7 +246,7 @@ pub async fn read_file(
         .ok_or_else(|| ApiError::BadRequest("path query param required".to_string()))?;
     let source = query.source.as_deref().unwrap_or("worktree");
 
-    const MAX_BYTES: u64 = 512 * 1024;
+    const MAX_BYTES: u64 = 500 * 1024;
 
     let (bytes, size_bytes) = match source {
         "main" => read_file_git(&repo.path, rel_path)?,
@@ -260,9 +260,11 @@ pub async fn read_file(
         &bytes
     };
 
-    let content = String::from_utf8(display_bytes.to_vec()).unwrap_or_else(|_| {
+    let content = if String::from_utf8(display_bytes.to_vec()).is_err() && !truncated {
         "__BINARY__".to_string()
-    });
+    } else {
+        String::from_utf8_lossy(display_bytes).into_owned()
+    };
 
     Ok(ResponseJson(ApiResponse::success(FileContentResponse {
         path: rel_path.to_string(),
