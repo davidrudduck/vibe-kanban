@@ -14,6 +14,8 @@
       "nav": {
         "title": "设置",
         "general": "常规",
+        "appearance": "Appearance",
+        "appearanceDesc": "Fonts, accent colour, and display options",
         "generalDesc": "主题、通知和偏好设置",
         "projects": "项目",
         "projectsDesc": "项目仓库和配置",
@@ -29,6 +31,10 @@
         "remote-projectsDesc": "管理项目",
         "relay": "Remote Access",
         "relayDesc": "Relay tunnel and enrollment",
+        "maintenance": "Maintenance",
+        "maintenanceDesc": "Database vacuum, cleanup, and log management",
+        "diagnostics": "Diagnostics",
+        "diagnosticsDesc": "Connection pool and disk usage stats",
         "machineSettings": "Machine Settings",
         "accountSettings": "Account Settings",
         "pairOtherMachines": "Pair other machines",
@@ -213,6 +219,12 @@
           "label": "发送消息快捷键",
           "helper": "选择发送消息的键盘快捷键。",
           "enterLabel": "Enter（Shift+Enter 换行）"
+        },
+        "editorMode": {
+          "label": "Input mode",
+          "helper": "Choose between formatted (WYSIWYG) or plain text (raw markdown) input.",
+          "wysiwygLabel": "Formatted (WYSIWYG)",
+          "rawLabel": "Plain text (raw markdown)"
         }
       },
       "privacy": {
@@ -291,6 +303,43 @@
           "label": "启用工作区 Beta",
           "helper": "查看任务尝试时使用新的工作区界面。任务将首先在任务视图中打开，尝试将在新的工作区视图中打开。"
         }
+      }
+    },
+    "appearance": {
+      "loading": "Loading…",
+      "saveSuccess": "Appearance saved",
+      "theme": {
+        "title": "Theme & Colour",
+        "description": "Choose your colour mode and the accent used across the UI.",
+        "modeLabel": "Theme mode",
+        "accentLabel": "Accent colour",
+        "accentHelper": "Pick a preset or enter a custom hex value (e.g. #e07b2a).",
+        "accentClear": "Reset"
+      },
+      "fonts": {
+        "title": "Fonts",
+        "description": "Select fonts for UI, code blocks, and prose content.",
+        "uiLabel": "UI font",
+        "codeLabel": "Code font",
+        "proseLabel": "Prose font",
+        "disableLigatures": "Disable ligatures"
+      },
+      "hostBanner": {
+        "title": "Host Banner",
+        "description": "Configure the banner shown in the top of the app shell.",
+        "showHostname": "Show hostname",
+        "showOsInfo": "Show OS info",
+        "envLabel": "Environment label"
+      },
+      "links": {
+        "title": "Links & Community",
+        "description": "Customise external links shown in the app.",
+        "discordEnabled": "Show Discord link",
+        "discordUrl": "Discord URL",
+        "feedbackUrl": "Feedback URL"
+      },
+      "preview": {
+        "title": "Preview"
       }
     },
     "agents": {

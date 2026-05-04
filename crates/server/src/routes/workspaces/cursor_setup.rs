@@ -54,6 +54,7 @@ pub async fn run_cursor_setup(
                     &CreateSession {
                         executor: Some("cursor".to_string()),
                         name: None,
+                        host_id: None,
                     },
                     Uuid::new_v4(),
                     workspace.id,

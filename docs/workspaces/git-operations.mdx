@@ -117,6 +117,38 @@ For workspaces with multiple repositories:
 Create PRs early to get CI feedback and enable team visibility into your progress.
 </Tip>
 
+## Merge Strategies
+
+When merging your working branch into the target branch, Vibe Kanban supports three strategies. You can select a strategy when initiating a merge from the Git panel.
+
+| Strategy | Git equivalent | Best for |
+|----------|---------------|----------|
+| **Squash and merge** (default) | `git merge --squash` + commit | Keeping the target branch history clean; one logical change = one commit |
+| **Rebase and merge** | `git rebase` + fast-forward | Preserving individual commits with a linear history |
+| **Create a merge commit** | `git merge --no-ff` | Explicitly recording that a feature branch was merged |
+
+### Squash and merge
+
+All commits from the working branch are squashed into a single commit and applied to the base branch. The working branch itself is not modified until after the squash commit is created.
+
+<Note>
+Squash merge requires the working branch to be up to date with the base branch. If the base branch has commits that the working branch does not, you must rebase first.
+</Note>
+
+**When to use it:** You want a clean base branch history where each merged feature or fix is represented by a single, descriptive commit.
+
+### Rebase and merge
+
+The commits from the working branch are replayed on top of the current base branch tip, then the base branch is fast-forwarded to include them. This produces a linear history without a merge commit.
+
+**When to use it:** You want to preserve the individual commit history of your work whilst keeping the base branch linear.
+
+### Create a merge commit
+
+A true merge commit is created on the base branch with two parents — the previous base tip and the tip of the working branch. This explicitly records in history that a branch was merged.
+
+**When to use it:** You want an auditable record in git history of when each feature branch was integrated, even at the cost of a non-linear graph.
+
 ## Merging Changes
 
 Pull the latest changes from the target branch into your working branch.

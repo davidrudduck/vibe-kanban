@@ -100,6 +100,7 @@ pub struct LatestProcessInfo {
     pub session_id: Uuid,
     pub status: ExecutionProcessStatus,
     pub completed_at: Option<DateTime<Utc>>,
+    pub host_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -622,12 +623,14 @@ impl ExecutionProcess {
                 execution_process_id as "execution_process_id!: Uuid",
                 session_id as "session_id!: Uuid",
                 status as "status!: ExecutionProcessStatus",
-                completed_at as "completed_at?: DateTime<Utc>"
+                completed_at as "completed_at?: DateTime<Utc>",
+                host_id as "host_id?: String"
             FROM (
                 SELECT
                     s.workspace_id,
                     ep.id as execution_process_id,
                     ep.session_id,
+                    s.host_id,
                     ep.status,
                     ep.completed_at,
                     ROW_NUMBER() OVER (

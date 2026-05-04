@@ -207,7 +207,8 @@ impl ClaudeCode {
             "/",
         ]);
 
-        apply_overrides(builder, &self.cmd)
+        let builder = apply_overrides(builder, &self.cmd)?;
+        Ok(builder)
     }
 
     async fn discover_available_command_and_plugins(

@@ -28,7 +28,7 @@ interface DeriveConversationEntriesParams {
 function patchWithKey(
   patch: PatchType,
   executionProcessId: string,
-  index: number | 'user' | 'script'
+  index: number | 'user' | 'script' | 'error'
 ): PatchTypeWithKey {
   return {
     ...patch,
@@ -58,6 +58,32 @@ function appendAgentTurnEntries(
   }
 
   turnEntries.push(...turn.visibleEntries);
+
+  if (turn.failedOrKilled && turn.visibleEntries.length === 0) {
+    const exitCode = turn.process.liveExecutionProcess?.exit_code;
+    const errorContent =
+      exitCode != null
+        ? `The coding agent process exited unexpectedly (exit code ${exitCode}). You can retry the message.`
+        : 'The coding agent process exited unexpectedly. You can retry the message.';
+
+    turnEntries.push(
+      patchWithKey(
+        {
+          type: 'NORMALIZED_ENTRY',
+          content: {
+            entry_type: {
+              type: 'error_message',
+              error_type: { type: 'other' },
+            },
+            content: errorContent,
+            timestamp: null,
+          },
+        },
+        turn.process.executionProcess.id,
+        'error'
+      )
+    );
+  }
 
   if (turn.shouldEmitLoading) {
     turnEntries.push(makeLoadingPatch(turn.process.executionProcess.id));

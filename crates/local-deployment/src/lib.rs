@@ -5,6 +5,7 @@ use std::{
 
 use api_types::LoginStatus;
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use client_info::ClientInfo;
 use db::DBService;
 use deployment::{Deployment, DeploymentError, RelayHostsNotConfigured, RemoteClientNotConfigured};
@@ -30,6 +31,7 @@ use services::services::{
     queued_message::QueuedMessageService,
     remote_client::{RemoteClient, RemoteClientError},
     repo::RepoService,
+    webhook_dispatcher::WebhookDispatcher,
 };
 use tokio::sync::{Notify, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -79,6 +81,17 @@ pub struct LocalDeployment {
     ssh_config: Arc<russh::server::Config>,
     pty: PtyService,
     pr_sync_notify: Arc<Notify>,
+    /// Abort handle for the webhook dispatcher background task. We keep an
+    /// `AbortHandle` (which is `Clone`) rather than the `JoinHandle` itself
+    /// because `LocalDeployment` derives `Clone`, so wrapping a
+    /// `JoinHandle` in `Arc` would just hide the fact that the clones share
+    /// ownership. The dispatcher already terminates via `shutdown`
+    /// (CancellationToken); this handle is kept only as a last-resort hook
+    /// to force-abort on teardown paths that bypass the token.
+    #[allow(dead_code)]
+    webhook_dispatcher_abort: tokio::task::AbortHandle,
+    wal_monitor: db::wal_monitor::WalMonitorHandle,
+    last_vacuum_time: Arc<RwLock<Option<DateTime<Utc>>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -147,6 +160,12 @@ impl Deployment for LocalDeployment {
         };
 
         let file = FileService::new(db.clone().pool)?;
+
+        // Spawn WAL monitor first — it must be running before any other background
+        // tasks write to the database.
+        let db_path = utils::assets::asset_dir().join("db.v2.sqlite");
+        let wal_monitor = db::wal_monitor::WalMonitor::spawn(db.pool.clone(), db_path);
+
         {
             let file_service = file.clone();
             tokio::spawn(async move {
@@ -236,6 +255,16 @@ impl Deployment for LocalDeployment {
 
         let events = EventService::new(db.clone(), events_msg_store, events_entry_count);
 
+        // Spawn outbound webhook dispatcher. Drive graceful termination via
+        // the shutdown CancellationToken; keep only an AbortHandle around
+        // so we can force-abort if needed. We drop the JoinHandle rather
+        // than storing it because `LocalDeployment` is `Clone` and cloning
+        // a JoinHandle through an Arc would misleadingly share ownership.
+        let webhook_dispatcher_handle =
+            WebhookDispatcher::new(db.pool.clone(), events.msg_store().clone())
+                .spawn(shutdown.child_token());
+        let webhook_dispatcher_abort = webhook_dispatcher_handle.abort_handle();
+
         let file_search_cache = Arc::new(FileSearchCache::new());
 
         let pty = PtyService::new();
@@ -293,6 +322,9 @@ impl Deployment for LocalDeployment {
             ssh_config,
             pty,
             pr_sync_notify,
+            webhook_dispatcher_abort,
+            wal_monitor,
+            last_vacuum_time: Arc::new(RwLock::new(None)),
         };
 
         Ok(deployment)
@@ -484,5 +516,13 @@ impl LocalDeployment {
 
     pub fn trigger_pr_sync(&self) {
         self.pr_sync_notify.notify_one();
+    }
+
+    pub fn wal_monitor(&self) -> &db::wal_monitor::WalMonitorHandle {
+        &self.wal_monitor
+    }
+
+    pub fn last_vacuum_time(&self) -> &Arc<RwLock<Option<DateTime<Utc>>>> {
+        &self.last_vacuum_time
     }
 }

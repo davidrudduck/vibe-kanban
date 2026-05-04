@@ -282,7 +282,7 @@ impl Workspace {
                     WHERE ep2.completed_at IS NULL
                 )
             GROUP BY w.id, w.container_ref, w.updated_at
-            HAVING datetime('now', 'localtime',
+            HAVING datetime('now',
                 CASE
                     WHEN w.archived = 1
                     THEN '-1 hours'
@@ -290,9 +290,9 @@ impl Workspace {
                 END
             ) > datetime(
                 MAX(
-                    max(
-                        datetime(w.updated_at),
-                        datetime(ep.completed_at)
+                    COALESCE(
+                        datetime(ep.completed_at),
+                        datetime(w.updated_at)
                     )
                 )
             )

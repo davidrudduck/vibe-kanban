@@ -204,6 +204,25 @@ impl<'a> OrganizationRepository<'a> {
         Ok(orgs)
     }
 
+    pub async fn has_non_personal_membership(&self, user_id: Uuid) -> Result<bool, IdentityError> {
+        let has_membership = sqlx::query_scalar!(
+            r#"
+            SELECT EXISTS(
+                SELECT 1
+                FROM organization_member_metadata om
+                JOIN organizations o ON o.id = om.organization_id
+                WHERE om.user_id = $1
+                  AND o.is_personal = FALSE
+            ) AS "exists!"
+            "#,
+            user_id
+        )
+        .fetch_one(self.pool)
+        .await?;
+
+        Ok(has_membership)
+    }
+
     pub async fn update_organization_name(
         &self,
         org_id: Uuid,

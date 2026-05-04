@@ -16,7 +16,7 @@ use db::models::{
     workspace_repo::WorkspaceRepo,
 };
 use deployment::Deployment;
-use git::{ConflictOp, GitCliError, GitServiceError};
+use git::{ConflictOp, GitCliError, GitServiceError, MergeStrategy};
 use serde::{Deserialize, Serialize};
 use services::services::{container::ContainerService, diff_stream, remote_sync};
 use ts_rs::TS;
@@ -59,6 +59,9 @@ pub enum GitOperationError {
 #[derive(Debug, Deserialize, Serialize, TS)]
 pub struct MergeWorkspaceRequest {
     pub repo_id: Uuid,
+    /// Merge strategy. Defaults to `squash` for backwards compatibility.
+    #[serde(default)]
+    pub strategy: Option<MergeStrategy>,
 }
 
 #[derive(Debug, Deserialize, Serialize, TS)]
@@ -202,6 +205,17 @@ pub async fn merge_workspace(
         ));
     }
 
+    // Idempotency guard: if a DirectMerge record already exists for this
+    // workspace+repo, a previous request succeeded on disk but the client
+    // retried (e.g. after a transient DB error on the first attempt). Reject
+    // the retry rather than applying a second merge commit on top of the first.
+    let already_merged = merges.iter().any(|m| matches!(m, Merge::Direct(_)));
+    if already_merged {
+        return Err(ApiError::BadRequest(
+            "This workspace has already been merged into the target branch.".to_string(),
+        ));
+    }
+
     let is_target_remote = deployment
         .git()
         .is_remote_branch(&repo.path, &workspace_repo.target_branch)?;
@@ -223,22 +237,60 @@ pub async fn merge_workspace(
     let vk_id = resolve_vibe_kanban_identifier(&deployment, workspace.id).await;
     let commit_message = format!("{} (vibe-kanban {})", workspace_label, vk_id);
 
-    let merge_commit_id = deployment.git().merge_changes(
-        &repo.path,
-        &worktree_path,
-        &workspace.branch,
-        &workspace_repo.target_branch,
-        &commit_message,
-    )?;
+    let strategy = request.strategy.unwrap_or_default();
+    // merge_changes invokes synchronous git CLI operations (rebase / merge
+    // --no-ff / squash) which can block for seconds on large repos. Move it
+    // onto a blocking thread so we don't stall the Tokio executor while git
+    // runs.
+    let merge_commit_id = {
+        let git = deployment.git().clone();
+        let repo_path = repo.path.clone();
+        let worktree_path = worktree_path.clone();
+        let branch = workspace.branch.clone();
+        let target_branch = workspace_repo.target_branch.clone();
+        let commit_message = commit_message.clone();
+        tokio::task::spawn_blocking(move || {
+            git.merge_changes(
+                &repo_path,
+                &worktree_path,
+                &branch,
+                &target_branch,
+                &commit_message,
+                strategy,
+            )
+        })
+        .await
+        .map_err(|e| ApiError::Io(std::io::Error::other(format!("merge task panicked: {e}"))))??
+    };
 
-    Merge::create_direct(
+    // The merge commit has already been written to the repository by
+    // `merge_changes` above. If the subsequent DB insert fails the worktree
+    // has diverged from our recorded state — log a critical line with enough
+    // context that an operator can reconcile manually. We still return the
+    // error so the HTTP caller is not told "success" for a partial write.
+    match Merge::create_direct(
         pool,
         workspace.id,
         workspace_repo.repo_id,
         &workspace_repo.target_branch,
         &merge_commit_id,
+        strategy.as_str(),
     )
-    .await?;
+    .await
+    {
+        Ok(_) => {}
+        Err(e) => {
+            tracing::error!(
+                workspace_id = %workspace.id,
+                merge_commit_id = %merge_commit_id,
+                strategy = ?strategy,
+                target_branch = %workspace_repo.target_branch,
+                "CRITICAL: git merge committed to disk but DB write failed. \
+                 Worktree has diverged from DB state. Manual recovery required. Error: {e}"
+            );
+            return Err(ApiError::Database(e));
+        }
+    }
 
     if let Ok(client) = deployment.remote_client() {
         let workspace_id = workspace.id;

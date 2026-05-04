@@ -1,0 +1,281 @@
+---
+title: "Outbound Webhooks"
+description: "Fan out Vibe Kanban workspace and session events to external URLs using outbound webhooks"
+---
+
+Outbound webhooks let Vibe Kanban push events to external services whenever workspace or session state changes. Your server receives an HTTP POST request with a JSON payload each time an event fires, enabling integrations with notification tools, dashboards, CI systems, or any custom automation.
+
+## How webhooks work
+
+Vibe Kanban maintains a list of registered webhook URLs. When an internal event occurs — such as a workspace session updating its status or a task completing — the dispatcher fans out the event payload to every enabled webhook concurrently.
+
+Each delivery is a single HTTP POST with:
+
+- `Content-Type: application/json`
+- `X-VK-Event: patch` header identifying the event type
+- `X-VK-Secret: <your-secret>` header if you configured a secret (see [Security](#security))
+- A JSON body describing the change
+
+<Note>
+The dispatcher makes a best-effort delivery. If your endpoint returns a non-2xx response or is unreachable, Vibe Kanban logs a warning but does not retry. Design your endpoint to be idempotent.
+</Note>
+
+## Registering a webhook
+
+Webhooks are managed through the Vibe Kanban REST API.
+
+### List registered webhooks
+
+```
+GET /api/webhooks
+```
+
+<RequestExample>
+```bash cURL
+curl http://127.0.0.1:3001/api/webhooks
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200 OK
+{
+  "data": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "url": "https://example.com/vibe-kanban-events",
+      "secret": null,
+      "description": "Notify Slack on workspace changes",
+      "enabled": true,
+      "created_at": "2026-04-23T10:00:00Z",
+      "updated_at": "2026-04-23T10:00:00Z"
+    }
+  ]
+}
+```
+</ResponseExample>
+
+### Create a webhook
+
+```
+POST /api/webhooks
+```
+
+#### Request body
+
+<ParamField body="url" type="string" required>
+The URL Vibe Kanban will POST events to. Must be reachable from the machine running Vibe Kanban. HTTPS is strongly recommended for production use.
+</ParamField>
+
+<ParamField body="secret" type="string">
+An optional shared secret. When set, Vibe Kanban includes it in the `X-VK-Secret` request header so your endpoint can verify the request origin.
+</ParamField>
+
+<ParamField body="description" type="string">
+A human-readable label for this webhook, used only for display purposes.
+</ParamField>
+
+<RequestExample>
+```bash cURL
+curl -X POST http://127.0.0.1:3001/api/webhooks \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "url": "https://example.com/vibe-kanban-events",
+    "secret": "my-shared-secret",
+    "description": "Notify Slack on workspace changes"
+  }'
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200 OK
+{
+  "data": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "url": "https://example.com/vibe-kanban-events",
+    "secret": "my-shared-secret",
+    "description": "Notify Slack on workspace changes",
+    "enabled": true,
+    "created_at": "2026-04-23T10:00:00Z",
+    "updated_at": "2026-04-23T10:00:00Z"
+  }
+}
+```
+</ResponseExample>
+
+### Delete a webhook
+
+```
+DELETE /api/webhooks/{id}
+```
+
+<ParamField path="id" type="string" required>
+UUID of the webhook to delete.
+</ParamField>
+
+<RequestExample>
+```bash cURL
+curl -X DELETE http://127.0.0.1:3001/api/webhooks/550e8400-e29b-41d4-a716-446655440000
+```
+</RequestExample>
+
+Returns `204 No Content` on success.
+
+## Event payload format
+
+Every delivery is a JSON patch payload describing what changed. The outer structure is always:
+
+```json
+{
+  "op": "replace",
+  "path": "/workspaces/550e8400-e29b-41d4-a716-446655440001/status",
+  "value": "in_review"
+}
+```
+
+The payload follows the [RFC 6902 JSON Patch](https://datatracker.ietf.org/doc/html/rfc6902) format. Each request contains a single patch operation.
+
+### Request headers
+
+| Header | Value | Description |
+|--------|-------|-------------|
+| `Content-Type` | `application/json` | Always present |
+| `X-VK-Event` | `patch` | Identifies the event type |
+| `X-VK-Secret` | `<your-secret>` | Only present when a secret is configured |
+
+## Event types
+
+All events use the `patch` event type and describe a change to the Vibe Kanban state tree using JSON Patch operations.
+
+| Operation | When it fires |
+|-----------|---------------|
+| `add` | A new resource was created (workspace, session, issue) |
+| `replace` | A resource field was updated (status change, name change) |
+| `remove` | A resource was deleted or archived |
+
+## Security
+
+<Warning>
+Without a shared secret, any party who can send HTTP requests to your webhook endpoint can spoof events. Always use a secret in production.
+</Warning>
+
+<Warning>
+The `secret` field is returned in API responses. By default, the local server binds to `127.0.0.1` and only local processes can reach it. If you bind with `--host 0.0.0.0` or a network-accessible address, treat the API and any stored secrets as network-accessible. Treat the Vibe Kanban API port as sensitive — avoid using production-grade secrets; prefer a short HMAC token.
+</Warning>
+
+### Validating the secret
+
+When you configure a `secret`, Vibe Kanban sends it verbatim in the `X-VK-Secret` header. Your endpoint should compare this value against the secret you configured and reject requests where it does not match.
+
+```javascript Node.js (Express)
+app.post('/vibe-kanban-events', (req, res) => {
+  const receivedSecret = req.headers['x-vk-secret'];
+  const expectedSecret = process.env.VK_WEBHOOK_SECRET;
+
+  if (receivedSecret !== expectedSecret) {
+    return res.status(401).json({ error: 'Invalid secret' });
+  }
+
+  // Process the event
+  const patch = req.body;
+  console.log('Received patch:', patch);
+
+  res.status(200).json({ ok: true });
+});
+```
+
+### Additional recommendations
+
+- **Use HTTPS** — HTTP endpoints expose event payloads (and your secret) to network eavesdropping
+- **Respond quickly** — The dispatcher has a 10-second timeout per delivery. Long-running processing should happen asynchronously after you respond
+- **Be idempotent** — Deliveries are not retried on failure, but network issues could theoretically cause duplicate deliveries in edge cases. Design handlers to tolerate duplicate events safely
+
+## Receiving webhooks in Node.js
+
+The following example shows a minimal Express server that receives Vibe Kanban webhook events and logs them.
+
+```javascript server.js
+import express from 'express';
+
+const app = express();
+const PORT = 4000;
+const VK_SECRET = process.env.VK_WEBHOOK_SECRET;
+
+app.use(express.json());
+
+app.post('/vibe-kanban-events', (req, res) => {
+  // Validate the shared secret
+  if (VK_SECRET && req.headers['x-vk-secret'] !== VK_SECRET) {
+    console.warn('Rejected webhook: invalid secret');
+    return res.status(401).json({ error: 'Invalid secret' });
+  }
+
+  const eventType = req.headers['x-vk-event'];
+  const patch = req.body;
+
+  console.log(`Received ${eventType} event:`, JSON.stringify(patch, null, 2));
+
+  // Respond immediately — do any slow processing asynchronously
+  res.status(200).json({ ok: true });
+
+  // Example: trigger a notification based on the patch path
+  if (patch.path?.includes('/status') && patch.value === 'in_review') {
+    notifyTeam(patch).catch(console.error);
+  }
+});
+
+async function notifyTeam(patch) {
+  // Your notification logic here
+  console.log('Notifying team about status change:', patch);
+}
+
+app.listen(PORT, () => {
+  console.log(`Webhook receiver listening on http://localhost:${PORT}`);
+});
+```
+
+<Steps>
+<Step title="Start your webhook receiver">
+```bash
+VK_WEBHOOK_SECRET=my-shared-secret node server.js
+```
+</Step>
+
+<Step title="Expose it to Vibe Kanban">
+If Vibe Kanban is running on the same machine, use `http://localhost:4000/vibe-kanban-events` as the URL. If it is running on a different machine or in a container, ensure your endpoint is network-reachable.
+
+<Tip>
+During local development, use a tool such as [ngrok](https://ngrok.com/) to expose a local port: `ngrok http 4000`.
+</Tip>
+</Step>
+
+<Step title="Register the webhook">
+```bash
+curl -X POST http://127.0.0.1:3001/api/webhooks \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "url": "https://your-ngrok-url.ngrok.io/vibe-kanban-events",
+    "secret": "my-shared-secret",
+    "description": "Local dev receiver"
+  }'
+```
+</Step>
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+<Accordion title="My endpoint is not receiving events">
+- Verify the webhook is registered: `GET /api/webhooks`
+- Confirm `enabled` is `true` in the response
+- Check that the URL is reachable from the machine running Vibe Kanban — try `curl <your-url>` from that machine
+- Review Vibe Kanban server logs for `webhook delivery` warning messages
+</Accordion>
+
+<Accordion title="Deliveries are timing out">
+The dispatcher waits up to 10 seconds for a response. If your handler performs slow operations synchronously, it will time out. Respond with `200 OK` immediately and process the event asynchronously.
+</Accordion>
+
+<Accordion title="I'm receiving events with an invalid secret">
+The `X-VK-Secret` header is sent verbatim. Check that the secret in your webhook registration matches the value your endpoint is comparing against, including any trailing whitespace or encoding differences.
+</Accordion>
+</AccordionGroup>

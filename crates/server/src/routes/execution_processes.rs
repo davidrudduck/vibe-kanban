@@ -1,7 +1,7 @@
 use anyhow;
 use axum::{
     Extension, Router,
-    extract::{Path, Query, State, ws::Message},
+    extract::{Json, Path, Query, State, ws::Message},
     middleware::from_fn_with_state,
     response::{IntoResponse, Json as ResponseJson},
     routing::{get, post},
@@ -212,6 +212,39 @@ async fn stop_execution_process(
     Ok(ResponseJson(ApiResponse::success(())))
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct InjectMessageRequest {
+    content: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct InjectMessageResponse {
+    /// `true` if the message was delivered live to the running process;
+    /// `false` if no live peer was available (caller should fall back to queue).
+    injected: bool,
+}
+
+async fn inject_message_into_process(
+    Extension(execution_process): Extension<ExecutionProcess>,
+    State(deployment): State<DeploymentImpl>,
+    Json(body): Json<InjectMessageRequest>,
+) -> Result<ResponseJson<ApiResponse<InjectMessageResponse>>, ApiError> {
+    if execution_process.status != ExecutionProcessStatus::Running {
+        return Err(ApiError::BadRequest(
+            "Execution process is not running".to_string(),
+        ));
+    }
+
+    let injected = deployment
+        .container()
+        .inject_message(execution_process.id, body.content)
+        .await?;
+
+    Ok(ResponseJson(ApiResponse::success(InjectMessageResponse {
+        injected,
+    })))
+}
+
 async fn stream_execution_processes_by_session_ws(
     ws: SignedWsUpgrade,
     State(deployment): State<DeploymentImpl>,
@@ -287,6 +320,7 @@ pub(super) fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let workspace_id_router = Router::new()
         .route("/", get(get_execution_process_by_id))
         .route("/stop", post(stop_execution_process))
+        .route("/inject-message", post(inject_message_into_process))
         .route("/repo-states", get(get_execution_process_repo_states))
         .route("/raw-logs/ws", get(stream_raw_logs_ws))
         .route("/normalized-logs/ws", get(stream_normalized_logs_ws))

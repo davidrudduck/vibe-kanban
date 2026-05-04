@@ -17,16 +17,19 @@ db = { path = "../db" }
 executors = { path = "../executors" }
 utils = { path = "../utils" }
 tokio = { workspace = true }
+axum = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { version = "1.0", features = ["v4", "serde"] }
-rmcp = { version = "1.2.0", features = ["server", "transport-io"] }
+rmcp = { version = "1.2.0", features = ["server", "transport-io", "transport-streamable-http-server"] }
 schemars = { workspace = true }
 sentry = { version = "0.46.2", default-features = false, features = ["anyhow", "backtrace", "panic", "debug-images", "reqwest", "rustls"] }
 reqwest = { workspace = true }
 rustls = { workspace = true }
 regex = "1"
+url = "2.5"
 thiserror = { workspace = true }
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite"] }

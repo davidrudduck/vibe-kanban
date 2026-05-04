@@ -1,0 +1,92 @@
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { FontConfig } from 'shared/types';
+import {
+  loadFont,
+  getUiFontFamily,
+  getCodeFontFamily,
+  getProseFontFamily,
+  getUiFontUrl,
+  getCodeFontUrl,
+  getProseFontUrl,
+} from '@/lib/fonts';
+
+type FontProviderProps = {
+  children: React.ReactNode;
+  initialFonts?: FontConfig;
+};
+
+type FontProviderState = {
+  fonts: FontConfig;
+  setFonts: (fonts: FontConfig) => void;
+};
+
+const defaultFonts: FontConfig = {
+  ui_font: 'IBM_PLEX_SANS',
+  code_font: 'IBM_PLEX_MONO',
+  prose_font: 'IBM_PLEX_SANS',
+  disable_ligatures: false,
+};
+
+const FontProviderContext = createContext<FontProviderState>({
+  fonts: defaultFonts,
+  setFonts: () => null,
+});
+
+export function FontProvider({ children, initialFonts }: FontProviderProps) {
+  const [fonts, setFontsState] = useState<FontConfig>(
+    initialFonts ?? defaultFonts
+  );
+
+  // Update when initialFonts changes (config loaded), skip if values are identical
+  useEffect(() => {
+    if (
+      initialFonts &&
+      (initialFonts.ui_font !== fonts.ui_font ||
+        initialFonts.code_font !== fonts.code_font ||
+        initialFonts.prose_font !== fonts.prose_font ||
+        initialFonts.disable_ligatures !== fonts.disable_ligatures)
+    ) {
+      setFontsState(initialFonts);
+    }
+  }, [initialFonts]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Apply fonts when they change
+  useEffect(() => {
+    const root = document.documentElement;
+
+    // Load font files if needed
+    loadFont(getUiFontUrl(fonts.ui_font));
+    loadFont(getCodeFontUrl(fonts.code_font));
+    loadFont(getProseFontUrl(fonts.prose_font));
+
+    // Set CSS variables
+    root.style.setProperty('--font-ui', getUiFontFamily(fonts.ui_font));
+    root.style.setProperty('--font-code', getCodeFontFamily(fonts.code_font));
+    root.style.setProperty(
+      '--font-prose',
+      getProseFontFamily(fonts.prose_font)
+    );
+    root.style.setProperty(
+      '--font-ligatures',
+      fonts.disable_ligatures ? 'none' : 'normal'
+    );
+  }, [fonts]);
+
+  const setFonts = (newFonts: FontConfig) => {
+    setFontsState(newFonts);
+  };
+
+  return (
+    <FontProviderContext.Provider value={{ fonts, setFonts }}>
+      {children}
+    </FontProviderContext.Provider>
+  );
+}
+
+export const useFonts = () => {
+  const context = useContext(FontProviderContext);
+  if (context === undefined) {
+    throw new Error('useFonts must be used within a FontProvider');
+  }
+  return context;
+};

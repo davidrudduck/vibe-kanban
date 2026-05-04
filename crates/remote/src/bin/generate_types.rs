@@ -14,7 +14,10 @@ use api_types::{
     UpdateNotificationRequest, UpdateProjectRequest, UpdateProjectStatusRequest, UpdateTagRequest,
     User, UserData, Workspace,
 };
-use relay_types::{CreateRemoteSessionResponse, ListRelayHostsResponse, RelayHost};
+use relay_types::{
+    CreateRemoteSessionResponse, HostRepo, ListHostReposResponse, ListRelayHostsResponse,
+    RelayHost, ReportHostReposRequest,
+};
 use remote::{
     routes::{
         all_mutation_definitions,
@@ -107,6 +110,9 @@ fn export_shapes() -> String {
         RelayHost::decl(),
         ListRelayHostsResponse::decl(),
         CreateRemoteSessionResponse::decl(),
+        HostRepo::decl(),
+        ListHostReposResponse::decl(),
+        ReportHostReposRequest::decl(),
         MemberRole::decl(),
         OrganizationMember::decl(),
         // Mutation request types

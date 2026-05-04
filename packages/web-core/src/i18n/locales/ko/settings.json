@@ -14,6 +14,8 @@
       "nav": {
         "title": "설정",
         "general": "일반",
+        "appearance": "Appearance",
+        "appearanceDesc": "Fonts, accent colour, and display options",
         "generalDesc": "테마, 알림 및 환경설정",
         "projects": "프로젝트",
         "projectsDesc": "프로젝트 저장소 및 구성",
@@ -29,6 +31,10 @@
         "remote-projectsDesc": "프로젝트 관리",
         "relay": "Remote Access",
         "relayDesc": "Relay tunnel and enrollment",
+        "maintenance": "Maintenance",
+        "maintenanceDesc": "Database vacuum, cleanup, and log management",
+        "diagnostics": "Diagnostics",
+        "diagnosticsDesc": "Connection pool and disk usage stats",
         "machineSettings": "Machine Settings",
         "accountSettings": "Account Settings",
         "pairOtherMachines": "Pair other machines",
@@ -213,6 +219,12 @@
           "label": "메시지 보내기 키",
           "helper": "메시지를 보내는 키보드 단축키를 선택하세요.",
           "enterLabel": "Enter (Shift+Enter로 새 줄)"
+        },
+        "editorMode": {
+          "label": "Input mode",
+          "helper": "Choose between formatted (WYSIWYG) or plain text (raw markdown) input.",
+          "wysiwygLabel": "Formatted (WYSIWYG)",
+          "rawLabel": "Plain text (raw markdown)"
         }
       },
       "privacy": {
@@ -291,6 +303,43 @@
           "label": "워크스페이스 베타 활성화",
           "helper": "작업 시도를 볼 때 새로운 워크스페이스 인터페이스를 사용합니다. 작업은 먼저 작업 보기에서 열리고, 시도는 새로운 워크스페이스 보기에서 열립니다."
         }
+      }
+    },
+    "appearance": {
+      "loading": "Loading…",
+      "saveSuccess": "Appearance saved",
+      "theme": {
+        "title": "Theme & Colour",
+        "description": "Choose your colour mode and the accent used across the UI.",
+        "modeLabel": "Theme mode",
+        "accentLabel": "Accent colour",
+        "accentHelper": "Pick a preset or enter a custom hex value (e.g. #e07b2a).",
+        "accentClear": "Reset"
+      },
+      "fonts": {
+        "title": "Fonts",
+        "description": "Select fonts for UI, code blocks, and prose content.",
+        "uiLabel": "UI font",
+        "codeLabel": "Code font",
+        "proseLabel": "Prose font",
+        "disableLigatures": "Disable ligatures"
+      },
+      "hostBanner": {
+        "title": "Host Banner",
+        "description": "Configure the banner shown in the top of the app shell.",
+        "showHostname": "Show hostname",
+        "showOsInfo": "Show OS info",
+        "envLabel": "Environment label"
+      },
+      "links": {
+        "title": "Links & Community",
+        "description": "Customise external links shown in the app.",
+        "discordEnabled": "Show Discord link",
+        "discordUrl": "Discord URL",
+        "feedbackUrl": "Feedback URL"
+      },
+      "preview": {
+        "title": "Preview"
       }
     },
     "agents": {

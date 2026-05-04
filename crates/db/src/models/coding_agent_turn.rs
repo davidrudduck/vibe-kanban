@@ -81,6 +81,58 @@ impl CodingAgentTurn {
         .await
     }
 
+    /// Batch-fetch coding agent turns for a list of execution process IDs.
+    /// Avoids N+1 queries by running `WHERE execution_process_id IN (...)`
+    /// lookups in chunks. Returns a map of execution_process_id -> turn.
+    ///
+    /// Chunks are capped at 500 IDs per query to stay well below SQLite's
+    /// default bound-parameter limit (SQLITE_MAX_VARIABLE_NUMBER = 999).
+    pub async fn find_by_execution_process_ids(
+        pool: &SqlitePool,
+        execution_process_ids: &[Uuid],
+    ) -> Result<std::collections::HashMap<Uuid, Self>, sqlx::Error> {
+        use std::collections::HashMap;
+
+        if execution_process_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut result = HashMap::new();
+        for chunk in execution_process_ids.chunks(500) {
+            // SQLite doesn't support binding arrays directly — build a query
+            // with the right number of `?` placeholders and bind each UUID.
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let query = format!(
+                r#"SELECT
+                id,
+                execution_process_id,
+                agent_session_id,
+                agent_message_id,
+                prompt,
+                summary,
+                seen,
+                created_at,
+                updated_at
+               FROM coding_agent_turns
+               WHERE execution_process_id IN ({placeholders})"#,
+            );
+
+            let mut q = sqlx::query_as::<_, Self>(&query);
+            for id in chunk {
+                q = q.bind(id);
+            }
+
+            let rows = q.fetch_all(pool).await?;
+            for turn in rows {
+                result.insert(turn.execution_process_id, turn);
+            }
+        }
+
+        Ok(result)
+    }
+
     /// Create a new coding agent turn
     pub async fn create(
         pool: &SqlitePool,
@@ -124,6 +176,34 @@ impl CodingAgentTurn {
         )
         .fetch_one(pool)
         .await
+    }
+
+    /// Invalidate all agent sessions for a vibe-kanban session by clearing
+    /// every `agent_session_id` on its coding-agent turns. When a worktree is
+    /// recreated, *all* prior Claude Code sessions in that worktree are lost,
+    /// so we must null them all — otherwise `find_latest_session_info()` would
+    /// fall through to an older (equally stale) turn.
+    pub async fn invalidate_sessions_for_session(
+        pool: &SqlitePool,
+        session_id: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        let now = Utc::now();
+        sqlx::query!(
+            r#"UPDATE coding_agent_turns
+               SET agent_session_id = NULL, updated_at = $1
+               WHERE execution_process_id IN (
+                   SELECT ep.id FROM execution_processes ep
+                   WHERE ep.session_id = $2
+                     AND ep.run_reason = 'codingagent'
+               )
+               AND agent_session_id IS NOT NULL"#,
+            now,
+            session_id
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(())
     }
 
     /// Update coding agent turn with agent session ID

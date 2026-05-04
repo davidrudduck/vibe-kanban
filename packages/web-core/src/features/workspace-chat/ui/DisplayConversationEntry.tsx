@@ -4,10 +4,12 @@ import type { TFunction } from 'i18next';
 import {
   ActionType,
   BaseAgentCapability,
+  BaseCodingAgent,
   NormalizedEntry,
   ToolStatus,
   ToolResult,
   TodoItem,
+  type AvailableSessionInfo,
   type RepoWithTargetBranch,
 } from 'shared/types';
 import type { WorkspaceWithSession } from '@/shared/types/attempt';
@@ -25,7 +27,8 @@ import { useMessageEditContext } from '../model/contexts/MessageEditContext';
 import type { UseResetProcessResult } from '../model/hooks/useResetProcess';
 import { useChangesViewActions } from '@/shared/hooks/useChangesView';
 import { useLogsPanelActions } from '@/shared/hooks/useLogsPanel';
-import { cn } from '@/shared/lib/utils';
+import { cn, formatFileSize } from '@/shared/lib/utils';
+import { sessionsApi } from '@/shared/lib/api';
 import {
   ScriptFixerDialog,
   type ScriptType,
@@ -42,6 +45,7 @@ import { ChatAssistantMessage } from '@vibe/ui/components/ChatAssistantMessage';
 import { ChatSystemMessage } from '@vibe/ui/components/ChatSystemMessage';
 import { ChatThinkingMessage } from '@vibe/ui/components/ChatThinkingMessage';
 import { ChatErrorMessage } from '@vibe/ui/components/ChatErrorMessage';
+import { WarningCircleIcon } from '@phosphor-icons/react';
 import { ChatScriptEntry } from '@vibe/ui/components/ChatScriptEntry';
 import { ChatSubagentEntry } from '@vibe/ui/components/ChatSubagentEntry';
 import { ChatAggregatedToolEntries } from '@vibe/ui/components/ChatAggregatedToolEntries';
@@ -397,6 +401,16 @@ function DisplayConversationEntry(props: Props) {
       );
 
     case 'error_message':
+      if (entryType.error_type.type === 'session_not_found') {
+        return (
+          <SessionNotFoundEntry
+            content={entry.content}
+            availableSessions={entryType.error_type.available_sessions}
+            sessionId={sessionId}
+            executor={workspaceWithSession?.session?.executor ?? null}
+          />
+        );
+      }
       return (
         <ErrorMessageEntry
           content={entry.content}
@@ -571,10 +585,10 @@ function FileEditEntry({
   const hasDiffContent = Boolean(diffContent && diffPreviewData.isValid);
 
   // Only show "open in changes" button if the file exists in current diffs
+  const canOpenInChanges = hasDiffPath(path);
   const handleOpenInChanges = useCallback(() => {
-    if (!hasDiffPath(path)) return;
     viewFileInChanges(path);
-  }, [viewFileInChanges, hasDiffPath, path]);
+  }, [viewFileInChanges, path]);
   const handleOpenInVSCode = useCallback((filename: string) => {
     openFileInVSCode(filename, { openAsDiff: false });
   }, []);
@@ -598,7 +612,7 @@ function FileEditEntry({
             )
           : undefined
       }
-      onOpenInChanges={handleOpenInChanges}
+      onOpenInChanges={canOpenInChanges ? handleOpenInChanges : undefined}
     />
   );
 }
@@ -1112,6 +1126,174 @@ function ScriptEntryWithFix({
   );
 }
 
+function SessionNotFoundEntry({
+  content,
+  availableSessions,
+  sessionId,
+  executor,
+}: {
+  content: string;
+  availableSessions: AvailableSessionInfo[];
+  sessionId: string | undefined;
+  executor: string | null;
+}) {
+  const [selectedIdx, setSelectedIdx] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [recovered, setRecovered] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submittingRef = useRef(false);
+
+  const validExecutor = useMemo(() => {
+    if (!executor) return null;
+    return Object.values(BaseCodingAgent).includes(executor as BaseCodingAgent)
+      ? (executor as BaseCodingAgent)
+      : null;
+  }, [executor]);
+
+  const formatTimestamp = useCallback((ts: string | null) => {
+    if (!ts) return '—';
+    const d = new Date(ts);
+    return d.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }, []);
+
+  const formatDuration = useCallback((secs: bigint | null) => {
+    if (secs == null) return '—';
+    const n = Number(secs);
+    if (n < 60) return `${n}s`;
+    if (n < 3600) return `${Math.floor(n / 60)}m ${n % 60}s`;
+    return `${Math.floor(n / 3600)}h ${Math.floor((n % 3600) / 60)}m`;
+  }, []);
+
+  const handleRecover = useCallback(
+    async (overrideSessionId: string | null) => {
+      if (!sessionId || !validExecutor || submittingRef.current) return;
+      submittingRef.current = true;
+      setIsSubmitting(true);
+      setError(null);
+      try {
+        await sessionsApi.followUp(sessionId, {
+          prompt: 'Continue where you left off.',
+          executor_config: { executor: validExecutor },
+          retry_process_id: null,
+          force_when_dirty: null,
+          perform_git_reset: null,
+          override_session_id: overrideSessionId,
+        });
+        setRecovered(true);
+      } catch (e: unknown) {
+        const err = e as { message?: string };
+        setError(err.message ?? 'Failed to recover session');
+      } finally {
+        submittingRef.current = false;
+        setIsSubmitting(false);
+      }
+    },
+    [sessionId, validExecutor]
+  );
+
+  if (recovered) {
+    return (
+      <div className="flex items-start gap-base text-sm text-low">
+        <WarningCircleIcon className="shrink-0 size-icon-base pt-0.5" />
+        <span>Session recovered — resuming…</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-base text-sm">
+      <div className="flex items-start gap-base text-error">
+        <WarningCircleIcon className="shrink-0 size-icon-base pt-0.5" />
+        <span>{content}</span>
+      </div>
+
+      {availableSessions.length > 0 && (
+        <div className="ml-6 flex flex-col gap-1">
+          <span className="text-low text-xs mb-1">
+            Available sessions to recover from:
+          </span>
+          <div className="flex flex-col gap-0.5">
+            {availableSessions.map((s, i) => (
+              <button
+                key={s.session_id}
+                type="button"
+                onClick={() => setSelectedIdx(i)}
+                className={cn(
+                  'flex items-center gap-base px-base py-1 rounded text-xs text-left font-code transition-colors',
+                  i === selectedIdx
+                    ? 'bg-brand/10 text-high ring-1 ring-brand'
+                    : 'bg-secondary text-normal hover:bg-panel'
+                )}
+              >
+                <span className="shrink-0 w-3 text-center">
+                  {i === selectedIdx ? '●' : '○'}
+                </span>
+                <span className="min-w-0 truncate">
+                  {formatTimestamp(s.start_time)} →{' '}
+                  {formatTimestamp(s.end_time)}
+                </span>
+                <span className="shrink-0 text-low">
+                  {formatDuration(s.duration_secs)}
+                </span>
+                <span className="shrink-0 text-low">
+                  {formatFileSize(s.file_size)}
+                </span>
+                {i === 0 && (
+                  <span className="shrink-0 text-brand text-xs">(latest)</span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex gap-2 mt-2">
+            <button
+              type="button"
+              disabled={isSubmitting}
+              onClick={() =>
+                handleRecover(availableSessions[selectedIdx].session_id)
+              }
+              className="px-base py-1 rounded bg-brand text-white text-xs hover:opacity-90 disabled:opacity-50"
+            >
+              {isSubmitting ? 'Recovering…' : 'Resume selected session'}
+            </button>
+            <button
+              type="button"
+              disabled={isSubmitting}
+              onClick={() => handleRecover(null)}
+              className="px-base py-1 rounded bg-secondary text-normal text-xs hover:bg-panel disabled:opacity-50"
+            >
+              Start fresh
+            </button>
+          </div>
+        </div>
+      )}
+
+      {availableSessions.length === 0 && (
+        <div className="ml-6 flex flex-col gap-2">
+          <span className="text-low text-xs">
+            No previous sessions found. You can start a new session.
+          </span>
+          <button
+            type="button"
+            disabled={isSubmitting}
+            onClick={() => handleRecover(null)}
+            className="w-fit px-base py-1 rounded bg-brand text-white text-xs hover:opacity-90 disabled:opacity-50"
+          >
+            {isSubmitting ? 'Starting…' : 'Start fresh'}
+          </button>
+        </div>
+      )}
+
+      {error && <div className="ml-6 text-error text-xs">{error}</div>}
+    </div>
+  );
+}
+
 /**
  * Error message entry with expandable content
  */
@@ -1358,10 +1540,10 @@ function AggregatedDiffGroupEntry({ group }: { group: AggregatedDiffGroup }) {
     setIsHovered(hovered);
   }, []);
 
+  const canOpenInChanges = hasDiffPath(group.filePath);
   const handleOpenInChanges = useCallback(() => {
-    if (!hasDiffPath(group.filePath)) return;
     viewFileInChanges(group.filePath);
-  }, [viewFileInChanges, hasDiffPath, group.filePath]);
+  }, [viewFileInChanges, group.filePath]);
   const handleOpenInVSCode = useCallback((filePath: string) => {
     openFileInVSCode(filePath, { openAsDiff: false });
   }, []);
@@ -1374,7 +1556,7 @@ function AggregatedDiffGroupEntry({ group }: { group: AggregatedDiffGroup }) {
       isHovered={isHovered}
       onToggle={handleToggle}
       onHoverChange={handleHoverChange}
-      onOpenInChanges={handleOpenInChanges}
+      onOpenInChanges={canOpenInChanges ? handleOpenInChanges : null}
       fileIcon={FileIcon}
       isVSCode={isVSCode}
       onOpenInVSCode={handleOpenInVSCode}

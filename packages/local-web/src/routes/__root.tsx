@@ -5,7 +5,7 @@ import { usePostHog } from 'posthog-js/react';
 import { ThemeMode } from 'shared/types';
 import i18n from '@/i18n';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
-import { ThemeProvider } from '@web/app/providers/ThemeProvider';
+import { ThemeProvider } from '@/shared/providers/ThemeProvider';
 import { useUiPreferencesScratch } from '@/shared/hooks/useUiPreferencesScratch';
 import { UserProvider } from '@/shared/providers/remote/UserProvider';
 import '@/app/styles/new/index.css';

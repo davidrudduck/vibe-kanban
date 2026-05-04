@@ -1,4 +1,10 @@
-CREATE ROLE electric_sync WITH LOGIN REPLICATION;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'electric_sync') THEN
+    CREATE ROLE electric_sync WITH LOGIN REPLICATION;
+  END IF;
+END
+$$;
 
 GRANT CONNECT ON DATABASE remote TO electric_sync;
 GRANT USAGE ON SCHEMA public TO electric_sync;

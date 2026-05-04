@@ -1007,7 +1007,7 @@ export function ElectricTestPage() {
         </div>
 
         {selectedOrgId && (
-          <div className="text-xs text-low font-ibm-plex-mono">
+          <div className="text-xs text-low font-code">
             Organization ID: {selectedOrgId}
             {userId && <span className="ml-base">User ID: {userId}</span>}
           </div>

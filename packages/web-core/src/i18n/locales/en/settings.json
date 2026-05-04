@@ -18,6 +18,8 @@
         "pairOtherMachines": "Pair other machines",
         "selectHost": "Select host",
         "general": "General",
+        "appearance": "Appearance",
+        "appearanceDesc": "Fonts, accent colour, and display options",
         "generalDesc": "Theme, notifications, and preferences",
         "projects": "Projects",
         "projectsDesc": "Project repositories and configuration",
@@ -32,7 +34,11 @@
         "remote-projects": "Projects",
         "remote-projectsDesc": "Manage projects",
         "relay": "Remote Access",
-        "relayDesc": "Relay tunnel and enrollment"
+        "relayDesc": "Relay tunnel and enrollment",
+        "maintenance": "Maintenance",
+        "maintenanceDesc": "Database vacuum, cleanup, and log management",
+        "diagnostics": "Diagnostics",
+        "diagnosticsDesc": "Connection pool and disk usage stats"
       }
     },
     "hostPicker": {
@@ -221,6 +227,12 @@
           "label": "Send message with",
           "helper": "Choose the keyboard shortcut to send messages.",
           "enterLabel": "Enter (Shift+Enter for new line)"
+        },
+        "editorMode": {
+          "label": "Input mode",
+          "helper": "Choose between formatted (WYSIWYG) or plain text (raw markdown) input.",
+          "wysiwygLabel": "Formatted (WYSIWYG)",
+          "rawLabel": "Plain text (raw markdown)"
         }
       },
       "privacy": {
@@ -299,6 +311,43 @@
           "label": "Enable Workspaces Beta",
           "helper": "Use the new workspaces interface when viewing workspaces. Tasks will open in task view first, and attempts will open in the new workspaces view."
         }
+      }
+    },
+    "appearance": {
+      "loading": "Loading…",
+      "saveSuccess": "Appearance saved",
+      "theme": {
+        "title": "Theme & Colour",
+        "description": "Choose your colour mode and the accent used across the UI.",
+        "modeLabel": "Theme mode",
+        "accentLabel": "Accent colour",
+        "accentHelper": "Pick a preset or enter a custom hex value (e.g. #e07b2a).",
+        "accentClear": "Reset"
+      },
+      "fonts": {
+        "title": "Fonts",
+        "description": "Select fonts for UI, code blocks, and prose content.",
+        "uiLabel": "UI font",
+        "codeLabel": "Code font",
+        "proseLabel": "Prose font",
+        "disableLigatures": "Disable ligatures"
+      },
+      "hostBanner": {
+        "title": "Host Banner",
+        "description": "Configure the banner shown in the top of the app shell.",
+        "showHostname": "Show hostname",
+        "showOsInfo": "Show OS info",
+        "envLabel": "Environment label"
+      },
+      "links": {
+        "title": "Links & Community",
+        "description": "Customise external links shown in the app.",
+        "discordEnabled": "Show Discord link",
+        "discordUrl": "Discord URL",
+        "feedbackUrl": "Feedback URL"
+      },
+      "preview": {
+        "title": "Preview"
       }
     },
     "agents": {

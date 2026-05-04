@@ -174,6 +174,7 @@ const ResolveConflictsDialogImpl = create<ResolveConflictsDialogProps>(
           retry_process_id: null,
           force_when_dirty: null,
           perform_git_reset: null,
+          override_session_id: null,
         });
 
         // Invalidate queries and wait for them to complete

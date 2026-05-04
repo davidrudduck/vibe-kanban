@@ -8,10 +8,11 @@ use deployment::{Deployment, DeploymentError};
 use services::services::container::ContainerService;
 use tokio_util::sync::CancellationToken;
 use tower_http::validate_request::ValidateRequestHeaderLayer;
-use utils::assets::asset_dir;
+use utils::{assets::asset_dir, port_file::write_port_file_with_proxy_and_backend_url};
 
 use crate::{
-    DeploymentImpl, middleware::origin::validate_origin, routes, runtime::relay_registration,
+    DeploymentImpl, mcp_http, middleware::origin::validate_origin, routes,
+    runtime::relay_registration,
 };
 
 /// A running server instance. Callers can read the port, then call `serve()`
@@ -23,6 +24,7 @@ pub struct ServerHandle {
     shutdown_token: CancellationToken,
     main_listener: tokio::net::TcpListener,
     proxy_listener: tokio::net::TcpListener,
+    mcp_process: Option<mcp_http::McpHttpServerProcess>,
 }
 
 impl ServerHandle {
@@ -37,7 +39,12 @@ impl ServerHandle {
     }
 
     /// Run both the main and proxy servers until the shutdown token is cancelled.
-    pub async fn serve(self) -> anyhow::Result<()> {
+    pub async fn serve(mut self) -> anyhow::Result<()> {
+        self.mcp_process = mcp_http::spawn_mcp_http_server(
+            &std::env::current_exe()?,
+            self.main_listener.local_addr()?,
+        );
+
         // Start relay tunnel so the host registers with the relay server.
         // This must happen after the port is known (it's needed for local
         // proxying) and is shared between the standalone binary and Tauri.
@@ -50,6 +57,13 @@ impl ServerHandle {
             .set_preview_proxy_port(self.proxy_port)
             .expect("client preview proxy port already set");
         relay_registration::spawn_relay(&self.deployment).await;
+
+        // Report repos to relay after a short delay (let WS connect first).
+        let deployment_for_repos = self.deployment.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            relay_registration::report_repos(&deployment_for_repos).await;
+        });
 
         let app_router = routes::router(self.deployment.clone());
         let proxy_router: axum::Router = routes::preview::subdomain_router(self.deployment.clone())
@@ -80,6 +94,9 @@ impl ServerHandle {
         }
 
         perform_cleanup_actions(&self.deployment).await;
+        if let Some(ref mut mcp_process) = self.mcp_process {
+            mcp_process.terminate();
+        }
         Ok(())
     }
 
@@ -117,6 +134,17 @@ pub async fn start_with_bind(
 
     tracing::info!("Server on :{port}, Preview proxy on :{proxy_port}");
 
+    let backend_url = format!("http://localhost:{port}");
+    if let Err(error) = write_port_file_with_proxy_and_backend_url(
+        port,
+        Some(proxy_port),
+        Some(backend_url.clone()),
+    )
+    .await
+    {
+        tracing::warn!("Failed to write discovery port file for {backend_url}: {error}");
+    }
+
     Ok(ServerHandle {
         port,
         proxy_port,
@@ -124,6 +152,7 @@ pub async fn start_with_bind(
         shutdown_token,
         main_listener: listener,
         proxy_listener,
+        mcp_process: None,
     })
 }
 

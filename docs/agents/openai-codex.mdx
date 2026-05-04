@@ -42,3 +42,13 @@ This is useful for:
 - Project-specific Codex profiles
 - Separating work and personal configurations
 - Custom automation setups
+
+## Linux Sandbox Compatibility
+
+On Linux, Codex uses bubblewrap for sandboxing and needs access to create user namespaces. Some hosts block that through kernel or AppArmor policy, which can cause startup failures mentioning `bubblewrap`, `bwrap`, or `user namespaces`.
+
+Vibe Kanban handles this in two ways:
+- If the Codex sandbox setting is implicit/default, Vibe Kanban retries once without sandboxing so the attempt can continue.
+- If you explicitly selected a sandboxed Codex profile, Vibe Kanban does not override that choice and instead shows remediation guidance.
+
+If you want to avoid the Linux sandbox on that host, set the Codex profile sandbox to `danger-full-access`. If you want to keep sandboxing enabled, configure the host to allow unprivileged user namespaces for bubblewrap.

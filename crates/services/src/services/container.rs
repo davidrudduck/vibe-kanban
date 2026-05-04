@@ -196,6 +196,14 @@ pub trait ContainerService {
 
     async fn delete(&self, workspace: &Workspace) -> Result<(), ContainerError>;
 
+    /// Inject a message into a currently-running executor process.
+    /// Returns `Ok(true)` if sent live, `Ok(false)` if no peer exists (caller may queue).
+    async fn inject_message(
+        &self,
+        execution_process_id: Uuid,
+        content: String,
+    ) -> Result<bool, ContainerError>;
+
     /// A context is finalized when
     /// - Always when the execution process has failed or been killed
     /// - Never when the run reason is DevServer
@@ -505,6 +513,7 @@ pub trait ContainerService {
                     &CreateSession {
                         executor: None,
                         name: None,
+                        host_id: None,
                     },
                     Uuid::new_v4(),
                     workspace.id,
@@ -1065,6 +1074,7 @@ pub trait ContainerService {
             &CreateSession {
                 executor: Some(executor_config.executor.to_string()),
                 name: None,
+                host_id: None,
             },
             Uuid::new_v4(),
             workspace.id,

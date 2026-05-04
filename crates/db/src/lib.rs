@@ -1,4 +1,4 @@
-use std::{str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc, time::Duration};
 
 use sqlx::{
     ConnectOptions, Error, Pool, Sqlite, SqlitePool,
@@ -7,7 +7,10 @@ use sqlx::{
 };
 use utils::assets::asset_dir;
 
+pub mod database_stats;
+pub mod metrics;
 pub mod models;
+pub mod wal_monitor;
 
 async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {
     use std::collections::HashSet;
@@ -78,9 +81,11 @@ impl DBService {
             "sqlite://{}",
             asset_dir().join("db.v2.sqlite").to_string_lossy()
         );
+        // WAL mode: one-way switch. To downgrade: PRAGMA journal_mode=DELETE + checkpoint, then rebuild.
         let options = SqliteConnectOptions::from_str(&database_url)?
             .create_if_missing(true)
-            .journal_mode(SqliteJournalMode::Delete);
+            .journal_mode(SqliteJournalMode::Wal)
+            .busy_timeout(Duration::from_secs(5));
         let pool = SqlitePool::connect_with(options).await?;
         run_migrations(&pool).await?;
         Ok(DBService { pool })
@@ -91,9 +96,11 @@ impl DBService {
             "sqlite://{}",
             asset_dir().join("db.v2.sqlite").to_string_lossy()
         );
+        // WAL mode: one-way switch. To downgrade: PRAGMA journal_mode=DELETE + checkpoint, then rebuild.
         let options = SqliteConnectOptions::from_str(&database_url)?
             .create_if_missing(true)
-            .journal_mode(SqliteJournalMode::Delete)
+            .journal_mode(SqliteJournalMode::Wal)
+            .busy_timeout(Duration::from_secs(5))
             .disable_statement_logging();
         SqlitePoolOptions::new()
             .max_connections(64)
@@ -129,9 +136,11 @@ impl DBService {
             "sqlite://{}",
             asset_dir().join("db.v2.sqlite").to_string_lossy()
         );
+        // WAL mode: one-way switch. To downgrade: PRAGMA journal_mode=DELETE + checkpoint, then rebuild.
         let options = SqliteConnectOptions::from_str(&database_url)?
             .create_if_missing(true)
-            .journal_mode(SqliteJournalMode::Delete);
+            .journal_mode(SqliteJournalMode::Wal)
+            .busy_timeout(Duration::from_secs(5));
 
         let pool = if let Some(hook) = after_connect {
             SqlitePoolOptions::new()
@@ -150,5 +159,9 @@ impl DBService {
 
         run_migrations(&pool).await?;
         Ok(pool)
+    }
+
+    pub fn pool_stats(&self) -> metrics::PoolStats {
+        metrics::pool_stats(&self.pool)
     }
 }

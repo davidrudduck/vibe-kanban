@@ -71,6 +71,29 @@ impl<'a> UserRepository<'a> {
         .await?
         .map_or(Ok(None), |user| Ok(Some(user)))
     }
+
+    pub async fn fetch_users_by_email(&self, email: &str) -> Result<Vec<User>, IdentityError> {
+        query_as!(
+            User,
+            r#"
+            SELECT
+                id           AS "id!: Uuid",
+                email        AS "email!",
+                first_name   AS "first_name?",
+                last_name    AS "last_name?",
+                username     AS "username?",
+                created_at   AS "created_at!",
+                updated_at   AS "updated_at!"
+            FROM users
+            WHERE LOWER(email) = LOWER($1)
+            ORDER BY created_at ASC
+            "#,
+            email
+        )
+        .fetch_all(self.pool)
+        .await
+        .map_err(IdentityError::from)
+    }
 }
 
 async fn upsert_user(pool: &PgPool, user: &UpsertUser<'_>) -> Result<User, sqlx::Error> {

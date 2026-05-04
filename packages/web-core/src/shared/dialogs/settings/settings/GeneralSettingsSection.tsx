@@ -13,6 +13,7 @@ import {
   DEFAULT_PR_DESCRIPTION_PROMPT,
   EditorType,
   type ExecutorProfileId,
+  type InputEditorMode,
   type SendMessageShortcut,
   SoundFile,
   ThemeMode,
@@ -184,7 +185,11 @@ export function GeneralSettingsSection() {
     setSuccess(false);
 
     try {
-      await updateAndSaveConfig(draft);
+      const ok = await updateAndSaveConfig(draft);
+      if (!ok) {
+        setError(t('settings.general.save.error'));
+        return;
+      }
       setTheme(draft.theme);
       setDirty(false);
       setSuccess(true);
@@ -787,6 +792,29 @@ export function GeneralSettingsSection() {
             ]}
             onChange={(value: SendMessageShortcut) =>
               updateDraft({ send_message_shortcut: value })
+            }
+          />
+        </SettingsField>
+        <SettingsField
+          label={t('settings.general.messageInput.editorMode.label')}
+          description={t('settings.general.messageInput.editorMode.helper')}
+        >
+          <SettingsSelect
+            value={draft?.input_editor_mode ?? 'WYSIWYG'}
+            options={[
+              {
+                value: 'WYSIWYG' as InputEditorMode,
+                label: t(
+                  'settings.general.messageInput.editorMode.wysiwygLabel'
+                ),
+              },
+              {
+                value: 'RAW' as InputEditorMode,
+                label: t('settings.general.messageInput.editorMode.rawLabel'),
+              },
+            ]}
+            onChange={(value: InputEditorMode) =>
+              updateDraft({ input_editor_mode: value })
             }
           />
         </SettingsField>

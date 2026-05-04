@@ -4,8 +4,10 @@ import type {
   CommitAttachmentsRequest,
   CommitAttachmentsResponse,
   ConfirmUploadRequest,
+  HostRepo,
   InitUploadRequest,
   InitUploadResponse,
+  ListHostReposResponse,
   ListRelayHostsResponse,
   RelayHost,
   UpdateIssueRequest,
@@ -14,6 +16,7 @@ import type {
 } from 'shared/remote-types';
 import { getAuthRuntime } from '@/shared/lib/auth/runtime';
 import { syncRelayApiBaseWithRemote } from '@/shared/lib/relayBackendApi';
+import { sha256Hex } from '@vibe/ui/lib/sha256';
 
 const BUILD_TIME_API_BASE = import.meta.env.VITE_VK_SHARED_API_BASE || '';
 
@@ -171,6 +174,17 @@ export async function listRelayHosts(): Promise<RelayHost[]> {
   return body.hosts;
 }
 
+export async function listHostRepos(hostId: string): Promise<HostRepo[]> {
+  const response = await makeRequest(`/v1/hosts/${hostId}/repos`, {
+    method: 'GET',
+  });
+  if (!response.ok) {
+    return [];
+  }
+  const body = (await response.json()) as ListHostReposResponse;
+  return body.repos;
+}
+
 // ---------------------------------------------------------------------------
 // SAS URL cache with TTL — SAS URLs expire after 5 minutes, cache for 4
 // ---------------------------------------------------------------------------
@@ -190,10 +204,7 @@ const sasUrlCache = new Map<string, CachedSasUrl>();
 
 export async function computeFileHash(file: File): Promise<string> {
   const buffer = await file.arrayBuffer();
-  const hash = await crypto.subtle.digest('SHA-256', buffer);
-  return Array.from(new Uint8Array(hash))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+  return sha256Hex(buffer);
 }
 
 // ---------------------------------------------------------------------------

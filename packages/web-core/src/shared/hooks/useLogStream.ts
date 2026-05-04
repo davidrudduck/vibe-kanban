@@ -1,16 +1,54 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useReducer } from 'react';
 import type { PatchType } from 'shared/types';
 import { openLocalApiWebSocket } from '@/shared/lib/localApiTransport';
 
 type LogEntry = Extract<PatchType, { type: 'STDOUT' } | { type: 'STDERR' }>;
 
+type LogStreamState = {
+  logs: LogEntry[];
+  blockStartIndices: number[];
+};
+
+type LogStreamAction =
+  | { type: 'ADD_ENTRY'; entry: LogEntry; isBoundary: boolean }
+  | { type: 'REPLACE_FIRST'; entry: LogEntry }
+  | { type: 'RESET' };
+
+function logStreamReducer(
+  state: LogStreamState,
+  action: LogStreamAction
+): LogStreamState {
+  switch (action.type) {
+    case 'ADD_ENTRY': {
+      const nextIndex = state.logs.length;
+      return {
+        logs: [...state.logs, action.entry],
+        blockStartIndices:
+          action.isBoundary && nextIndex > 0
+            ? [...state.blockStartIndices, nextIndex]
+            : state.blockStartIndices,
+      };
+    }
+    case 'REPLACE_FIRST':
+      return { logs: [action.entry], blockStartIndices: [] };
+    case 'RESET':
+      return { logs: [], blockStartIndices: [] };
+    default:
+      return state;
+  }
+}
+
 interface UseLogStreamResult {
   logs: LogEntry[];
   error: string | null;
+  blockStartIndices: number[];
 }
 
 export const useLogStream = (processId: string): UseLogStreamResult => {
-  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [state, dispatch] = useReducer(logStreamReducer, {
+    logs: [],
+    blockStartIndices: [],
+  });
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const retryCountRef = useRef<number>(0);
@@ -20,6 +58,7 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
   const finishedRef = useRef<boolean>(false);
   // Track current processId to prevent stale WebSocket messages from contaminating logs
   const currentProcessIdRef = useRef<string>(processId);
+  const pendingBlockBoundaryRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (!processId) {
@@ -32,7 +71,8 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
     currentProcessIdRef.current = processId;
 
     // Clear logs when process changes
-    setLogs([]);
+    dispatch({ type: 'RESET' });
+    pendingBlockBoundaryRef.current = false;
     setError(null);
     finishedRef.current = false;
 
@@ -46,6 +86,9 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
       const capturedProcessId = processId;
       void (async () => {
         try {
+          await Promise.resolve();
+          if (cancelled) return;
+
           const ws = await openLocalApiWebSocket(
             `/api/execution-processes/${processId}/raw-logs/ws`
           );
@@ -92,9 +135,12 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
               // First entry after reconnect: replace old logs to avoid
               // duplicates from the history replay.
               pendingReplace = false;
-              setLogs([entry]);
+              pendingBlockBoundaryRef.current = false;
+              dispatch({ type: 'REPLACE_FIRST', entry });
             } else {
-              setLogs((prev) => [...prev, entry]);
+              const isBoundary = pendingBlockBoundaryRef.current;
+              pendingBlockBoundaryRef.current = false;
+              dispatch({ type: 'ADD_ENTRY', entry, isBoundary });
             }
           };
 
@@ -115,7 +161,10 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
                     case 'STDERR':
                       addLogEntry({ type: value.type, content: value.content });
                       break;
-                    // Ignore other patch types (NORMALIZED_ENTRY, DIFF, etc.)
+                    case 'NORMALIZED_ENTRY':
+                      pendingBlockBoundaryRef.current = true;
+                      break;
+                    // Ignore other patch types (DIFF, etc.)
                     default:
                       break;
                   }
@@ -188,5 +237,9 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
     };
   }, [processId]);
 
-  return { logs, error };
+  return {
+    logs: state.logs,
+    error,
+    blockStartIndices: state.blockStartIndices,
+  };
 };

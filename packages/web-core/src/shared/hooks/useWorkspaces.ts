@@ -33,6 +33,7 @@ export interface SidebarWorkspace {
   prStatus?: 'open' | 'merged' | 'closed' | 'unknown';
   prNumber?: number;
   prUrl?: string;
+  latestHostId?: string;
 }
 
 // Keep the old export name for backwards compatibility
@@ -81,6 +82,7 @@ function toSidebarWorkspace(
     prNumber:
       summary?.pr_number != null ? Number(summary.pr_number) : undefined,
     prUrl: summary?.pr_url ?? undefined,
+    latestHostId: summary?.latest_host_id ?? undefined,
   };
 }
 

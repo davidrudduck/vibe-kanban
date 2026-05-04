@@ -33,8 +33,14 @@ use executors::{
     },
     approvals::{ExecutorApprovalService, NoopExecutorApprovalService},
     env::{ExecutionEnv, RepoContext},
-    executors::{BaseCodingAgent, CancellationToken, ExecutorExitResult, ExecutorExitSignal},
-    logs::{NormalizedEntryType, utils::patch::extract_normalized_entry_from_patch},
+    executors::{
+        BaseCodingAgent, CancellationToken, ExecutorExitResult, ExecutorExitSignal,
+        claude::{protocol::ProtocolPeer, session_recovery},
+    },
+    logs::{
+        NormalizedEntry, NormalizedEntryError, NormalizedEntryType,
+        utils::patch::{ConversationPatch, extract_normalized_entry_from_patch},
+    },
 };
 use futures::{FutureExt, TryStreamExt, stream::select};
 use git::GitService;
@@ -85,6 +91,9 @@ pub struct LocalContainerService {
     queued_message_service: QueuedMessageService,
     notification_service: NotificationService,
     remote_client: Option<RemoteClient>,
+    /// Holds the live ProtocolPeer for every running Claude Code process so that
+    /// messages can be injected while the process is active.
+    protocol_peers: Arc<RwLock<HashMap<Uuid, ProtocolPeer>>>,
 }
 
 impl LocalContainerService {
@@ -106,6 +115,7 @@ impl LocalContainerService {
         let db_stream_handles = Arc::new(RwLock::new(HashMap::new()));
         let exit_monitor_handles = Arc::new(RwLock::new(HashMap::new()));
         let workspace_touch_times = Arc::new(RwLock::new(HashMap::new()));
+        let protocol_peers = Arc::new(RwLock::new(HashMap::new()));
         let notification_service = NotificationService::new(config.clone());
 
         let container = LocalContainerService {
@@ -125,6 +135,7 @@ impl LocalContainerService {
             queued_message_service,
             notification_service,
             remote_client,
+            protocol_peers,
         };
 
         container.spawn_workspace_cleanup();
@@ -489,6 +500,7 @@ impl LocalContainerService {
         let config = self.config.clone();
         let container = self.clone();
         let analytics = self.analytics.clone();
+        let protocol_peers = self.protocol_peers.clone();
 
         let mut process_exit_rx = self.spawn_os_exit_watcher(exec_id);
 
@@ -550,6 +562,83 @@ impl LocalContainerService {
                 // Update executor session summary if available
                 if let Err(e) = container.update_executor_session_summary(&exec_id).await {
                     tracing::warn!("Failed to update executor session summary: {}", e);
+                }
+
+                // Detect stale Claude Code sessions: if stderr contains
+                // "No conversation found with session ID", the worktree was
+                // recreated without the local .claude/ state. Invalidate the
+                // session so the next retry falls back to a fresh request.
+                if matches!(
+                    ctx.execution_process.run_reason,
+                    ExecutionProcessRunReason::CodingAgent
+                ) {
+                    let has_invalid_session = msg_stores
+                        .read()
+                        .await
+                        .get(&exec_id)
+                        .map(|store| {
+                            store.get_history().iter().any(|msg| matches!(
+                                msg,
+                                LogMsg::Stderr(s) if s.contains("No conversation found with session ID")
+                            ))
+                        })
+                        .unwrap_or(false);
+
+                    if has_invalid_session {
+                        tracing::warn!(
+                            "Detected stale Claude Code session for execution {} (session {}), invalidating all turns",
+                            exec_id,
+                            ctx.session.id
+                        );
+                        if let Err(e) = CodingAgentTurn::invalidate_sessions_for_session(
+                            &db.pool,
+                            ctx.session.id,
+                        )
+                        .await
+                        {
+                            tracing::error!(
+                                "Failed to invalidate stale sessions for session {}: {}",
+                                ctx.session.id,
+                                e
+                            );
+                        }
+
+                        // Scan for available session transcripts the user can recover from
+                        let worktree_path = ctx.workspace.container_ref.as_deref().map(|cr| {
+                            match &ctx.session.agent_working_dir {
+                                Some(wd) => PathBuf::from(cr).join(wd),
+                                None => PathBuf::from(cr),
+                            }
+                        });
+
+                        let available_sessions = if let Some(ref wt) = worktree_path {
+                            session_recovery::scan_available_sessions(wt).await
+                        } else {
+                            vec![]
+                        };
+
+                        tracing::info!(
+                            "Found {} available session transcripts for recovery",
+                            available_sessions.len()
+                        );
+
+                        // Emit structured error entry via MsgStore so the frontend
+                        // can show the session picker
+                        if let Some(store) = msg_stores.read().await.get(&exec_id) {
+                            let entry = NormalizedEntry {
+                                timestamp: None,
+                                entry_type: NormalizedEntryType::ErrorMessage {
+                                    error_type: NormalizedEntryError::SessionNotFound {
+                                        available_sessions,
+                                    },
+                                },
+                                content: "Session can't be resumed — the session transcript was not found. Select a previous session to recover from, or start fresh.".to_string(),
+                                metadata: None,
+                            };
+                            let patch = ConversationPatch::add_normalized_entry(999999, entry);
+                            store.push_patch(patch);
+                        }
+                    }
                 }
 
                 let success = matches!(
@@ -801,6 +890,25 @@ impl LocalContainerService {
                 let _ = tokio::time::timeout(Duration::from_secs(5), handle).await;
             }
 
+            // Drop the ProtocolPeer and reap the child under a single
+            // `protocol_peers` write guard. Holding the guard across the
+            // `child_store` removal is what actually closes the late-
+            // registration race: the late-register task in `start_execution`
+            // takes `peers.write()` BEFORE checking `child_store.contains_key`,
+            // so by holding `peers.write()` across the child removal we force
+            // it to wait until child_store is also empty. When it then checks,
+            // `contains_key` returns false and it drops the peer. Without
+            // holding the guard across the gap, a late insert could land
+            // between our `peers.remove` and `child_store.remove` and leak
+            // a peer (and its live ChildStdin write end) forever.
+            //
+            // Note the lock ordering: peers.write() then child_store.{read,
+            // write}(). All other code paths that touch both maps follow the
+            // same order (start_execution late-register, inject_message), so
+            // there is no deadlock risk.
+            let mut peers_guard = protocol_peers.write().await;
+            peers_guard.remove(&exec_id);
+
             // SIGKILL any orphaned children (e.g. MCP servers) still in the
             // process group. The executor itself is already done — either it
             // exited naturally or was killed in the exit-signal branch above.
@@ -809,6 +917,7 @@ impl LocalContainerService {
                 let _ = child.start_kill();
             }
             child_store.write().await.remove(&exec_id);
+            drop(peers_guard);
         })
     }
 
@@ -1399,6 +1508,70 @@ impl ContainerService for LocalContainerService {
         let hn = self.spawn_exit_monitor(&execution_process.id, spawned.exit_signal);
         self.add_exit_monitor_handle(execution_process.id, hn).await;
 
+        // If the executor vended a ProtocolPeer (e.g. Claude Code), receive it
+        // and store it so `inject_message()` can reach it while the SDK is
+        // mid-turn. Then wait for the per-turn-idle signal and drop the peer
+        // when the SDK emits `Result`, which closes the last `ChildStdin`
+        // clone and lets the SDK exit naturally so the OS-exit watcher can
+        // fire and the UI spinner can clear.
+        //
+        // We combine the late-register and the listener into ONE linear task
+        // to eliminate races: insert → await idle → remove. If we used two
+        // separate tasks (one to insert on `peer_rx`, one to remove on
+        // `turn_idle_rx`), a fast turn could fire `turn_idle` before the
+        // insert lands, leaving the peer leaked in the HashMap.
+        //
+        // The insert is guarded against an already-cleaned-up child (e.g.
+        // process crashed during init): if `child_store` no longer contains
+        // `exec_id`, drop the peer instead of inserting. Combined with the
+        // cleanup-order guarantee in `spawn_exit_monitor` (protocol_peers
+        // removed BEFORE child_store under one write guard), this closes the
+        // TOCTOU window so the peer can never outlive the process.
+        if let Some(peer_rx) = spawned.protocol_peer.take() {
+            let peers = self.protocol_peers.clone();
+            let child_store = self.child_store.clone();
+            let exec_id = execution_process.id;
+            let turn_idle_signal = spawned.turn_idle_signal.take();
+            tokio::spawn(async move {
+                let Ok(peer) = peer_rx.await else {
+                    // Executor's init/send failed; peer_tx was dropped.
+                    return;
+                };
+                {
+                    let mut peers_guard = peers.write().await;
+                    if !child_store.read().await.contains_key(&exec_id) {
+                        // Process already exited and was cleaned up; drop the
+                        // peer so its reader task and ChildStdin handle are
+                        // released.
+                        drop(peer);
+                        return;
+                    }
+                    peers_guard.insert(exec_id, peer);
+                }
+
+                // Wait for the SDK to emit `Result` (end-of-turn). When this
+                // fires we drop the peer, releasing the last ChildStdin Arc
+                // clone. The SDK then sees EOF on stdin and exits, the OS-exit
+                // watcher catches it, and `spawn_exit_monitor`'s cleanup runs
+                // — updating execution_process status to 'completed' and
+                // pushing the patch that clears the UI spinner.
+                //
+                // If `turn_idle_signal` is None (non-Claude executor) or the
+                // sender drops without firing (read_loop EOF before Result,
+                // e.g. cancellation), we leave the peer in the HashMap; the
+                // exit monitor's cleanup will remove it when the process
+                // actually exits.
+                if let Some(mut turn_idle_rx) = turn_idle_signal
+                    && turn_idle_rx.recv().await.is_some()
+                {
+                    tracing::debug!(
+                        "Turn ended for execution {exec_id}; dropping peer to close stdin"
+                    );
+                    peers.write().await.remove(&exec_id);
+                }
+            });
+        }
+
         Ok(())
     }
 
@@ -1421,6 +1594,12 @@ impl ContainerService for LocalContainerService {
 
         ExecutionProcess::update_completion(&self.db.pool, execution_process.id, status, exit_code)
             .await?;
+
+        // Release the ProtocolPeer immediately so no further injections are accepted.
+        self.protocol_peers
+            .write()
+            .await
+            .remove(&execution_process.id);
 
         // Try graceful cancellation first, then force kill
         if let Some(cancel) = self.take_cancellation_token(&execution_process.id).await {
@@ -1630,6 +1809,60 @@ impl ContainerService for LocalContainerService {
         }
 
         Ok(())
+    }
+
+    async fn inject_message(
+        &self,
+        execution_process_id: Uuid,
+        content: String,
+    ) -> Result<bool, ContainerError> {
+        let peer = {
+            let peers = self.protocol_peers.read().await;
+            peers.get(&execution_process_id).cloned()
+        };
+
+        // Defense in depth: a peer should never outlive its child (the
+        // cleanup path in `spawn_exit_monitor` guarantees this by holding
+        // `protocol_peers.write()` across `child_store` removal). If we
+        // somehow find a peer with no live child — e.g. due to a future
+        // refactor breaking that invariant — drop the stale entry instead
+        // of writing to a closed pipe. Dropping fires the peer's drop
+        // guard, cancelling the reader and releasing ChildStdin.
+        if peer.is_some()
+            && !self
+                .child_store
+                .read()
+                .await
+                .contains_key(&execution_process_id)
+        {
+            self.protocol_peers
+                .write()
+                .await
+                .remove(&execution_process_id);
+            return Ok(false);
+        }
+
+        match peer {
+            Some(peer) => {
+                // Do NOT push a synthetic UserMessage patch here. The Claude
+                // Agent SDK echoes the injected message back as a `user`
+                // ClaudeJson event, which the normalizer in
+                // `crates/executors/src/executors/claude.rs` (ClaudeJson::User
+                // arm) emits as a properly indexed, durable patch.
+                //
+                // Pushing a second synthetic patch with a fake index (e.g.
+                // 999999) caused two visible entries per injected message,
+                // and one of them appeared to "disappear" on conversation
+                // reload because the synthetic patch is not stored in
+                // `executor_session` raw logs and so is not replayed when
+                // `useConversationHistory` rebuilds from DB.
+                peer.send_user_message(content)
+                    .await
+                    .map_err(|e| ContainerError::Other(anyhow!("Failed to inject message: {e}")))?;
+                Ok(true)
+            }
+            None => Ok(false),
+        }
     }
 }
 fn success_exit_status() -> std::process::ExitStatus {

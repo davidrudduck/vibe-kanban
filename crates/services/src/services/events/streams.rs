@@ -21,6 +21,11 @@ impl EventService {
         futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>,
         super::types::EventError,
     > {
+        // Subscribe to the broadcast BEFORE querying the DB so that any
+        // insertion that races with the snapshot is captured in the live stream
+        // rather than silently dropped.
+        let receiver = self.msg_store.get_receiver();
+
         // Get execution processes for this session
         let processes =
             ExecutionProcess::find_by_session_id(&self.db.pool, session_id, show_soft_deleted)
@@ -46,7 +51,7 @@ impl EventService {
 
         // Get filtered event stream
         let filtered_stream =
-            BroadcastStream::new(self.msg_store.get_receiver()).filter_map(move |msg_result| {
+            BroadcastStream::new(receiver).filter_map(move |msg_result| {
                 async move {
                     match msg_result {
                         Ok(LogMsg::JsonPatch(patch)) => {

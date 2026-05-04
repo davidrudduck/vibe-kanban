@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useParams } from '@tanstack/react-router';
+import { listHostRepos } from '@/shared/lib/remoteApi';
+import type { HostRepo } from 'shared/remote-types';
 import { PrimaryButton } from '@vibe/ui/components/PrimaryButton';
 import {
   usePairRemoteCloudHostMutation,
@@ -24,6 +26,30 @@ import {
   useRemovePairedRelayHostMutation,
 } from './useRelayRemoteHostMutations';
 import { createRelayClientIdentity } from '@/shared/lib/relayClientIdentity';
+
+function HostReposList({ hostId }: { hostId: string }) {
+  const { data: repos = [], isLoading } = useQuery<HostRepo[]>({
+    queryKey: ['host-repos', hostId],
+    queryFn: () => listHostRepos(hostId),
+    staleTime: 60_000,
+  });
+
+  if (isLoading || repos.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-1 mt-1.5">
+      {repos.map((repo) => (
+        <span
+          key={repo.path}
+          className="text-xs px-1.5 py-0.5 rounded bg-subtle text-low border border-subtle truncate max-w-[180px]"
+          title={repo.path}
+        >
+          {repo.display_name ?? repo.name}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 export function RemoteCloudHostsSettingsCardContent({
   initialHostId,
@@ -407,6 +433,7 @@ export function RemoteCloudHostsSettingsCardContent({
                             ? `${host.status === 'online' ? 'Online' : 'Offline'}${host.pairedAt ? ` · Paired ${new Date(host.pairedAt).toLocaleDateString()}` : ''}`
                             : host.id}
                         </p>
+                        <HostReposList hostId={host.id} />
                       </div>
                       <span data-relay-host-action="remove">
                         <PrimaryButton

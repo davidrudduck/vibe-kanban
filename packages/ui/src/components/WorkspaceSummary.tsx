@@ -42,6 +42,7 @@ export interface WorkspaceSummaryProps {
   latestProcessCompletedAt?: string;
   latestProcessStatus?: 'running' | 'completed' | 'failed' | 'killed';
   prStatus?: 'open' | 'merged' | 'closed' | 'unknown';
+  hostName?: string;
   onClick?: () => void;
   className?: string;
   summary?: boolean;
@@ -65,6 +66,7 @@ export function WorkspaceSummary({
   latestProcessCompletedAt,
   latestProcessStatus,
   prStatus,
+  hostName,
   onClick,
   className,
   summary = false,
@@ -207,6 +209,16 @@ export function WorkspaceSummary({
                 {linesRemoved !== undefined && (
                   <span className="text-error">-{linesRemoved}</span>
                 )}
+              </span>
+            )}
+
+            {/* Host name chip */}
+            {hostName && (
+              <span
+                className="text-xs px-1.5 py-0.5 rounded bg-subtle text-low border border-subtle truncate max-w-[120px] shrink-0"
+                title={hostName}
+              >
+                {hostName}
               </span>
             )}
           </div>

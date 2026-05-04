@@ -95,3 +95,15 @@ vibe-kanban-cloud/
 *.ts.net.key
 Caddyfile
 Caddyfile.dev
+.omc
+
+# Playwright MCP screenshots
+.playwright-mcp/
+homepage.png
+workspace.png
+.worktrees/
+
+# Playwright debug screenshots
+/after-toggle-logs.png
+/workspace-current.png
+/workspace-initial.png

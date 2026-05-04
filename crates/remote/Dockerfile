@@ -43,6 +43,7 @@ ARG SENTRY_DSN_REMOTE=""
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 ENV CARGO_TARGET_DIR=/app/target
+ENV SQLX_OFFLINE=true
 ENV POSTHOG_API_KEY=${POSTHOG_API_KEY}
 ENV POSTHOG_API_ENDPOINT=${POSTHOG_API_ENDPOINT}
 ENV SENTRY_DSN_REMOTE=${SENTRY_DSN_REMOTE}
@@ -98,7 +99,6 @@ RUN if [ -z "${FEATURES}" ]; then \
 RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git \
     --mount=type=cache,id=remote-target,target=/app/target \
-    --mount=type=ssh \
     cargo build ${FEATURES:+--locked} --release --manifest-path crates/remote/Cargo.toml ${FEATURES:+--features ${FEATURES}} \
  && cp /app/target/release/${APP_NAME} /app/bin/${APP_NAME}
 

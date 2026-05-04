@@ -130,3 +130,21 @@ pub struct ListRelayPairedClientsResponse {
 pub struct RemoveRelayPairedClientResponse {
     pub removed: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct HostRepo {
+    pub path: String,
+    pub name: String,
+    pub display_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct ReportHostReposRequest {
+    pub machine_id: String,
+    pub repos: Vec<HostRepo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct ListHostReposResponse {
+    pub repos: Vec<HostRepo>,
+}

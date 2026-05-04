@@ -156,7 +156,87 @@ export type Workspace = { id: string, task_id: string | null, container_ref: str
 
 export type WorkspaceWithStatus = { is_running: boolean, is_errored: boolean, id: string, task_id: string | null, container_ref: string | null, branch: string, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, worktree_deleted: boolean, };
 
-export type Session = { id: string, workspace_id: string, name: string | null, executor: string | null, agent_working_dir: string | null, created_at: string, updated_at: string, };
+export type DatabaseStats = { 
+/**
+ * Size of the main database file in bytes
+ */
+database_size_bytes: bigint, 
+/**
+ * Size of the WAL (Write-Ahead Log) file in bytes
+ */
+wal_size_bytes: bigint, 
+/**
+ * Number of free pages in the database (reclaimable with VACUUM)
+ */
+free_pages: bigint, 
+/**
+ * Size of each database page in bytes
+ */
+page_size: bigint, 
+/**
+ * Total number of pages in the database
+ */
+page_count: bigint, 
+/**
+ * Total number of tasks in the database
+ */
+task_count: bigint, 
+/**
+ * Total number of workspaces in the database
+ */
+workspace_count: bigint, 
+/**
+ * Total number of execution processes in the database
+ */
+execution_process_count: bigint, 
+/**
+ * Total number of legacy log rows (expected near-zero post-migration)
+ */
+legacy_log_row_count: bigint, };
+
+export type VacuumResult = { 
+/**
+ * Bytes freed by the VACUUM operation
+ */
+bytes_freed: bigint, };
+
+export type AnalyzeResult = { 
+/**
+ * Whether the ANALYZE operation succeeded
+ */
+success: boolean, };
+
+export type ArchivedStatsResponse = { count: bigint, older_than_days: bigint, };
+
+export type ArchivedNonTerminalResponse = { workspace_ids: Array<string>, count: bigint, };
+
+export type ArchivedPurgeResult = { deleted: bigint, skipped_active: bigint, older_than_days: bigint, };
+
+export type LogStatsResponse = { file_count: bigint, total_bytes: bigint, older_than_days: bigint, };
+
+export type LogPurgeResult = { deleted_files: bigint, bytes_freed: bigint, older_than_days: bigint, };
+
+export type PoolStats = { 
+/**
+ * Total connections in the pool (idle + acquired)
+ */
+size: number, 
+/**
+ * Connections currently idle (available)
+ */
+idle: number, 
+/**
+ * Connections currently acquired (in use)
+ */
+acquired: number, };
+
+export type DiagnosticsResponse = { pool_stats: PoolStats, database_stats: DatabaseStats, wal_size_bytes: bigint, wal_size_human: string, };
+
+export type WorkspaceDiskUsage = { workspace_id: string, path: string, size_bytes: bigint, };
+
+export type DiskUsageResponse = { workspaces: Array<WorkspaceDiskUsage>, total_bytes: bigint, total_human: string, };
+
+export type Session = { id: string, workspace_id: string, name: string | null, executor: string | null, agent_working_dir: string | null, host_id: string | null, created_at: string, updated_at: string, };
 
 export type ExecutionProcess = { id: string, session_id: string, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, status: ExecutionProcessStatus, exit_code: bigint | null, 
 /**
@@ -174,7 +254,7 @@ export type ExecutionProcessRepoState = { id: string, execution_process_id: stri
 
 export type Merge = { "type": "direct" } & DirectMerge | { "type": "pr" } & PrMerge;
 
-export type DirectMerge = { id: string, workspace_id: string, repo_id: string, merge_commit: string, target_branch_name: string, created_at: string, };
+export type DirectMerge = { id: string, workspace_id: string, repo_id: string, merge_commit: string, target_branch_name: string, merge_strategy: string, created_at: string, };
 
 export type PrMerge = { id: string, workspace_id: string, repo_id: string, created_at: string, target_branch_name: string, pr_info: PullRequestInfo, };
 
@@ -308,7 +388,7 @@ export type RefreshRelaySigningSessionRequest = { client_id: string, timestamp: 
 
 export type RefreshRelaySigningSessionResponse = { signing_session_id: string, };
 
-export type CreateFollowUpAttempt = { prompt: string, executor_config: ExecutorConfig, retry_process_id: string | null, force_when_dirty: boolean | null, perform_git_reset: boolean | null, };
+export type CreateFollowUpAttempt = { prompt: string, executor_config: ExecutorConfig, retry_process_id: string | null, force_when_dirty: boolean | null, perform_git_reset: boolean | null, override_session_id: string | null, };
 
 export type ResetProcessRequest = { process_id: string, force_when_dirty: boolean | null, perform_git_reset: boolean | null, };
 
@@ -320,7 +400,11 @@ export type AddWorkspaceRepoRequest = { repo_id: string, target_branch: string, 
 
 export type AddWorkspaceRepoResponse = { workspace: Workspace, repo: RepoWithTargetBranch, };
 
-export type MergeWorkspaceRequest = { repo_id: string, };
+export type MergeWorkspaceRequest = { repo_id: string, 
+/**
+ * Merge strategy. Defaults to `squash` for backwards compatibility.
+ */
+strategy: MergeStrategy | null, };
 
 export type PushWorkspaceRequest = { repo_id: string, };
 
@@ -392,15 +476,15 @@ export type AttachPrResponse = { pr_attached: boolean, pr_url: string | null, pr
 
 export type AttachExistingPrRequest = { repo_id: string, };
 
-export type PrCommentsResponse = { comments: Array<UnifiedPrComment>, };
+export type PrCommentsResponse = { pr_attached: boolean, comments: Array<UnifiedPrComment>, };
 
-export type GetPrCommentsError = { "type": "no_pr_attached" } | { "type": "cli_not_installed", provider: ProviderKind, } | { "type": "cli_not_logged_in", provider: ProviderKind, };
+export type GetPrCommentsError = { "type": "cli_not_installed", provider: ProviderKind, } | { "type": "cli_not_logged_in", provider: ProviderKind, };
 
 export type GetPrCommentsQuery = { repo_id: string, };
 
 export type CreateAndStartWorkspaceRequest = { name: string | null, repos: Array<WorkspaceRepoInput>, linked_issue: LinkedIssueInfo | null, executor_config: ExecutorConfig, prompt: string, attachment_ids: Array<string> | null, };
 
-export type CreateAndStartWorkspaceResponse = { workspace: Workspace, execution_process: ExecutionProcess, };
+export type CreateAndStartWorkspaceResponse = { workspace: Workspace, execution_process: ExecutionProcess, link_warning: string | null, };
 
 export type UnifiedPrComment = { "comment_type": "general", id: string, author: string, author_association: string | null, body: string, created_at: string, url: string | null, } | { "comment_type": "review", id: bigint, author: string, author_association: string | null, body: string, created_at: string, url: string | null, path: string, line: bigint | null, side: string | null, diff_hunk: string | null, };
 
@@ -409,6 +493,8 @@ export type ProviderKind = "git_hub" | "azure_dev_ops" | "unknown";
 export type PullRequestDetail = { number: bigint, url: string, status: MergeStatus, merged_at: string | null, merge_commit_sha: string | null, title: string, base_branch: string, head_branch: string, };
 
 export type GitRemote = { name: string, url: string, };
+
+export type MergeStrategy = "squash" | "rebase" | "merge";
 
 export type ListPrsError = { "type": "cli_not_installed", provider: ProviderKind, } | { "type": "auth_failed", message: string, } | { "type": "unsupported_provider" };
 
@@ -476,7 +562,11 @@ pr_number: bigint | null,
 /**
  * PR URL for this workspace (if any PR exists)
  */
-pr_url: string | null, };
+pr_url: string | null, 
+/**
+ * Host ID of the session that ran the latest execution process
+ */
+latest_host_id: string | null, };
 
 export type WorkspaceSummaryResponse = { summaries: Array<WorkspaceSummary>, };
 
@@ -488,7 +578,7 @@ export type DirectoryListResponse = { entries: Array<DirectoryEntry>, current_pa
 
 export type SearchMode = "taskform" | "settings";
 
-export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, remote_onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, analytics_enabled: boolean, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, pr_auto_description_enabled: boolean, pr_auto_description_prompt: string | null, commit_reminder_enabled: boolean, commit_reminder_prompt: string | null, send_message_shortcut: SendMessageShortcut, relay_enabled: boolean, host_nickname: string | null, };
+export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, remote_onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, analytics_enabled: boolean, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, pr_auto_description_enabled: boolean, pr_auto_description_prompt: string | null, commit_reminder_enabled: boolean, commit_reminder_prompt: string | null, send_message_shortcut: SendMessageShortcut, relay_enabled: boolean, host_nickname: string | null, appearance: AppearanceConfig, input_editor_mode: InputEditorMode, };
 
 export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, };
 
@@ -509,6 +599,22 @@ export type UiLanguage = "BROWSER" | "EN" | "FR" | "JA" | "ES" | "KO" | "ZH_HANS
 export type ShowcaseState = { seen_features: Array<string>, };
 
 export type SendMessageShortcut = "ModifierEnter" | "Enter";
+
+export type FontConfig = { ui_font: UiFont, code_font: CodeFont, prose_font: ProseFont, disable_ligatures: boolean, };
+
+export type UiFont = "IBM_PLEX_SANS" | "INTER" | "ROBOTO" | "PUBLIC_SANS" | "SYSTEM";
+
+export type CodeFont = "IBM_PLEX_MONO" | "JET_BRAINS_MONO" | "CASCADIA_MONO" | "HACK" | "SYSTEM";
+
+export type ProseFont = "IBM_PLEX_SANS" | "ROBOTO" | "GEORGIA" | "SYSTEM";
+
+export type AppearanceConfig = { fonts: FontConfig, accent_color: string | null, host_banner: HostBannerConfig, links: LinksConfig, };
+
+export type HostBannerConfig = { show_hostname: boolean, show_os_info: boolean, env_label: string | null, };
+
+export type LinksConfig = { discord_enabled: boolean, discord_url: string | null, feedback_url: string | null, };
+
+export type InputEditorMode = "WYSIWYG" | "RAW";
 
 export type GitBranch = { name: string, is_current: boolean, is_remote: boolean, last_commit_date: Date, };
 
@@ -735,7 +841,9 @@ export type AskUserQuestionOption = { label: string, description: string, };
 
 export type TodoItem = { content: string, status: string, priority: string | null, };
 
-export type NormalizedEntryError = { "type": "setup_required" } | { "type": "other" };
+export type NormalizedEntryError = { "type": "setup_required" } | { "type": "session_not_found", available_sessions: Array<AvailableSessionInfo>, } | { "type": "other" };
+
+export type AvailableSessionInfo = { session_id: string, start_time: string | null, end_time: string | null, duration_secs: bigint | null, file_size: bigint, };
 
 export type ToolResult = { type: ToolResultValueType, 
 /**

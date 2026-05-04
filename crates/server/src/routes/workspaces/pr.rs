@@ -10,7 +10,7 @@ use axum::{
 use db::models::{
     coding_agent_turn::CodingAgentTurn,
     execution_process::{ExecutionProcess, ExecutionProcessRunReason},
-    merge::{Merge, MergeStatus},
+    merge::{DirectMerge, Merge, MergeStatus, PrMerge, PullRequestInfo},
     pull_request::PullRequest,
     repo::{Repo, RepoError},
     session::{CreateSession, Session},
@@ -37,6 +37,16 @@ use uuid::Uuid;
 use workspace_manager::WorkspaceManager;
 
 use crate::{DeploymentImpl, error::ApiError};
+
+/// Returns the first open PR merge for the given list of merges, or `None` if
+/// no open PR is attached. Ignores merged, closed, and direct merges so that a
+/// new PR can be linked after the previous one has been merged/closed.
+fn find_open_pr_merge(merges: Vec<Merge>) -> Option<PrMerge> {
+    merges.into_iter().find_map(|m| match m {
+        Merge::Pr(p) if matches!(p.pr_info.status, MergeStatus::Open) => Some(p),
+        _ => None,
+    })
+}
 
 #[derive(Debug, Deserialize, Serialize, TS)]
 pub struct CreatePrApiRequest {
@@ -76,6 +86,7 @@ pub struct AttachExistingPrRequest {
 
 #[derive(Debug, Serialize, TS)]
 pub struct PrCommentsResponse {
+    pub pr_attached: bool,
     pub comments: Vec<UnifiedPrComment>,
 }
 
@@ -83,7 +94,6 @@ pub struct PrCommentsResponse {
 #[serde(tag = "type", rename_all = "snake_case")]
 #[ts(tag = "type", rename_all = "snake_case")]
 pub enum GetPrCommentsError {
-    NoPrAttached,
     CliNotInstalled { provider: ProviderKind },
     CliNotLoggedIn { provider: ProviderKind },
 }
@@ -123,6 +133,7 @@ async fn trigger_pr_description_follow_up(
                     &CreateSession {
                         executor: None,
                         name: None,
+                        host_id: None,
                     },
                     Uuid::new_v4(),
                     workspace.id,
@@ -403,9 +414,10 @@ pub async fn attach_existing_pr(
         .await?
         .ok_or(RepoError::NotFound)?;
 
-    // Check if PR already attached for this repo
+    // Only short-circuit if an *open* PR is already attached.
+    // A merged or closed PR should allow a new PR to be linked.
     let merges = Merge::find_by_workspace_and_repo_id(pool, workspace.id, request.repo_id).await?;
-    if let Some(Merge::Pr(pr_merge)) = merges.into_iter().next() {
+    if let Some(pr_merge) = find_open_pr_merge(merges) {
         return Ok(ResponseJson(ApiResponse::success(AttachPrResponse {
             pr_attached: true,
             pr_url: Some(pr_merge.pr_info.url.clone()),
@@ -564,9 +576,10 @@ pub async fn get_pr_comments(
     let pr_info = match merges.into_iter().next() {
         Some(Merge::Pr(pr_merge)) => pr_merge.pr_info,
         _ => {
-            return Ok(ResponseJson(ApiResponse::error_with_data(
-                GetPrCommentsError::NoPrAttached,
-            )));
+            return Ok(ResponseJson(ApiResponse::success(PrCommentsResponse {
+                pr_attached: false,
+                comments: Vec::new(),
+            })));
         }
     };
 
@@ -590,6 +603,7 @@ pub async fn get_pr_comments(
         .await
     {
         Ok(comments) => Ok(ResponseJson(ApiResponse::success(PrCommentsResponse {
+            pr_attached: true,
             comments,
         }))),
         Err(e) => {
@@ -796,6 +810,7 @@ pub async fn create_workspace_from_pr(
                 &CreateSession {
                     executor: None,
                     name: None,
+                    host_id: None,
                 },
                 Uuid::new_v4(),
                 workspace.id,
@@ -848,4 +863,108 @@ pub fn router() -> Router<DeploymentImpl> {
         .route("/", post(create_pr))
         .route("/attach", post(attach_existing_pr))
         .route("/comments", get(get_pr_comments))
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+
+    use super::*;
+
+    fn make_pr_merge_with_status(status: MergeStatus) -> Merge {
+        Merge::Pr(PrMerge {
+            id: Uuid::new_v4(),
+            workspace_id: Uuid::new_v4(),
+            repo_id: Uuid::new_v4(),
+            created_at: Utc::now(),
+            target_branch_name: "main".to_string(),
+            pr_info: PullRequestInfo {
+                number: 1,
+                url: "https://github.com/owner/repo/pull/1".to_string(),
+                status,
+                merged_at: None,
+                merge_commit_sha: None,
+            },
+        })
+    }
+
+    fn make_direct_merge() -> Merge {
+        Merge::Direct(DirectMerge {
+            id: Uuid::new_v4(),
+            workspace_id: Uuid::new_v4(),
+            repo_id: Uuid::new_v4(),
+            merge_commit: "abc123".to_string(),
+            target_branch_name: "main".to_string(),
+            merge_strategy: "merge".to_string(),
+            created_at: Utc::now(),
+        })
+    }
+
+    #[test]
+    fn find_open_pr_merge_returns_none_for_empty_list() {
+        assert!(find_open_pr_merge(vec![]).is_none());
+    }
+
+    #[test]
+    fn find_open_pr_merge_returns_none_when_only_merged_pr() {
+        // Key regression case: a merged PR must NOT block new PR linking.
+        let merges = vec![make_pr_merge_with_status(MergeStatus::Merged)];
+        assert!(find_open_pr_merge(merges).is_none());
+    }
+
+    #[test]
+    fn find_open_pr_merge_returns_none_when_only_closed_pr() {
+        let merges = vec![make_pr_merge_with_status(MergeStatus::Closed)];
+        assert!(find_open_pr_merge(merges).is_none());
+    }
+
+    #[test]
+    fn find_open_pr_merge_returns_none_when_only_unknown_pr() {
+        let merges = vec![make_pr_merge_with_status(MergeStatus::Unknown)];
+        assert!(find_open_pr_merge(merges).is_none());
+    }
+
+    #[test]
+    fn find_open_pr_merge_returns_none_for_direct_merge_only() {
+        let merges = vec![make_direct_merge()];
+        assert!(find_open_pr_merge(merges).is_none());
+    }
+
+    #[test]
+    fn find_open_pr_merge_returns_open_pr() {
+        let merges = vec![make_pr_merge_with_status(MergeStatus::Open)];
+        let result = find_open_pr_merge(merges).expect("expected an open PR merge");
+        assert!(matches!(result.pr_info.status, MergeStatus::Open));
+    }
+
+    #[test]
+    fn find_open_pr_merge_returns_open_pr_when_mixed_with_merged() {
+        // Simulates: old merged PR + new open PR both in the list.
+        let merges = vec![
+            make_pr_merge_with_status(MergeStatus::Merged),
+            make_pr_merge_with_status(MergeStatus::Open),
+        ];
+        let result = find_open_pr_merge(merges).expect("expected an open PR merge");
+        assert!(matches!(result.pr_info.status, MergeStatus::Open));
+    }
+
+    #[test]
+    fn find_open_pr_merge_ignores_direct_merges_even_with_open_pr() {
+        let merges = vec![
+            make_direct_merge(),
+            make_pr_merge_with_status(MergeStatus::Open),
+        ];
+        let result = find_open_pr_merge(merges).expect("expected an open PR merge");
+        assert!(matches!(result.pr_info.status, MergeStatus::Open));
+    }
+
+    #[test]
+    fn find_open_pr_merge_returns_first_open_pr_when_multiple_open() {
+        let merges = vec![
+            make_pr_merge_with_status(MergeStatus::Open),
+            make_pr_merge_with_status(MergeStatus::Open),
+        ];
+        let result = find_open_pr_merge(merges).expect("expected an open PR merge");
+        assert!(matches!(result.pr_info.status, MergeStatus::Open));
+    }
 }

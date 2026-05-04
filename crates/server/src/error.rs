@@ -5,8 +5,9 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use db::models::{
-    execution_process::ExecutionProcessError, repo::RepoError, scratch::ScratchError,
-    session::SessionError, workspace::WorkspaceError,
+    execution_process::ExecutionProcessError, external_session::ExternalSessionError,
+    repo::RepoError, scratch::ScratchError, session::SessionError, webhook::WebhookError,
+    workspace::WorkspaceError,
 };
 use deployment::{DeploymentError, RelayHostsNotConfigured, RemoteClientNotConfigured};
 use executors::{command::CommandBuildError, executors::ExecutorError};
@@ -39,6 +40,10 @@ pub enum ApiError {
     Workspace(#[from] WorkspaceError),
     #[error(transparent)]
     Session(#[from] SessionError),
+    #[error(transparent)]
+    ExternalSession(#[from] ExternalSessionError),
+    #[error(transparent)]
+    Webhook(#[from] WebhookError),
     #[error(transparent)]
     ScratchError(#[from] ScratchError),
     #[error(transparent)]
@@ -351,6 +356,27 @@ impl IntoResponse for ApiError {
                 )
             }
 
+            ApiError::ExternalSession(ExternalSessionError::Database(_)) => {
+                ErrorInfo::internal("ExternalSessionError")
+            }
+            ApiError::ExternalSession(ExternalSessionError::NotFound) => {
+                ErrorInfo::not_found("ExternalSessionError", "External session not found.")
+            }
+            ApiError::ExternalSession(ExternalSessionError::InvalidStatus(s)) => {
+                ErrorInfo::bad_request(
+                    "ExternalSessionError",
+                    format!(
+                        "Invalid status: {}. Must be one of: in_progress, in_review, done, blocked.",
+                        s
+                    ),
+                )
+            }
+
+            ApiError::Webhook(WebhookError::Database(_)) => ErrorInfo::internal("WebhookError"),
+            ApiError::Webhook(WebhookError::NotFound) => {
+                ErrorInfo::not_found("WebhookError", "Webhook not found.")
+            }
+
             ApiError::ScratchError(ScratchError::Database(_)) => {
                 ErrorInfo::internal("ScratchError")
             }
@@ -486,6 +512,9 @@ impl IntoResponse for ApiError {
             ApiError::Container(_) => ErrorInfo::internal("ContainerError"),
             ApiError::Executor(_) => ErrorInfo::internal("ExecutorError"),
             ApiError::CommandBuilder(_) => ErrorInfo::internal("CommandBuildError"),
+            ApiError::Database(sqlx::Error::RowNotFound) => {
+                ErrorInfo::not_found("DatabaseError", "Resource not found.")
+            }
             ApiError::Database(_) => ErrorInfo::internal("DatabaseError"),
             ApiError::Worktree(err) => ErrorInfo::with_status(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -592,6 +621,20 @@ impl From<RelayApiError> for ApiError {
     fn from(err: RelayApiError) -> Self {
         tracing::warn!(%err, "Relay transport failed");
         ApiError::BadGateway(err.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::{http::StatusCode, response::IntoResponse};
+
+    use super::ApiError;
+
+    #[test]
+    fn database_row_not_found_maps_to_not_found() {
+        let response = ApiError::Database(sqlx::Error::RowNotFound).into_response();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 }
 

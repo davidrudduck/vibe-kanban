@@ -139,6 +139,9 @@ module.exports = {
       fontFamily: {
         'ibm-plex-sans': ['"IBM Plex Sans"', '"Noto Emoji"', 'sans-serif'],
         'ibm-plex-mono': ['"IBM Plex Mono"', 'monospace'],
+        'ui': ['var(--font-ui)'],
+        'code': ['var(--font-code)'],
+        'prose': ['var(--font-prose)'],
       },
       keyframes: {
         "accordion-down": {

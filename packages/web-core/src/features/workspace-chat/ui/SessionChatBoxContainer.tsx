@@ -10,6 +10,7 @@ import {
 } from 'shared/types';
 import { AgentIcon } from '@/shared/components/AgentIcon';
 import { useHostId } from '@/shared/providers/HostIdProvider';
+import { useHostResolution } from '@/shared/hooks/useHostResolution';
 import { workspaceSessionKeys } from '@/shared/hooks/workspaceSessionKeys';
 import { useWorkspaceExecution } from '@/shared/hooks/useWorkspaceExecution';
 import { useWorkspaceRepo } from '@/shared/hooks/useWorkspaceRepo';
@@ -172,6 +173,16 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   const sessionId = session?.id;
   const queryClient = useQueryClient();
   const hostId = useHostId();
+
+  const { resolveHostName } = useHostResolution();
+  const sessionsWithHost = useMemo(
+    () =>
+      sessions.map((s) => ({
+        ...s,
+        hostName: resolveHostName(s.host_id),
+      })),
+    [sessions, resolveHostName]
+  );
 
   const handleRenameSession = useCallback(
     (targetSessionId: string, currentName: string) => {
@@ -496,6 +507,13 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     isNewSessionMode,
     onSelectSession,
     executorConfig,
+    runningExecutionProcessId:
+      processes.find(
+        (p) =>
+          p.status === ExecutionProcessStatus.running &&
+          p.run_reason === 'codingagent' &&
+          p.session_id === sessionId
+      )?.id ?? null,
   });
 
   const handleSend = useCallback(async () => {
@@ -929,9 +947,10 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         onPasteFiles={onPasteFiles}
         localAttachments={localAttachments}
         sendShortcut={config?.send_message_shortcut}
+        rawMode={config?.input_editor_mode === 'RAW'}
       />
     ),
-    [config?.send_message_shortcut, sessionId]
+    [config?.send_message_shortcut, config?.input_editor_mode, sessionId]
   );
 
   const modelSelectorNode = effectiveExecutor ? (
@@ -1037,7 +1056,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         onPasteFiles: uploadFiles,
       }}
       session={{
-        sessions,
+        sessions: sessionsWithHost,
         selectedSessionId: sessionId,
         onSelectSession: onSelectSession ?? (() => {}),
         isNewSessionMode: needsExecutorSelection,

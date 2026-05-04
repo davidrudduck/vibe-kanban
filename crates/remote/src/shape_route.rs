@@ -24,6 +24,7 @@ use axum::{
     routing::{MethodRouter, get},
 };
 use serde::Deserialize;
+use tracing::warn;
 use ts_rs::TS;
 use uuid::Uuid;
 
@@ -180,7 +181,18 @@ fn build_proxy_handler(
                     ctx.user.id,
                 )
                 .await
-                .map_err(|e| ProxyError::Authorization(e.to_string()))?;
+                .map_err(|e| {
+                    warn!(
+                        shape = shape.table(),
+                        scope = "organization",
+                        organization_id = %query.organization_id,
+                        user_id = %ctx.user.id,
+                        session_id = %ctx.session_id,
+                        error = %e,
+                        "electric shape authorization denied"
+                    );
+                    ProxyError::Authorization(e.to_string())
+                })?;
 
                 proxy_table(
                     &state,
@@ -203,7 +215,18 @@ fn build_proxy_handler(
                     ctx.user.id,
                 )
                 .await
-                .map_err(|e| ProxyError::Authorization(e.to_string()))?;
+                .map_err(|e| {
+                    warn!(
+                        shape = shape.table(),
+                        scope = "organization_with_user",
+                        organization_id = %query.organization_id,
+                        user_id = %ctx.user.id,
+                        session_id = %ctx.session_id,
+                        error = %e,
+                        "electric shape authorization denied"
+                    );
+                    ProxyError::Authorization(e.to_string())
+                })?;
 
                 proxy_table(
                     &state,
@@ -223,7 +246,18 @@ fn build_proxy_handler(
                   Query(query): Query<ShapeQuery>| async move {
                 organization_members::assert_project_access(state.pool(), project_id, ctx.user.id)
                     .await
-                    .map_err(|e| ProxyError::Authorization(e.to_string()))?;
+                    .map_err(|e| {
+                        warn!(
+                            shape = shape.table(),
+                            scope = "project",
+                            project_id = %project_id,
+                            user_id = %ctx.user.id,
+                            session_id = %ctx.session_id,
+                            error = %e,
+                            "electric shape authorization denied"
+                        );
+                        ProxyError::Authorization(e.to_string())
+                    })?;
 
                 proxy_table(
                     &state,
@@ -243,7 +277,18 @@ fn build_proxy_handler(
                   Query(query): Query<ShapeQuery>| async move {
                 organization_members::assert_issue_access(state.pool(), issue_id, ctx.user.id)
                     .await
-                    .map_err(|e| ProxyError::Authorization(e.to_string()))?;
+                    .map_err(|e| {
+                        warn!(
+                            shape = shape.table(),
+                            scope = "issue",
+                            issue_id = %issue_id,
+                            user_id = %ctx.user.id,
+                            session_id = %ctx.session_id,
+                            error = %e,
+                            "electric shape authorization denied"
+                        );
+                        ProxyError::Authorization(e.to_string())
+                    })?;
 
                 proxy_table(
                     &state,

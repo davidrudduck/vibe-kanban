@@ -67,6 +67,28 @@ Tags are project-specific. You can manage them from the tag selector when editin
 
 Drag and drop issues between columns to change their status, or within a column to reorder them.
 
+### Workspace card actions
+
+Each workspace card on the kanban board has an actions menu (the `...` button) that appears on hover. It provides the following options:
+
+| Action | Effect |
+|--------|--------|
+| **Unlink** | Removes the association between the workspace and the issue without deleting either |
+| **Archive** / **Unarchive** | Toggles the archived state of the workspace |
+| **Delete** | Permanently deletes the workspace |
+
+<Warning>
+Delete is irreversible. Archive the workspace instead if you may want to revisit it later.
+</Warning>
+
+### Draft issue persistence
+
+When you open the new issue panel, your title and description are saved automatically as you type. If you navigate away before saving — for example, to check another issue or open a workspace — your draft is restored when you return to create a new issue.
+
+<Tip>
+Use draft persistence to start an issue description, explore the codebase in a workspace for context, and then come back to finish the description without losing your work.
+</Tip>
+
 <Frame>
   <img src="/images/issue-mgmt-kanban-board.png" alt="Kanban board showing issues being dragged between columns" />
 </Frame>

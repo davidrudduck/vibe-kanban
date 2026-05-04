@@ -1,6 +1,7 @@
 // SDK submodules
 pub mod client;
 pub mod protocol;
+pub mod session_recovery;
 pub mod slash_commands;
 pub mod types;
 
@@ -193,7 +194,8 @@ impl ClaudeCode {
             "--replay-user-messages",
         ]);
 
-        apply_overrides(builder, &self.cmd)
+        let builder = apply_overrides(builder, &self.cmd)?;
+        Ok(builder)
     }
 
     pub fn permission_mode(&self) -> PermissionMode {
@@ -669,6 +671,20 @@ impl ClaudeCode {
         let repo_context = env.repo_context.clone();
         let commit_reminder_prompt = env.commit_reminder_prompt.clone();
         let cancel_for_task = cancel.clone();
+
+        // Oneshot channel to surface the ProtocolPeer to the container so it can inject
+        // messages into this process while it is running.
+        let (peer_tx, peer_rx) = tokio::sync::oneshot::channel::<ProtocolPeer>();
+
+        // Per-turn idle signal. The Claude Agent SDK CLI does not exit on its
+        // own when a turn ends — it sits on stdin waiting for the next user
+        // message. The reader sends `()` on this channel when it observes
+        // `CLIMessage::Result`. The container's listener task drops the
+        // ProtocolPeer in response, releasing the last `ChildStdin` clone so
+        // the SDK sees EOF and exits naturally, letting the OS-exit watcher
+        // run normal cleanup (status='completed', UI spinner clears).
+        let (turn_idle_tx, turn_idle_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+
         tokio::spawn(async move {
             let log_writer = LogWriter::new(new_stdout);
             let client = ClaudeAgentClient::new(
@@ -678,8 +694,13 @@ impl ClaudeCode {
                 commit_reminder_prompt,
                 cancel_for_task.clone(),
             );
-            let protocol_peer =
-                ProtocolPeer::spawn(child_stdin, child_stdout, client.clone(), cancel_for_task);
+            let protocol_peer = ProtocolPeer::spawn(
+                child_stdin,
+                child_stdout,
+                client.clone(),
+                cancel_for_task,
+                turn_idle_tx,
+            );
 
             // Initialize control protocol
             if let Err(e) = protocol_peer.initialize(hooks).await {
@@ -700,13 +721,24 @@ impl ClaudeCode {
                 let _ = log_writer
                     .log_raw(&format!("Error: Failed to send prompt - {e}"))
                     .await;
+                return;
             }
+
+            // Publish the peer only after initialization and the initial user
+            // message have been successfully delivered so that the container
+            // can safely inject follow-up messages without racing the init
+            // sequence.  If any earlier step failed we return early, dropping
+            // peer_tx; the container's background task sees Err and skips
+            // registration.
+            let _ = peer_tx.send(protocol_peer);
         });
 
         Ok(SpawnedChild {
             child,
             exit_signal: None,
             cancel: Some(cancel),
+            protocol_peer: Some(peer_rx),
+            turn_idle_signal: Some(turn_idle_rx),
         })
     }
 }

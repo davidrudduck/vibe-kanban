@@ -40,6 +40,7 @@ export const useConversationHistory = ({
   const loadedInitialEntries = useRef(false);
   const emittedEmptyInitialRef = useRef(false);
   const streamingProcessIdsRef = useRef<Set<string>>(new Set());
+  const settledStreamProcessIdsRef = useRef<Set<string>>(new Set());
   const onTimelineUpdatedRef = useRef<
     UseConversationHistoryParams['onTimelineUpdated'] | null
   >(null);
@@ -228,6 +229,7 @@ export const useConversationHistory = ({
             emitEntries(displayedExecutionProcesses.current, 'running', false);
           },
           onFinished: () => {
+            settledStreamProcessIdsRef.current.add(executionProcess.id);
             emitEntries(displayedExecutionProcesses.current, 'running', false);
             controller.close();
             resolve();
@@ -384,6 +386,7 @@ export const useConversationHistory = ({
     loadedInitialEntries.current = false;
     emittedEmptyInitialRef.current = false;
     streamingProcessIdsRef.current.clear();
+    settledStreamProcessIdsRef.current.clear();
     previousStatusMapRef.current.clear();
     emitEntries(displayedExecutionProcesses.current, 'initial', true);
   }, [scopeKey, emitEntries]);
@@ -479,10 +482,17 @@ export const useConversationHistory = ({
       const previousStatus = previousStatusMapRef.current.get(process.id);
       const currentStatus = process.status;
 
+      // Skip re-fetch if the live stream already delivered a clean final state
+      // (onFinished fired → settled). Assumes the backend emits the Finished log
+      // frame before flipping the process status; if that ordering ever changes
+      // this guard may not fire in time and a duplicate emit may briefly recur.
+      // Effect C remains active for processes whose stream failed (onFinished
+      // never fired), preserving it as an error-recovery path.
       if (
         previousStatus === ExecutionProcessStatus.running &&
         currentStatus !== ExecutionProcessStatus.running &&
-        displayedExecutionProcesses.current[process.id]
+        displayedExecutionProcesses.current[process.id] &&
+        !settledStreamProcessIdsRef.current.has(process.id)
       ) {
         processesToReload.push(process);
       }

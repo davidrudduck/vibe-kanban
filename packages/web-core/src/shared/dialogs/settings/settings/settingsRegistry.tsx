@@ -6,29 +6,39 @@ import {
   CpuIcon,
   PlugIcon,
   BroadcastIcon,
+  WrenchIcon,
+  PulseIcon,
+  PaintBrushIcon,
 } from '@phosphor-icons/react';
 import type { Icon } from '@phosphor-icons/react';
 import { GeneralSettingsSection } from './GeneralSettingsSection';
+import { AppearanceSettings } from './AppearanceSettings';
 import { ReposSettingsSection } from './ReposSettingsSection';
 import { OrganizationsSettingsSection } from './OrganizationsSettingsSection';
 import { RemoteProjectsSettingsSection } from './RemoteProjectsSettingsSection';
 import { AgentsSettingsSection } from './AgentsSettingsSection';
 import { McpSettingsSection } from './McpSettingsSection';
 import { RelaySettingsSectionContent } from './RelaySettingsSection';
+import { MaintenancePanel } from './MaintenancePanel';
+import { DiagnosticsPanel } from './DiagnosticsPanel';
 
 export type SettingsSectionType =
   | 'general'
+  | 'appearance'
   | 'repos'
   | 'organizations'
   | 'remote-projects'
   | 'agents'
   | 'mcp'
-  | 'relay';
+  | 'relay'
+  | 'maintenance'
+  | 'diagnostics';
 
 export type SettingsSectionGroup = 'host' | 'universal';
 
 export type SettingsSectionInitialState = {
   general: undefined;
+  appearance: undefined;
   repos: { repoId?: string } | undefined;
   organizations: { organizationId?: string } | undefined;
   'remote-projects':
@@ -37,6 +47,8 @@ export type SettingsSectionInitialState = {
   agents: { executor?: string; variant?: string } | undefined;
   mcp: undefined;
   relay: { hostId?: string } | undefined;
+  maintenance: undefined;
+  diagnostics: undefined;
 };
 
 export interface SettingsSectionDefinition {
@@ -47,9 +59,12 @@ export interface SettingsSectionDefinition {
 
 export const SETTINGS_SECTION_DEFINITIONS: SettingsSectionDefinition[] = [
   { id: 'general', icon: GearIcon, group: 'host' },
+  { id: 'appearance', icon: PaintBrushIcon, group: 'host' },
   { id: 'repos', icon: GitBranchIcon, group: 'host' },
   { id: 'agents', icon: CpuIcon, group: 'host' },
   { id: 'mcp', icon: PlugIcon, group: 'host' },
+  { id: 'maintenance', icon: WrenchIcon, group: 'host' },
+  { id: 'diagnostics', icon: PulseIcon, group: 'host' },
   { id: 'organizations', icon: BuildingsIcon, group: 'universal' },
   { id: 'remote-projects', icon: CloudIcon, group: 'universal' },
   { id: 'relay', icon: BroadcastIcon, group: 'universal' },
@@ -72,6 +87,8 @@ export function renderSettingsSection(
   switch (type) {
     case 'general':
       return <GeneralSettingsSection />;
+    case 'appearance':
+      return <AppearanceSettings />;
     case 'repos':
       return (
         <ReposSettingsSection
@@ -99,6 +116,10 @@ export function renderSettingsSection(
           onClose={onClose}
         />
       );
+    case 'maintenance':
+      return <MaintenancePanel />;
+    case 'diagnostics':
+      return <DiagnosticsPanel />;
     default:
       return <GeneralSettingsSection />;
   }

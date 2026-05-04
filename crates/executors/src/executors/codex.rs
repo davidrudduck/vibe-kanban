@@ -31,6 +31,39 @@ pub(crate) fn resolve_model(model: Option<&str>) -> (Option<&str>, bool) {
     }
 }
 
+fn is_linux_sandbox_namespace_error_message(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    let patterns = [
+        "bubblewrap",
+        "bwrap",
+        "user namespaces",
+        "user namespace",
+        "no permissions to create new namespace",
+        "creating new namespace failed",
+        "needs access to create user namespaces",
+        "rtm_newaddr",
+    ];
+
+    patterns.iter().any(|pattern| message.contains(pattern))
+}
+
+fn should_retry_without_linux_sandbox(sandbox: Option<&SandboxMode>, err: &ExecutorError) -> bool {
+    matches!(sandbox, None | Some(SandboxMode::Auto))
+        && is_linux_sandbox_namespace_error_message(&err.to_string())
+}
+
+fn linux_sandbox_guidance_message(original_error: &str, retried_without_sandbox: bool) -> String {
+    let prefix = if retried_without_sandbox {
+        "Codex's Linux sandbox requires bubblewrap user namespaces. This host appears to block them, so Vibe Kanban retried without sandboxing."
+    } else {
+        "Codex's Linux sandbox requires bubblewrap user namespaces. This workspace or host appears to block them."
+    };
+
+    format!(
+        "{prefix}\n\nIf you want to keep sandboxing enabled, enable unprivileged user namespaces or relax the host/AppArmor policy.\nChange the Codex profile to `danger-full-access` if you want Codex to run without the Linux sandbox on this host.\n\nOriginal error: {original_error}"
+    )
+}
+
 pub(crate) fn fork_params_from(thread_id: String, params: ThreadStartParams) -> ThreadForkParams {
     ThreadForkParams {
         thread_id,
@@ -555,6 +588,7 @@ impl Codex {
     ) -> Result<SpawnedChild, ExecutorError> {
         let params = self.build_thread_start_params(current_dir);
         let resume_session = resume_session.map(|s| s.to_string());
+        let sandbox = self.sandbox.clone();
 
         self.spawn_app_server(
             current_dir,
@@ -563,10 +597,12 @@ impl Codex {
             move |client, _| async move {
                 match action {
                     CodexSessionAction::Chat { prompt } => {
-                        Self::launch_codex_agent(params, resume_session, prompt, client).await
+                        Self::launch_codex_agent(params, resume_session, sandbox, prompt, client)
+                            .await
                     }
                     CodexSessionAction::Review { target } => {
-                        review::launch_codex_review(params, resume_session, target, client).await
+                        review::launch_codex_review(params, resume_session, sandbox, target, client)
+                            .await
                     }
                 }
             },
@@ -574,9 +610,75 @@ impl Codex {
         .await
     }
 
+    pub(super) async fn start_or_fork_thread_with_linux_sandbox_fallback(
+        thread_start_params: ThreadStartParams,
+        resume_session: Option<String>,
+        sandbox: Option<SandboxMode>,
+        client: Arc<AppServerClient>,
+    ) -> Result<(String, String), ExecutorError> {
+        let initial_attempt = Self::start_or_fork_thread(
+            thread_start_params.clone(),
+            resume_session.clone(),
+            client.clone(),
+        )
+        .await;
+
+        match initial_attempt {
+            Ok(result) => Ok(result),
+            Err(err) if should_retry_without_linux_sandbox(sandbox.as_ref(), &err) => {
+                let mut retry_params = thread_start_params;
+                retry_params.sandbox = Some(V2SandboxMode::DangerFullAccess);
+
+                let retried =
+                    Self::start_or_fork_thread(retry_params, resume_session, client.clone())
+                        .await?;
+
+                client
+                    .log_writer()
+                    .log_raw(
+                        &Error::linux_sandbox_auto_fallback(linux_sandbox_guidance_message(
+                            &err.to_string(),
+                            true,
+                        ))
+                        .raw(),
+                    )
+                    .await?;
+
+                Ok(retried)
+            }
+            Err(err) if is_linux_sandbox_namespace_error_message(&err.to_string()) => {
+                Err(ExecutorError::Io(std::io::Error::other(
+                    linux_sandbox_guidance_message(&err.to_string(), false),
+                )))
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    async fn start_or_fork_thread(
+        thread_start_params: ThreadStartParams,
+        resume_session: Option<String>,
+        client: Arc<AppServerClient>,
+    ) -> Result<(String, String), ExecutorError> {
+        match resume_session {
+            None => {
+                let response = client.thread_start(thread_start_params).await?;
+                Ok((response.thread.id, response.model))
+            }
+            Some(session_id) => {
+                let response = client
+                    .thread_fork(fork_params_from(session_id, thread_start_params))
+                    .await?;
+                tracing::debug!("forked thread, new thread_id={}", response.thread.id);
+                Ok((response.thread.id, response.model))
+            }
+        }
+    }
+
     async fn launch_codex_agent(
         thread_start_params: ThreadStartParams,
         resume_session: Option<String>,
+        sandbox: Option<SandboxMode>,
         combined_prompt: String,
         client: Arc<AppServerClient>,
     ) -> Result<(), ExecutorError> {
@@ -587,19 +689,13 @@ impl Codex {
             ));
         }
 
-        let (thread_id, resolved_model) = match resume_session {
-            None => {
-                let response = client.thread_start(thread_start_params).await?;
-                (response.thread.id, response.model)
-            }
-            Some(session_id) => {
-                let response = client
-                    .thread_fork(fork_params_from(session_id, thread_start_params))
-                    .await?;
-                tracing::debug!("forked thread, new thread_id={}", response.thread.id);
-                (response.thread.id, response.model)
-            }
-        };
+        let (thread_id, resolved_model) = Self::start_or_fork_thread_with_linux_sandbox_fallback(
+            thread_start_params,
+            resume_session,
+            sandbox,
+            client.clone(),
+        )
+        .await?;
 
         client.set_resolved_model(resolved_model);
         client.register_session(&thread_id).await?;
@@ -723,6 +819,13 @@ impl Codex {
                             .await;
                         return;
                     }
+                    _ if is_linux_sandbox_namespace_error_message(&err.to_string()) => {
+                        tracing::error!("Codex Linux sandbox failure: {}", err);
+                        log_writer
+                            .log_raw(&Error::linux_sandbox_strict_failure(err.to_string()).raw())
+                            .await
+                            .ok();
+                    }
                     _ => {
                         tracing::error!("Codex spawn error: {}", err);
                         log_writer
@@ -741,6 +844,65 @@ impl Codex {
             child,
             exit_signal: Some(exit_signal_rx),
             cancel: Some(cancel),
+            protocol_peer: None,
+            turn_idle_signal: None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::executors::ExecutorError;
+
+    #[test]
+    fn detects_linux_sandbox_namespace_failures() {
+        assert!(is_linux_sandbox_namespace_error_message(
+            "Codex's Linux sandbox uses bubblewrap and needs access to create user namespaces."
+        ));
+        assert!(is_linux_sandbox_namespace_error_message(
+            "bwrap: No permissions to create new namespace, likely because the kernel does not allow non-privileged user namespaces"
+        ));
+        assert!(is_linux_sandbox_namespace_error_message(
+            "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+        ));
+        assert!(is_linux_sandbox_namespace_error_message(
+            "bwrap: Creating new namespace failed, likely because the kernel does not support user namespaces."
+        ));
+        assert!(!is_linux_sandbox_namespace_error_message(
+            "Codex authentication required"
+        ));
+    }
+
+    #[test]
+    fn retries_only_for_implicit_linux_sandbox_failures() {
+        let err = ExecutorError::Io(std::io::Error::other(
+            "Codex's Linux sandbox uses bubblewrap and needs access to create user namespaces.",
+        ));
+
+        assert!(should_retry_without_linux_sandbox(None, &err));
+        assert!(should_retry_without_linux_sandbox(
+            Some(&SandboxMode::Auto),
+            &err
+        ));
+        assert!(!should_retry_without_linux_sandbox(
+            Some(&SandboxMode::WorkspaceWrite),
+            &err
+        ));
+        assert!(!should_retry_without_linux_sandbox(
+            Some(&SandboxMode::DangerFullAccess),
+            &err
+        ));
+    }
+
+    #[test]
+    fn formats_explicit_linux_sandbox_guidance() {
+        let guidance =
+            linux_sandbox_guidance_message("bwrap: No permissions to create new namespace", false);
+
+        assert!(guidance.contains("Codex's Linux sandbox requires bubblewrap user namespaces."));
+        assert!(guidance.contains("This workspace or host appears to block them."));
+        assert!(guidance.contains("Change the Codex profile to `danger-full-access`"));
+        assert!(guidance.contains("enable unprivileged user namespaces"));
     }
 }

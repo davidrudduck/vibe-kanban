@@ -12,6 +12,10 @@ type Options = {
   enabled?: boolean;
 };
 
+export type PrCommentsQueryResponse = PrCommentsResponse & {
+  pr_attached?: boolean;
+};
+
 export function usePrComments(
   workspaceId?: string,
   repoId?: string,
@@ -19,9 +23,9 @@ export function usePrComments(
 ) {
   const enabled = (opts?.enabled ?? true) && !!workspaceId && !!repoId;
 
-  return useQuery<PrCommentsResponse>({
+  return useQuery<PrCommentsQueryResponse>({
     queryKey: prCommentsKeys.byAttempt(workspaceId, repoId),
-    queryFn: () => workspacesApi.getPrComments(workspaceId!, repoId!),
+    queryFn: async () => workspacesApi.getPrComments(workspaceId!, repoId!),
     enabled,
     staleTime: 30_000, // Cache for 30s - comments don't change frequently
     retry: 2,

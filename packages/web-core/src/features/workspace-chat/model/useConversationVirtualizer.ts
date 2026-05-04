@@ -23,6 +23,7 @@ import {
   type ConversationRow,
   SIZE_ESTIMATE_PX,
   estimateSizeForRow,
+  findNextUserMessageIndex,
   findPreviousUserMessageIndex,
 } from './conversation-row-model';
 import {
@@ -67,6 +68,12 @@ export interface ConversationVirtualizerOptions {
    */
   onAtBottomChange?: (atBottom: boolean) => void;
 
+  /**
+   * Called when the at-top state changes. Shells use this to show/hide
+   * the scroll-to-top affordance.
+   */
+  onAtTopChange?: (atTop: boolean) => void;
+
   shouldSuppressSizeAdjustment?: () => boolean;
 }
 
@@ -91,6 +98,9 @@ export interface ConversationVirtualizerResult {
   /** Scroll to the absolute bottom of the list. */
   scrollToBottom: (behavior?: ScrollToOptionsBehavior) => void;
 
+  /** Scroll to the absolute top of the list. */
+  scrollToTop: (behavior?: ScrollToOptionsBehavior) => void;
+
   /** Scroll to a specific row index. */
   scrollToIndex: (
     index: number,
@@ -107,10 +117,22 @@ export interface ConversationVirtualizerResult {
   scrollToPreviousUserMessage: () => boolean;
 
   /**
+   * Scroll to the next user message after the first visible item.
+   * Returns true if a target was found and scrolled to, false otherwise.
+   */
+  scrollToNextUserMessage: () => boolean;
+
+  /**
    * Whether the scroll container is currently near the bottom.
    * Reactive — updates via scroll event listener, not just point-in-time.
    */
   isAtBottom: boolean;
+
+  /**
+   * Whether the scroll container is currently at the top.
+   * Reactive — updates via scroll event listener, not just point-in-time.
+   */
+  isAtTop: boolean;
 
   /** Point-in-time check (non-reactive). Reads DOM directly. */
   checkIsAtBottom: () => boolean;
@@ -150,6 +172,7 @@ export function useConversationVirtualizer({
   totalRowCount,
   scrollContainerRef,
   onAtBottomChange,
+  onAtTopChange,
   shouldSuppressSizeAdjustment,
 }: ConversationVirtualizerOptions): ConversationVirtualizerResult {
   const bottomLockedRef = useRef(false);
@@ -228,28 +251,42 @@ export function useConversationVirtualizer({
   // -------------------------------------------------------------------------
 
   const [isAtBottomState, setIsAtBottomState] = useState(true);
+  const [isAtTopState, setIsAtTopState] = useState(true);
   const onAtBottomChangeRef = useRef(onAtBottomChange);
   onAtBottomChangeRef.current = onAtBottomChange;
+  const onAtTopChangeRef = useRef(onAtTopChange);
+  onAtTopChangeRef.current = onAtTopChange;
   const lastAtBottomRef = useRef(true);
+  const lastAtTopRef = useRef(true);
 
-  const syncIsAtBottom = useCallback(() => {
+  const syncScrollEdges = useCallback(() => {
     const el = scrollContainerRef.current;
-    const nextValue = isBottomScrollCorrectionActive()
+    const nextAtBottom = isBottomScrollCorrectionActive()
       ? true
       : el
         ? isNearBottom(el.scrollTop, el.clientHeight, el.scrollHeight)
         : true;
+    const nextAtTop = el ? el.scrollTop <= 0 : true;
 
-    if (nextValue !== lastAtBottomRef.current) {
-      lastAtBottomRef.current = nextValue;
-      setIsAtBottomState(nextValue);
-      onAtBottomChangeRef.current?.(nextValue);
-      return;
+    if (nextAtBottom !== lastAtBottomRef.current) {
+      lastAtBottomRef.current = nextAtBottom;
+      setIsAtBottomState(nextAtBottom);
+      onAtBottomChangeRef.current?.(nextAtBottom);
+    } else {
+      setIsAtBottomState((current) =>
+        current === nextAtBottom ? current : nextAtBottom
+      );
     }
 
-    setIsAtBottomState((current) =>
-      current === nextValue ? current : nextValue
-    );
+    if (nextAtTop !== lastAtTopRef.current) {
+      lastAtTopRef.current = nextAtTop;
+      setIsAtTopState(nextAtTop);
+      onAtTopChangeRef.current?.(nextAtTop);
+    } else {
+      setIsAtTopState((current) =>
+        current === nextAtTop ? current : nextAtTop
+      );
+    }
   }, [isBottomScrollCorrectionActive, scrollContainerRef]);
 
   const prevScrollTopRef = useRef(0);
@@ -278,7 +315,7 @@ export function useConversationVirtualizer({
       }
 
       prevScrollTopRef.current = currentScrollTop;
-      syncIsAtBottom();
+      syncScrollEdges();
     };
 
     el.addEventListener('scroll', handleScroll, { passive: true });
@@ -287,7 +324,7 @@ export function useConversationVirtualizer({
     return () => {
       el.removeEventListener('scroll', handleScroll);
     };
-  }, [scrollContainerRef, shouldSuppressSizeAdjustment, syncIsAtBottom]);
+  }, [scrollContainerRef, shouldSuppressSizeAdjustment, syncScrollEdges]);
 
   // -------------------------------------------------------------------------
   // Derived state
@@ -297,7 +334,7 @@ export function useConversationVirtualizer({
   const totalSize = virtualizer.getTotalSize();
 
   useLayoutEffect(() => {
-    syncIsAtBottom();
+    syncScrollEdges();
 
     if (!bottomLockedRef.current) return;
     if (performance.now() < smoothScrollDeadlineRef.current) return;
@@ -313,7 +350,7 @@ export function useConversationVirtualizer({
     rows.length,
     totalRowCount,
     totalSize,
-    syncIsAtBottom,
+    syncScrollEdges,
     scrollContainerRef,
   ]);
 
@@ -336,6 +373,24 @@ export function useConversationVirtualizer({
       }
     },
     [scrollContainerRef, virtualizer]
+  );
+
+  const scrollToTop = useCallback(
+    (behavior: ScrollToOptionsBehavior = 'smooth') => {
+      const el = scrollContainerRef.current;
+      if (!el) return;
+
+      // Releasing the bottom lock is required so the layout-effect doesn't
+      // immediately snap back to the bottom on the next render.
+      bottomLockedRef.current = false;
+
+      if (behavior === 'smooth') {
+        el.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        el.scrollTop = 0;
+      }
+    },
+    [scrollContainerRef]
   );
 
   const scrollToIndex = useCallback(
@@ -367,6 +422,25 @@ export function useConversationVirtualizer({
       virtualizer.getVirtualItemForOffset(scrollEl.scrollTop)?.index ??
       items[0].index;
     const targetIndex = findPreviousUserMessageIndex(rows, firstVisibleIndex);
+
+    if (targetIndex < 0) return false;
+
+    virtualizer.scrollToIndex(targetIndex, {
+      align: 'start',
+      behavior: 'smooth',
+    });
+    return true;
+  }, [scrollContainerRef, virtualizer, rows]);
+
+  const scrollToNextUserMessage = useCallback((): boolean => {
+    const scrollEl = scrollContainerRef.current;
+    const items = virtualizer.getVirtualItems();
+    if (items.length === 0 || rows.length === 0 || !scrollEl) return false;
+
+    const firstVisibleIndex =
+      virtualizer.getVirtualItemForOffset(scrollEl.scrollTop)?.index ??
+      items[0].index;
+    const targetIndex = findNextUserMessageIndex(rows, firstVisibleIndex);
 
     if (targetIndex < 0) return false;
 
@@ -419,9 +493,12 @@ export function useConversationVirtualizer({
     totalSize,
     measureElement,
     scrollToBottom,
+    scrollToTop,
     scrollToIndex,
     scrollToPreviousUserMessage,
+    scrollToNextUserMessage,
     isAtBottom: isAtBottomState,
+    isAtTop: isAtTopState,
     checkIsAtBottom,
     releaseBottomLock,
     rowIndexForVirtualItem,

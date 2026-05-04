@@ -1,4 +1,7 @@
-use api_types::{CreateWorkspaceRequest, PullRequestStatus, UpsertPullRequestRequest};
+use api_types::{
+    CreateWorkspaceRequest, PullRequestStatus, UpsertPullRequestRequest,
+    Workspace as RemoteWorkspace,
+};
 use axum::{
     Extension, Json, Router,
     extract::{Path as AxumPath, State},
@@ -9,7 +12,11 @@ use axum::{
 use db::models::{merge::MergeStatus, pull_request::PullRequest, workspace::Workspace};
 use deployment::Deployment;
 use serde::Deserialize;
-use services::services::{diff_stream, remote_client::RemoteClientError, remote_sync};
+use services::services::{
+    diff_stream,
+    remote_client::{RemoteClient, RemoteClientError},
+    remote_sync,
+};
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
@@ -21,28 +28,137 @@ pub struct LinkWorkspaceRequest {
     pub issue_id: Uuid,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RemoteWorkspaceSyncAction {
+    Create,
+    Update,
+}
+
+fn classify_remote_workspace_sync(
+    existing_workspace: Option<&RemoteWorkspace>,
+    project_id: Uuid,
+    issue_id: Uuid,
+) -> Result<RemoteWorkspaceSyncAction, ApiError> {
+    let Some(existing_workspace) = existing_workspace else {
+        return Ok(RemoteWorkspaceSyncAction::Create);
+    };
+
+    if existing_workspace.project_id == project_id {
+        match existing_workspace.issue_id {
+            // Workspace was previously unlinked from any issue — allow it to
+            // be linked to the target issue (Update rather than Conflict).
+            None => return Ok(RemoteWorkspaceSyncAction::Update),
+            // Target matches the already-linked issue — idempotent update.
+            Some(existing_issue_id) if existing_issue_id == issue_id => {
+                return Ok(RemoteWorkspaceSyncAction::Update);
+            }
+            // Different issue — genuine conflict, fall through.
+            Some(_) => {}
+        }
+    }
+
+    Err(ApiError::Conflict(
+        "This workspace is already linked to another issue.".to_string(),
+    ))
+}
+
+pub async fn sync_workspace_to_issue(
+    deployment: &DeploymentImpl,
+    client: &RemoteClient,
+    workspace: &Workspace,
+    project_id: Uuid,
+    issue_id: Uuid,
+) -> Result<(), ApiError> {
+    let existing_workspace = match client.get_workspace_by_local_id(workspace.id).await {
+        Ok(workspace) => Some(workspace),
+        Err(RemoteClientError::Http { status: 404, .. }) => None,
+        Err(error) => return Err(error.into()),
+    };
+
+    let stats =
+        diff_stream::compute_diff_stats(&deployment.db().pool, deployment.git(), workspace).await;
+    let files_changed = stats.as_ref().map(|s| s.files_changed as i32);
+    let lines_added = stats.as_ref().map(|s| s.lines_added as i32);
+    let lines_removed = stats.as_ref().map(|s| s.lines_removed as i32);
+
+    match classify_remote_workspace_sync(existing_workspace.as_ref(), project_id, issue_id)? {
+        RemoteWorkspaceSyncAction::Create => {
+            // TOCTOU: between the `get_workspace_by_local_id` 404 above and
+            // this `create_workspace` call, a concurrent request (e.g. a
+            // duplicate client retry, or a sibling link request) may have
+            // already created the remote workspace. If the remote returns a
+            // 409 Conflict on create, fall through to an Update so the
+            // request is idempotent rather than surfacing a confusing error.
+            let create_result = client
+                .create_workspace(CreateWorkspaceRequest {
+                    project_id,
+                    local_workspace_id: workspace.id,
+                    issue_id,
+                    name: workspace.name.clone(),
+                    archived: Some(workspace.archived),
+                    files_changed,
+                    lines_added,
+                    lines_removed,
+                })
+                .await;
+
+            match create_result {
+                Ok(()) => {}
+                Err(RemoteClientError::Http { status: 409, .. }) => {
+                    tracing::info!(
+                        workspace_id = %workspace.id,
+                        "Remote workspace already exists (409 on create); retrying as update"
+                    );
+                    let name_update = workspace.name.clone().map(Some);
+                    client
+                        .update_workspace(
+                            workspace.id,
+                            name_update,
+                            Some(workspace.archived),
+                            files_changed,
+                            lines_added,
+                            lines_removed,
+                        )
+                        .await?;
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+        RemoteWorkspaceSyncAction::Update => {
+            // Only include the name in the update when the local workspace
+            // actually has one — passing `Some(None)` would otherwise clear
+            // the remote's name for workspaces that never had a local name set.
+            let name_update = workspace.name.clone().map(Some);
+            client
+                .update_workspace(
+                    workspace.id,
+                    name_update,
+                    Some(workspace.archived),
+                    files_changed,
+                    lines_added,
+                    lines_removed,
+                )
+                .await?;
+        }
+    }
+
+    Ok(())
+}
+
 pub async fn link_workspace(
     Extension(workspace): Extension<Workspace>,
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<LinkWorkspaceRequest>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
     let client = deployment.remote_client()?;
-
-    let stats =
-        diff_stream::compute_diff_stats(&deployment.db().pool, deployment.git(), &workspace).await;
-
-    client
-        .create_workspace(CreateWorkspaceRequest {
-            project_id: payload.project_id,
-            local_workspace_id: workspace.id,
-            issue_id: payload.issue_id,
-            name: workspace.name.clone(),
-            archived: Some(workspace.archived),
-            files_changed: stats.as_ref().map(|s| s.files_changed as i32),
-            lines_added: stats.as_ref().map(|s| s.lines_added as i32),
-            lines_removed: stats.as_ref().map(|s| s.lines_removed as i32),
-        })
-        .await?;
+    sync_workspace_to_issue(
+        &deployment,
+        &client,
+        &workspace,
+        payload.project_id,
+        payload.issue_id,
+    )
+    .await?;
 
     {
         let pool = deployment.db().pool.clone();
@@ -113,4 +229,73 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let delete_router = Router::new().route("/", delete(unlink_workspace));
 
     post_router.merge(delete_router)
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+
+    use super::*;
+
+    fn make_remote_workspace(project_id: Uuid, issue_id: Option<Uuid>) -> RemoteWorkspace {
+        RemoteWorkspace {
+            id: Uuid::new_v4(),
+            project_id,
+            owner_user_id: Uuid::new_v4(),
+            issue_id,
+            local_workspace_id: Some(Uuid::new_v4()),
+            name: Some("Workspace".to_string()),
+            archived: false,
+            files_changed: None,
+            lines_added: None,
+            lines_removed: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn classify_remote_workspace_sync_creates_when_workspace_is_missing() {
+        let action = classify_remote_workspace_sync(None, Uuid::new_v4(), Uuid::new_v4()).unwrap();
+
+        assert_eq!(action, RemoteWorkspaceSyncAction::Create);
+    }
+
+    #[test]
+    fn classify_remote_workspace_sync_updates_when_issue_matches() {
+        let project_id = Uuid::new_v4();
+        let issue_id = Uuid::new_v4();
+        let existing_workspace = make_remote_workspace(project_id, Some(issue_id));
+
+        let action =
+            classify_remote_workspace_sync(Some(&existing_workspace), project_id, issue_id)
+                .unwrap();
+
+        assert_eq!(action, RemoteWorkspaceSyncAction::Update);
+    }
+
+    #[test]
+    fn classify_remote_workspace_sync_conflicts_when_issue_differs() {
+        let project_id = Uuid::new_v4();
+        let existing_workspace = make_remote_workspace(project_id, Some(Uuid::new_v4()));
+
+        let result =
+            classify_remote_workspace_sync(Some(&existing_workspace), project_id, Uuid::new_v4());
+
+        assert!(
+            matches!(result, Err(ApiError::Conflict(message)) if message == "This workspace is already linked to another issue.")
+        );
+    }
+
+    #[test]
+    fn classify_remote_workspace_sync_updates_when_previous_issue_is_none() {
+        let project_id = Uuid::new_v4();
+        let existing_workspace = make_remote_workspace(project_id, None);
+
+        let action =
+            classify_remote_workspace_sync(Some(&existing_workspace), project_id, Uuid::new_v4())
+                .unwrap();
+
+        assert_eq!(action, RemoteWorkspaceSyncAction::Update);
+    }
 }

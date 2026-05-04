@@ -22,8 +22,15 @@ use crate::{
     command::CommandBuildError,
     env::ExecutionEnv,
     executors::{
-        amp::Amp, claude::ClaudeCode, codex::Codex, copilot::Copilot, cursor::CursorAgent,
-        droid::Droid, gemini::Gemini, opencode::Opencode, qwen::QwenCode,
+        amp::Amp,
+        claude::{ClaudeCode, protocol::ProtocolPeer},
+        codex::Codex,
+        copilot::Copilot,
+        cursor::CursorAgent,
+        droid::Droid,
+        gemini::Gemini,
+        opencode::Opencode,
+        qwen::QwenCode,
     },
     logs::utils::patch,
     mcp_config::McpConfig,
@@ -319,13 +326,28 @@ pub type ExecutorExitSignal = tokio::sync::oneshot::Receiver<ExecutorExitResult>
 /// When cancelled, the executor should attempt to cancel gracefully before being killed.
 pub type CancellationToken = tokio_util::sync::CancellationToken;
 
-#[derive(Debug)]
 pub struct SpawnedChild {
     pub child: AsyncGroupChild,
     /// Executor → Container: signals when executor wants to exit
     pub exit_signal: Option<ExecutorExitSignal>,
     /// Container → Executor: signals when container wants to cancel the execution
     pub cancel: Option<CancellationToken>,
+    /// Live message sender for executors that support mid-execution injection (e.g. Claude Code).
+    /// Delivered via a oneshot so the spawned task can send it back after construction.
+    pub protocol_peer: Option<tokio::sync::oneshot::Receiver<ProtocolPeer>>,
+    /// Executor → Container: per-turn-end notifications.
+    ///
+    /// Multi-turn executors (currently only Claude via `ProtocolPeer`) keep
+    /// the underlying CLI process alive across user turns so follow-up
+    /// messages can be injected. Because the OS-level process status stays
+    /// `Running` between turns, the container needs a separate signal to
+    /// know when a turn finished so the UI can stop showing the spinner
+    /// while the process is alive but idle. Each `()` event on this
+    /// receiver means "the executor just finished processing a turn." The
+    /// receiver closing means no more turn signals will arrive (process is
+    /// terminating); container cleanup also resets the published turn
+    /// state.
+    pub turn_idle_signal: Option<tokio::sync::mpsc::UnboundedReceiver<()>>,
 }
 
 impl From<AsyncGroupChild> for SpawnedChild {
@@ -334,6 +356,8 @@ impl From<AsyncGroupChild> for SpawnedChild {
             child,
             exit_signal: None,
             cancel: None,
+            protocol_peer: None,
+            turn_idle_signal: None,
         }
     }
 }

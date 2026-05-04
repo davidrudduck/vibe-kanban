@@ -133,6 +133,10 @@ export const WorkspacesMainContainer = forwardRef<
     conversationListRef.current?.scrollToPreviousUserMessage();
   }, []);
 
+  const handleScrollToNextMessage = useCallback(() => {
+    conversationListRef.current?.scrollToNextUserMessage();
+  }, []);
+
   const handleScrollToUserMessage = useCallback((patchKey: string) => {
     conversationListRef.current?.scrollToEntryByPatchKey(patchKey);
   }, []);
@@ -142,15 +146,26 @@ export const WorkspacesMainContainer = forwardRef<
   }, []);
 
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const [isAtTop, setIsAtTop] = useState(true);
   const isAtBottomRef = useRef(isAtBottom);
   const handleAtBottomChange = useCallback((atBottom: boolean) => {
     isAtBottomRef.current = atBottom;
     setIsAtBottom(atBottom);
   }, []);
+  const handleAtTopChange = useCallback((atTop: boolean) => {
+    setIsAtTop(atTop);
+  }, []);
 
   const handleScrollToBottom = useCallback(
     (behavior: 'auto' | 'smooth' = 'smooth') => {
       conversationListRef.current?.scrollToBottom(behavior);
+    },
+    []
+  );
+
+  const handleScrollToTop = useCallback(
+    (behavior: 'auto' | 'smooth' = 'smooth') => {
+      conversationListRef.current?.scrollToTop(behavior);
     },
     []
   );
@@ -213,6 +228,7 @@ export const WorkspacesMainContainer = forwardRef<
             attempt={workspaceWithSession}
             repos={repos}
             onAtBottomChange={handleAtBottomChange}
+            onAtTopChange={handleAtTopChange}
             sessionScopeId={selectedSessionId}
           />
         </RetryUiProvider>
@@ -263,8 +279,12 @@ export const WorkspacesMainContainer = forwardRef<
             chatBoxContent={chatBoxContent}
             contextBarContent={contextBarContent}
             isAtBottom={isAtBottom}
+            isAtTop={isAtTop}
             onAtBottomChange={handleAtBottomChange}
             onScrollToBottom={handleScrollToBottom}
+            onScrollToTop={handleScrollToTop}
+            onScrollToPreviousMessage={handleScrollToPreviousMessage}
+            onScrollToNextMessage={handleScrollToNextMessage}
           />
         </MessageEditProvider>
       </EntriesProvider>

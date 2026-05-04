@@ -48,6 +48,20 @@ export const useJsonPatchWsStream = <T extends object>(
   const [retryNonce, setRetryNonce] = useState(0);
   const finishedRef = useRef<boolean>(false);
 
+  // Idle-timeout watchdog: detects silently dead WebSocket connections that
+  // never trigger `onclose` (e.g. a half-open TCP connection after sleep/wake,
+  // a flaky proxy, or a backend that stopped emitting because of an upstream
+  // hang). If no message arrives for IDLE_TIMEOUT_MS we force-close the
+  // socket; the existing reconnect logic in `onclose` then re-handshakes
+  // and replays the snapshot, restoring fresh state without a page refresh.
+  const lastActivityRef = useRef<number>(Date.now());
+  const watchdogIntervalRef = useRef<number | null>(null);
+  // Reasonable defaults: backend pushes a `Ready` shortly after open and
+  // patches whenever state changes. 90s of total silence is well above any
+  // legitimate quiet window for an active workspace stream.
+  const WATCHDOG_CHECK_MS = 15000;
+  const IDLE_TIMEOUT_MS = 90000;
+
   const injectInitialEntry = options?.injectInitialEntry;
   const deduplicatePatches = options?.deduplicatePatches;
 
@@ -72,6 +86,10 @@ export const useJsonPatchWsStream = <T extends object>(
       if (retryTimerRef.current) {
         window.clearTimeout(retryTimerRef.current);
         retryTimerRef.current = null;
+      }
+      if (watchdogIntervalRef.current) {
+        window.clearInterval(watchdogIntervalRef.current);
+        watchdogIntervalRef.current = null;
       }
       retryAttemptsRef.current = 0;
       finishedRef.current = false;
@@ -102,6 +120,18 @@ export const useJsonPatchWsStream = <T extends object>(
 
       void (async () => {
         try {
+          // Yield to the microtask queue so React StrictMode's synchronous
+          // cleanup runs and sets `cancelled` before we open the socket.
+          // Without this, new WebSocket() fires synchronously inside
+          // openLocalApiWebSocket and the TCP upgrade is already in flight
+          // when cleanup sets cancelled=true, causing the Vite dev-server
+          // proxy to have a stale backend connection that consumes the
+          // initial snapshot for the first (discarded) mount's socket,
+          // leaving the second mount's socket idle for ~105 s until the
+          // watchdog forces a reconnect.
+          await Promise.resolve();
+          if (cancelled) return;
+
           const ws = await openLocalApiWebSocket(endpoint);
 
           if (cancelled) {
@@ -118,9 +148,33 @@ export const useJsonPatchWsStream = <T extends object>(
               window.clearTimeout(retryTimerRef.current);
               retryTimerRef.current = null;
             }
+
+            // Start the idle watchdog. We treat the open event itself as
+            // activity so the timer doesn't fire before the first message.
+            lastActivityRef.current = Date.now();
+            if (watchdogIntervalRef.current) {
+              window.clearInterval(watchdogIntervalRef.current);
+            }
+            watchdogIntervalRef.current = window.setInterval(() => {
+              const idleMs = Date.now() - lastActivityRef.current;
+              if (idleMs > IDLE_TIMEOUT_MS && wsRef.current === ws) {
+                console.warn(
+                  `[useJsonPatchWsStream] no activity for ${idleMs}ms, ` +
+                    'forcing reconnect'
+                );
+                // Non-1000 close code so the reconnect logic in onclose runs.
+                try {
+                  ws.close(4000, 'idle-timeout');
+                } catch {
+                  // ignore
+                }
+              }
+            }, WATCHDOG_CHECK_MS);
           };
 
           ws.onmessage = (event) => {
+            // Any inbound message counts as activity for the watchdog.
+            lastActivityRef.current = Date.now();
             try {
               const msg: WsMsg = JSON.parse(event.data);
 
@@ -174,6 +228,13 @@ export const useJsonPatchWsStream = <T extends object>(
             setIsConnected(false);
             wsRef.current = null;
 
+            // Stop the idle watchdog for this connection; the next onopen
+            // (after reconnect) will start a fresh one.
+            if (watchdogIntervalRef.current) {
+              window.clearInterval(watchdogIntervalRef.current);
+              watchdogIntervalRef.current = null;
+            }
+
             // Do not reconnect if we received a finished message or clean close
             if (
               cancelled ||
@@ -223,6 +284,10 @@ export const useJsonPatchWsStream = <T extends object>(
       if (retryTimerRef.current) {
         window.clearTimeout(retryTimerRef.current);
         retryTimerRef.current = null;
+      }
+      if (watchdogIntervalRef.current) {
+        window.clearInterval(watchdogIntervalRef.current);
+        watchdogIntervalRef.current = null;
       }
       finishedRef.current = false;
       dataRef.current = undefined;

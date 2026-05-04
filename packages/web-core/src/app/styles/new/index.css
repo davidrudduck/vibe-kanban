@@ -84,6 +84,12 @@ html {
 
     /* Text on accent */
     --text-on-brand: 0 0% 100%;
+
+    /* Font variables (set by FontProvider, defaults match IBM Plex) */
+    --font-ui: 'IBM Plex Sans', 'Noto Emoji', sans-serif;
+    --font-code: 'IBM Plex Mono', monospace;
+    --font-prose: 'IBM Plex Sans', 'Noto Emoji', sans-serif;
+    --font-ligatures: normal;
   }
 
   /* Dark mode */
@@ -271,7 +277,9 @@ html {
   #root {
     @apply min-h-screen;
     @apply font-normal;
-    @apply bg-background text-foreground font-ibm-plex-sans;
+    @apply bg-background text-foreground;
+    font-family: var(--font-ui);
+    font-variant-ligatures: var(--font-ligatures);
   }
 
   *:focus {

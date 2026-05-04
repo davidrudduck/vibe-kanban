@@ -408,3 +408,8 @@ export const PULL_REQUEST_ISSUE_MUTATION = defineMutation<PullRequestIssue, Crea
 export type MutationRowType<M extends MutationDefinition<unknown>> = M extends MutationDefinition<infer R> ? R : never;
 export type MutationCreateType<M extends MutationDefinition<unknown, unknown>> = M extends MutationDefinition<unknown, infer C> ? C : never;
 export type MutationUpdateType<M extends MutationDefinition<unknown, unknown, unknown>> = M extends MutationDefinition<unknown, unknown, infer U> ? U : never;
+
+// Host repo types
+export type HostRepo = { path: string, name: string, display_name: string | null, };
+export type ListHostReposResponse = { repos: Array<HostRepo>, };
+export type ReportHostReposRequest = { machine_id: string, repos: Array<HostRepo>, };

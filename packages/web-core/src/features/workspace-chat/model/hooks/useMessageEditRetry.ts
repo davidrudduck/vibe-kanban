@@ -60,6 +60,7 @@ export function useMessageEditRetry(
         retry_process_id: executionProcessId,
         force_when_dirty: modalResult.forceWhenDirty ?? false,
         perform_git_reset: modalResult.performGitReset ?? true,
+        override_session_id: null,
       });
     },
     onSuccess: () => {
