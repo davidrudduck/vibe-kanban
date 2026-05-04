@@ -868,6 +868,7 @@ pub fn router() -> Router<DeploymentImpl> {
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
+    use db::models::merge::{DirectMerge, PullRequestInfo};
 
     use super::*;
 
