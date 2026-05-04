@@ -44,9 +44,6 @@ export const useConversationHistory = ({
   const onTimelineUpdatedRef = useRef<
     UseConversationHistoryParams['onTimelineUpdated'] | null
   >(null);
-  const previousStatusMapRef = useRef<Map<string, ExecutionProcessStatus>>(
-    new Map()
-  );
   const [isLoadingHistoryState, setIsLoadingHistory] = useState(false);
 
   // Derive whether this is the first turn (no follow-up processes exist)
@@ -419,7 +416,6 @@ export const useConversationHistory = ({
     emittedEmptyInitialRef.current = false;
     streamingProcessIdsRef.current.clear();
     settledStreamProcessIdsRef.current.clear();
-    previousStatusMapRef.current.clear();
     emitEntries(displayedExecutionProcesses.current, 'initial', true);
   }, [scopeKey, emitEntries]);
 
@@ -504,62 +500,6 @@ export const useConversationHistory = ({
     ensureProcessVisible,
     loadRunningAndEmitWithBackoff,
   ]);
-
-  useEffect(() => {
-    if (!executionProcessesRaw) return;
-
-    const processesToReload: ExecutionProcess[] = [];
-
-    for (const process of executionProcessesRaw) {
-      const previousStatus = previousStatusMapRef.current.get(process.id);
-      const currentStatus = process.status;
-
-      // Skip re-fetch if the live stream already delivered a clean final state
-      // (onFinished fired → settled). Assumes the backend emits the Finished log
-      // frame before flipping the process status; if that ordering ever changes
-      // this guard may not fire in time and a duplicate emit may briefly recur.
-      // Effect C remains active for processes whose stream failed (onFinished
-      // never fired), preserving it as an error-recovery path.
-      if (
-        previousStatus === ExecutionProcessStatus.running &&
-        currentStatus !== ExecutionProcessStatus.running &&
-        displayedExecutionProcesses.current[process.id] &&
-        !settledStreamProcessIdsRef.current.has(process.id) &&
-        !streamingProcessIdsRef.current.has(process.id)
-      ) {
-        processesToReload.push(process);
-      }
-
-      previousStatusMapRef.current.set(process.id, currentStatus);
-    }
-
-    if (processesToReload.length === 0) return;
-
-    (async () => {
-      let anyUpdated = false;
-
-      for (const process of processesToReload) {
-        const entries = await loadEntriesForHistoricExecutionProcess(process);
-        if (entries.length === 0) continue;
-
-        const entriesWithKey = entries.map((e, idx) =>
-          patchWithKey(e, process.id, idx)
-        );
-
-        mergeIntoDisplayed((state) => {
-          state[process.id] = {
-            executionProcess: process,
-            entries: entriesWithKey,
-          };
-        });
-        anyUpdated = true;
-      }
-
-      if (anyUpdated) {
-        emitEntries(displayedExecutionProcesses.current, 'running', false);
-      }
-    })();
-  }, [idStatusKey, executionProcessesRaw, emitEntries]);
 
   // If an execution process is removed, remove it from the state
   useEffect(() => {
