@@ -4,6 +4,7 @@ use std::{collections::HashSet, sync::Arc, time::Duration as StdDuration};
 
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
+use executors::logs::AskUserQuestionItem;
 use futures::{
     StreamExt,
     future::{BoxFuture, FutureExt, Shared},
@@ -14,7 +15,6 @@ use thiserror::Error;
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
 use ts_rs::TS;
-use executors::logs::AskUserQuestionItem;
 use utils::approvals::{ApprovalOutcome, ApprovalRequest, ApprovalResponse};
 use uuid::Uuid;
 
@@ -299,10 +299,11 @@ impl Approvals {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use executors::logs::{AskUserQuestionItem, AskUserQuestionOption};
     use utils::approvals::ApprovalRequest;
     use uuid::Uuid;
+
+    use super::*;
 
     #[tokio::test]
     async fn approval_info_carries_questions() {

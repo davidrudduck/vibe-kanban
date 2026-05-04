@@ -2,8 +2,10 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use db::{self, DBService, models::execution_process::ExecutionProcess};
-use executors::approvals::{ExecutorApprovalError, ExecutorApprovalService};
-use executors::logs::AskUserQuestionItem;
+use executors::{
+    approvals::{ExecutorApprovalError, ExecutorApprovalService},
+    logs::AskUserQuestionItem,
+};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use utils::approvals::{ApprovalOutcome, ApprovalRequest, ApprovalStatus, QuestionStatus};

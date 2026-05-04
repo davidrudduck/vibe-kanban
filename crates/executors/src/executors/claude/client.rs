@@ -403,7 +403,13 @@ mod tests {
                 )
             })
             .collect();
-        assert!(map.contains_key("colour"), "key must be header, not question text");
-        assert!(!map.contains_key("Which colour?"), "must not use question text as key");
+        assert!(
+            map.contains_key("colour"),
+            "key must be header, not question text"
+        );
+        assert!(
+            !map.contains_key("Which colour?"),
+            "must not use question text as key"
+        );
     }
 }
