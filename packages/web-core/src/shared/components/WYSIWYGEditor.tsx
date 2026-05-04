@@ -293,15 +293,27 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
     // current, object is not extensible".
     const safeRef =
       typeof ref === 'function' || (ref && 'current' in ref) ? ref : null;
-    useImperativeHandle(safeRef, () => ({
-      focus: () => {
-        if (rawMode && !disabled) {
-          rawTextareaRef.current?.focus();
-        } else {
-          editorInstanceRef.current?.focus();
-        }
-      },
-    }));
+    useImperativeHandle(
+      safeRef,
+      () => ({
+        focus: () => {
+          if (rawMode && !disabled) {
+            rawTextareaRef.current?.focus();
+          } else {
+            editorInstanceRef.current?.focus();
+          }
+        },
+      }),
+      [rawMode, disabled]
+    );
+
+    // Auto-resize raw textarea height to fit content (no-op when rawTextareaRef is null in WYSIWYG mode)
+    useEffect(() => {
+      const el = rawTextareaRef.current;
+      if (!el) return;
+      el.style.height = 'auto';
+      el.style.height = `${el.scrollHeight}px`;
+    }, [value]);
 
     // Copy button state
     const [copied, setCopied] = useState(false);
@@ -517,6 +529,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
       [placeholder, className]
     );
 
+    // ↑ All hooks must remain above this line — rawMode early return below
     if (rawMode && !disabled) {
       return (
         <textarea
@@ -529,10 +542,12 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
           value={value}
           autoFocus={autoFocus}
           onChange={(e) => onChange?.(e.target.value)}
+          onPaste={handlePaste}
           onKeyDown={(e) => {
             const isModifier = e.metaKey || e.ctrlKey;
             if (sendShortcut === 'Enter') {
-              if (e.key === 'Enter' && !e.shiftKey) {
+              // Plain Enter sends; Shift+Enter and modifier+Enter insert newline (matches Lexical behaviour)
+              if (e.key === 'Enter' && !e.shiftKey && !isModifier) {
                 e.preventDefault();
                 onCmdEnter?.();
               }

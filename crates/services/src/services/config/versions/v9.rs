@@ -318,4 +318,15 @@ mod tests {
         assert!(restored.appearance.host_banner.show_hostname);
         assert!(!restored.appearance.links.discord_enabled);
     }
+
+    #[test]
+    fn test_v9_without_input_editor_mode_defaults_to_wysiwyg() {
+        // Simulate a v9 config saved before input_editor_mode was added
+        let json = r#"{"config_version":"v9","theme":"SYSTEM","executor_profile":{"agent":"CLAUDE_CODE"},"disclaimer_acknowledged":false,"onboarding_acknowledged":false,"remote_onboarding_acknowledged":false,"notifications":{"sound_enabled":false,"sound_file":"DEFAULT","push_enabled":false},"editor":{"editor_type":"AUTO","custom_path":null},"github":{"token":null},"analytics_enabled":true,"workspace_dir":null,"last_app_version":null,"show_release_notes":false,"language":"EN","git_branch_prefix":"vk","showcases":{},"pr_auto_description_enabled":true,"pr_auto_description_prompt":null,"commit_reminder_enabled":true,"commit_reminder_prompt":null,"send_message_shortcut":"MODIFIER_ENTER","relay_enabled":true,"host_nickname":null,"appearance":{"fonts":{"ui_font":"IBM_PLEX_SANS","code_font":"IBM_PLEX_MONO","prose_font":"IBM_PLEX_SANS","disable_ligatures":false},"accent_color":null,"host_banner":{"show_hostname":false,"show_os_info":false,"env_label":null},"links":{"discord_enabled":true,"discord_url":null,"feedback_url":null}}}"#;
+
+        let config = Config::from(json.to_string());
+
+        assert_eq!(config.config_version, "v9");
+        assert_eq!(config.input_editor_mode, InputEditorMode::Wysiwyg);
+    }
 }
