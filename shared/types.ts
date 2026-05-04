@@ -262,11 +262,11 @@ export type MergeStatus = "open" | "merged" | "closed" | "unknown";
 
 export type PullRequestInfo = { number: bigint, url: string, status: MergeStatus, merged_at: string | null, merge_commit_sha: string | null, };
 
-export type ApprovalInfo = { approval_id: string, tool_name: string, execution_process_id: string, is_question: boolean, created_at: string, timeout_at: string, };
+export type ApprovalInfo = { approval_id: string, tool_name: string, execution_process_id: string, is_question: boolean, created_at: string, timeout_at: string, questions: Array<AskUserQuestionItem> | null, };
 
 export type ApprovalStatus = { "status": "pending" } | { "status": "approved" } | { "status": "denied", reason?: string, } | { "status": "timed_out" };
 
-export type QuestionAnswer = { question: string, answer: Array<string>, };
+export type QuestionAnswer = { question: string, header: string, answer: Array<string>, };
 
 export type QuestionStatus = { "status": "answered", answers: Array<QuestionAnswer>, } | { "status": "timed_out" };
 
