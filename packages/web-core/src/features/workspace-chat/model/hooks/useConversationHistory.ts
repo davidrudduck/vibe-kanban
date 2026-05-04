@@ -482,6 +482,12 @@ export const useConversationHistory = ({
       const previousStatus = previousStatusMapRef.current.get(process.id);
       const currentStatus = process.status;
 
+      // Skip re-fetch if the live stream already delivered a clean final state
+      // (onFinished fired → settled). Assumes the backend emits the Finished log
+      // frame before flipping the process status; if that ordering ever changes
+      // this guard may not fire in time and a duplicate emit may briefly recur.
+      // Effect C remains active for processes whose stream failed (onFinished
+      // never fired), preserving it as an error-recovery path.
       if (
         previousStatus === ExecutionProcessStatus.running &&
         currentStatus !== ExecutionProcessStatus.running &&
