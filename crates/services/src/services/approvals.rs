@@ -14,6 +14,7 @@ use thiserror::Error;
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
 use ts_rs::TS;
+use executors::logs::AskUserQuestionItem;
 use utils::approvals::{ApprovalOutcome, ApprovalRequest, ApprovalResponse};
 use uuid::Uuid;
 
@@ -25,6 +26,7 @@ struct PendingApproval {
     created_at: DateTime<Utc>,
     timeout_at: DateTime<Utc>,
     response_tx: oneshot::Sender<ApprovalOutcome>,
+    questions: Option<Vec<AskUserQuestionItem>>,
 }
 
 pub(crate) type ApprovalWaiter = Shared<BoxFuture<'static, ApprovalOutcome>>;
@@ -44,6 +46,7 @@ pub struct ApprovalInfo {
     pub is_question: bool,
     pub created_at: DateTime<Utc>,
     pub timeout_at: DateTime<Utc>,
+    pub questions: Option<Vec<AskUserQuestionItem>>,
 }
 
 #[derive(Clone)]
@@ -87,6 +90,7 @@ impl Approvals {
         &self,
         request: ApprovalRequest,
         is_question: bool,
+        questions: Option<Vec<AskUserQuestionItem>>,
     ) -> Result<(ApprovalRequest, ApprovalWaiter), ApprovalError> {
         let (tx, rx) = oneshot::channel();
         let default_timeout = ApprovalOutcome::TimedOut;
@@ -103,6 +107,7 @@ impl Approvals {
             is_question,
             created_at: request.created_at,
             timeout_at: request.timeout_at,
+            questions: questions.clone(),
         };
 
         let pending_approval = PendingApproval {
@@ -112,6 +117,7 @@ impl Approvals {
             created_at: request.created_at,
             timeout_at: request.timeout_at,
             response_tx: tx,
+            questions,
         };
 
         self.pending.insert(req_id.clone(), pending_approval);
@@ -284,8 +290,41 @@ impl Approvals {
                     is_question: p.is_question,
                     created_at: p.created_at,
                     timeout_at: p.timeout_at,
+                    questions: p.questions.clone(),
                 }
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use executors::logs::{AskUserQuestionItem, AskUserQuestionOption};
+    use utils::approvals::ApprovalRequest;
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn approval_info_carries_questions() {
+        let svc = Approvals::new();
+        let request = ApprovalRequest::new("AskUserQuestion".to_string(), Uuid::new_v4());
+        let questions = vec![AskUserQuestionItem {
+            question: "Pick one".to_string(),
+            header: "pick".to_string(),
+            options: vec![AskUserQuestionOption {
+                label: "A".to_string(),
+                description: "Option A".to_string(),
+            }],
+            multi_select: false,
+        }];
+        let (_, _waiter) = svc
+            .create_with_waiter(request, true, Some(questions.clone()))
+            .await
+            .unwrap();
+
+        let infos = svc.pending_infos();
+        assert_eq!(infos.len(), 1);
+        let q = infos[0].questions.as_ref().unwrap();
+        assert_eq!(q[0].header, "pick");
     }
 }
