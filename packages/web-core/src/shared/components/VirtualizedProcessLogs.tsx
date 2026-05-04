@@ -197,9 +197,12 @@ export const VirtualizedProcessLogs = forwardRef<
     [scrollToTop, scrollToBottom, scrollToPrevBlock, scrollToNextBlock]
   );
 
-    const scrollToTop = useCallback(() => {
-      messageListRef.current?.scrollToItem({ index: 0, align: 'start', behavior: 'smooth' });
-    }, []);
+  useEffect(() => {
+    const logsWithKeys: LogEntryWithKey[] = logs.map((entry, index) => ({
+      ...entry,
+      key: `log-${index}`,
+      originalIndex: index,
+    }));
 
     totalItemsRef.current = logsWithKeys.length;
 
@@ -238,159 +241,34 @@ export const VirtualizedProcessLogs = forwardRef<
       } else {
         setChannelData({ data: logsWithKeys });
       }
-      syncCursorToViewport();
-      blockCursorRef.current = Math.max(0, blockCursorRef.current - 1);
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
+  }, [logs]);
+
+  // Scroll to current match when it changes
+  useEffect(() => {
+    if (
+      matchIndices.length > 0 &&
+      currentMatchIndex >= 0 &&
+      currentMatchIndex !== prevCurrentMatchRef.current
+    ) {
+      const logIndex = matchIndices[currentMatchIndex];
       messageListRef.current?.scrollToItem({
-        index: blockStartIndices[blockCursorRef.current],
-        align: 'start',
+        index: logIndex,
+        align: 'center',
         behavior: 'smooth',
       });
-    }, [blockStartIndices, syncCursorToViewport]);
-
-    const scrollToNextBlock = useCallback(() => {
-      if (blockStartIndices.length === 0 || blockCursorRef.current >= blockStartIndices.length - 1) {
-        messageListRef.current?.scrollToItem({ index: 'LAST', align: 'end', behavior: 'smooth' });
-        return;
-      }
-      syncCursorToViewport();
-      blockCursorRef.current = Math.min(blockStartIndices.length - 1, blockCursorRef.current + 1);
-      messageListRef.current?.scrollToItem({
-        index: blockStartIndices[blockCursorRef.current],
-        align: 'start',
-        behavior: 'smooth',
-      });
-    }, [blockStartIndices, syncCursorToViewport]);
-
-    useImperativeHandle(ref, () => ({
-      scrollToTop,
-      scrollToBottom,
-      scrollToPrevBlock,
-      scrollToNextBlock,
-    }), [scrollToTop, scrollToBottom, scrollToPrevBlock, scrollToNextBlock]);
-
-    useEffect(() => {
-      const logsWithKeys: LogEntryWithKey[] = logs.map((entry, index) => ({
-        ...entry,
-        key: `log-${index}`,
-        originalIndex: index,
-      }));
-
-      totalItemsRef.current = logsWithKeys.length;
-
-      // Initial load: fire immediately — bypasses the per-entry debounce reset cascade
-      if (!hasInitializedRef.current && logs.length > 0) {
-        hasInitializedRef.current = true;
-        lastCommitTimeRef.current = Date.now();
-        setChannelData({ data: logsWithKeys, scrollModifier: InitialDataScrollModifier });
-        return;
-      }
-
-      const now = Date.now();
-      const timeSinceLastCommit = now - lastCommitTimeRef.current;
-
-      // Max-wait: if it's been >=500ms since last commit, fire immediately to avoid starvation
-      if (timeSinceLastCommit >= 500) {
-        lastCommitTimeRef.current = now;
-        const scrollModifier = isAtBottomRef.current ? ScrollToLastItem : null;
-        if (scrollModifier) {
-          setChannelData({ data: logsWithKeys, scrollModifier });
-        } else {
-          setChannelData({ data: logsWithKeys });
-        }
-        return;
-      }
-
-      // Otherwise debounce to batch rapid appends
-      const timeoutId = setTimeout(() => {
-        lastCommitTimeRef.current = Date.now();
-        const scrollModifier = isAtBottomRef.current ? ScrollToLastItem : null;
-        if (scrollModifier) {
-          setChannelData({ data: logsWithKeys, scrollModifier });
-        } else {
-          setChannelData({ data: logsWithKeys });
-        }
-      }, 100);
-
-      return () => clearTimeout(timeoutId);
-    }, [logs]);
-
-    // Scroll to current match when it changes
-    useEffect(() => {
-      if (
-        matchIndices.length > 0 &&
-        currentMatchIndex >= 0 &&
-        currentMatchIndex !== prevCurrentMatchRef.current
-      ) {
-        const logIndex = matchIndices[currentMatchIndex];
-        messageListRef.current?.scrollToItem({
-          index: logIndex,
-          align: 'center',
-          behavior: 'smooth',
-        });
-        prevCurrentMatchRef.current = currentMatchIndex;
-      }
-    }, [currentMatchIndex, matchIndices]);
-
-    if (logs.length === 0 && !error) {
-      return (
-        <div className="h-full flex items-center justify-center">
-          <p className="text-center text-muted-foreground text-sm">
-            {t('processes.noLogsAvailable')}
-          </p>
-        </div>
-      );
+      prevCurrentMatchRef.current = currentMatchIndex;
     }
+  }, [currentMatchIndex, matchIndices]);
 
-    if (error && logs.length === 0) {
-      return (
-        <div className="h-full flex items-center justify-center">
-          <p className="text-center text-destructive text-sm">
-            <WarningCircleIcon className="size-icon-base inline mr-2" />
-            {error}
-          </p>
-        </div>
-      );
-    }
-
-    const context: SearchContext = {
-      searchQuery,
-      matchIndices,
-      currentMatchIndex,
-    };
-
+  if (logs.length === 0 && !error) {
     return (
-      <div className="virtuoso-license-wrapper h-full overflow-hidden">
-        <VirtuosoMessageListLicense
-          licenseKey={import.meta.env.VITE_PUBLIC_REACT_VIRTUOSO_LICENSE_KEY}
-        >
-          <VirtuosoMessageList<LogEntryWithKey, SearchContext>
-            ref={messageListRef}
-            className="h-full"
-            data={channelData}
-            context={context}
-            initialLocation={INITIAL_TOP_ITEM}
-            onScroll={(location) => {
-              // Capture previous values before mutating refs (for transition detection)
-              const prevAtBottom = isAtBottomRef.current;
-              const prevAtTop = isAtTopRef.current;
-              isAtBottomRef.current = location.isAtBottom;
-              // Detect top by checking if the scroll element is at or near 0
-              const scroller = messageListRef.current?.scrollerElement();
-              const atTop = scroller ? scroller.scrollTop <= 0 : false;
-              isAtTopRef.current = atTop;
-              if (location.isAtBottom) {
-                // Reset cursor to last block when reaching bottom
-                blockCursorRef.current = blockStartIndices.length > 0 ? blockStartIndices.length - 1 : 0;
-              }
-              // Only notify parent on edge transitions to avoid re-rendering on every scroll pixel
-              if (atTop !== prevAtTop || location.isAtBottom !== prevAtBottom) {
-                onScrollPositionChange?.({ isAtTop: atTop, isAtBottom: location.isAtBottom });
-              }
-            }}
-            computeItemKey={computeItemKey}
-            ItemContent={ItemContent}
-          />
-        </VirtuosoMessageListLicense>
+      <div className="h-full flex items-center justify-center">
+        <p className="text-center text-muted-foreground text-sm">
+          {t('processes.noLogsAvailable')}
+        </p>
       </div>
     );
   }

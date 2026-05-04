@@ -197,7 +197,7 @@ export function AppearanceSettings() {
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <>
       {error && (
         <div className="bg-error/10 border border-error/50 rounded-sm p-4 text-error mb-4">
           {error}
@@ -211,7 +211,7 @@ export function AppearanceSettings() {
         </div>
       )}
 
-      <div className="flex gap-4 flex-1 min-h-0">
+      <div className="flex gap-4">
         {/* Settings form */}
         <div className="flex-1 min-w-0 space-y-6">
           {/* Theme & Colour */}
@@ -662,6 +662,6 @@ export function AppearanceSettings() {
         onSave={handleSave}
         onDiscard={handleCancel}
       />
-    </div>
+    </>
   );
 }
