@@ -2,18 +2,15 @@ import { AutoLinkPlugin as LexicalAutoLinkPlugin } from '@lexical/react/LexicalA
 import { createLinkMatcherWithRegExp } from '@lexical/link';
 
 const URL_REGEX =
-  /((https?:\/\/(www\.)?)|(www\.))[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_+.~#?&/=]*)/;
+  /\b(https:\/\/|www\.)[a-zA-Z0-9\-._~:/?#[\]@!$&'()*+,;=%]{1,2000}/;
 
 const URL_MATCHER = createLinkMatcherWithRegExp(URL_REGEX, (text) => {
+  if (text.length > 2083) return text;
   return text.startsWith('http') ? text : `https://${text}`;
 });
 
 const MATCHERS = [URL_MATCHER];
 
-/**
- * Auto-detects bare URLs in text and converts them to clickable AutoLinkNodes.
- * Works in both edit and read-only mode alongside ReadOnlyLinkPlugin.
- */
 export function AutoLinkPlugin() {
   return <LexicalAutoLinkPlugin matchers={MATCHERS} />;
 }

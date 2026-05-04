@@ -598,9 +598,8 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                     />
                   </>
                 )}
-                {/* Auto-link bare URLs in both edit and read-only mode */}
-                <AutoLinkPlugin />
-                {/* Link sanitization for read-only mode */}
+                {/* Auto-link bare URLs and sanitize links in read-only mode */}
+                {disabled && <AutoLinkPlugin />}
                 {disabled && <ReadOnlyLinkPlugin />}
                 {/* Clickable code for file paths in read-only mode */}
                 {disabled && findMatchingDiffPath && onCodeClick && (

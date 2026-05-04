@@ -59,14 +59,17 @@ export function ReadOnlyLinkPlugin() {
       if (isExternal) {
         dom.setAttribute('target', '_blank');
         dom.setAttribute('rel', 'noopener noreferrer');
-        dom.onclick = (e) => e.stopPropagation();
+        if (!dom.dataset.vkLinkHandled) {
+          dom.addEventListener('click', (e) => e.stopPropagation());
+          dom.dataset.vkLinkHandled = 'true';
+        }
       } else {
         dom.removeAttribute('href');
         dom.style.cursor = 'not-allowed';
         dom.style.pointerEvents = 'none';
         dom.setAttribute('role', 'link');
         dom.setAttribute('aria-disabled', 'true');
-        dom.title = href ?? '';
+        dom.title = safeHref;
       }
     }
 
