@@ -6,6 +6,7 @@ interface QuestionFormProps {
   questions: AskUserQuestionItem[];
   onSubmit: (answers: Record<string, string[]>) => void;
   disabled?: boolean;
+  isResponding?: boolean;
 }
 
 function QuestionField({
@@ -107,6 +108,7 @@ const QuestionForm = ({
   questions,
   onSubmit,
   disabled = false,
+  isResponding = false,
 }: QuestionFormProps) => {
   const [answers, setAnswers] = useState<Record<string, string[]>>(() =>
     Object.fromEntries(questions.map((q) => [q.header, []]))
@@ -116,7 +118,12 @@ const QuestionForm = ({
     setAnswers((prev) => ({ ...prev, [header]: vals }));
   };
 
+  const allAnswered = questions.every(
+    (q) => (answers[q.header] ?? []).length > 0
+  );
+
   const handleSubmit = () => {
+    if (!allAnswered || isResponding) return;
     onSubmit(answers);
   };
 
@@ -131,8 +138,12 @@ const QuestionForm = ({
         />
       ))}
       <div className="flex justify-end">
-        <Button size="sm" onClick={handleSubmit} disabled={disabled}>
-          Submit
+        <Button
+          size="sm"
+          onClick={handleSubmit}
+          disabled={disabled || !allAnswered || isResponding}
+        >
+          {isResponding ? 'Submitting…' : 'Submit'}
         </Button>
       </div>
     </div>

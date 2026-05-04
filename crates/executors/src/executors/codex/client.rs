@@ -400,7 +400,7 @@ impl AppServerClient {
                     QuestionStatus::Answered { answers } => {
                         let answers_map: HashMap<String, Vec<String>> = answers
                             .iter()
-                            .map(|qa| (qa.question.clone(), qa.answer.clone()))
+                            .map(|qa| (qa.header.clone(), qa.answer.clone()))
                             .collect();
                         answers_to_codex_format(&params.questions, &answers_map)
                     }
@@ -964,7 +964,7 @@ fn answers_to_codex_format(
     let codex_answers = questions
         .iter()
         .filter_map(|q| {
-            answers.get(&q.question).map(|answer_vec| {
+            answers.get(&q.header).map(|answer_vec| {
                 (
                     q.id.clone(),
                     ToolRequestUserInputAnswer {

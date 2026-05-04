@@ -379,6 +379,7 @@ const PendingApprovalEntry = ({
                     questions={approvalInfo!.questions!}
                     onSubmit={handleSubmitAnswers}
                     disabled={disabled}
+                    isResponding={isResponding}
                   />
                 )}
                 {error && (
