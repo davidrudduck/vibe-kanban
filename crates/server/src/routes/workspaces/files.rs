@@ -484,25 +484,31 @@ mod tests {
     }
 
     #[test]
-    fn read_file_fs_binary_file_returns_is_binary_true_empty_content() {
-        // Demonstrates that the binary heuristic sets is_binary=true and content=""
-        // (We test the byte-level heuristic directly since it's used in the handler)
-        let binary_bytes: Vec<u8> = vec![0x89, 0x50, 0x4e, 0x47, 0x00, 0x0d, 0x0a, 0x1a];
-        let is_binary = binary_bytes.iter().take(8192).any(|&b| b == 0);
+    fn read_file_fs_binary_file_returns_bytes_with_null() {
+        let tmp = TempDir::new().unwrap();
+        let inner = tmp.path().join("workspace");
+        fs::create_dir(&inner).unwrap();
+        // PNG-style binary content with a null byte
+        let binary: Vec<u8> = vec![0x89, 0x50, 0x4e, 0x47, 0x00, 0x0d, 0x0a, 0x1a];
+        fs::write(inner.join("image.png"), &binary).unwrap();
+
+        let (bytes, size) = read_file_fs(&inner, "image.png").unwrap();
+        assert_eq!(size, 8, "size should be the file size");
+        // The handler uses this: bytes.iter().take(8192).any(|&b| b == 0)
+        let is_binary = bytes.iter().take(8192).any(|&b| b == 0);
         assert!(
             is_binary,
-            "PNG bytes with null should be detected as binary"
+            "null-byte heuristic should detect binary from read_file_fs output"
         );
-
-        // When is_binary=true, content must be empty (not the __BINARY__ sentinel)
+        // When is_binary, handler sets content = String::new()
         let content = if is_binary {
             String::new()
         } else {
-            String::from_utf8_lossy(&binary_bytes).into_owned()
+            String::from_utf8_lossy(&bytes).into_owned()
         };
         assert_eq!(
             content, "",
-            "binary content should be empty string, not a sentinel"
+            "binary content should be empty string in handler output"
         );
     }
 
