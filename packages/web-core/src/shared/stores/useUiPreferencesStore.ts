@@ -7,6 +7,7 @@ export const RIGHT_MAIN_PANEL_MODES = {
   CHANGES: 'changes',
   LOGS: 'logs',
   PREVIEW: 'preview',
+  FILES: 'files',
 } as const;
 
 export type RightMainPanelMode =
@@ -20,7 +21,8 @@ export type MobileTab =
   | 'changes'
   | 'logs'
   | 'preview'
-  | 'git';
+  | 'git'
+  | 'files';
 
 export type MobileFontScale = 'default' | 'small' | 'smaller';
 export const DEFAULT_CREATE_DRAFT_WORKSPACE_BY_DEFAULT = false;

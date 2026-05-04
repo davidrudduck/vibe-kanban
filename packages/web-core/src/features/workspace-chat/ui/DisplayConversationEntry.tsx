@@ -16,6 +16,8 @@ import type { WorkspaceWithSession } from '@/shared/types/attempt';
 import { parseDiffStats } from '@/shared/lib/diffStatsParser';
 import {
   usePersistedExpanded,
+  useUiPreferencesStore,
+  RIGHT_MAIN_PANEL_MODES,
   type PersistKey,
 } from '@/shared/stores/useUiPreferencesStore';
 import { getActualTheme } from '@/shared/lib/theme';
@@ -57,6 +59,7 @@ import {
   useDiffData,
 } from '@vibe/ui/components/PierreConversationDiff';
 import { inIframe, openFileInVSCode } from '@/integrations/vscode/bridge';
+import { useFileBrowserStore } from '@/shared/stores/useFileBrowserStore';
 import { useDiffViewMode } from '@/shared/stores/useDiffViewStore';
 import type {
   AggregatedPatchGroup,
@@ -188,6 +191,7 @@ function renderToolUseEntry(
             change={change}
             expansionKey={`edit:${expansionKey}:${idx}`}
             status={status}
+            workspaceId={workspaceWithSession?.id}
           />
         ))}
       </>
@@ -525,11 +529,13 @@ function FileEditEntry({
   change,
   expansionKey,
   status,
+  workspaceId,
 }: {
   path: string;
   change: FileEditAction['changes'][number];
   expansionKey: string;
   status: ToolStatus;
+  workspaceId?: string;
 }) {
   // Auto-expand when pending approval
   const pendingApproval = status.status === 'pending_approval';
@@ -540,6 +546,10 @@ function FileEditEntry({
   const { theme } = useTheme();
   const actualTheme = getActualTheme(theme);
   const { viewFileInChanges, hasDiffPath } = useChangesViewActions();
+  const openFile = useFileBrowserStore((s) => s.openFile);
+  const setRightMainPanelMode = useUiPreferencesStore(
+    (s) => s.setRightMainPanelMode
+  );
   const FileIcon = useMemo(
     () => getFileIcon(path, actualTheme),
     [path, actualTheme]
@@ -592,6 +602,10 @@ function FileEditEntry({
   const handleOpenInVSCode = useCallback((filename: string) => {
     openFileInVSCode(filename, { openAsDiff: false });
   }, []);
+  const handleOpenInFiles = useCallback(() => {
+    openFile(path);
+    setRightMainPanelMode(RIGHT_MAIN_PANEL_MODES.FILES, workspaceId);
+  }, [openFile, setRightMainPanelMode, path, workspaceId]);
 
   return (
     <ChatFileEntry
@@ -613,6 +627,7 @@ function FileEditEntry({
           : undefined
       }
       onOpenInChanges={canOpenInChanges ? handleOpenInChanges : undefined}
+      onOpenInFiles={workspaceId ? handleOpenInFiles : undefined}
     />
   );
 }

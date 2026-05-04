@@ -1,3 +1,7 @@
+# Brainstorming / AI tooling
+.superpowers/
+docs/superpowers/
+
 # Rust
 target/
 **/*.rs.bk
