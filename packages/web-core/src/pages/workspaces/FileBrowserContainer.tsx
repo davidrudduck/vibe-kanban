@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import { FileBrowserTreePanel } from './FileBrowserTreePanel';
 import { FileBrowserViewerPanel } from './FileBrowserViewerPanel';
@@ -28,20 +29,31 @@ export function FileBrowserContainer({
   const selectedFile = useFileBrowserSelectedFile();
   const filterTerm = useFileBrowserFilterTerm();
   const viewMode = useFileBrowserViewMode();
-  const { setSource, navigate, selectFile, setFilterTerm, setViewMode } =
-    useFileBrowserActions();
+  const {
+    setSource,
+    navigate,
+    selectFile,
+    setFilterTerm,
+    setViewMode,
+    resetForWorkspace,
+  } = useFileBrowserActions();
 
-  const { data: listing, isLoading: isListingLoading } = useDirectoryListing(
-    workspaceId,
-    currentPath,
-    source
-  );
+  // Reset navigation state whenever the active workspace changes
+  useEffect(() => {
+    resetForWorkspace();
+  }, [workspaceId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { data: fileData, isLoading: isFileLoading } = useFileContent(
-    workspaceId,
-    selectedFile,
-    source
-  );
+  const {
+    data: listing,
+    isLoading: isListingLoading,
+    isError: isListingError,
+  } = useDirectoryListing(workspaceId, currentPath, source);
+
+  const {
+    data: fileData,
+    isLoading: isFileLoading,
+    isError: isFileError,
+  } = useFileContent(workspaceId, selectedFile, source);
 
   return (
     <div className={className ?? 'h-full min-h-0'}>
@@ -54,6 +66,7 @@ export function FileBrowserContainer({
           <FileBrowserTreePanel
             listing={listing}
             isLoading={isListingLoading}
+            isError={isListingError}
             source={source}
             currentPath={currentPath}
             selectedFile={selectedFile}
@@ -75,6 +88,7 @@ export function FileBrowserContainer({
             selectedFile={selectedFile}
             fileData={fileData}
             isLoading={isFileLoading}
+            isError={isFileError}
             viewMode={viewMode}
             onSetViewMode={setViewMode}
           />

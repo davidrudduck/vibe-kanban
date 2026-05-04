@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useShallow } from 'zustand/react/shallow';
 
 export type FileSource = 'worktree' | 'main';
 export type FileViewMode = 'preview' | 'raw' | 'rendered' | 'source' | null;
@@ -15,6 +16,7 @@ type FileBrowserState = {
   setFilterTerm: (term: string) => void;
   setViewMode: (mode: FileViewMode) => void;
   openFile: (path: string) => void;
+  resetForWorkspace: () => void;
 };
 
 function autoViewMode(path: string): FileViewMode {
@@ -55,14 +57,22 @@ export const useFileBrowserStore = create<FileBrowserState>()((set) => ({
   openFile: (path) => {
     const lastSlash = path.lastIndexOf('/');
     const parentPath = lastSlash > 0 ? path.slice(0, lastSlash) : null;
+    // Does NOT override source — preserves user's current worktree/main selection
     set({
       currentPath: parentPath,
       selectedFile: path,
-      source: 'worktree',
       viewMode: autoViewMode(path),
       filterTerm: '',
     });
   },
+
+  resetForWorkspace: () =>
+    set({
+      currentPath: null,
+      selectedFile: null,
+      filterTerm: '',
+      viewMode: null,
+    }),
 }));
 
 export const useFileBrowserSource = () => useFileBrowserStore((s) => s.source);
@@ -75,11 +85,14 @@ export const useFileBrowserFilterTerm = () =>
 export const useFileBrowserViewMode = () =>
   useFileBrowserStore((s) => s.viewMode);
 export const useFileBrowserActions = () =>
-  useFileBrowserStore((s) => ({
-    setSource: s.setSource,
-    navigate: s.navigate,
-    selectFile: s.selectFile,
-    setFilterTerm: s.setFilterTerm,
-    setViewMode: s.setViewMode,
-    openFile: s.openFile,
-  }));
+  useFileBrowserStore(
+    useShallow((s) => ({
+      setSource: s.setSource,
+      navigate: s.navigate,
+      selectFile: s.selectFile,
+      setFilterTerm: s.setFilterTerm,
+      setViewMode: s.setViewMode,
+      openFile: s.openFile,
+      resetForWorkspace: s.resetForWorkspace,
+    }))
+  );
