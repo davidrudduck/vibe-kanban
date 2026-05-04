@@ -52,6 +52,8 @@ export function MaintenancePanel() {
   const {
     data: stats,
     isLoading: statsLoading,
+    isError: statsIsError,
+    error: statsError,
     refetch: refetchStats,
   } = useDatabaseStats();
 
@@ -101,6 +103,12 @@ export function MaintenancePanel() {
             <SpinnerIcon className="size-icon-sm animate-spin" weight="bold" />
             Loading...
           </div>
+        )}
+        {statsIsError && (
+          <p className="text-sm text-error py-2">
+            Failed to load database stats:{' '}
+            {(statsError as Error)?.message ?? 'Unknown error'}
+          </p>
         )}
         {stats && (
           <div className="rounded-sm border border-border overflow-hidden">
