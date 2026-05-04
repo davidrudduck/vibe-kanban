@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{io::Read, path::Path};
 
 use axum::{
     Extension, Router,
@@ -55,6 +55,8 @@ pub struct FilesQuery {
     #[serde(default)]
     pub source: FileSource,
 }
+
+const MAX_BYTES: u64 = 500 * 1024;
 
 fn detect_language(path: &str) -> Option<String> {
     let ext = Path::new(path).extension()?.to_str()?;
@@ -130,7 +132,10 @@ fn list_directory_fs(
     rel_path: &str,
 ) -> Result<Vec<DirectoryEntry>, ApiError> {
     // Reject paths with any hidden component
-    if rel_path.split('/').any(|c| !c.is_empty() && c.starts_with('.')) {
+    if rel_path
+        .split('/')
+        .any(|c| !c.is_empty() && c.starts_with('.'))
+    {
         return Err(ApiError::BadRequest(
             "Hidden directories are not accessible".to_string(),
         ));
@@ -195,7 +200,10 @@ fn list_directory_git(repo_path: &Path, rel_path: &str) -> Result<Vec<DirectoryE
     if rel_path.contains("..") || rel_path.starts_with('/') || rel_path.starts_with('-') {
         return Err(ApiError::BadRequest("Invalid path".to_string()));
     }
-    if rel_path.split('/').any(|c| !c.is_empty() && c.starts_with('.')) {
+    if rel_path
+        .split('/')
+        .any(|c| !c.is_empty() && c.starts_with('.'))
+    {
         return Err(ApiError::BadRequest(
             "Hidden directories are not accessible".to_string(),
         ));
@@ -279,8 +287,6 @@ pub async fn read_file(
     let repo_path_owned = repo.path.clone();
     let source = query.source;
 
-    const MAX_BYTES: u64 = 500 * 1024;
-
     let rel_path_owned = rel_path.clone();
     let (bytes, size_bytes) = tokio::task::spawn_blocking(move || match source {
         FileSource::Main => read_file_git(&repo_path_owned, &rel_path_owned),
@@ -316,7 +322,10 @@ pub async fn read_file(
 
 fn read_file_fs(worktree_root: &Path, rel_path: &str) -> Result<(Vec<u8>, u64), ApiError> {
     // Reject hidden path components
-    if rel_path.split('/').any(|c| !c.is_empty() && c.starts_with('.')) {
+    if rel_path
+        .split('/')
+        .any(|c| !c.is_empty() && c.starts_with('.'))
+    {
         return Err(ApiError::BadRequest(
             "Hidden files are not accessible".to_string(),
         ));
@@ -352,8 +361,17 @@ fn read_file_fs(worktree_root: &Path, rel_path: &str) -> Result<(Vec<u8>, u64), 
     if canonical.is_dir() {
         return Err(ApiError::BadRequest("Path is a directory".to_string()));
     }
-    let bytes = std::fs::read(&canonical).map_err(|e| ApiError::BadRequest(e.to_string()))?;
-    let size = bytes.len() as u64;
+    // Stat for true file size, then stream limited bytes
+    let size = std::fs::metadata(&canonical)
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .len();
+    let mut file =
+        std::fs::File::open(&canonical).map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    let mut bytes = Vec::new();
+    file.by_ref()
+        .take(MAX_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     Ok((bytes, size))
 }
 
@@ -361,24 +379,49 @@ fn read_file_git(repo_path: &Path, rel_path: &str) -> Result<(Vec<u8>, u64), Api
     if rel_path.contains("..") || rel_path.starts_with('/') || rel_path.starts_with('-') {
         return Err(ApiError::BadRequest("Invalid path".to_string()));
     }
-    if rel_path.split('/').any(|c| !c.is_empty() && c.starts_with('.')) {
+    if rel_path
+        .split('/')
+        .any(|c| !c.is_empty() && c.starts_with('.'))
+    {
         return Err(ApiError::BadRequest(
             "Hidden files are not accessible".to_string(),
         ));
     }
 
-    let output = std::process::Command::new("git")
-        .args(["show", &format!("HEAD:{}", rel_path)])
+    let git_ref = format!("HEAD:{}", rel_path);
+
+    // Get true file size from git object store
+    let size_out = std::process::Command::new("git")
+        .args(["cat-file", "-s", &git_ref])
         .current_dir(repo_path)
         .output()
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
-
-    if !output.status.success() {
+    if !size_out.status.success() {
         return Err(ApiError::BadRequest("File not found in HEAD".to_string()));
     }
+    let size: u64 = String::from_utf8_lossy(&size_out.stdout)
+        .trim()
+        .parse()
+        .unwrap_or(0);
 
-    let size = output.stdout.len() as u64;
-    Ok((output.stdout, size))
+    // Stream content capped at MAX_BYTES + 1
+    let mut child = std::process::Command::new("git")
+        .args(["show", &git_ref])
+        .current_dir(repo_path)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    let mut bytes = Vec::new();
+    if let Some(stdout) = child.stdout.take() {
+        stdout
+            .take(MAX_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    }
+    child.wait().ok();
+
+    Ok((bytes, size))
 }
 
 pub fn router() -> Router<DeploymentImpl> {
@@ -457,7 +500,10 @@ mod tests {
         let result = read_file_fs(&inner, ".env");
         assert!(result.is_err());
         let msg = format!("{:?}", result.unwrap_err());
-        assert!(msg.contains("Hidden") || msg.contains("hidden"), "err was: {msg}");
+        assert!(
+            msg.contains("Hidden") || msg.contains("hidden"),
+            "err was: {msg}"
+        );
     }
 
     #[test]
@@ -504,6 +550,25 @@ mod tests {
     }
 
     #[test]
+    fn read_file_fs_does_not_load_full_large_file() {
+        let tmp = TempDir::new().unwrap();
+        let inner = tmp.path().join("workspace");
+        fs::create_dir(&inner).unwrap();
+        // 600 KB file — larger than MAX_BYTES (500 KB)
+        let big = vec![b'a'; 600 * 1024];
+        fs::write(inner.join("big.txt"), &big).unwrap();
+
+        let (bytes, size) = read_file_fs(&inner, "big.txt").unwrap();
+        assert_eq!(size, 600 * 1024, "size should be full file size from stat");
+        // With streaming, bytes read should be capped at MAX_BYTES + 1 = 512001
+        assert!(
+            bytes.len() <= (500 * 1024 + 1) as usize,
+            "read bytes should be capped, got {} bytes",
+            bytes.len()
+        );
+    }
+
+    #[test]
     #[cfg(unix)]
     fn read_file_fs_rejects_symlink() {
         use std::os::unix::fs::symlink;
@@ -516,6 +581,9 @@ mod tests {
         let result = read_file_fs(&inner, "link.txt");
         assert!(result.is_err());
         let msg = format!("{:?}", result.unwrap_err());
-        assert!(msg.contains("ymlink") || msg.contains("not allowed"), "err was: {msg}");
+        assert!(
+            msg.contains("ymlink") || msg.contains("not allowed"),
+            "err was: {msg}"
+        );
     }
 }
