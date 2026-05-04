@@ -102,3 +102,8 @@ Caddyfile.dev
 homepage.png
 workspace.png
 .worktrees/
+
+# Playwright debug screenshots
+/after-toggle-logs.png
+/workspace-current.png
+/workspace-initial.png
