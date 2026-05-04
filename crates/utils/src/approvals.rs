@@ -41,9 +41,11 @@ pub enum ApprovalStatus {
 }
 
 /// A question–answer pair. `answer` holds one or more selected labels/values.
+/// `header` is the key Claude Code CLI uses to match answers to questions.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct QuestionAnswer {
     pub question: String,
+    pub header: String,
     pub answer: Vec<String>,
 }
 
@@ -74,4 +76,22 @@ pub enum ApprovalOutcome {
 pub struct ApprovalResponse {
     pub execution_process_id: Uuid,
     pub status: ApprovalOutcome,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn question_answer_roundtrips_with_header() {
+        let qa = QuestionAnswer {
+            question: "Which colour?".to_string(),
+            header: "colour".to_string(),
+            answer: vec!["Red".to_string()],
+        };
+        let json = serde_json::to_string(&qa).unwrap();
+        let back: QuestionAnswer = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.header, "colour");
+        assert_eq!(back.answer, vec!["Red".to_string()]);
+    }
 }
