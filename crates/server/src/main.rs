@@ -3,7 +3,7 @@ use axum::Router;
 use clap::Parser;
 use deployment::{Deployment, DeploymentError};
 use server::{
-    DeploymentImpl, mcp_http, middleware::origin::validate_origin, routes,
+    DeploymentImpl, file_logging, mcp_http, middleware::origin::validate_origin, routes,
     runtime::relay_registration,
 };
 use services::services::container::ContainerService;
@@ -12,11 +12,10 @@ use strip_ansi_escapes::strip;
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 use tower_http::validate_request::ValidateRequestHeaderLayer;
-use tracing_subscriber::{EnvFilter, prelude::*};
 use utils::{
     assets::asset_dir,
     port_file::write_port_file_with_proxy,
-    sentry::{self as sentry_utils, SentrySource, sentry_layer},
+    sentry::{self as sentry_utils, SentrySource},
 };
 
 #[derive(Debug, Error)]
@@ -115,11 +114,7 @@ async fn async_main(
         "warn,server={level},services={level},db={level},executors={level},deployment={level},local_deployment={level},utils={level},embedded_ssh={level},desktop_bridge={level},relay_hosts={level},relay_client={level},relay_webrtc={level},codex_core=off",
         level = log_level
     );
-    let env_filter = EnvFilter::try_new(filter_string).expect("Failed to create tracing filter");
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer().with_filter(env_filter))
-        .with(sentry_layer())
-        .init();
+    let _log_guard = file_logging::init_logging(&filter_string);
 
     // Create asset directory if it doesn't exist
     if !asset_dir().exists() {

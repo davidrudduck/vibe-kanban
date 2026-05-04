@@ -5,6 +5,7 @@
 #![allow(clippy::result_large_err)]
 
 pub mod error;
+pub mod file_logging;
 pub mod mcp_http;
 pub mod middleware;
 pub mod relay_pairing;
