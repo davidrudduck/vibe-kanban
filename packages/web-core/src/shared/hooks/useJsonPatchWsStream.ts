@@ -120,18 +120,8 @@ export const useJsonPatchWsStream = <T extends object>(
 
       void (async () => {
         try {
-          // Yield to the microtask queue so React StrictMode's synchronous
-          // cleanup runs and sets `cancelled` before we open the socket.
-          // Without this, new WebSocket() fires synchronously inside
-          // openLocalApiWebSocket and the TCP upgrade is already in flight
-          // when cleanup sets cancelled=true, causing the Vite dev-server
-          // proxy to have a stale backend connection that consumes the
-          // initial snapshot for the first (discarded) mount's socket,
-          // leaving the second mount's socket idle for ~105 s until the
-          // watchdog forces a reconnect.
-          await Promise.resolve();
-          if (cancelled) return;
-
+          // openLocalApiWebSocket defers new WebSocket() by a microtask, ensuring
+          // StrictMode cleanup can cancel before the TCP upgrade is initiated.
           const ws = await openLocalApiWebSocket(endpoint);
 
           if (cancelled) {
