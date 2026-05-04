@@ -94,8 +94,12 @@ async fn get_stats(
 async fn vacuum(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<VacuumResult>>, ApiError> {
+    // Acquire the WRITE lock for the entire check+claim sequence.
+    // This eliminates the TOCTOU race: two concurrent requests cannot both
+    // pass the cooldown check because the second sees the timestamp set by
+    // the first before either drops the lock.
     {
-        let last = deployment.last_vacuum_time().read().await;
+        let mut last = deployment.last_vacuum_time().write().await;
         if let Some(prev) = *last {
             let elapsed = Utc::now().signed_duration_since(prev).num_seconds();
             if elapsed < VACUUM_COOLDOWN_SECS {
@@ -104,20 +108,21 @@ async fn vacuum(
                 ));
             }
         }
-    }
+        // Claim the slot atomically. Set the timestamp *before* releasing the
+        // lock so concurrent requests see the cooldown immediately. If VACUUM
+        // fails below, the cooldown still applies — this prevents retry storms
+        // on a DB that is under heavy load.
+        *last = Some(Utc::now());
+    } // write lock released here; VACUUM runs without holding any lock
 
     let pool = &deployment.db().pool;
-    let result = vacuum_database(pool).await.map_err(|e| {
-        tracing::error!("vacuum error: {e}");
-        ApiError::Database(sqlx::Error::Protocol(e.to_string()))
-    })?;
-
-    {
-        let mut last = deployment.last_vacuum_time().write().await;
-        *last = Some(Utc::now());
-    }
-
-    Ok(ResponseJson(ApiResponse::success(result)))
+    vacuum_database(pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("vacuum error: {e}");
+            ApiError::Database(sqlx::Error::Protocol(e.to_string()))
+        })
+        .map(|result| ResponseJson(ApiResponse::success(result)))
 }
 
 async fn analyze(
