@@ -126,7 +126,9 @@ describe('streamJsonPatchEntries', () => {
 
     expect(onError).toHaveBeenCalledOnce();
     expect(onError).toHaveBeenCalledWith(
-      expect.objectContaining({ message: 'WebSocket closed without Finished frame' })
+      expect.objectContaining({
+        message: 'WebSocket closed without Finished frame',
+      })
     );
   });
 
