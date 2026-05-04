@@ -206,7 +206,7 @@ impl ClaudeAgentClient {
                     .iter()
                     .map(|qa| {
                         (
-                            qa.question.clone(),
+                            qa.header.clone(),
                             serde_json::Value::String(qa.answer.join(", ")),
                         )
                     })
@@ -381,5 +381,29 @@ impl ClaudeAgentClient {
 
     pub async fn log_message(&self, line: &str) -> Result<(), ExecutorError> {
         self.log_writer.log_raw(line).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn answer_map_uses_header_as_key() {
+        use workspace_utils::approvals::QuestionAnswer;
+        let answers = vec![QuestionAnswer {
+            question: "Which colour?".to_string(),
+            header: "colour".to_string(),
+            answer: vec!["Red".to_string()],
+        }];
+        let map: serde_json::Map<String, serde_json::Value> = answers
+            .iter()
+            .map(|qa| {
+                (
+                    qa.header.clone(),
+                    serde_json::Value::String(qa.answer.join(", ")),
+                )
+            })
+            .collect();
+        assert!(map.contains_key("colour"), "key must be header, not question text");
+        assert!(!map.contains_key("Which colour?"), "must not use question text as key");
     }
 }
