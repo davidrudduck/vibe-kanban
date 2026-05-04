@@ -9,7 +9,7 @@
 //! - `VK_LOG_DIR` — override log directory (default: `{asset_dir}/logs`)
 //! - `VK_LOG_MAX_FILES` — daily files to retain (default: `7`)
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tracing_appender::non_blocking::WorkerGuard;
 
@@ -46,10 +46,13 @@ pub fn init_logging(filter_string: &str) -> Option<WorkerGuard> {
     todo!()
 }
 
-fn cleanup_old_logs(log_dir: &PathBuf, max_files: usize) {
+fn cleanup_old_logs(log_dir: &Path, max_files: usize) {
     let entries = match std::fs::read_dir(log_dir) {
         Ok(e) => e,
-        Err(_) => return,
+        Err(e) => {
+            tracing::warn!("Failed to read log directory {:?}: {}", log_dir, e);
+            return;
+        }
     };
 
     let mut log_files: Vec<_> = entries
