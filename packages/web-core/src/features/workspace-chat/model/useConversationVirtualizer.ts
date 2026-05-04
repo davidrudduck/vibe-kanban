@@ -277,6 +277,19 @@ export function useConversationVirtualizer({
         : true;
     const nextAtTop = el ? el.scrollTop <= 0 : true;
 
+    // Re-arm bottom-lock when the user has scrolled back to the bottom edge
+    // after a manual release. Skipped while a programmatic scroll is in flight
+    // (see `smoothScrollDeadlineRef`) to avoid re-arming on the first tick of
+    // a smooth scrollToTop / scrollToIndex animation, which would interrupt
+    // the animation via the bottom-snap layout effect.
+    if (
+      nextAtBottom &&
+      !bottomLockedRef.current &&
+      performance.now() > smoothScrollDeadlineRef.current
+    ) {
+      bottomLockedRef.current = true;
+    }
+
     if (nextAtBottom !== lastAtBottomRef.current) {
       lastAtBottomRef.current = nextAtBottom;
       setIsAtBottomState(nextAtBottom);
@@ -394,6 +407,7 @@ export function useConversationVirtualizer({
       bottomLockedRef.current = false;
 
       if (behavior === 'smooth') {
+        smoothScrollDeadlineRef.current = performance.now() + 500;
         el.scrollTo({ top: 0, behavior: 'smooth' });
       } else {
         el.scrollTop = 0;
@@ -414,9 +428,14 @@ export function useConversationVirtualizer({
         bottomLockedRef.current = false;
       }
 
+      const resolvedBehavior = options?.behavior ?? 'smooth';
+      if (resolvedBehavior === 'smooth') {
+        smoothScrollDeadlineRef.current = performance.now() + 500;
+      }
+
       virtualizer.scrollToIndex(index, {
         align: options?.align ?? 'start',
-        behavior: options?.behavior ?? 'smooth',
+        behavior: resolvedBehavior,
       });
     },
     [virtualizer]
@@ -434,6 +453,7 @@ export function useConversationVirtualizer({
 
     if (targetIndex < 0) return false;
 
+    smoothScrollDeadlineRef.current = performance.now() + 500;
     virtualizer.scrollToIndex(targetIndex, {
       align: 'start',
       behavior: 'smooth',
@@ -453,6 +473,7 @@ export function useConversationVirtualizer({
 
     if (targetIndex < 0) return false;
 
+    smoothScrollDeadlineRef.current = performance.now() + 500;
     virtualizer.scrollToIndex(targetIndex, {
       align: 'start',
       behavior: 'smooth',
