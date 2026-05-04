@@ -1,6 +1,7 @@
 import { type FileChange } from 'shared/types';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
 import { Trash2, FilePlus2, ArrowRight, FileX, FileClock } from 'lucide-react';
+import { FolderOpenIcon } from '@phosphor-icons/react';
 import { getHighLightLanguageFromPath } from '@/shared/lib/extToLanguage';
 import { getActualTheme } from '@/shared/lib/theme';
 import EditDiffRenderer from './EditDiffRenderer';
@@ -8,6 +9,11 @@ import FileContentView from './FileContentView';
 import '@/styles/diff-style-overrides.css';
 import { useExpandable } from '@/shared/stores/useExpandableStore';
 import { cn } from '@/shared/lib/utils';
+import { useFileBrowserStore } from '@/shared/stores/useFileBrowserStore';
+import {
+  useUiPreferencesStore,
+  RIGHT_MAIN_PANEL_MODES,
+} from '@/shared/stores/useUiPreferencesStore';
 
 type Props = {
   path: string;
@@ -16,6 +22,7 @@ type Props = {
   defaultExpanded?: boolean;
   statusAppearance?: 'default' | 'denied' | 'timed_out';
   forceExpanded?: boolean;
+  workspaceId?: string;
 };
 
 function isWrite(
@@ -46,10 +53,15 @@ const FileChangeRenderer = ({
   defaultExpanded = false,
   statusAppearance = 'default',
   forceExpanded = false,
+  workspaceId,
 }: Props) => {
   const { config } = useUserSystem();
   const [expanded, setExpanded] = useExpandable(expansionKey, defaultExpanded);
   const effectiveExpanded = forceExpanded || expanded;
+  const openFile = useFileBrowserStore((s) => s.openFile);
+  const setRightMainPanelMode = useUiPreferencesStore(
+    (s) => s.setRightMainPanelMode
+  );
 
   const theme = getActualTheme(config?.theme);
   const headerClass = cn('flex items-center gap-1.5 text-secondary-foreground');
@@ -140,6 +152,18 @@ const FileChangeRenderer = ({
         >
           {titleNode}
         </p>
+        <button
+          type="button"
+          title="Open in Files"
+          className="ml-auto shrink-0 p-1 rounded text-low hover:text-normal hover:bg-secondary transition-colors"
+          onClick={(e) => {
+            e.stopPropagation();
+            openFile(path);
+            setRightMainPanelMode(RIGHT_MAIN_PANEL_MODES.FILES, workspaceId);
+          }}
+        >
+          <FolderOpenIcon className="h-3.5 w-3.5" />
+        </button>
       </div>
 
       {/* Body */}
