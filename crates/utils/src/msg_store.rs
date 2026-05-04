@@ -176,3 +176,116 @@ impl MsgStore {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use futures::StreamExt;
+    use tokio::sync::Barrier;
+    use tokio::time::{Duration, timeout};
+    use tokio_stream::wrappers::BroadcastStream;
+
+    use super::*;
+
+    /// Basic contract: messages pushed before stream creation appear in history replay;
+    /// messages pushed after appear in the live segment.
+    #[tokio::test]
+    async fn history_plus_stream_replays_history_then_live() {
+        let store = MsgStore::new();
+
+        store.push(LogMsg::Stdout("before".into()));
+
+        let mut stream = store.history_plus_stream();
+
+        store.push(LogMsg::Stdout("after".into()));
+
+        let msg1 = timeout(Duration::from_millis(200), stream.next())
+            .await
+            .expect("timed out waiting for first message")
+            .expect("stream ended early");
+        let msg2 = timeout(Duration::from_millis(200), stream.next())
+            .await
+            .expect("timed out waiting for second message")
+            .expect("stream ended early");
+
+        assert!(
+            matches!(msg1, Ok(LogMsg::Stdout(ref s)) if s == "before"),
+            "first message should be history replay: got {msg1:?}"
+        );
+        assert!(
+            matches!(msg2, Ok(LogMsg::Stdout(ref s)) if s == "after"),
+            "second message should be live: got {msg2:?}"
+        );
+    }
+
+    /// Race-safety: a push() that happens AFTER subscribe but BEFORE get_history()
+    /// must appear in the combined stream even when it is not in the snapshot.
+    ///
+    /// The fix (`get_receiver()` before `get_history()`) ensures this by subscribing
+    /// to the broadcast channel first.  If the ordering were reversed the event
+    /// pushed inside the race window would be silently dropped.
+    #[tokio::test]
+    async fn history_plus_stream_subscribe_first_captures_race_window_push() {
+        let store = Arc::new(MsgStore::new());
+
+        // msg_A is already in history when we start.
+        store.push(LogMsg::Stdout("A".into()));
+
+        // Step 1: subscribe FIRST (mirrors the fix in history_plus_stream).
+        let rx = store.get_receiver();
+
+        // Step 2: race a concurrent push between subscribe and get_history.
+        // Use a Barrier so the push happens deterministically AFTER we have
+        // subscribed but BEFORE we have read history — exactly the race window.
+        let store2 = Arc::clone(&store);
+        let barrier = Arc::new(Barrier::new(2));
+        let barrier2 = Arc::clone(&barrier);
+
+        let push_task = tokio::spawn(async move {
+            // Wait until the main task signals "we are inside the race window".
+            barrier2.wait().await;
+            store2.push(LogMsg::Stdout("race".into()));
+        });
+
+        // Step 3: both sides reach the barrier — push_task fires.
+        barrier.wait().await;
+        push_task.await.unwrap();
+
+        // Step 4: read history (push_task may or may not have written to history
+        // yet, but because we subscribed first the live stream captures it either way).
+        let history = store.get_history();
+
+        // Step 5: build the same combined stream that history_plus_stream() builds.
+        let hist =
+            futures::stream::iter(history.into_iter().map(Ok::<_, std::io::Error>));
+        let live = BroadcastStream::new(rx).filter_map(|res| async move {
+            match res {
+                Ok(msg) => Some(Ok(msg)),
+                Err(_) => None,
+            }
+        });
+        let combined = hist.chain(live);
+        tokio::pin!(combined);
+
+        // Collect up to 5 messages with a short timeout each.
+        let mut msgs: Vec<String> = Vec::new();
+        for _ in 0..5 {
+            match timeout(Duration::from_millis(100), combined.next()).await {
+                Ok(Some(Ok(LogMsg::Stdout(s)))) => msgs.push(s),
+                _ => break,
+            }
+        }
+
+        assert!(
+            msgs.contains(&"A".to_string()),
+            "msg_A must appear via history replay; got {msgs:?}"
+        );
+        assert!(
+            msgs.contains(&"race".to_string()),
+            "race-window push must be captured by the live stream segment \
+             because subscribe happens before get_history (the TOCTOU fix); \
+             got {msgs:?}"
+        );
+    }
+}

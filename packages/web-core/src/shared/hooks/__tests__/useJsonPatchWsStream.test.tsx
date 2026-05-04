@@ -14,9 +14,11 @@ vi.mock('@/shared/lib/hmrContext', () => ({
     createContext<T>(defaultValue),
 }));
 
-// Minimal WebSocket mock that tracks net-open sockets (opened and not closed).
-// React StrictMode may open-then-immediately-close a socket on the first mount;
-// we only care about sockets that survive (i.e. were not closed by cleanup).
+// Minimal WebSocket mock that tracks all constructed sockets and their state.
+// With the source-level fix (await Promise.resolve() inside openWebSocket), React
+// StrictMode constructs TWO sockets: mount-1's socket is cancelled after construction,
+// mount-2's socket survives. This is intentional — the deferred construction gives
+// StrictMode's synchronous cleanup time to set cancelled=true before the TCP upgrade.
 class MockWebSocket {
   static instances: MockWebSocket[] = [];
   onopen: ((e: Event) => void) | null = null;
@@ -77,10 +79,11 @@ describe('useJsonPatchWsStream', () => {
       await new Promise((r) => setTimeout(r, 50));
     });
 
-    // The fix (await Promise.resolve() before new WebSocket) ensures that
-    // the first mount's WebSocket is cancelled and never assigned to wsRef.
-    // The second mount's WebSocket persists. We verify that exactly one
-    // WebSocket instance survives (is not closed).
+    // With the source-level fix, StrictMode causes two socket constructions:
+    //   1. Mount-1 calls openWebSocket → defers → StrictMode cleanup cancels → socket built then closed
+    //   2. Mount-2 calls openWebSocket → defers → socket built and kept alive
+    // This is the expected behaviour: 2 constructed, 1 survives.
+    expect(MockWebSocket.instances).toHaveLength(2);
     expect(MockWebSocket.instances.filter((ws) => !ws.closed)).toHaveLength(1);
   });
 
