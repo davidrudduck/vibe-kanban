@@ -101,7 +101,11 @@ impl MsgStore {
     pub fn history_plus_stream(
         &self,
     ) -> futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>> {
-        let (history, rx) = (self.get_history(), self.get_receiver());
+        // Subscribe first so any push() that races with get_history() is
+        // captured in the live stream. push() broadcasts before writing to
+        // history, so subscribe-then-read is the correct ordering.
+        let rx = self.get_receiver();
+        let history = self.get_history();
 
         let hist = futures::stream::iter(history.into_iter().map(Ok::<_, std::io::Error>));
         let live = BroadcastStream::new(rx).filter_map(|res| async move {
