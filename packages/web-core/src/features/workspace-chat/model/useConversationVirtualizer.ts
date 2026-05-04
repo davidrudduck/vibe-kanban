@@ -36,10 +36,6 @@ import {
 type ScrollToOptionsBehavior = 'auto' | 'smooth';
 
 // ---------------------------------------------------------------------------
-// Module-level helpers
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
@@ -127,14 +123,18 @@ export interface ConversationVirtualizerResult {
   scrollToNextUserMessage: () => boolean;
 
   /**
-   * Whether at least one user message exists before the current scroll position
-   * (or before the most recent user message when the scroll container is unmounted).
+   * Whether at least one user message exists strictly before the first
+   * visible row. When the scroll container is unmounted, falls back to a
+   * synthetic cursor at the end of the row list — i.e. returns true if any
+   * user message exists anywhere in `rows`.
    */
   hasPreviousUserMessage: () => boolean;
 
   /**
-   * Whether at least one user message exists after the current scroll position
-   * (or after the most recent user message when the scroll container is unmounted).
+   * Whether at least one user message exists strictly after the first
+   * visible row. When the scroll container is unmounted, falls back to a
+   * synthetic cursor before the first row — i.e. returns true if any user
+   * message exists anywhere in `rows`.
    */
   hasNextUserMessage: () => boolean;
 
