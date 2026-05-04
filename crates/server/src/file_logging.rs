@@ -44,6 +44,17 @@ impl FileLoggingConfig {
     }
 }
 
+/// Initialise the tracing subscriber with optional file output.
+///
+/// Returns a [`WorkerGuard`] when file logging is enabled — **hold it for the
+/// entire lifetime of the process** so buffered log lines are flushed on exit.
+/// Dropping it early will stop file logging silently.
+///
+/// `filter_string` is a `tracing-subscriber` filter directive, e.g.
+/// `"warn,server=info,services=info"`.
+///
+/// # Panics
+/// Panics if `filter_string` is not a valid `EnvFilter` directive string.
 pub fn init_logging(filter_string: &str) -> Option<WorkerGuard> {
     let config = FileLoggingConfig::from_env(asset_dir());
 
@@ -57,10 +68,13 @@ pub fn init_logging(filter_string: &str) -> Option<WorkerGuard> {
                 "Failed to create log directory {:?}: {} — falling back to console-only logging",
                 config.log_dir, e
             );
-            tracing_subscriber::registry()
+            if let Err(e) = tracing_subscriber::registry()
                 .with(console_layer)
                 .with(sentry_layer())
-                .init();
+                .try_init()
+            {
+                eprintln!("Tracing subscriber already initialised: {e}");
+            }
             return None;
         }
 
@@ -75,11 +89,14 @@ pub fn init_logging(filter_string: &str) -> Option<WorkerGuard> {
             .with_writer(non_blocking)
             .with_filter(file_filter);
 
-        tracing_subscriber::registry()
+        if let Err(e) = tracing_subscriber::registry()
             .with(console_layer)
             .with(file_layer)
             .with(sentry_layer())
-            .init();
+            .try_init()
+        {
+            eprintln!("Tracing subscriber already initialised: {e}");
+        }
 
         tracing::info!(
             log_dir = ?config.log_dir,
@@ -89,14 +106,20 @@ pub fn init_logging(filter_string: &str) -> Option<WorkerGuard> {
 
         let log_dir = config.log_dir.clone();
         let max_files = config.max_files;
+        // Fire-and-forget: cleanup is fast and idempotent. If the process exits
+        // before this thread completes, at most a partial deletion occurs — not
+        // data-corrupting.
         std::thread::spawn(move || cleanup_old_logs(&log_dir, max_files));
 
         Some(guard)
     } else {
-        tracing_subscriber::registry()
+        if let Err(e) = tracing_subscriber::registry()
             .with(console_layer)
             .with(sentry_layer())
-            .init();
+            .try_init()
+        {
+            eprintln!("Tracing subscriber already initialised: {e}");
+        }
         None
     }
 }
