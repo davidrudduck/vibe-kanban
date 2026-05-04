@@ -551,13 +551,6 @@ impl LocalContainerService {
                 Err(_) => (None, ExecutionProcessStatus::Failed),
             };
 
-            if !ExecutionProcess::was_stopped(&db.pool, exec_id).await
-                && let Err(e) =
-                    ExecutionProcess::update_completion(&db.pool, exec_id, status, exit_code).await
-            {
-                tracing::error!("Failed to update execution process completion: {}", e);
-            }
-
             if let Ok(ctx) = ExecutionProcess::load_context(&db.pool, exec_id).await {
                 // Update executor session summary if available
                 if let Err(e) = container.update_executor_session_summary(&exec_id).await {
@@ -888,6 +881,15 @@ impl LocalContainerService {
             }
             if let Some(handle) = db_stream_handle {
                 let _ = tokio::time::timeout(Duration::from_secs(5), handle).await;
+            }
+
+            // Update DB status only after Finished frame is flushed so the
+            // frontend status-change event never arrives before the stream ends.
+            if !ExecutionProcess::was_stopped(&db.pool, exec_id).await
+                && let Err(e) =
+                    ExecutionProcess::update_completion(&db.pool, exec_id, status, exit_code).await
+            {
+                tracing::error!("Failed to update execution process completion: {}", e);
             }
 
             // Drop the ProtocolPeer and reap the child under a single

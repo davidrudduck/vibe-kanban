@@ -276,13 +276,17 @@ export const useConversationHistory = ({
         const entriesWithKey = entries.map((e, idx) =>
           patchWithKey(e, currentProcess.id, idx)
         );
-        mergeIntoDisplayed((state) => {
-          state[currentProcess.id] = {
-            executionProcess: currentProcess,
-            entries: entriesWithKey,
-          };
-        });
-        emitEntries(displayedExecutionProcesses.current, 'running', false);
+        // Only overwrite if we actually got entries back; an empty response
+        // likely means a network error and we should not clobber partial data.
+        if (entriesWithKey.length > 0) {
+          mergeIntoDisplayed((state) => {
+            state[currentProcess.id] = {
+              executionProcess: currentProcess,
+              entries: entriesWithKey,
+            };
+          });
+          emitEntries(displayedExecutionProcesses.current, 'running', false);
+        }
       }
     },
     [loadRunningAndEmit, loadEntriesForHistoricExecutionProcess, emitEntries]
