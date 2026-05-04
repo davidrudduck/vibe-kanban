@@ -218,6 +218,10 @@ impl EventService {
         futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>,
         super::types::EventError,
     > {
+        // Subscribe BEFORE querying the DB to avoid the TOCTOU race where a
+        // scratch update lands between the snapshot query and live-stream subscription.
+        let receiver = self.msg_store.get_receiver();
+
         async fn build_snapshot(
             pool: &sqlx::SqlitePool,
             scratch_id: Uuid,
@@ -263,7 +267,7 @@ impl EventService {
         let live_pool = self.db.pool.clone();
         let live_scratch_type = scratch_type.clone();
 
-        let live = BroadcastStream::new(self.msg_store.get_receiver())
+        let live = BroadcastStream::new(receiver)
             .then(move |msg_result| {
                 let id_str = id_str.clone();
                 let type_str = type_str.clone();
@@ -335,6 +339,10 @@ impl EventService {
         futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>,
         super::types::EventError,
     > {
+        // Subscribe BEFORE querying the DB to avoid the TOCTOU race where a
+        // workspace update lands between the snapshot query and live-stream subscription.
+        let receiver = self.msg_store.get_receiver();
+
         /// Returns `None` on DB error so a transient DB hiccup during lag-recovery
         /// does not wipe the client's workspace sidebar to `{}`.
         async fn build_snapshot(
@@ -385,7 +393,7 @@ impl EventService {
             });
 
         let live_pool = self.db.pool.clone();
-        let live = BroadcastStream::new(self.msg_store.get_receiver())
+        let live = BroadcastStream::new(receiver)
             .then(move |msg_result| {
                 let live_pool = live_pool.clone();
                 async move {
