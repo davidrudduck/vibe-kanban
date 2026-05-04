@@ -1,11 +1,9 @@
 import {
   forwardRef,
-  useCallback,
   useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
-  useState,
 } from 'react';
 import type { Workspace, Session, RepoWithTargetBranch } from 'shared/types';
 import { createWorkspaceWithSession } from '@/shared/types/attempt';
@@ -22,6 +20,7 @@ import { RetryUiProvider } from '@/features/workspace-chat/model/contexts/RetryU
 import { ApprovalFeedbackProvider } from '@/features/workspace-chat/model/contexts/ApprovalFeedbackContext';
 import { forwardWheelToScroller } from '@/features/workspace-chat/ui/forwardWheelToScroller';
 import { useDiffStats } from '@/shared/stores/useWorkspaceDiffStore';
+import { useConversationNavController } from '@/features/workspace-chat/model/useConversationNavController';
 
 /**
  * Isolated component that reads diffStats from WorkspaceContext.
@@ -48,7 +47,7 @@ function ChatBoxWithDiffStats({
   onSelectSession: (sessionId: string) => void;
   onStartNewSession: () => void;
   onScrollToPreviousMessage: () => void;
-  onScrollToBottom: (behavior?: 'auto' | 'smooth') => void;
+  onScrollToBottom: () => void;
   onScrollToUserMessage: (patchKey: string) => void;
   getActiveTurnPatchKey: () => string | null;
 }) {
@@ -129,66 +128,9 @@ export const WorkspacesMainContainer = forwardRef<
     return createWorkspaceWithSession(selectedWorkspace, selectedSession);
   }, [selectedWorkspace, selectedSession]);
 
-  const handleScrollToPreviousMessage = useCallback(() => {
-    conversationListRef.current?.scrollToPreviousUserMessage();
-  }, []);
-
-  const handleScrollToNextMessage = useCallback(() => {
-    conversationListRef.current?.scrollToNextUserMessage();
-  }, []);
-
-  const handleScrollToUserMessage = useCallback((patchKey: string) => {
-    conversationListRef.current?.scrollToEntryByPatchKey(patchKey);
-  }, []);
-
-  const handleGetActiveTurnPatchKey = useCallback(() => {
-    return conversationListRef.current?.getVisibleUserMessagePatchKey() ?? null;
-  }, []);
-
-  const [isAtBottom, setIsAtBottom] = useState(true);
-  const [isAtTop, setIsAtTop] = useState(true);
-  const [hasPreviousUserMessage, setHasPreviousUserMessage] = useState(true);
-  const [hasNextUserMessage, setHasNextUserMessage] = useState(true);
-  const isAtBottomRef = useRef(isAtBottom);
-  const handleAtBottomChange = useCallback((atBottom: boolean) => {
-    isAtBottomRef.current = atBottom;
-    setIsAtBottom(atBottom);
-    setHasPreviousUserMessage(
-      conversationListRef.current?.hasPreviousUserMessage() ?? true
-    );
-    setHasNextUserMessage(
-      conversationListRef.current?.hasNextUserMessage() ?? true
-    );
-  }, []);
-  const handleAtTopChange = useCallback((atTop: boolean) => {
-    setIsAtTop(atTop);
-    setHasPreviousUserMessage(
-      conversationListRef.current?.hasPreviousUserMessage() ?? true
-    );
-    setHasNextUserMessage(
-      conversationListRef.current?.hasNextUserMessage() ?? true
-    );
-  }, []);
-
-  const handleScrollToBottom = useCallback(
-    (behavior: 'auto' | 'smooth' = 'smooth') => {
-      conversationListRef.current?.scrollToBottom(behavior);
-    },
-    []
-  );
-
-  const handleScrollToTop = useCallback(
-    (behavior: 'auto' | 'smooth' = 'smooth') => {
-      conversationListRef.current?.scrollToTop(behavior);
-    },
-    []
-  );
+  const nav = useConversationNavController(conversationListRef);
 
   const { session } = workspaceWithSession ?? {};
-
-  useEffect(() => {
-    isAtBottomRef.current = isAtBottom;
-  }, [isAtBottom]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -210,10 +152,10 @@ export const WorkspacesMainContainer = forwardRef<
       const heightDelta = nextHeight - previousHeight;
       previousHeight = nextHeight;
 
-      if (!isAtBottomRef.current) return;
+      if (!nav.isAtBottomRef.current) return;
 
       requestAnimationFrame(() => {
-        if (!isAtBottomRef.current) return;
+        if (!nav.isAtBottomRef.current) return;
         conversationListRef.current?.adjustScrollBy(heightDelta);
       });
     });
@@ -223,7 +165,7 @@ export const WorkspacesMainContainer = forwardRef<
     return () => {
       observer.disconnect();
     };
-  }, [workspaceWithSession?.id, session?.id]);
+  }, [workspaceWithSession?.id, session?.id, nav.isAtBottomRef]);
 
   const entriesProviderKey = workspaceWithSession
     ? `${workspaceWithSession.id}-${selectedSessionId ?? 'new'}`
@@ -241,8 +183,8 @@ export const WorkspacesMainContainer = forwardRef<
             ref={conversationListRef}
             attempt={workspaceWithSession}
             repos={repos}
-            onAtBottomChange={handleAtBottomChange}
-            onAtTopChange={handleAtTopChange}
+            onAtBottomChange={nav.onAtBottomChange}
+            onAtTopChange={nav.onAtTopChange}
             sessionScopeId={selectedSessionId}
           />
         </RetryUiProvider>
@@ -258,10 +200,10 @@ export const WorkspacesMainContainer = forwardRef<
       sessions={sessions}
       onSelectSession={onSelectSession}
       onStartNewSession={onStartNewSession}
-      onScrollToPreviousMessage={handleScrollToPreviousMessage}
-      onScrollToBottom={handleScrollToBottom}
-      onScrollToUserMessage={handleScrollToUserMessage}
-      getActiveTurnPatchKey={handleGetActiveTurnPatchKey}
+      onScrollToPreviousMessage={nav.onScrollToPreviousMessage}
+      onScrollToBottom={nav.onScrollToBottom}
+      onScrollToUserMessage={nav.onScrollToUserMessage}
+      getActiveTurnPatchKey={nav.getActiveTurnPatchKey}
     />
   );
 
@@ -292,14 +234,14 @@ export const WorkspacesMainContainer = forwardRef<
             conversationContent={conversationContent}
             chatBoxContent={chatBoxContent}
             contextBarContent={contextBarContent}
-            isAtBottom={isAtBottom}
-            isAtTop={isAtTop}
-            hasPreviousUserMessage={hasPreviousUserMessage}
-            hasNextUserMessage={hasNextUserMessage}
-            onScrollToBottom={handleScrollToBottom}
-            onScrollToTop={handleScrollToTop}
-            onScrollToPreviousMessage={handleScrollToPreviousMessage}
-            onScrollToNextMessage={handleScrollToNextMessage}
+            isAtBottom={nav.isAtBottom}
+            isAtTop={nav.isAtTop}
+            hasPreviousUserMessage={nav.hasPreviousUserMessage}
+            hasNextUserMessage={nav.hasNextUserMessage}
+            onScrollToBottom={nav.onScrollToBottom}
+            onScrollToTop={nav.onScrollToTop}
+            onScrollToPreviousMessage={nav.onScrollToPreviousMessage}
+            onScrollToNextMessage={nav.onScrollToNextMessage}
           />
         </MessageEditProvider>
       </EntriesProvider>
