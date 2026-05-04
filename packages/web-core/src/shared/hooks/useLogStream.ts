@@ -86,6 +86,9 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
       const capturedProcessId = processId;
       void (async () => {
         try {
+          await Promise.resolve();
+          if (cancelled) return;
+
           const ws = await openLocalApiWebSocket(
             `/api/execution-processes/${processId}/raw-logs/ws`
           );
