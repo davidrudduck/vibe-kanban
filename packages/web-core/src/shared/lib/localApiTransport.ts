@@ -88,7 +88,7 @@ function resolveScopedPath(
   return scopeLocalApiPath(pathOrUrl, getCurrentHostId());
 }
 
-const defaultTransport: LocalApiTransport = {
+export const defaultTransport: LocalApiTransport = {
   request: (pathOrUrl, init = {}) => {
     const {
       hostScope: _hostScope,
