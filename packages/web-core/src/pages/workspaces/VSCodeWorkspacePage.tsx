@@ -115,6 +115,8 @@ export function VSCodeWorkspacePage() {
   const conversationListRef = useRef<ConversationListHandle>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [isAtTop, setIsAtTop] = useState(true);
+  const [hasPreviousUserMessage, setHasPreviousUserMessage] = useState(true);
+  const [hasNextUserMessage, setHasNextUserMessage] = useState(true);
   const isAtBottomRef = useRef(isAtBottom);
 
   const {
@@ -168,10 +170,22 @@ export function VSCodeWorkspacePage() {
   const handleAtBottomChange = useCallback((atBottom: boolean) => {
     isAtBottomRef.current = atBottom;
     setIsAtBottom(atBottom);
+    setHasPreviousUserMessage(
+      conversationListRef.current?.hasPreviousUserMessage() ?? true
+    );
+    setHasNextUserMessage(
+      conversationListRef.current?.hasNextUserMessage() ?? true
+    );
   }, []);
 
   const handleAtTopChange = useCallback((atTop: boolean) => {
     setIsAtTop(atTop);
+    setHasPreviousUserMessage(
+      conversationListRef.current?.hasPreviousUserMessage() ?? true
+    );
+    setHasNextUserMessage(
+      conversationListRef.current?.hasNextUserMessage() ?? true
+    );
   }, []);
 
   useEffect(() => {
@@ -273,14 +287,14 @@ export function VSCodeWorkspacePage() {
                             onClick={() => handleScrollToTop('auto')}
                           />
                         )}
-                        {!isAtTop && (
+                        {!isAtTop && hasPreviousUserMessage && (
                           <NavButton
                             icon={ArrowUpIcon}
                             label="Previous user message"
                             onClick={handleScrollToPreviousMessage}
                           />
                         )}
-                        {!isAtBottom && (
+                        {!isAtBottom && hasNextUserMessage && (
                           <NavButton
                             icon={ArrowDownIcon}
                             label="Next user message"

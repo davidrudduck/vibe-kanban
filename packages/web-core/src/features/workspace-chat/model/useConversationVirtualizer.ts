@@ -123,6 +123,22 @@ export interface ConversationVirtualizerResult {
   scrollToNextUserMessage: () => boolean;
 
   /**
+   * Whether at least one user message exists strictly before the first
+   * visible row. When the scroll container is unmounted, falls back to a
+   * synthetic cursor at the end of the row list — i.e. returns true if any
+   * user message exists anywhere in `rows`.
+   */
+  hasPreviousUserMessage: () => boolean;
+
+  /**
+   * Whether at least one user message exists strictly after the first
+   * visible row. When the scroll container is unmounted, falls back to a
+   * synthetic cursor before the first row — i.e. returns true if any user
+   * message exists anywhere in `rows`.
+   */
+  hasNextUserMessage: () => boolean;
+
+  /**
    * Whether the scroll container is currently near the bottom.
    * Reactive — updates via scroll event listener, not just point-in-time.
    */
@@ -155,6 +171,15 @@ export interface ConversationVirtualizerResult {
    * Returns undefined if the index is out of bounds.
    */
   rowForVirtualItem: (item: VirtualItem) => ConversationRow | undefined;
+
+  /**
+   * Returns whether bottom-lock auto-follow is currently armed. Used internally
+   * by `syncScrollEdges` and exposed on the result so unit tests can assert
+   * lock state without reaching into refs.
+   *
+   * @internal
+   */
+  isBottomScrollCorrectionActive: () => boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -267,6 +292,19 @@ export function useConversationVirtualizer({
         ? isNearBottom(el.scrollTop, el.clientHeight, el.scrollHeight)
         : true;
     const nextAtTop = el ? el.scrollTop <= 0 : true;
+
+    // Re-arm bottom-lock when the user has scrolled back to the bottom edge
+    // after a manual release. Skipped while a programmatic scroll is in flight
+    // (see `smoothScrollDeadlineRef`) to avoid re-arming on the first tick of
+    // a smooth scrollToTop / scrollToIndex animation, which would interrupt
+    // the animation via the bottom-snap layout effect.
+    if (
+      nextAtBottom &&
+      !bottomLockedRef.current &&
+      performance.now() > smoothScrollDeadlineRef.current
+    ) {
+      bottomLockedRef.current = true;
+    }
 
     if (nextAtBottom !== lastAtBottomRef.current) {
       lastAtBottomRef.current = nextAtBottom;
@@ -385,6 +423,7 @@ export function useConversationVirtualizer({
       bottomLockedRef.current = false;
 
       if (behavior === 'smooth') {
+        smoothScrollDeadlineRef.current = performance.now() + 500;
         el.scrollTo({ top: 0, behavior: 'smooth' });
       } else {
         el.scrollTop = 0;
@@ -405,13 +444,46 @@ export function useConversationVirtualizer({
         bottomLockedRef.current = false;
       }
 
+      const resolvedBehavior = options?.behavior ?? 'smooth';
+      if (resolvedBehavior === 'smooth') {
+        smoothScrollDeadlineRef.current = performance.now() + 500;
+      }
+
       virtualizer.scrollToIndex(index, {
         align: options?.align ?? 'start',
-        behavior: options?.behavior ?? 'smooth',
+        behavior: resolvedBehavior,
       });
     },
     [virtualizer]
   );
+
+  const hasPreviousUserMessage = useCallback((): boolean => {
+    if (rows.length === 0) return false;
+    const scrollEl = scrollContainerRef.current;
+    // Synthetic cursor when scroll info is unavailable: rows.length, treating
+    // the cursor as parked just past the end. This is the permissive default —
+    // any earlier user message satisfies the selector.
+    const fromIndex =
+      (scrollEl
+        ? virtualizer.getVirtualItemForOffset(scrollEl.scrollTop)?.index
+        : undefined) ?? rows.length;
+    return findPreviousUserMessageIndex(rows, fromIndex) !== -1;
+  }, [scrollContainerRef, virtualizer, rows]);
+
+  const hasNextUserMessage = useCallback((): boolean => {
+    if (rows.length === 0) return false;
+    const scrollEl = scrollContainerRef.current;
+    // Synthetic cursor when scroll info is unavailable: -1, treating the
+    // cursor as parked just before the first row. This is the permissive
+    // default — any user message anywhere satisfies the selector. This
+    // guards Bug #2: at scrollTop=0 with user messages further down, the
+    // down-chevron must remain enabled.
+    const fromIndex =
+      (scrollEl
+        ? virtualizer.getVirtualItemForOffset(scrollEl.scrollTop)?.index
+        : undefined) ?? -1;
+    return findNextUserMessageIndex(rows, fromIndex) !== -1;
+  }, [scrollContainerRef, virtualizer, rows]);
 
   const scrollToPreviousUserMessage = useCallback((): boolean => {
     const scrollEl = scrollContainerRef.current;
@@ -425,6 +497,7 @@ export function useConversationVirtualizer({
 
     if (targetIndex < 0) return false;
 
+    smoothScrollDeadlineRef.current = performance.now() + 500;
     virtualizer.scrollToIndex(targetIndex, {
       align: 'start',
       behavior: 'smooth',
@@ -444,6 +517,7 @@ export function useConversationVirtualizer({
 
     if (targetIndex < 0) return false;
 
+    smoothScrollDeadlineRef.current = performance.now() + 500;
     virtualizer.scrollToIndex(targetIndex, {
       align: 'start',
       behavior: 'smooth',
@@ -497,11 +571,14 @@ export function useConversationVirtualizer({
     scrollToIndex,
     scrollToPreviousUserMessage,
     scrollToNextUserMessage,
+    hasPreviousUserMessage,
+    hasNextUserMessage,
     isAtBottom: isAtBottomState,
     isAtTop: isAtTopState,
     checkIsAtBottom,
     releaseBottomLock,
     rowIndexForVirtualItem,
     rowForVirtualItem,
+    isBottomScrollCorrectionActive,
   };
 }

@@ -57,6 +57,16 @@ interface ConversationListProps {
 export interface ConversationListHandle {
   scrollToPreviousUserMessage: () => void;
   scrollToNextUserMessage: () => void;
+  /**
+   * Whether at least one user message exists strictly before the first
+   * visible row. Used by shells to gate the "previous user message" button.
+   */
+  hasPreviousUserMessage: () => boolean;
+  /**
+   * Whether at least one user message exists strictly after the first
+   * visible row. Used by shells to gate the "next user message" button.
+   */
+  hasNextUserMessage: () => boolean;
   scrollToTop: (behavior?: 'auto' | 'smooth') => void;
   scrollToBottom: (behavior?: 'auto' | 'smooth') => void;
   adjustScrollBy: (delta: number) => void;
@@ -741,6 +751,9 @@ export const ConversationList = forwardRef<
       scrollToNextUserMessage: () => {
         scrollToNextUserMessage();
       },
+      hasPreviousUserMessage: () =>
+        conversationVirtualizer.hasPreviousUserMessage(),
+      hasNextUserMessage: () => conversationVirtualizer.hasNextUserMessage(),
       scrollToTop: (behavior = 'smooth') => {
         scrollToTop(behavior);
       },

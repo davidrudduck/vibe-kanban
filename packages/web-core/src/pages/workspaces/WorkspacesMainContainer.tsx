@@ -147,13 +147,27 @@ export const WorkspacesMainContainer = forwardRef<
 
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [isAtTop, setIsAtTop] = useState(true);
+  const [hasPreviousUserMessage, setHasPreviousUserMessage] = useState(true);
+  const [hasNextUserMessage, setHasNextUserMessage] = useState(true);
   const isAtBottomRef = useRef(isAtBottom);
   const handleAtBottomChange = useCallback((atBottom: boolean) => {
     isAtBottomRef.current = atBottom;
     setIsAtBottom(atBottom);
+    setHasPreviousUserMessage(
+      conversationListRef.current?.hasPreviousUserMessage() ?? true
+    );
+    setHasNextUserMessage(
+      conversationListRef.current?.hasNextUserMessage() ?? true
+    );
   }, []);
   const handleAtTopChange = useCallback((atTop: boolean) => {
     setIsAtTop(atTop);
+    setHasPreviousUserMessage(
+      conversationListRef.current?.hasPreviousUserMessage() ?? true
+    );
+    setHasNextUserMessage(
+      conversationListRef.current?.hasNextUserMessage() ?? true
+    );
   }, []);
 
   const handleScrollToBottom = useCallback(
@@ -280,6 +294,8 @@ export const WorkspacesMainContainer = forwardRef<
             contextBarContent={contextBarContent}
             isAtBottom={isAtBottom}
             isAtTop={isAtTop}
+            hasPreviousUserMessage={hasPreviousUserMessage}
+            hasNextUserMessage={hasNextUserMessage}
             onAtBottomChange={handleAtBottomChange}
             onScrollToBottom={handleScrollToBottom}
             onScrollToTop={handleScrollToTop}
