@@ -129,6 +129,12 @@ fn list_directory_fs(
     worktree_root: &Path,
     rel_path: &str,
 ) -> Result<Vec<DirectoryEntry>, ApiError> {
+    // Reject paths with any hidden component
+    if rel_path.split('/').any(|c| !c.is_empty() && c.starts_with('.')) {
+        return Err(ApiError::BadRequest(
+            "Hidden directories are not accessible".to_string(),
+        ));
+    }
     let canonical_root = worktree_root
         .canonicalize()
         .map_err(|_| ApiError::BadRequest("Workspace root not found".to_string()))?;
@@ -189,6 +195,11 @@ fn list_directory_git(repo_path: &Path, rel_path: &str) -> Result<Vec<DirectoryE
     if rel_path.contains("..") || rel_path.starts_with('/') || rel_path.starts_with('-') {
         return Err(ApiError::BadRequest("Invalid path".to_string()));
     }
+    if rel_path.split('/').any(|c| !c.is_empty() && c.starts_with('.')) {
+        return Err(ApiError::BadRequest(
+            "Hidden directories are not accessible".to_string(),
+        ));
+    }
 
     let tree_path = if rel_path.is_empty() {
         String::new()
@@ -212,6 +223,10 @@ fn list_directory_git(repo_path: &Path, rel_path: &str) -> Result<Vec<DirectoryE
         .filter_map(|line| {
             let tab = line.find('\t')?;
             let name = line[tab + 1..].to_string();
+            // Filter hidden entries from listing output
+            if name.starts_with('.') {
+                return None;
+            }
             let meta = &line[..tab];
             let parts: Vec<&str> = meta.split_whitespace().collect();
             let kind = parts.get(1)?;
@@ -300,10 +315,24 @@ pub async fn read_file(
 }
 
 fn read_file_fs(worktree_root: &Path, rel_path: &str) -> Result<(Vec<u8>, u64), ApiError> {
+    // Reject hidden path components
+    if rel_path.split('/').any(|c| !c.is_empty() && c.starts_with('.')) {
+        return Err(ApiError::BadRequest(
+            "Hidden files are not accessible".to_string(),
+        ));
+    }
     let canonical_root = worktree_root
         .canonicalize()
         .map_err(|_| ApiError::BadRequest("Workspace root not found".to_string()))?;
     let target = canonical_root.join(rel_path);
+    // Symlink guard: check before canonicalize resolves it
+    let sym_meta = std::fs::symlink_metadata(&target)
+        .map_err(|_| ApiError::BadRequest("File not found".to_string()))?;
+    if sym_meta.file_type().is_symlink() {
+        return Err(ApiError::BadRequest(
+            "Symlink access not allowed".to_string(),
+        ));
+    }
     let canonical = target
         .canonicalize()
         .map_err(|_| ApiError::BadRequest("File not found".to_string()))?;
@@ -323,6 +352,11 @@ fn read_file_fs(worktree_root: &Path, rel_path: &str) -> Result<(Vec<u8>, u64), 
 fn read_file_git(repo_path: &Path, rel_path: &str) -> Result<(Vec<u8>, u64), ApiError> {
     if rel_path.contains("..") || rel_path.starts_with('/') || rel_path.starts_with('-') {
         return Err(ApiError::BadRequest("Invalid path".to_string()));
+    }
+    if rel_path.split('/').any(|c| !c.is_empty() && c.starts_with('.')) {
+        return Err(ApiError::BadRequest(
+            "Hidden files are not accessible".to_string(),
+        ));
     }
 
     let output = std::process::Command::new("git")
@@ -404,5 +438,65 @@ mod tests {
         let text_bytes = b"fn main() { println!(\"hello\"); }".to_vec();
         let is_binary = text_bytes.iter().take(8192).any(|&b| b == 0);
         assert!(!is_binary);
+    }
+
+    #[test]
+    fn read_file_fs_rejects_hidden_file() {
+        let tmp = TempDir::new().unwrap();
+        let inner = tmp.path().join("workspace");
+        fs::create_dir(&inner).unwrap();
+        fs::write(inner.join(".env"), "SECRET=abc").unwrap();
+        let result = read_file_fs(&inner, ".env");
+        assert!(result.is_err());
+        let msg = format!("{:?}", result.unwrap_err());
+        assert!(msg.contains("Hidden") || msg.contains("hidden"), "err was: {msg}");
+    }
+
+    #[test]
+    fn read_file_fs_rejects_hidden_dir_component() {
+        let tmp = TempDir::new().unwrap();
+        let inner = tmp.path().join("workspace");
+        fs::create_dir_all(inner.join(".config")).unwrap();
+        fs::write(inner.join(".config").join("secrets.toml"), "token=x").unwrap();
+        let result = read_file_fs(&inner, ".config/secrets.toml");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn list_directory_fs_rejects_hidden_path() {
+        let tmp = TempDir::new().unwrap();
+        let inner = tmp.path().join("workspace");
+        fs::create_dir_all(inner.join(".git")).unwrap();
+        let result = list_directory_fs(&inner, ".git");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn list_directory_git_rejects_hidden_path() {
+        let tmp = TempDir::new().unwrap();
+        let result = list_directory_git(tmp.path(), ".git");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn read_file_git_rejects_hidden_file() {
+        let tmp = TempDir::new().unwrap();
+        let result = read_file_git(tmp.path(), ".env");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn read_file_fs_rejects_symlink() {
+        use std::os::unix::fs::symlink;
+        let tmp = TempDir::new().unwrap();
+        let inner = tmp.path().join("workspace");
+        fs::create_dir(&inner).unwrap();
+        let target = tmp.path().join("secret.txt");
+        fs::write(&target, "secret").unwrap();
+        symlink(&target, inner.join("link.txt")).unwrap();
+        let result = read_file_fs(&inner, "link.txt");
+        assert!(result.is_err());
+        let msg = format!("{:?}", result.unwrap_err());
+        assert!(msg.contains("ymlink") || msg.contains("not allowed"), "err was: {msg}");
     }
 }
