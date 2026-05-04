@@ -72,10 +72,10 @@ pub async fn get_database_stats(
         return Err(DatabaseStatsError::NotFound);
     };
 
-    // Construct WAL path by appending "-wal" to the full db path string.
-    // Using string concatenation avoids Path::with_extension stripping ".sqlite" from "db.v2.sqlite".
-    let wal_path_str = db_path.to_string_lossy().to_string() + "-wal";
-    let wal_path = std::path::PathBuf::from(&wal_path_str);
+    // db.v2.sqlite → db.v2.sqlite-wal
+    // Path::with_extension("sqlite-wal") replaces the last extension (.sqlite)
+    // with .sqlite-wal, which is correct. This matches wal_monitor.rs.
+    let wal_path = db_path.with_extension("sqlite-wal");
     let wal_size_bytes = if wal_path.exists() {
         std::fs::metadata(&wal_path)?.len() as i64
     } else {
@@ -156,7 +156,10 @@ pub async fn vacuum_database(pool: &SqlitePool) -> Result<VacuumResult, Database
         .await?;
 
     Ok(VacuumResult {
-        bytes_freed: (before_pages - after_pages) * page_size,
+        // Clamp to zero: VACUUM can theoretically reorganise pages without
+        // shrinking the file (e.g. autovacuum interference), yielding
+        // after_pages > before_pages. Negative freed bytes is nonsensical.
+        bytes_freed: ((before_pages - after_pages) * page_size).max(0),
     })
 }
 
@@ -245,6 +248,35 @@ mod tests {
         assert!(
             result.unwrap().success,
             "AnalyzeResult.success should be true"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_vacuum_bytes_freed_is_non_negative() {
+        let (pool, _temp_dir) = setup_test_pool().await;
+
+        // Insert some data to give VACUUM something to do, then delete it
+        sqlx::query("CREATE TABLE IF NOT EXISTS _test_vacuum (x TEXT)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        for i in 0..100 {
+            sqlx::query("INSERT INTO _test_vacuum VALUES (?)")
+                .bind(format!("row_{i}"))
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        sqlx::query("DELETE FROM _test_vacuum")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let result = vacuum_database(&pool).await.unwrap();
+        assert!(
+            result.bytes_freed >= 0,
+            "bytes_freed must never be negative, got {}",
+            result.bytes_freed
         );
     }
 
