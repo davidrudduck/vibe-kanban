@@ -83,9 +83,13 @@ export function AppearanceSettings() {
     configRef.current = config;
   }, [config]);
 
+  // Tracks whether a save completed so unmount cleanup doesn't revert fresh saves
+  const justSavedRef = useRef(false);
+
   // Revert live preview on unmount (e.g. dialog dismissed without explicit Cancel)
   useEffect(() => {
     return () => {
+      if (justSavedRef.current) return;
       const cfg = configRef.current;
       if (cfg) {
         applyAccent(cfg.appearance.accent_color);
@@ -128,6 +132,7 @@ export function AppearanceSettings() {
     setUrlErrors({});
     try {
       await updateAndSaveConfig(draft);
+      justSavedRef.current = true;
       // Apply live updates after save
       setFonts(draft.appearance.fonts);
       applyAccent(draft.appearance.accent_color);

@@ -77,8 +77,9 @@ export function applyAccent(colorOrNull: string | null): void {
   if (colorOrNull.startsWith('#')) {
     hslChannels = hexToHslChannels(colorOrNull);
   } else {
-    // Assume it's already "H S% L%" format
-    hslChannels = colorOrNull;
+    // Validate "H S% L%" format before trusting it (prevent CSS injection)
+    const HSL_CHANNELS_RE = /^\d{1,3}\s+\d{1,3}%\s+\d{1,3}%$/;
+    hslChannels = HSL_CHANNELS_RE.test(colorOrNull.trim()) ? colorOrNull : null;
   }
 
   if (!hslChannels) return;

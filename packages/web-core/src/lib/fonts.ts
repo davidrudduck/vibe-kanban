@@ -24,8 +24,9 @@ const CODE_FONT_URLS: Record<CodeFont, string | null> = {
 };
 
 const PROSE_FONT_URLS: Record<ProseFont, string | null> = {
-  IBM_PLEX_SANS: null, // Already loaded from UI fonts
-  ROBOTO: null, // Already loaded from UI fonts if used
+  IBM_PLEX_SANS: null, // Already loaded via CSS @import
+  ROBOTO:
+    'https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap',
   GEORGIA: null, // System font
   SYSTEM: null,
 };
@@ -56,16 +57,25 @@ const PROSE_FONT_FAMILIES: Record<ProseFont, string> = {
     "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Emoji', sans-serif",
 };
 
-// Track loaded fonts to avoid duplicate loading
+// Track loaded and in-flight font URLs to avoid duplicate <link> elements.
+// Fonts are only moved to loadedFonts after the stylesheet is confirmed loaded.
 const loadedFonts = new Set<string>();
+const pendingFonts = new Set<string>();
 
 export function loadFont(url: string | null): void {
-  if (!url || loadedFonts.has(url)) return;
+  if (!url || loadedFonts.has(url) || pendingFonts.has(url)) return;
+  pendingFonts.add(url);
   const link = document.createElement('link');
   link.rel = 'stylesheet';
   link.href = url;
+  link.onload = () => {
+    loadedFonts.add(url);
+    pendingFonts.delete(url);
+  };
+  link.onerror = () => {
+    pendingFonts.delete(url);
+  };
   document.head.appendChild(link);
-  loadedFonts.add(url);
 }
 
 export function getUiFontFamily(font: UiFont): string {
