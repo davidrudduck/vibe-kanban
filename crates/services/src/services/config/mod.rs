@@ -49,6 +49,7 @@ pub type ProseFont = versions::v9::ProseFont;
 pub type AppearanceConfig = versions::v9::AppearanceConfig;
 pub type HostBannerConfig = versions::v9::HostBannerConfig;
 pub type LinksConfig = versions::v9::LinksConfig;
+pub type InputEditorMode = versions::v9::InputEditorMode;
 
 /// Will always return config, trying old schemas or eventually returning default
 pub async fn load_config_from_file(config_path: &PathBuf) -> Config {

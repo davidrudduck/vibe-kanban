@@ -947,9 +947,10 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         onPasteFiles={onPasteFiles}
         localAttachments={localAttachments}
         sendShortcut={config?.send_message_shortcut}
+        rawMode={config?.input_editor_mode === 'RAW'}
       />
     ),
-    [config?.send_message_shortcut, sessionId]
+    [config?.send_message_shortcut, config?.input_editor_mode, sessionId]
   );
 
   const modelSelectorNode = effectiveExecutor ? (

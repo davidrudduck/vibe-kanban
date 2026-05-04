@@ -138,6 +138,8 @@ type WysiwygProps = {
   staticToolbarActions?: ReactNode;
   /** Called when a toolbar button is clicked in preview mode to request edit */
   onRequestEdit?: () => void;
+  /** Use a plain textarea instead of the WYSIWYG editor (only affects edit mode) */
+  rawMode?: boolean;
 };
 
 /** Ref interface for WYSIWYGEditor, exposing imperative methods */
@@ -276,11 +278,13 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
       saveStatus,
       staticToolbarActions,
       onRequestEdit,
+      rawMode = false,
     }: WysiwygProps,
     ref: React.ForwardedRef<WYSIWYGEditorRef>
   ) {
     // Ref to capture the Lexical editor instance for imperative methods
     const editorInstanceRef = useRef<LexicalEditor | null>(null);
+    const rawTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
     // Expose focus method via ref.
     // Guard: only pass a valid ref to useImperativeHandle. When the component
@@ -291,7 +295,11 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
       typeof ref === 'function' || (ref && 'current' in ref) ? ref : null;
     useImperativeHandle(safeRef, () => ({
       focus: () => {
-        editorInstanceRef.current?.focus();
+        if (rawMode && !disabled) {
+          rawTextareaRef.current?.focus();
+        } else {
+          editorInstanceRef.current?.focus();
+        }
       },
     }));
 
@@ -508,6 +516,39 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
       ),
       [placeholder, className]
     );
+
+    if (rawMode && !disabled) {
+      return (
+        <textarea
+          ref={rawTextareaRef}
+          className={cn(
+            'outline-none resize-none w-full bg-transparent text-base placeholder:text-secondary-foreground placeholder:text-low',
+            className
+          )}
+          placeholder={placeholder}
+          value={value}
+          autoFocus={autoFocus}
+          onChange={(e) => onChange?.(e.target.value)}
+          onKeyDown={(e) => {
+            const isModifier = e.metaKey || e.ctrlKey;
+            if (sendShortcut === 'Enter') {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                onCmdEnter?.();
+              }
+            } else {
+              if (e.key === 'Enter' && isModifier && e.shiftKey) {
+                e.preventDefault();
+                onShiftCmdEnter?.();
+              } else if (e.key === 'Enter' && isModifier) {
+                e.preventDefault();
+                onCmdEnter?.();
+              }
+            }
+          }}
+        />
+      );
+    }
 
     const editorContent = (
       <div className="wysiwyg text-base relative">

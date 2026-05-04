@@ -219,6 +219,12 @@
           "label": "メッセージ送信キー",
           "helper": "メッセージを送信するキーボードショートカットを選択してください。",
           "enterLabel": "Enter（Shift+Enterで改行）"
+        },
+        "editorMode": {
+          "label": "Input mode",
+          "helper": "Choose between formatted (WYSIWYG) or plain text (raw markdown) input.",
+          "wysiwygLabel": "Formatted (WYSIWYG)",
+          "rawLabel": "Plain text (raw markdown)"
         }
       },
       "privacy": {

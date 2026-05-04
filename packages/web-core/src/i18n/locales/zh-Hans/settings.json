@@ -219,6 +219,12 @@
           "label": "发送消息快捷键",
           "helper": "选择发送消息的键盘快捷键。",
           "enterLabel": "Enter（Shift+Enter 换行）"
+        },
+        "editorMode": {
+          "label": "Input mode",
+          "helper": "Choose between formatted (WYSIWYG) or plain text (raw markdown) input.",
+          "wysiwygLabel": "Formatted (WYSIWYG)",
+          "rawLabel": "Plain text (raw markdown)"
         }
       },
       "privacy": {

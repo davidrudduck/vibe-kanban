@@ -374,6 +374,7 @@ export function CreateChatBoxContainer({
                       onPasteFiles={onPasteFiles}
                       localAttachments={localAttachments}
                       sendShortcut={config?.send_message_shortcut}
+                      rawMode={config?.input_editor_mode === 'RAW'}
                     />
                   )}
                   agentIcon={

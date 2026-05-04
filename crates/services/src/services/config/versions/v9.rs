@@ -32,6 +32,15 @@ fn default_discord_enabled() -> bool {
 #[derive(Clone, Debug, Default, Serialize, Deserialize, TS, PartialEq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[ts(export)]
+pub enum InputEditorMode {
+    #[default]
+    Wysiwyg,
+    Raw,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, TS, PartialEq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[ts(export)]
 pub enum UiFont {
     #[default]
     IbmPlexSans,
@@ -160,6 +169,8 @@ pub struct Config {
     pub host_nickname: Option<String>,
     #[serde(default)]
     pub appearance: AppearanceConfig,
+    #[serde(default)]
+    pub input_editor_mode: InputEditorMode,
 }
 
 impl Config {
@@ -189,6 +200,7 @@ impl Config {
             relay_enabled: old_config.relay_enabled,
             host_nickname: old_config.host_nickname,
             appearance: AppearanceConfig::default(),
+            input_editor_mode: InputEditorMode::default(),
         }
     }
 
@@ -252,6 +264,7 @@ impl Default for Config {
             relay_enabled: true,
             host_nickname: None,
             appearance: AppearanceConfig::default(),
+            input_editor_mode: InputEditorMode::default(),
         }
     }
 }
