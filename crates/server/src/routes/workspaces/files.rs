@@ -117,7 +117,7 @@ pub async fn list_directory(
         FileSource::Worktree => list_directory_fs(&worktree_root, &rel_path),
     })
     .await
-    .map_err(|e| ApiError::Internal(e.to_string()))??;
+    .map_err(|e| ApiError::BadRequest(e.to_string()))??;
 
     let current_path = query.path.unwrap_or_default();
 
@@ -270,10 +270,10 @@ pub async fn read_file(
         FileSource::Worktree => read_file_fs(&worktree_root, &rel_path_owned),
     })
     .await
-    .map_err(|e| ApiError::Internal(e.to_string()))??;
+    .map_err(|e| ApiError::BadRequest(e.to_string()))??;
 
     // Check first 8KB for null bytes (binary heuristic)
-    let is_binary = bytes.iter().take(8192).any(|&b| b == 0);
+    let is_binary = bytes.iter().take(8192).any(|&b: &u8| b == 0);
 
     let truncated = size_bytes > MAX_BYTES;
     let display_bytes = if truncated {
@@ -289,7 +289,7 @@ pub async fn read_file(
     };
 
     Ok(ResponseJson(ApiResponse::success(FileContentResponse {
-        path: rel_path,
+        path: rel_path.clone(),
         content,
         size_bytes,
         truncated,
