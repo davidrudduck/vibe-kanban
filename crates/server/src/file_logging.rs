@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::SubscriberInitExt};
 use utils::{assets::asset_dir, sentry::sentry_layer};
 
 pub struct FileLoggingConfig {
@@ -58,8 +58,7 @@ impl FileLoggingConfig {
 pub fn init_logging(filter_string: &str) -> Option<WorkerGuard> {
     let config = FileLoggingConfig::from_env(asset_dir());
 
-    let env_filter =
-        EnvFilter::try_new(filter_string).expect("Failed to create tracing filter");
+    let env_filter = EnvFilter::try_new(filter_string).expect("Failed to create tracing filter");
     let console_layer = tracing_subscriber::fmt::layer().with_filter(env_filter);
 
     if config.enabled {
@@ -78,12 +77,11 @@ pub fn init_logging(filter_string: &str) -> Option<WorkerGuard> {
             return None;
         }
 
-        let file_appender =
-            tracing_appender::rolling::daily(&config.log_dir, "vibe-kanban.log");
+        let file_appender = tracing_appender::rolling::daily(&config.log_dir, "vibe-kanban.log");
         let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
-        let file_filter = EnvFilter::try_new(filter_string)
-            .expect("Failed to create file tracing filter");
+        let file_filter =
+            EnvFilter::try_new(filter_string).expect("Failed to create file tracing filter");
         let file_layer = tracing_subscriber::fmt::layer()
             .json()
             .with_writer(non_blocking)
@@ -164,9 +162,11 @@ fn cleanup_old_logs(log_dir: &Path, max_files: usize) {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{fs, sync::Mutex};
 
     use super::*;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn temp_dir() -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -182,6 +182,7 @@ mod tests {
 
     #[test]
     fn defaults_to_disabled() {
+        let _lock = ENV_LOCK.lock().unwrap();
         unsafe {
             std::env::remove_var("VK_FILE_LOGGING");
             std::env::remove_var("VK_LOG_DIR");
@@ -198,6 +199,7 @@ mod tests {
 
     #[test]
     fn enabled_by_true_string() {
+        let _lock = ENV_LOCK.lock().unwrap();
         unsafe {
             std::env::set_var("VK_FILE_LOGGING", "true");
         }
@@ -210,6 +212,7 @@ mod tests {
 
     #[test]
     fn enabled_by_one_string() {
+        let _lock = ENV_LOCK.lock().unwrap();
         unsafe {
             std::env::set_var("VK_FILE_LOGGING", "1");
         }
@@ -222,6 +225,7 @@ mod tests {
 
     #[test]
     fn not_enabled_by_other_values() {
+        let _lock = ENV_LOCK.lock().unwrap();
         for val in &["yes", "TRUE", "on", "false", "0"] {
             unsafe {
                 std::env::set_var("VK_FILE_LOGGING", val);
@@ -239,6 +243,7 @@ mod tests {
 
     #[test]
     fn log_dir_overridden_by_env() {
+        let _lock = ENV_LOCK.lock().unwrap();
         let custom = temp_dir();
         unsafe {
             std::env::set_var("VK_LOG_DIR", custom.to_str().unwrap());
@@ -252,6 +257,7 @@ mod tests {
 
     #[test]
     fn max_files_overridden_by_env() {
+        let _lock = ENV_LOCK.lock().unwrap();
         unsafe {
             std::env::set_var("VK_LOG_MAX_FILES", "14");
         }
@@ -264,6 +270,7 @@ mod tests {
 
     #[test]
     fn invalid_max_files_falls_back_to_default() {
+        let _lock = ENV_LOCK.lock().unwrap();
         unsafe {
             std::env::set_var("VK_LOG_MAX_FILES", "not-a-number");
         }
