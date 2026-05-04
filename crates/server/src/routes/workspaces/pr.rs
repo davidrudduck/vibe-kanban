@@ -42,13 +42,9 @@ use crate::{DeploymentImpl, error::ApiError};
 /// no open PR is attached. Ignores merged, closed, and direct merges so that a
 /// new PR can be linked after the previous one has been merged/closed.
 fn find_open_pr_merge(merges: Vec<Merge>) -> Option<PrMerge> {
-    merges.into_iter().find_map(|m| {
-        if let Merge::Pr(p) = m {
-            if matches!(p.pr_info.status, MergeStatus::Open) {
-                return Some(p);
-            }
-        }
-        None
+    merges.into_iter().find_map(|m| match m {
+        Merge::Pr(p) if matches!(p.pr_info.status, MergeStatus::Open) => Some(p),
+        _ => None,
     })
 }
 
