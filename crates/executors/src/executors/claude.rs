@@ -1828,6 +1828,7 @@ impl ClaudeLogProcessor {
                 model_usage,
                 subtype,
                 result,
+                permission_denials,
                 ..
             } => {
                 // get the real model context window and correct the context usage entry
@@ -1871,6 +1872,32 @@ impl ClaudeLogProcessor {
                     };
                     let idx = entry_index_provider.next();
                     patches.push(ConversationPatch::add_normalized_entry(idx, entry));
+                }
+
+                if let Some(denials) = permission_denials {
+                    if !denials.is_empty() {
+                        let tool_names: Vec<String> = denials
+                            .iter()
+                            .map(|d| {
+                                d.get("toolName")
+                                    .or_else(|| d.get("tool_name"))
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string())
+                                    .unwrap_or_else(|| d.to_string())
+                            })
+                            .collect();
+                        let entry = NormalizedEntry {
+                            timestamp: None,
+                            entry_type: NormalizedEntryType::SystemMessage,
+                            content: format!(
+                                "Permission denied for tool(s): {}",
+                                tool_names.join(", ")
+                            ),
+                            metadata: None,
+                        };
+                        let idx = entry_index_provider.next();
+                        patches.push(ConversationPatch::add_normalized_entry(idx, entry));
+                    }
                 }
             }
             ClaudeJson::ApprovalRequested {
@@ -2374,6 +2401,8 @@ pub enum ClaudeJson {
         model_usage: Option<HashMap<String, ClaudeModelUsage>>,
         #[serde(default)]
         usage: Option<ClaudeUsage>,
+        #[serde(default, alias = "permissionDenials")]
+        permission_denials: Option<Vec<serde_json::Value>>,
     },
     ApprovalRequested {
         tool_call_id: String,
@@ -2864,6 +2893,38 @@ mod tests {
             NormalizedEntryType::AssistantMessage
         ));
         assert_eq!(entries[0].content, "Final result");
+    }
+
+    #[test]
+    fn test_result_permission_denials_deserialization() {
+        let result_json = r#"{"type":"result","subtype":"error","is_error":true,"permissionDenials":[{"toolName":"Bash"}]}"#;
+        let parsed: ClaudeJson = serde_json::from_str(result_json).unwrap();
+
+        if let ClaudeJson::Result {
+            permission_denials, ..
+        } = &parsed
+        {
+            assert!(permission_denials.is_some());
+            let denials = permission_denials.as_ref().unwrap();
+            assert_eq!(denials.len(), 1);
+            assert_eq!(
+                denials[0].get("toolName").and_then(|v| v.as_str()),
+                Some("Bash")
+            );
+        } else {
+            panic!("Expected ClaudeJson::Result");
+        }
+
+        let entries = normalize(&parsed, "");
+        let system_entries: Vec<_> = entries
+            .iter()
+            .filter(|e| matches!(e.entry_type, NormalizedEntryType::SystemMessage))
+            .collect();
+        assert_eq!(system_entries.len(), 1);
+        assert_eq!(
+            system_entries[0].content,
+            "Permission denied for tool(s): Bash"
+        );
     }
 
     #[test]

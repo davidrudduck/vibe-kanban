@@ -18,6 +18,7 @@ use crate::{
         },
         codex::client::LogWriter,
     },
+    logs::AskUserQuestionItem,
 };
 
 const EXIT_PLAN_MODE_NAME: &str = "ExitPlanMode";
@@ -153,14 +154,13 @@ impl ClaudeAgentClient {
             .as_ref()
             .ok_or(ExecutorApprovalError::ServiceUnavailable)?;
 
-        let question_count = tool_input
+        let questions: Vec<AskUserQuestionItem> = tool_input
             .get("questions")
-            .and_then(|q| q.as_array())
-            .map(|a| a.len())
-            .unwrap_or(1);
+            .and_then(|q| serde_json::from_value(q.clone()).ok())
+            .unwrap_or_default();
 
         let approval_id = match approval_service
-            .create_question_approval(&tool_name, question_count)
+            .create_question_approval(&tool_name, &questions)
             .await
         {
             Ok(id) => id,
@@ -206,7 +206,7 @@ impl ClaudeAgentClient {
                     .iter()
                     .map(|qa| {
                         (
-                            qa.question.clone(),
+                            qa.header.clone(),
                             serde_json::Value::String(qa.answer.join(", ")),
                         )
                     })
@@ -381,5 +381,35 @@ impl ClaudeAgentClient {
 
     pub async fn log_message(&self, line: &str) -> Result<(), ExecutorError> {
         self.log_writer.log_raw(line).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn answer_map_uses_header_as_key() {
+        use workspace_utils::approvals::QuestionAnswer;
+        let answers = vec![QuestionAnswer {
+            question: "Which colour?".to_string(),
+            header: "colour".to_string(),
+            answer: vec!["Red".to_string()],
+        }];
+        let map: serde_json::Map<String, serde_json::Value> = answers
+            .iter()
+            .map(|qa| {
+                (
+                    qa.header.clone(),
+                    serde_json::Value::String(qa.answer.join(", ")),
+                )
+            })
+            .collect();
+        assert!(
+            map.contains_key("colour"),
+            "key must be header, not question text"
+        );
+        assert!(
+            !map.contains_key("Which colour?"),
+            "must not use question text as key"
+        );
     }
 }

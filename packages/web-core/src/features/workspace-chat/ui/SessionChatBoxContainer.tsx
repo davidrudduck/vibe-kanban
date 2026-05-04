@@ -870,7 +870,9 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   // Handle AskUserQuestion answer submission
   const handleAnswerQuestion = useCallback(
-    async (answers: Array<{ question: string; answer: string[] }>) => {
+    async (
+      answers: Array<{ question: string; header: string; answer: string[] }>
+    ) => {
       if (!pendingApproval) return;
 
       try {

@@ -2,7 +2,10 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use db::{self, DBService, models::execution_process::ExecutionProcess};
-use executors::approvals::{ExecutorApprovalError, ExecutorApprovalService};
+use executors::{
+    approvals::{ExecutorApprovalError, ExecutorApprovalService},
+    logs::AskUserQuestionItem,
+};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use utils::approvals::{ApprovalOutcome, ApprovalRequest, ApprovalStatus, QuestionStatus};
@@ -41,13 +44,13 @@ impl ExecutorApprovalBridge {
         &self,
         tool_name: &str,
         is_question: bool,
-        question_count: Option<usize>,
+        questions: Option<&[AskUserQuestionItem]>,
     ) -> Result<String, ExecutorApprovalError> {
         let request = ApprovalRequest::new(tool_name.to_string(), self.execution_process_id);
 
         let (request, waiter) = self
             .approvals
-            .create_with_waiter(request, is_question)
+            .create_with_waiter(request, is_question, questions.map(|q| q.to_vec()))
             .await
             .map_err(ExecutorApprovalError::request_failed)?;
 
@@ -71,7 +74,8 @@ impl ExecutorApprovalBridge {
                 })
                 .unwrap_or_else(|_| ("Unknown workspace".to_string(), None));
 
-        let (title, message) = if let Some(count) = question_count {
+        let (title, message) = if is_question {
+            let count = questions.map(|q| q.len()).unwrap_or(1);
             if count == 1 {
                 (
                     format!("Question Asked: {}", workspace_name),
@@ -136,10 +140,9 @@ impl ExecutorApprovalService for ExecutorApprovalBridge {
     async fn create_question_approval(
         &self,
         tool_name: &str,
-        question_count: usize,
+        questions: &[AskUserQuestionItem],
     ) -> Result<String, ExecutorApprovalError> {
-        self.create_internal(tool_name, true, Some(question_count))
-            .await
+        self.create_internal(tool_name, true, Some(questions)).await
     }
 
     async fn wait_tool_approval(

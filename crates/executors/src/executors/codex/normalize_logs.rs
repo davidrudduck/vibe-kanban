@@ -2930,6 +2930,7 @@ mod tests {
                 QuestionStatus::Answered {
                     answers: vec![workspace_utils::approvals::QuestionAnswer {
                         question: "Which language?".to_string(),
+                        header: "language".to_string(),
                         answer: vec!["Rust".to_string()],
                     }],
                 },

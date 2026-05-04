@@ -6,6 +6,8 @@ use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 use workspace_utils::approvals::{ApprovalStatus, QuestionStatus};
 
+use crate::logs::AskUserQuestionItem;
+
 /// Errors emitted by executor approval services.
 #[derive(Debug, Error)]
 pub enum ExecutorApprovalError {
@@ -35,7 +37,7 @@ pub trait ExecutorApprovalService: Send + Sync {
     async fn create_question_approval(
         &self,
         tool_name: &str,
-        question_count: usize,
+        questions: &[AskUserQuestionItem],
     ) -> Result<String, ExecutorApprovalError>;
 
     /// Waits for a tool approval to be resolved. Blocks until approved/denied/timed out.
@@ -68,7 +70,7 @@ impl ExecutorApprovalService for NoopExecutorApprovalService {
     async fn create_question_approval(
         &self,
         _tool_name: &str,
-        _question_count: usize,
+        _questions: &[AskUserQuestionItem],
     ) -> Result<String, ExecutorApprovalError> {
         Ok("noop".to_string())
     }
@@ -93,4 +95,28 @@ impl ExecutorApprovalService for NoopExecutorApprovalService {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ToolCallMetadata {
     pub tool_call_id: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::logs::{AskUserQuestionItem, AskUserQuestionOption};
+
+    #[tokio::test]
+    async fn noop_service_accepts_structured_questions() {
+        let svc = NoopExecutorApprovalService;
+        let questions = vec![AskUserQuestionItem {
+            question: "Pick one".to_string(),
+            header: "pick".to_string(),
+            options: vec![AskUserQuestionOption {
+                label: "A".to_string(),
+                description: "Option A".to_string(),
+            }],
+            multi_select: false,
+        }];
+        let result = svc
+            .create_question_approval("AskUserQuestion", &questions)
+            .await;
+        assert!(result.is_ok());
+    }
 }
