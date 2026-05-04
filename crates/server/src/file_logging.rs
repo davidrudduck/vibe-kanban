@@ -12,6 +12,8 @@
 use std::path::{Path, PathBuf};
 
 use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+use utils::{assets::asset_dir, sentry::sentry_layer};
 
 pub struct FileLoggingConfig {
     pub enabled: bool,
@@ -43,7 +45,60 @@ impl FileLoggingConfig {
 }
 
 pub fn init_logging(filter_string: &str) -> Option<WorkerGuard> {
-    todo!()
+    let config = FileLoggingConfig::from_env(asset_dir());
+
+    let env_filter =
+        EnvFilter::try_new(filter_string).expect("Failed to create tracing filter");
+    let console_layer = tracing_subscriber::fmt::layer().with_filter(env_filter);
+
+    if config.enabled {
+        if let Err(e) = std::fs::create_dir_all(&config.log_dir) {
+            eprintln!(
+                "Failed to create log directory {:?}: {} — falling back to console-only logging",
+                config.log_dir, e
+            );
+            tracing_subscriber::registry()
+                .with(console_layer)
+                .with(sentry_layer())
+                .init();
+            return None;
+        }
+
+        let file_appender =
+            tracing_appender::rolling::daily(&config.log_dir, "vibe-kanban.log");
+        let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+
+        let file_filter = EnvFilter::try_new(filter_string)
+            .expect("Failed to create file tracing filter");
+        let file_layer = tracing_subscriber::fmt::layer()
+            .json()
+            .with_writer(non_blocking)
+            .with_filter(file_filter);
+
+        tracing_subscriber::registry()
+            .with(console_layer)
+            .with(file_layer)
+            .with(sentry_layer())
+            .init();
+
+        tracing::info!(
+            log_dir = ?config.log_dir,
+            max_files = config.max_files,
+            "File logging enabled"
+        );
+
+        let log_dir = config.log_dir.clone();
+        let max_files = config.max_files;
+        std::thread::spawn(move || cleanup_old_logs(&log_dir, max_files));
+
+        Some(guard)
+    } else {
+        tracing_subscriber::registry()
+            .with(console_layer)
+            .with(sentry_layer())
+            .init();
+        None
+    }
 }
 
 fn cleanup_old_logs(log_dir: &Path, max_files: usize) {
