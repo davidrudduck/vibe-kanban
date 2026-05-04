@@ -83,6 +83,14 @@ impl MsgStore {
         self.push(LogMsg::Finished);
     }
 
+    /// Subscribe to the live broadcast stream.
+    ///
+    /// **Invariant**: if you also call [`get_history`][Self::get_history], always
+    /// call `get_receiver()` **first**.  [`push`][Self::push] broadcasts before
+    /// acquiring the history write-lock, so a push that races with a snapshot read
+    /// will be captured by a pre-existing receiver even when it misses the history
+    /// snapshot.  Subscribing after reading history creates a gap where such a push
+    /// is silently lost.
     pub fn get_receiver(&self) -> broadcast::Receiver<LogMsg> {
         self.sender.subscribe()
     }
@@ -248,13 +256,19 @@ mod tests {
             store2.push(LogMsg::Stdout("race".into()));
         });
 
-        // Step 3: both sides reach the barrier — push_task fires.
+        // Step 3: both sides reach the barrier, unblocking push_task.
+        // In single-threaded Tokio the main task keeps running (no yield point),
+        // so get_history() executes before the spawned task gets to push().
+        // This means "race" is NOT in history at read time — the only way it
+        // can appear in the combined stream is via the live broadcast segment,
+        // which works because rx was subscribed BEFORE the push fires.
         barrier.wait().await;
-        push_task.await.unwrap();
 
-        // Step 4: read history (push_task may or may not have written to history
-        // yet, but because we subscribed first the live stream captures it either way).
+        // Step 4: read history BEFORE yielding — push_task has not run yet.
         let history = store.get_history();
+
+        // Step 5: now yield so push_task can complete.
+        push_task.await.unwrap();
 
         // Step 5: build the same combined stream that history_plus_stream() builds.
         let hist =
