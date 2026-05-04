@@ -1526,9 +1526,1186 @@ Expected results:
 
 ---
 
+## Task 10: Archived workspace "Check" shows per-workspace list with navigation links
+
+**Problem:** The "Check" button on Archive Cleanup only shows a count. Users need to see *which* workspaces would be purged, ordered oldest-first, with a link to open each workspace before deciding to purge.
+
+**Files:**
+- Modify: `crates/server/src/routes/database.rs` — new `archived_list` handler + response type
+- Modify: `crates/server/src/bin/generate_types.rs` — register `ArchivedListResponse`, `ArchivedWorkspaceItem`
+- Modify: `packages/web-core/src/shared/hooks/useDatabaseMaintenance.ts` — add `useArchivedList` hook
+- Modify: `packages/web-core/src/shared/dialogs/settings/settings/MaintenancePanel.tsx` — replace count with expandable list
+
+**Prerequisite:** Task 4 must be complete (`archived_at` column exists).
+
+- [ ] **Step 1: Add response types in database.rs**
+
+Add after the `ArchivedStatsResponse` struct in `crates/server/src/routes/database.rs`:
+
+```rust
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ArchivedWorkspaceItem {
+    pub id: Uuid,
+    pub name: Option<String>,
+    /// ISO-8601 string — the actual archive timestamp (archived_at if set, else updated_at)
+    pub archived_at: String,
+    /// ISO-8601 string
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ArchivedListResponse {
+    pub items: Vec<ArchivedWorkspaceItem>,
+    pub older_than_days: i64,
+}
+```
+
+- [ ] **Step 2: Add the archived_list handler**
+
+Add after the `archived_stats` handler:
+
+```rust
+async fn archived_list(
+    State(deployment): State<DeploymentImpl>,
+    Query(query): Query<OlderThanQuery>,
+) -> Result<ResponseJson<ApiResponse<ArchivedListResponse>>, ApiError> {
+    if query.older_than_days < 1 {
+        return Err(ApiError::BadRequest(
+            "older_than_days must be >= 1".to_string(),
+        ));
+    }
+    let pool = &deployment.db().pool;
+    let cutoff = format!("-{} days", query.older_than_days);
+
+    // Fetch archived workspaces older than cutoff, ordered oldest first.
+    // COALESCE(archived_at, updated_at) handles rows from before the migration.
+    let rows = sqlx::query!(
+        r#"SELECT
+               id AS "id: Uuid",
+               name,
+               COALESCE(archived_at, updated_at) AS "effective_archived_at!: String",
+               created_at AS "created_at!: String"
+           FROM workspaces
+           WHERE archived = 1
+             AND COALESCE(archived_at, updated_at) < datetime('now', ?)
+             AND NOT EXISTS (
+                 SELECT 1 FROM execution_processes ep
+                 JOIN sessions s ON s.id = ep.session_id
+                 WHERE s.workspace_id = workspaces.id
+                   AND ep.status NOT IN ('completed', 'failed', 'killed')
+             )
+           ORDER BY COALESCE(archived_at, updated_at) ASC"#,
+        cutoff
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let items = rows
+        .into_iter()
+        .map(|r| ArchivedWorkspaceItem {
+            id: r.id,
+            name: r.name,
+            archived_at: r.effective_archived_at,
+            created_at: r.created_at,
+        })
+        .collect();
+
+    Ok(ResponseJson(ApiResponse::success(ArchivedListResponse {
+        items,
+        older_than_days: query.older_than_days,
+    })))
+}
+```
+
+- [ ] **Step 3: Register the route**
+
+In the `router()` function at the bottom of `database.rs`, add:
+
+```rust
+.route("/database/archived-list", get(archived_list))
+```
+
+- [ ] **Step 4: Register TypeScript types**
+
+In `crates/server/src/bin/generate_types.rs`, add to the type export list:
+
+```rust
+ArchivedWorkspaceItem::export_all_to(&out_dir)?;
+ArchivedListResponse::export_all_to(&out_dir)?;
+```
+
+And add the imports at the top (wherever the other database route types are imported from):
+
+```rust
+use server::routes::database::{
+    // existing types...
+    ArchivedWorkspaceItem, ArchivedListResponse,
+};
+```
+
+- [ ] **Step 5: Prepare SQLx + regenerate types**
+
+```bash
+pnpm run prepare-db
+pnpm run generate-types
+```
+
+Expected: `shared/types.ts` contains `ArchivedWorkspaceItem` and `ArchivedListResponse`.
+
+- [ ] **Step 6: Add useArchivedList hook**
+
+In `packages/web-core/src/shared/hooks/useDatabaseMaintenance.ts`, add:
+
+```typescript
+export function useArchivedList(olderThanDays?: number) {
+  return useQuery({
+    queryKey: ['database', 'archived-list', olderThanDays],
+    queryFn: () =>
+      apiFetch<ArchivedListResponse>(
+        `/api/database/archived-list?older_than_days=${olderThanDays}`
+      ),
+    enabled: olderThanDays !== undefined && olderThanDays > 0,
+    staleTime: 30_000,
+  });
+}
+```
+
+Add the import for `ArchivedListResponse` from `shared/types`.
+
+- [ ] **Step 7: Update MaintenancePanel to show the list**
+
+In `packages/web-core/src/shared/dialogs/settings/settings/MaintenancePanel.tsx`:
+
+1. Add import for `useArchivedList` and the navigation function (TanStack Router's `useNavigate` or `Link`):
+
+```typescript
+import { useArchivedList } from '@/shared/hooks/useDatabaseMaintenance';
+```
+
+2. Add state + hook after the `archivedStats` lines:
+
+```typescript
+const [showArchivedList, setShowArchivedList] = useState(false);
+const archivedList = useArchivedList(
+  showArchivedList ? Number(archivedDays) : undefined
+);
+```
+
+3. Replace the "Check" button's `onClick` to also trigger the list:
+
+```typescript
+onClick={() => {
+  setShowArchivedStats(true);
+  setShowArchivedList(true);
+  archivedStats.refetch();
+  archivedList.refetch();
+}}
+```
+
+4. Replace the stats display block (below `{showArchivedStats && archivedStats.data && ...}`) with a full list:
+
+```tsx
+{showArchivedList && archivedList.data && archivedList.data.items.length > 0 && (
+  <div className="rounded-sm border border-border overflow-hidden mt-2">
+    <div className="flex items-center justify-between px-3 py-1.5 bg-secondary/50 border-b border-border">
+      <span className="text-xs font-medium text-low uppercase tracking-wide">
+        Workspace
+      </span>
+      <span className="text-xs font-medium text-low uppercase tracking-wide">
+        Archived
+      </span>
+    </div>
+    {archivedList.data.items.map((item) => (
+      <div
+        key={item.id}
+        className="flex items-center justify-between px-3 py-1.5 border-b border-border last:border-b-0"
+      >
+        <a
+          href={`/workspaces/${item.id}`}
+          className="text-sm text-link hover:underline truncate max-w-[60%]"
+          title={item.name ?? 'Unnamed workspace'}
+        >
+          {item.name ?? 'Unnamed workspace'}
+        </a>
+        <span className="text-xs font-mono text-low shrink-0">
+          {new Date(item.archived_at).toLocaleDateString()}
+        </span>
+      </div>
+    ))}
+    <div className="px-3 py-1.5 bg-secondary/50 border-t border-border text-xs text-low">
+      {archivedList.data.items.length} workspace(s) eligible (oldest first)
+    </div>
+  </div>
+)}
+
+{showArchivedList && archivedList.data?.items.length === 0 && (
+  <p className="text-sm text-low mt-1">
+    No archived workspaces older than {archivedDays} days.
+  </p>
+)}
+```
+
+- [ ] **Step 8: Check and build**
+
+```bash
+pnpm run check 2>&1 | grep -E "error TS"
+cargo build -p vibe-kanban-server 2>&1 | grep -E "^error"
+```
+
+Expected: no errors.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add crates/server/src/routes/database.rs \
+        crates/server/src/bin/generate_types.rs \
+        shared/types.ts \
+        packages/web-core/src/shared/hooks/useDatabaseMaintenance.ts \
+        packages/web-core/src/shared/dialogs/settings/settings/MaintenancePanel.tsx
+git commit -m "feat(maintenance): archived workspace list with navigation links
+
+archived-list endpoint returns per-workspace records ordered oldest-first.
+MaintenancePanel Check button now shows the list inline with clickable
+workspace name links and archive date, replacing the bare count."
+```
+
+---
+
+## Task 11: Log "Check" shows session list grouped by workspace with navigation links
+
+**Problem:** The Log Cleanup "Check" button shows only a total count and size. Users need to see which workspaces own the old log files, ordered oldest-first, with a link to navigate to each workspace.
+
+**Files:**
+- Modify: `crates/server/src/routes/database.rs` — new `log_list` handler, `LogSessionItem` type, updated walk helper
+- Modify: `crates/server/src/bin/generate_types.rs`
+- Modify: `packages/web-core/src/shared/hooks/useDatabaseMaintenance.ts`
+- Modify: `packages/web-core/src/shared/dialogs/settings/settings/MaintenancePanel.tsx`
+
+**Log path structure** (from `crates/utils/src/execution_logs.rs`):
+```text
+{asset_dir}/sessions/{2-char-prefix}/{session_id}/processes/{process_id}.jsonl
+```
+
+Session UUID → `sessions` table → `workspace_id` → `workspaces.name`.
+
+- [ ] **Step 1: Add a per-session filesystem walk helper**
+
+Add to `crates/server/src/routes/database.rs` after `collect_old_log_files`:
+
+```rust
+/// Per-session summary: session UUID + aggregate stats for files older than cutoff.
+pub struct SessionLogSummary {
+    pub session_id: Uuid,
+    pub file_count: i64,
+    pub total_bytes: i64,
+    /// The oldest mtime found in this session's process directory (as SystemTime).
+    pub oldest_mtime: std::time::SystemTime,
+}
+
+/// Walk log directories and return per-session summaries for sessions that have
+/// at least one file older than `cutoff`. Results are unsorted (caller sorts).
+fn collect_old_log_sessions(
+    root: &std::path::Path,
+    cutoff: std::time::SystemTime,
+) -> Vec<SessionLogSummary> {
+    let mut summaries: std::collections::HashMap<Uuid, SessionLogSummary> =
+        std::collections::HashMap::new();
+
+    let Ok(top) = std::fs::read_dir(root) else {
+        return vec![];
+    };
+    for prefix_entry in top.flatten() {
+        let Ok(sessions_dir) = std::fs::read_dir(prefix_entry.path()) else {
+            continue;
+        };
+        for session_entry in sessions_dir.flatten() {
+            // Extract session UUID from directory name.
+            let session_name = session_entry.file_name();
+            let Some(name_str) = session_name.to_str() else {
+                continue;
+            };
+            let Ok(session_id) = Uuid::parse_str(name_str) else {
+                continue;
+            };
+            let processes_dir = session_entry.path().join("processes");
+            let Ok(procs) = std::fs::read_dir(&processes_dir) else {
+                continue;
+            };
+            for proc_entry in procs.flatten() {
+                let path = proc_entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                    continue;
+                }
+                let Ok(meta) = std::fs::metadata(&path) else {
+                    continue;
+                };
+                let mtime = match meta.modified() {
+                    Ok(t) => t,
+                    Err(e) => {
+                        tracing::warn!(
+                            path = %path.display(),
+                            error = %e,
+                            "Cannot read mtime for log file — skipping"
+                        );
+                        continue;
+                    }
+                };
+                if mtime < cutoff {
+                    let entry = summaries.entry(session_id).or_insert_with(|| SessionLogSummary {
+                        session_id,
+                        file_count: 0,
+                        total_bytes: 0,
+                        oldest_mtime: mtime,
+                    });
+                    entry.file_count += 1;
+                    entry.total_bytes += meta.len() as i64;
+                    if mtime < entry.oldest_mtime {
+                        entry.oldest_mtime = mtime;
+                    }
+                }
+            }
+        }
+    }
+    summaries.into_values().collect()
+}
+```
+
+- [ ] **Step 2: Add response types**
+
+Add to `crates/server/src/routes/database.rs` near the other response types:
+
+```rust
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct LogSessionItem {
+    pub session_id: Uuid,
+    pub workspace_id: Uuid,
+    /// Display name — None if the workspace has no name set.
+    pub workspace_name: Option<String>,
+    pub file_count: i64,
+    pub total_bytes: i64,
+    /// ISO-8601 date string of the oldest log file in this session.
+    pub oldest_file_date: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct LogListResponse {
+    pub items: Vec<LogSessionItem>,
+    pub older_than_days: i64,
+}
+```
+
+- [ ] **Step 3: Add the log_list handler**
+
+Add after the `log_stats` handler:
+
+```rust
+async fn log_list(
+    State(deployment): State<DeploymentImpl>,
+    Query(query): Query<OlderThanQuery>,
+) -> Result<ResponseJson<ApiResponse<LogListResponse>>, ApiError> {
+    if query.older_than_days < 1 {
+        return Err(ApiError::BadRequest(
+            "older_than_days must be >= 1".to_string(),
+        ));
+    }
+
+    let log_root = asset_dir().join(EXECUTION_LOGS_DIRNAME);
+    let older_than_days = query.older_than_days;
+
+    // Step 1: Collect per-session summaries in a blocking task.
+    let session_summaries: Vec<SessionLogSummary> =
+        tokio::task::spawn_blocking(move || {
+            let cutoff = std::time::SystemTime::now()
+                - std::time::Duration::from_secs(older_than_days as u64 * 86400);
+            collect_old_log_sessions(&log_root, cutoff)
+        })
+        .await
+        .map_err(|e| ApiError::Database(sqlx::Error::Protocol(e.to_string())))?;
+
+    if session_summaries.is_empty() {
+        return Ok(ResponseJson(ApiResponse::success(LogListResponse {
+            items: vec![],
+            older_than_days: query.older_than_days,
+        })));
+    }
+
+    // Step 2: Join session UUIDs to workspaces via the DB.
+    let pool = &deployment.db().pool;
+    let mut items: Vec<LogSessionItem> = Vec::new();
+
+    for summary in session_summaries {
+        // Query: sessions → workspaces for this session UUID.
+        let row = sqlx::query!(
+            r#"SELECT s.workspace_id AS "workspace_id: Uuid", w.name
+               FROM sessions s
+               JOIN workspaces w ON w.id = s.workspace_id
+               WHERE s.id = ?"#,
+            summary.session_id
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        // Skip sessions that no longer exist in the DB (orphaned log directories).
+        let Some(row) = row else {
+            continue;
+        };
+
+        // Convert oldest_mtime to an ISO-8601 date string.
+        let oldest_file_date = {
+            let secs = summary
+                .oldest_mtime
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let dt = chrono::DateTime::<Utc>::from_timestamp(secs as i64, 0)
+                .unwrap_or_default();
+            dt.format("%Y-%m-%d").to_string()
+        };
+
+        items.push(LogSessionItem {
+            session_id: summary.session_id,
+            workspace_id: row.workspace_id,
+            workspace_name: row.name,
+            file_count: summary.file_count,
+            total_bytes: summary.total_bytes,
+            oldest_file_date,
+        });
+    }
+
+    // Sort: oldest first.
+    items.sort_by(|a, b| a.oldest_file_date.cmp(&b.oldest_file_date));
+
+    Ok(ResponseJson(ApiResponse::success(LogListResponse {
+        items,
+        older_than_days: query.older_than_days,
+    })))
+}
+```
+
+- [ ] **Step 4: Register the route + TS types**
+
+In `router()` add:
+```rust
+.route("/database/log-list", get(log_list))
+```
+
+In `generate_types.rs` add:
+```rust
+LogSessionItem::export_all_to(&out_dir)?;
+LogListResponse::export_all_to(&out_dir)?;
+```
+
+- [ ] **Step 5: Prepare and regenerate**
+
+```bash
+pnpm run prepare-db
+pnpm run generate-types
+```
+
+Expected: `shared/types.ts` contains `LogSessionItem` and `LogListResponse`.
+
+- [ ] **Step 6: Add useLogList hook**
+
+In `packages/web-core/src/shared/hooks/useDatabaseMaintenance.ts`:
+
+```typescript
+export function useLogList(olderThanDays?: number) {
+  return useQuery({
+    queryKey: ['database', 'log-list', olderThanDays],
+    queryFn: () =>
+      apiFetch<LogListResponse>(
+        `/api/database/log-list?older_than_days=${olderThanDays}`
+      ),
+    enabled: olderThanDays !== undefined && olderThanDays > 0,
+    staleTime: 30_000,
+  });
+}
+```
+
+- [ ] **Step 7: Update MaintenancePanel log section to show the list**
+
+In `MaintenancePanel.tsx`, add hook state + list display in the Log File Cleanup card, mirroring the archived list pattern from Task 10:
+
+```typescript
+const [showLogList, setShowLogList] = useState(false);
+const logList = useLogList(showLogList ? Number(logDays) : undefined);
+```
+
+Update the "Check" button onClick:
+
+```typescript
+onClick={() => {
+  setShowLogStats(true);
+  setShowLogList(true);
+  logStats.refetch();
+  logList.refetch();
+}}
+```
+
+Add list display below the log stats line:
+
+```tsx
+{showLogList && logList.data && logList.data.items.length > 0 && (
+  <div className="rounded-sm border border-border overflow-hidden mt-2">
+    <div className="flex items-center justify-between px-3 py-1.5 bg-secondary/50 border-b border-border">
+      <span className="text-xs font-medium text-low uppercase tracking-wide">Workspace</span>
+      <span className="text-xs font-medium text-low uppercase tracking-wide">Files / Size / Oldest</span>
+    </div>
+    {logList.data.items.map((item) => (
+      <div
+        key={item.session_id}
+        className="flex items-center justify-between px-3 py-1.5 border-b border-border last:border-b-0"
+      >
+        <a
+          href={`/workspaces/${item.workspace_id}`}
+          className="text-sm text-link hover:underline truncate max-w-[50%]"
+          title={item.workspace_name ?? 'Unnamed workspace'}
+        >
+          {item.workspace_name ?? 'Unnamed workspace'}
+        </a>
+        <span className="text-xs font-mono text-low shrink-0">
+          {String(item.file_count)} / {formatBytes(item.total_bytes)} / {item.oldest_file_date}
+        </span>
+      </div>
+    ))}
+    <div className="px-3 py-1.5 bg-secondary/50 border-t border-border text-xs text-low">
+      {logList.data.items.length} session(s) with eligible log files (oldest first)
+    </div>
+  </div>
+)}
+
+{showLogList && logList.data?.items.length === 0 && (
+  <p className="text-sm text-low mt-1">
+    No log files older than {logDays} days.
+  </p>
+)}
+```
+
+- [ ] **Step 8: Check and build**
+
+```bash
+pnpm run check 2>&1 | grep -E "error TS"
+cargo build -p vibe-kanban-server 2>&1 | grep -E "^error"
+```
+
+Expected: no errors.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add crates/server/src/routes/database.rs \
+        crates/server/src/bin/generate_types.rs \
+        shared/types.ts \
+        packages/web-core/src/shared/hooks/useDatabaseMaintenance.ts \
+        packages/web-core/src/shared/dialogs/settings/settings/MaintenancePanel.tsx
+git commit -m "feat(maintenance): log session list with workspace links
+
+log-list endpoint groups old log files by session, joins to workspace
+names, and returns items ordered oldest-first. MaintenancePanel Check
+button now expands an inline list with workspace links, file count, size,
+and oldest file date per session."
+```
+
+---
+
+## Task 12: Disk usage workspace cleanup — remove build artifacts and archived worktrees
+
+**Problem:** The Disk Usage panel shows per-workspace disk consumption but offers no cleanup actions. Users want two options per workspace: (A) remove common build artifact directories (`node_modules/`, `target/`, `.next/`, etc.) without touching source code, and (B) remove the entire worktree for archived workspaces.
+
+**Files:**
+- Modify: `crates/server/src/routes/diagnostics.rs` — two new handlers + response types
+- Modify: `crates/server/src/bin/generate_types.rs`
+- Modify: `packages/web-core/src/shared/hooks/useDiagnostics.ts`
+- Modify: `packages/web-core/src/shared/dialogs/settings/settings/DiagnosticsPanel.tsx`
+
+**Build artifact directories to target** (tunable list; delete the first match found per workspace root):
+
+```text
+node_modules  target  .next  .nuxt  dist  build  .venv
+__pycache__   .turbo  .cache .parcel-cache out .output
+```
+
+- [ ] **Step 1: Add CleanArtifactsResult and RemoveWorktreeResult types**
+
+In `crates/server/src/routes/diagnostics.rs`:
+
+```rust
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct CleanArtifactsResult {
+    /// Paths of directories that were removed (relative to workspace root).
+    pub dirs_removed: Vec<String>,
+    pub bytes_freed: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RemoveWorktreeResult {
+    pub workspace_id: Uuid,
+    pub success: bool,
+}
+```
+
+- [ ] **Step 2: Add the clean_artifacts handler**
+
+```rust
+/// Known build artifact directory names to remove during cleanup.
+const ARTIFACT_DIRS: &[&str] = &[
+    "node_modules",
+    "target",
+    ".next",
+    ".nuxt",
+    "dist",
+    "build",
+    ".venv",
+    "__pycache__",
+    ".turbo",
+    ".cache",
+    ".parcel-cache",
+    "out",
+    ".output",
+];
+
+async fn clean_artifacts(
+    State(deployment): State<DeploymentImpl>,
+    axum::extract::Path(workspace_id): axum::extract::Path<Uuid>,
+) -> Result<ResponseJson<ApiResponse<CleanArtifactsResult>>, ApiError> {
+    let pool = &deployment.db().pool;
+
+    let workspace = db::models::workspace::Workspace::find_by_id(pool, workspace_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Workspace not found".to_string()))?;
+
+    let container_ref = workspace.container_ref.ok_or_else(|| {
+        ApiError::BadRequest("Workspace has no container reference".to_string())
+    })?;
+
+    if workspace.worktree_deleted {
+        return Err(ApiError::BadRequest(
+            "Workspace worktree has already been deleted".to_string(),
+        ));
+    }
+
+    let workspace_path = std::path::PathBuf::from(&container_ref);
+    if !workspace_path.exists() {
+        return Err(ApiError::BadRequest(
+            "Workspace directory does not exist on disk".to_string(),
+        ));
+    }
+
+    let (dirs_removed, bytes_freed) = tokio::task::spawn_blocking(move || {
+        let mut removed = Vec::new();
+        let mut freed = 0u64;
+
+        for &dir_name in ARTIFACT_DIRS {
+            let candidate = workspace_path.join(dir_name);
+            if candidate.exists() {
+                // Measure size before removal.
+                let size = dir_size(&candidate);
+                match std::fs::remove_dir_all(&candidate) {
+                    Ok(()) => {
+                        freed += size;
+                        removed.push(dir_name.to_string());
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            path = %candidate.display(),
+                            error = %e,
+                            "Failed to remove artifact directory"
+                        );
+                    }
+                }
+            }
+        }
+        (removed, freed)
+    })
+    .await
+    .map_err(|e| ApiError::Database(sqlx::Error::Protocol(e.to_string())))?;
+
+    Ok(ResponseJson(ApiResponse::success(CleanArtifactsResult {
+        dirs_removed,
+        bytes_freed,
+    })))
+}
+
+/// Recursive directory size (best-effort; skips unreadable entries).
+fn dir_size(path: &std::path::Path) -> u64 {
+    let mut total = 0u64;
+    let mut stack = vec![path.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                if let Ok(meta) = entry.metadata() {
+                    if meta.is_file() {
+                        total += meta.len();
+                    } else if meta.is_dir() {
+                        stack.push(entry.path());
+                    }
+                }
+            }
+        }
+    }
+    total
+}
+```
+
+- [ ] **Step 3: Add the remove_worktree handler**
+
+```rust
+async fn remove_worktree(
+    State(deployment): State<DeploymentImpl>,
+    axum::extract::Path(workspace_id): axum::extract::Path<Uuid>,
+) -> Result<ResponseJson<ApiResponse<RemoveWorktreeResult>>, ApiError> {
+    let pool = &deployment.db().pool;
+
+    let workspace = db::models::workspace::Workspace::find_by_id(pool, workspace_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Workspace not found".to_string()))?;
+
+    if !workspace.archived {
+        return Err(ApiError::BadRequest(
+            "Only archived workspaces can have their worktree removed via this endpoint".to_string(),
+        ));
+    }
+
+    if workspace.worktree_deleted {
+        return Ok(ResponseJson(ApiResponse::success(RemoveWorktreeResult {
+            workspace_id,
+            success: true, // idempotent
+        })));
+    }
+
+    // Delegate to the container service which stops processes, removes the
+    // worktree directory, and marks worktree_deleted = true in the DB.
+    deployment
+        .container()
+        .delete(&workspace)
+        .await
+        .map_err(|e| {
+            tracing::error!(workspace_id = %workspace_id, "remove_worktree error: {e}");
+            ApiError::Database(sqlx::Error::Protocol(e.to_string()))
+        })?;
+
+    Ok(ResponseJson(ApiResponse::success(RemoveWorktreeResult {
+        workspace_id,
+        success: true,
+    })))
+}
+```
+
+- [ ] **Step 4: Register the routes**
+
+In the `router()` function of `crates/server/src/routes/diagnostics.rs`:
+
+```rust
+.route(
+    "/diagnostics/disk-usage/:workspace_id/clean-artifacts",
+    axum::routing::post(clean_artifacts),
+)
+.route(
+    "/diagnostics/disk-usage/:workspace_id/remove-worktree",
+    axum::routing::post(remove_worktree),
+)
+```
+
+- [ ] **Step 5: Register TS types**
+
+In `generate_types.rs`:
+
+```rust
+CleanArtifactsResult::export_all_to(&out_dir)?;
+RemoveWorktreeResult::export_all_to(&out_dir)?;
+```
+
+- [ ] **Step 6: Regenerate types and build**
+
+```bash
+pnpm run generate-types
+cargo build -p vibe-kanban-server 2>&1 | grep -E "^error"
+```
+
+Expected: no errors; `shared/types.ts` has `CleanArtifactsResult` and `RemoveWorktreeResult`.
+
+- [ ] **Step 7: Add cleanup mutation hooks**
+
+In `packages/web-core/src/shared/hooks/useDiagnostics.ts`:
+
+```typescript
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+
+export function useCleanArtifacts() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (workspaceId: string) =>
+      apiFetch<CleanArtifactsResult>(
+        `/api/diagnostics/disk-usage/${workspaceId}/clean-artifacts`,
+        { method: 'POST' }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['diagnostics', 'disk-usage'] });
+    },
+  });
+}
+
+export function useRemoveWorktree() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (workspaceId: string) =>
+      apiFetch<RemoveWorktreeResult>(
+        `/api/diagnostics/disk-usage/${workspaceId}/remove-worktree`,
+        { method: 'POST' }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['diagnostics', 'disk-usage'] });
+    },
+  });
+}
+```
+
+- [ ] **Step 8: Add action buttons to DiagnosticsPanel disk usage rows**
+
+In `packages/web-core/src/shared/dialogs/settings/settings/DiagnosticsPanel.tsx`:
+
+1. Import hooks + confirm dialog:
+
+```typescript
+import { useDiagnostics, useDiskUsage, useCleanArtifacts, useRemoveWorktree } from '@/shared/hooks/useDiagnostics';
+import { ConfirmDialog } from '@vibe/ui/components/ConfirmDialog';
+import { SparkleIcon, FolderMinusIcon } from '@phosphor-icons/react';
+```
+
+2. Add hooks inside `DiagnosticsPanel`:
+
+```typescript
+const cleanArtifacts = useCleanArtifacts();
+const removeWorktree = useRemoveWorktree();
+```
+
+3. Update each workspace row to include action buttons (replace the existing row `<div>`):
+
+```tsx
+{diskData.workspaces.map((ws) => (
+  <div
+    key={ws.workspace_id}
+    className="flex items-center justify-between px-3 py-1.5 border-b border-border last:border-b-0 gap-2"
+  >
+    <span
+      className="text-sm text-normal truncate max-w-[45%]"
+      title={ws.path}
+    >
+      {ws.path}
+    </span>
+    <div className="flex items-center gap-2 shrink-0">
+      <span className="text-sm font-mono text-normal">
+        {formatBytes(ws.size_bytes)}
+      </span>
+      <button
+        className="text-xs text-low hover:text-normal transition-colors"
+        title="Remove build artifacts (node_modules, target, .next, etc.)"
+        disabled={cleanArtifacts.isPending}
+        onClick={async () => {
+          const result = await ConfirmDialog.show({
+            title: 'Remove Build Artifacts',
+            message: `Remove build artifact directories (node_modules, target, .next, etc.) from this workspace? Source code will not be affected.`,
+            confirmText: 'Clean',
+            variant: 'destructive',
+          });
+          if (result === 'confirmed') {
+            cleanArtifacts.mutate(ws.workspace_id);
+          }
+        }}
+      >
+        <SparkleIcon className="size-icon-sm" weight="bold" />
+      </button>
+      <button
+        className="text-xs text-low hover:text-error transition-colors"
+        title="Remove worktree directory (archived workspaces only)"
+        disabled={removeWorktree.isPending}
+        onClick={async () => {
+          const result = await ConfirmDialog.show({
+            title: 'Remove Worktree',
+            message: `Permanently remove the workspace directory from disk. The workspace record will remain in the app. This cannot be undone.`,
+            confirmText: 'Remove',
+            variant: 'destructive',
+          });
+          if (result === 'confirmed') {
+            removeWorktree.mutate(ws.workspace_id);
+          }
+        }}
+      >
+        <FolderMinusIcon className="size-icon-sm" weight="bold" />
+      </button>
+    </div>
+  </div>
+))}
+```
+
+- [ ] **Step 9: Check and build**
+
+```bash
+pnpm run check 2>&1 | grep -E "error TS"
+cargo build -p vibe-kanban-server 2>&1 | grep -E "^error"
+```
+
+Expected: no errors.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add crates/server/src/routes/diagnostics.rs \
+        crates/server/src/bin/generate_types.rs \
+        shared/types.ts \
+        packages/web-core/src/shared/hooks/useDiagnostics.ts \
+        packages/web-core/src/shared/dialogs/settings/settings/DiagnosticsPanel.tsx
+git commit -m "feat(diagnostics): disk usage cleanup — clean artifacts + remove worktree
+
+Two new endpoints per workspace:
+- POST /diagnostics/disk-usage/:id/clean-artifacts — removes known build
+  artifact dirs (node_modules, target, .next, etc.) and reports bytes freed
+- POST /diagnostics/disk-usage/:id/remove-worktree — removes the worktree
+  for archived workspaces via the container service
+
+DiagnosticsPanel adds per-row icon buttons with confirm dialogs."
+```
+
+---
+
+## Task 13: Uncommitted changes check before archiving a workspace
+
+**Problem:** Users can archive a workspace that has uncommitted local changes with no warning. The changes are not lost (the files remain on disk) but the user may not realise they exist. Before archiving, the server should check for uncommitted changes and surface a warning that the user must explicitly dismiss.
+
+**Files:**
+- Modify: `crates/db/src/models/requests.rs` — add `force_archive` field to `UpdateWorkspace`
+- Modify: `crates/server/src/routes/workspaces/core.rs` — add dirty check before archiving
+- Frontend (location TBD by implementer): wherever `archived: true` is sent in workspace update calls, catch 409 and show a confirm dialog
+
+**Key API:** `GitService::is_worktree_clean(&self, worktree_path: &Path) -> Result<bool, GitServiceError>` at `crates/git/src/lib.rs:815`. Returns `Ok(true)` if clean, `Ok(false)` if dirty (uncommitted changes detected).
+
+- [ ] **Step 1: Add force_archive to UpdateWorkspace request**
+
+In `crates/db/src/models/requests.rs`, update the `UpdateWorkspace` struct:
+
+**Before:**
+```rust
+pub struct UpdateWorkspace {
+    pub archived: Option<bool>,
+    pub pinned: Option<bool>,
+    pub name: Option<String>,
+}
+```
+
+**After:**
+```rust
+pub struct UpdateWorkspace {
+    pub archived: Option<bool>,
+    pub pinned: Option<bool>,
+    pub name: Option<String>,
+    /// When true, skip the uncommitted-changes check and archive even if the
+    /// worktree has local changes. Defaults to false.
+    #[serde(default)]
+    pub force_archive: bool,
+}
+```
+
+- [ ] **Step 2: Add dirty check in update_workspace handler**
+
+In `crates/server/src/routes/workspaces/core.rs`, update the `update_workspace` handler. After line 49 (`let is_archiving = ...`), add:
+
+```rust
+    // Guard: if archiving and the worktree has uncommitted changes, refuse
+    // unless the client explicitly passes force_archive = true.
+    if is_archiving && !request.force_archive {
+        // Only check if the worktree directory still exists on disk.
+        if let Some(ref container_ref) = workspace.container_ref {
+            if !workspace.worktree_deleted {
+                let path = std::path::PathBuf::from(container_ref);
+                if path.exists() {
+                    match deployment.git().is_worktree_clean(&path) {
+                        Ok(true) => {
+                            // Clean — proceed normally.
+                        }
+                        Ok(false) => {
+                            return Err(ApiError::Conflict(
+                                "Workspace has uncommitted changes. \
+                                 Pass force_archive=true to archive anyway."
+                                    .to_string(),
+                            ));
+                        }
+                        Err(e) => {
+                            // If we can't determine git status (e.g. not a git repo),
+                            // log a warning but do not block the archive.
+                            tracing::warn!(
+                                workspace_id = %workspace.id,
+                                error = ?e,
+                                "Could not determine git dirty status; proceeding with archive"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+```
+
+- [ ] **Step 3: Build to confirm it compiles**
+
+```bash
+cargo build -p vibe-kanban-server 2>&1 | grep -E "^error"
+```
+
+Expected: no output.
+
+- [ ] **Step 4: Locate the workspace archive call in the frontend**
+
+Find where the frontend sets `archived: true` on a workspace. Search:
+
+```bash
+grep -rn "archived.*true\|archive" packages/web-core/src/ --include="*.ts" --include="*.tsx" | grep -v "node_modules"
+```
+
+This will identify the API call site(s). They will look like:
+
+```typescript
+workspacesApi.update(workspaceId, { archived: true })
+```
+
+or similar. Note the file(s) for the next step.
+
+- [ ] **Step 5: Wrap archive call with dirty-check error handling**
+
+At each call site found in Step 4, wrap the archive mutation to intercept a 409 response and show a force-confirm dialog. The pattern:
+
+```typescript
+// In the component that triggers archiving:
+const handleArchive = async (workspaceId: string) => {
+  try {
+    await workspacesApi.update(workspaceId, { archived: true });
+  } catch (error) {
+    // 409 Conflict = uncommitted changes detected
+    if ((error as { status?: number }).status === 409) {
+      const result = await ConfirmDialog.show({
+        title: 'Uncommitted Changes Detected',
+        message:
+          'This workspace has uncommitted changes that will remain on disk after archiving. ' +
+          'Archive anyway?',
+        confirmText: 'Archive Anyway',
+        variant: 'destructive',
+      });
+      if (result === 'confirmed') {
+        // Retry with force_archive flag
+        await workspacesApi.update(workspaceId, {
+          archived: true,
+          force_archive: true,
+        });
+      }
+    } else {
+      throw error;
+    }
+  }
+};
+```
+
+Note: `workspacesApi.update` type signature must accept `force_archive?: boolean`. Update the TypeScript API client type if needed (it should be inferred from the Rust struct update via `generate-types`).
+
+- [ ] **Step 6: Check UpdateWorkspaceRequest in api-types**
+
+Check `crates/api-types/src/workspaces.rs` for `UpdateWorkspaceRequest`. If it is a separate struct from `UpdateWorkspace` in `crates/db`, it may also need `force_archive` added. Update it to match.
+
+- [ ] **Step 7: Regenerate types**
+
+```bash
+pnpm run generate-types
+```
+
+Expected: `shared/types.ts` shows `UpdateWorkspace` with `force_archive?: boolean`.
+
+- [ ] **Step 8: Full check**
+
+```bash
+pnpm run check 2>&1 | grep -E "error TS"
+cargo test --workspace 2>&1 | tail -5
+```
+
+Expected: no errors, all tests pass.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add crates/db/src/models/requests.rs \
+        crates/server/src/routes/workspaces/core.rs \
+        shared/types.ts
+# Also add the frontend call site file(s) from Step 4
+git commit -m "feat(workspaces): check for uncommitted changes before archiving
+
+update_workspace now calls GitService::is_worktree_clean before setting
+archived=true. If dirty, returns 409 Conflict unless force_archive=true.
+
+Frontend catches the 409, shows a confirm dialog ('Archive Anyway?'),
+and retries with force_archive=true if the user confirms."
+```
+
+---
+
+## Final Validation
+
+Run all checks in sequence after all tasks are complete:
+
+- [ ] **Regenerate types** (if not done in individual tasks)
+```bash
+pnpm run generate-types
+```
+
+- [ ] **Full Rust build and tests**
+```bash
+cargo build --workspace 2>&1 | grep -E "^error"
+cargo test --workspace
+```
+Expected: 0 build errors, 0 test failures.
+
+- [ ] **Frontend checks**
+```bash
+pnpm run check
+pnpm run lint
+pnpm run format
+```
+Expected: all pass.
+
+- [ ] **Smoke test with running server**
+```bash
+pnpm run dev
+# In a separate terminal:
+curl -s http://localhost:{PORT}/api/diagnostics | jq '.data.pool_stats'
+curl -s http://localhost:{PORT}/api/database/stats | jq '.data.database_size_bytes'
+curl -sX POST http://localhost:{PORT}/api/database/vacuum | jq '.data.bytes_freed'
+# Second call immediately — must get 429:
+curl -sX POST http://localhost:{PORT}/api/database/vacuum | jq '.error'
+curl -s "http://localhost:{PORT}/api/database/archived-stats?older_than_days=14" | jq '.data.count'
+curl -s "http://localhost:{PORT}/api/database/archived-list?older_than_days=14" | jq '.data.items | length'
+curl -s "http://localhost:{PORT}/api/database/log-stats?older_than_days=14" | jq '.data'
+curl -s "http://localhost:{PORT}/api/database/log-list?older_than_days=14" | jq '.data.items | length'
+curl -s http://localhost:{PORT}/api/diagnostics/disk-usage | jq '{total: .data.total_bytes, displayed: .data.displayed_bytes}'
+```
+
+Expected results:
+- `pool_stats` has `size`, `idle`, `acquired` fields
+- `database_size_bytes` > 0
+- First vacuum returns `bytes_freed >= 0`; second returns 429
+- `archived-list` returns array with id/name/archived_at per workspace
+- `log-list` returns array grouped by session with workspace names
+- `disk-usage` `total_bytes` >= `displayed_bytes`; rows have cleanup icon buttons
+- Archiving a workspace with uncommitted changes shows a confirm dialog
+- Stopping the backend and opening Settings → Maintenance shows error messages, not blank panels
+
+---
+
 ## Execution Order Notes
 
 Tasks 1–3 and 7–9 are fully independent and can be executed in any order.
-Tasks 5 and 6 depend on Task 4 (migration must run first so `archived_at` column exists in the schema for `prepare-db` to validate against).
+Tasks 5 and 6 depend on Task 4 (migration must run first so `archived_at` column exists).
+Tasks 10–13 are independent of each other and of Tasks 1–9.
 
-Suggested sequence: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → Final Validation.
+Suggested sequence: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → Final Validation.
