@@ -22,7 +22,7 @@ export interface LocalApiTransport {
   openWebSocket: (
     pathOrUrl: string,
     options?: LocalApiWebSocketOptions
-  ) => Promise<WebSocket> | WebSocket;
+  ) => Promise<WebSocket>;
 }
 
 const LOCAL_ONLY_API_PREFIXES = [
