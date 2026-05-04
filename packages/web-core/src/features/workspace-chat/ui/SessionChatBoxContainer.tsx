@@ -496,6 +496,13 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   } = useSessionQueueInteraction({ sessionId });
 
   // Send actions
+  const runningCodingAgentProcess = processes.find(
+    (p) =>
+      p.status === ExecutionProcessStatus.running &&
+      p.run_reason === 'codingagent' &&
+      p.session_id === sessionId
+  );
+
   const {
     send,
     isSending,
@@ -507,13 +514,8 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     isNewSessionMode,
     onSelectSession,
     executorConfig,
-    runningExecutionProcessId:
-      processes.find(
-        (p) =>
-          p.status === ExecutionProcessStatus.running &&
-          p.run_reason === 'codingagent' &&
-          p.session_id === sessionId
-      )?.id ?? null,
+    runningExecutionProcessId: runningCodingAgentProcess?.id ?? null,
+    hasAnyRunningProcess: isAttemptRunning,
   });
 
   const handleSend = useCallback(async () => {
@@ -1079,6 +1081,8 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         conflictedFilesCount,
         onResolveConflicts: handleResolveConflicts,
       }}
+      isSending={isSending}
+      canInject={!!runningCodingAgentProcess}
       error={sendError}
       agent={effectiveExecutor}
       todos={todos}

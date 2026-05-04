@@ -20,6 +20,15 @@ interface UseSessionSendOptions {
    * to a queued follow-up.
    */
   runningExecutionProcessId?: string | null;
+  /**
+   * Whether ANY execution process is running (including non-codingagent
+   * phases such as setupscript or cleanupscript).
+   *
+   * When true but `runningExecutionProcessId` is null, we queue the
+   * message instead of spawning a new execution via followUp, so we
+   * don't launch a second concurrent execution while setup/cleanup runs.
+   */
+  hasAnyRunningProcess?: boolean;
 }
 
 interface UseSessionSendResult {
@@ -49,6 +58,7 @@ export function useSessionSend({
   onSelectSession,
   executorConfig,
   runningExecutionProcessId,
+  hasAnyRunningProcess,
 }: UseSessionSendOptions): UseSessionSendResult {
   const { mutateAsync: createSession, isPending: isCreatingSession } =
     useCreateSession();
@@ -92,21 +102,54 @@ export function useSessionSend({
         if (!sessionId) return false;
         setIsSendingFollowUp(true);
         try {
-          // If there is a running process, attempt live injection first.
+          // If there is a running codingagent process, attempt live injection first.
           if (runningExecutionProcessId) {
+            let processExited = false;
             try {
               const { injected } = await executionProcessesApi.injectMessage(
                 runningExecutionProcessId,
                 trimmed
               );
               if (injected) return true;
-            } catch {
-              // Injection failed (e.g. process just exited) — fall through to queue
+              // injected: false — process is alive but the executor doesn't
+              // support live injection (e.g. unsupported executor type).
+              // Queue for after the current turn finishes.
+            } catch (e) {
+              // The HTTP call failed — most likely because the process exited
+              // between our status check and this call. Route to followUp so
+              // we start a fresh execution rather than queuing for an event
+              // that may never fire.
+              console.warn(
+                '[useSessionSend] inject-message failed, process may have exited — falling back to followUp:',
+                e
+              );
+              processExited = true;
             }
-            // The executor didn't accept live injection (unsupported or process
-            // exited between the status check and this call).  Queue the
-            // message to fire when execution finishes rather than starting a
-            // second concurrent execution via followUp.
+
+            if (processExited) {
+              await sessionsApi.followUp(sessionId, {
+                prompt: trimmed,
+                executor_config: executorConfig,
+                retry_process_id: null,
+                force_when_dirty: null,
+                perform_git_reset: null,
+                override_session_id: null,
+              });
+              return true;
+            }
+
+            // injected: false — queue for when the current execution finishes.
+            await queueApi.queue(sessionId, {
+              message: trimmed,
+              executor_config: executorConfig,
+            });
+            return true;
+          }
+
+          // No codingagent process is running. If a non-codingagent process
+          // (setupscript, cleanupscript) is active, queue rather than
+          // spawning a second concurrent execution via followUp.
+          if (hasAnyRunningProcess) {
             await queueApi.queue(sessionId, {
               message: trimmed,
               executor_config: executorConfig,
@@ -140,6 +183,7 @@ export function useSessionSend({
       onSelectSession,
       executorConfig,
       runningExecutionProcessId,
+      hasAnyRunningProcess,
     ]
   );
 
