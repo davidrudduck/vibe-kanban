@@ -155,6 +155,15 @@ export interface ConversationVirtualizerResult {
    * Returns undefined if the index is out of bounds.
    */
   rowForVirtualItem: (item: VirtualItem) => ConversationRow | undefined;
+
+  /**
+   * Returns whether bottom-lock auto-follow is currently armed. Used internally
+   * by `syncScrollEdges` and exposed on the result so unit tests can assert
+   * lock state without reaching into refs.
+   *
+   * @internal
+   */
+  isBottomScrollCorrectionActive: () => boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -503,5 +512,6 @@ export function useConversationVirtualizer({
     releaseBottomLock,
     rowIndexForVirtualItem,
     rowForVirtualItem,
+    isBottomScrollCorrectionActive,
   };
 }
