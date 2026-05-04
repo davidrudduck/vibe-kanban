@@ -149,7 +149,8 @@ async fn archived_stats(
     let cutoff = format!("-{} days", query.older_than_days);
     let count: i64 = sqlx::query_scalar(
         r#"SELECT COUNT(*) FROM workspaces
-           WHERE archived = 1 AND updated_at < datetime('now', ?)"#,
+           WHERE archived = 1
+             AND COALESCE(archived_at, updated_at) < datetime('now', ?)"#,
     )
     .bind(&cutoff)
     .fetch_one(pool)
@@ -204,9 +205,9 @@ async fn purge_archived(
     let cutoff = format!("-{} days", query.older_than_days);
 
     // Count workspaces that match the age filter but are excluded due to active processes.
-    let skipped_active: i64 = sqlx::query_scalar(
+    let mut skipped_active: i64 = sqlx::query_scalar(
         r#"SELECT COUNT(*) FROM workspaces w
-           WHERE w.archived = 1 AND w.updated_at < datetime('now', ?)
+           WHERE w.archived = 1 AND COALESCE(w.archived_at, w.updated_at) < datetime('now', ?)
              AND EXISTS (
                  SELECT 1 FROM execution_processes ep
                  JOIN sessions s ON s.id = ep.session_id
@@ -232,7 +233,7 @@ async fn purge_archived(
                 w.name,
                 w.worktree_deleted
            FROM workspaces w
-           WHERE w.archived = 1 AND w.updated_at < datetime('now', ?)
+           WHERE w.archived = 1 AND COALESCE(w.archived_at, w.updated_at) < datetime('now', ?)
              AND NOT EXISTS (
                  SELECT 1 FROM execution_processes ep
                  JOIN sessions s ON s.id = ep.session_id
@@ -246,6 +247,32 @@ async fn purge_archived(
 
     let mut deleted = 0i64;
     for workspace in &candidates {
+        // Re-check immediately before deletion: the workspace may have been
+        // un-archived or may have acquired a new running process between our
+        // initial fetch and now.
+        let still_eligible: Option<i64> = sqlx::query_scalar(
+            r#"SELECT 1 FROM workspaces w
+               WHERE w.id = ? AND w.archived = 1
+                 AND NOT EXISTS (
+                     SELECT 1 FROM execution_processes ep
+                     JOIN sessions s ON s.id = ep.session_id
+                     WHERE s.workspace_id = w.id
+                       AND ep.status NOT IN ('completed', 'failed', 'killed')
+                 )"#,
+        )
+        .bind(workspace.id)
+        .fetch_optional(pool)
+        .await?;
+
+        if still_eligible.is_none() {
+            tracing::warn!(
+                workspace_id = %workspace.id,
+                "Workspace no longer eligible for purge on re-check (un-archived or new active process); skipping"
+            );
+            skipped_active += 1;
+            continue;
+        }
+
         if let Err(e) = deployment.container().delete(workspace).await {
             tracing::warn!(
                 workspace_id = %workspace.id,
@@ -310,7 +337,7 @@ async fn log_stats(
 }
 
 async fn purge_logs(
-    State(_deployment): State<DeploymentImpl>,
+    State(deployment): State<DeploymentImpl>,
     Query(query): Query<OlderThanQuery>,
 ) -> Result<ResponseJson<ApiResponse<LogPurgeResult>>, ApiError> {
     if query.older_than_days < 1 {
@@ -322,15 +349,50 @@ async fn purge_logs(
     let log_root = asset_dir().join(EXECUTION_LOGS_DIRNAME);
     let older_than_days = query.older_than_days;
 
-    let (deleted_files, bytes_freed) = tokio::task::spawn_blocking(move || {
-        let cutoff = std::time::SystemTime::now()
-            - std::time::Duration::from_secs(older_than_days as u64 * 86400);
+    // Step 1: Collect candidate (process_id, path, size) in a blocking task.
+    let candidates: Vec<(uuid::Uuid, std::path::PathBuf, u64)> =
+        tokio::task::spawn_blocking(move || {
+            let cutoff = std::time::SystemTime::now()
+                - std::time::Duration::from_secs(older_than_days as u64 * 86400);
+            collect_old_log_files(&log_root, cutoff)
+        })
+        .await
+        .map_err(|e| {
+            tracing::error!("purge_logs collect join error: {e}");
+            ApiError::Database(sqlx::Error::Protocol(e.to_string()))
+        })?;
 
-        let entries = collect_old_log_files(&log_root, cutoff);
+    // Step 2: Filter out processes that are still running.
+    // Orphaned files (process not in DB) are safe to delete.
+    let pool = &deployment.db().pool;
+    let mut safe_to_delete: Vec<(std::path::PathBuf, u64)> = Vec::new();
+    for (process_id, path, size) in candidates {
+        let status: Option<String> = sqlx::query_scalar(
+            "SELECT status FROM execution_processes WHERE id = ?",
+        )
+        .bind(process_id.to_string())
+        .fetch_optional(pool)
+        .await?;
+
+        match status.as_deref() {
+            Some("running") => {
+                tracing::debug!(
+                    process_id = %process_id,
+                    "Skipping log file for still-running process"
+                );
+            }
+            _ => {
+                // terminal status ('completed'/'failed'/'killed') OR orphaned (not in DB)
+                safe_to_delete.push((path, size));
+            }
+        }
+    }
+
+    // Step 3: Delete safe files in a blocking task.
+    let (deleted_files, bytes_freed) = tokio::task::spawn_blocking(move || {
         let mut deleted: i64 = 0;
         let mut freed: i64 = 0;
-
-        for (path, size) in entries {
+        for (path, size) in safe_to_delete {
             if std::fs::remove_file(&path).is_ok() {
                 deleted += 1;
                 freed += size as i64;
@@ -338,12 +400,11 @@ async fn purge_logs(
                 tracing::warn!("Failed to delete log file: {}", path.display());
             }
         }
-
         (deleted, freed)
     })
     .await
     .map_err(|e| {
-        tracing::error!("purge_logs join error: {e}");
+        tracing::error!("purge_logs delete join error: {e}");
         ApiError::Database(sqlx::Error::Protocol(e.to_string()))
     })?;
 
@@ -378,10 +439,19 @@ fn walk_log_files(
                     continue;
                 }
                 if let Ok(meta) = std::fs::metadata(&path) {
-                    if let Ok(mtime) = meta.modified() {
-                        if mtime < cutoff {
-                            cb(&meta);
+                    let mtime = match meta.modified() {
+                        Ok(t) => t,
+                        Err(e) => {
+                            tracing::warn!(
+                                path = %path.display(),
+                                error = %e,
+                                "Cannot read mtime for log file — skipping conservatively"
+                            );
+                            continue;
                         }
+                    };
+                    if mtime < cutoff {
+                        cb(&meta);
                     }
                 }
             }
@@ -389,11 +459,15 @@ fn walk_log_files(
     }
 }
 
-/// Collect `(path, size)` for `.jsonl` log files older than `cutoff`.
+/// Collect log files older than `cutoff`, returning `(process_id, path, size_bytes)`.
+///
+/// The process UUID is extracted from the filename stem. Files whose stem is not
+/// a valid UUID are skipped with a warning (they are unexpected and should not be deleted).
+/// Files where `modified()` fails are skipped conservatively with a warning.
 fn collect_old_log_files(
     root: &std::path::Path,
     cutoff: std::time::SystemTime,
-) -> Vec<(std::path::PathBuf, u64)> {
+) -> Vec<(uuid::Uuid, std::path::PathBuf, u64)> {
     let mut result = Vec::new();
     let Ok(top) = std::fs::read_dir(root) else {
         return result;
@@ -412,12 +486,38 @@ fn collect_old_log_files(
                 if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
                     continue;
                 }
-                if let Ok(meta) = std::fs::metadata(&path) {
-                    if let Ok(mtime) = meta.modified() {
-                        if mtime < cutoff {
-                            result.push((path, meta.len()));
-                        }
+                // Extract process UUID from filename stem.
+                let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                    continue;
+                };
+                let process_id = match uuid::Uuid::parse_str(stem) {
+                    Ok(id) => id,
+                    Err(_) => {
+                        tracing::warn!(
+                            path = %path.display(),
+                            "Skipping log file with non-UUID filename"
+                        );
+                        continue;
                     }
+                };
+                let Ok(meta) = std::fs::metadata(&path) else {
+                    continue;
+                };
+                let mtime = match meta.modified() {
+                    Ok(t) => t,
+                    Err(e) => {
+                        // Conservative: treat as recent so we never accidentally
+                        // delete a file whose age we cannot determine.
+                        tracing::warn!(
+                            path = %path.display(),
+                            error = %e,
+                            "Cannot read mtime for log file — skipping conservatively"
+                        );
+                        continue;
+                    }
+                };
+                if mtime < cutoff {
+                    result.push((process_id, path, meta.len()));
                 }
             }
         }
