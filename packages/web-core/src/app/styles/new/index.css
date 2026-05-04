@@ -279,6 +279,7 @@ html {
     @apply font-normal;
     @apply bg-background text-foreground;
     font-family: var(--font-ui);
+    font-variant-ligatures: var(--font-ligatures);
   }
 
   *:focus {
