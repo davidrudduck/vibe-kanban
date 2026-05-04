@@ -296,7 +296,6 @@ export const WorkspacesMainContainer = forwardRef<
             isAtTop={isAtTop}
             hasPreviousUserMessage={hasPreviousUserMessage}
             hasNextUserMessage={hasNextUserMessage}
-            onAtBottomChange={handleAtBottomChange}
             onScrollToBottom={handleScrollToBottom}
             onScrollToTop={handleScrollToTop}
             onScrollToPreviousMessage={handleScrollToPreviousMessage}
