@@ -1,4 +1,4 @@
-import { CopyIcon } from '@phosphor-icons/react';
+import { CopyIcon, WarningCircleIcon } from '@phosphor-icons/react';
 import { cn } from '@/shared/lib/utils';
 import { FileBrowserCodeViewer } from './FileBrowserCodeViewer';
 import { FileBrowserMarkdownViewer } from './FileBrowserMarkdownViewer';
@@ -11,6 +11,7 @@ interface FileBrowserViewerPanelProps {
   selectedFile: string | null;
   fileData: FileContentResponse | undefined;
   isLoading: boolean;
+  isError: boolean;
   viewMode: FileViewMode;
   onSetViewMode: (mode: FileViewMode) => void;
 }
@@ -19,6 +20,7 @@ export function FileBrowserViewerPanel({
   selectedFile,
   fileData,
   isLoading,
+  isError,
   viewMode,
   onSetViewMode,
 }: FileBrowserViewerPanelProps) {
@@ -97,7 +99,12 @@ export function FileBrowserViewerPanel({
 
       {/* Body */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {isLoading ? (
+        {isError ? (
+          <div className="flex flex-col items-center justify-center h-full gap-2 text-destructive">
+            <WarningCircleIcon className="size-5" />
+            <span className="text-sm">Failed to load file</span>
+          </div>
+        ) : isLoading ? (
           <div className="flex items-center justify-center h-full">
             <div className="size-5 animate-spin rounded-full border-2 border-border border-t-brand" />
           </div>

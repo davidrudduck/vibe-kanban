@@ -3,6 +3,7 @@ import {
   GitBranchIcon,
   FolderIcon,
   MagnifyingGlassIcon,
+  WarningCircleIcon,
 } from '@phosphor-icons/react';
 import { cn } from '@/shared/lib/utils';
 import { FileBrowserTreeNode } from '@vibe/ui/components/FileBrowserTreeNode';
@@ -12,6 +13,7 @@ import type { FileSource } from '@/shared/stores/useFileBrowserStore';
 interface FileBrowserTreePanelProps {
   listing: DirectoryListResponse | undefined;
   isLoading: boolean;
+  isError: boolean;
   source: FileSource;
   currentPath: string | null;
   selectedFile: string | null;
@@ -25,6 +27,7 @@ interface FileBrowserTreePanelProps {
 export function FileBrowserTreePanel({
   listing,
   isLoading,
+  isError,
   source,
   currentPath,
   selectedFile,
@@ -131,7 +134,12 @@ export function FileBrowserTreePanel({
 
       {/* Tree */}
       <div className="flex-1 overflow-y-auto py-1">
-        {isLoading ? (
+        {isError ? (
+          <div className="flex flex-col items-center justify-center py-8 gap-2 text-destructive">
+            <WarningCircleIcon className="size-5" />
+            <span className="text-xs">Failed to load directory</span>
+          </div>
+        ) : isLoading ? (
           <div className="flex items-center justify-center py-8">
             <div className="size-4 animate-spin rounded-full border-2 border-border border-t-brand" />
           </div>
