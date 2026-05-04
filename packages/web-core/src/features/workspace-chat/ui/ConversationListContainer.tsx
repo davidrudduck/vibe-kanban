@@ -57,6 +57,8 @@ interface ConversationListProps {
 export interface ConversationListHandle {
   scrollToPreviousUserMessage: () => void;
   scrollToNextUserMessage: () => void;
+  hasPreviousUserMessage: () => boolean;
+  hasNextUserMessage: () => boolean;
   scrollToTop: (behavior?: 'auto' | 'smooth') => void;
   scrollToBottom: (behavior?: 'auto' | 'smooth') => void;
   adjustScrollBy: (delta: number) => void;
@@ -741,6 +743,9 @@ export const ConversationList = forwardRef<
       scrollToNextUserMessage: () => {
         scrollToNextUserMessage();
       },
+      hasPreviousUserMessage: () =>
+        conversationVirtualizer.hasPreviousUserMessage(),
+      hasNextUserMessage: () => conversationVirtualizer.hasNextUserMessage(),
       scrollToTop: (behavior = 'smooth') => {
         scrollToTop(behavior);
       },

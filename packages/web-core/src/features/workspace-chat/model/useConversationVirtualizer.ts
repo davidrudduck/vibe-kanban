@@ -39,14 +39,6 @@ type ScrollToOptionsBehavior = 'auto' | 'smooth';
 // Module-level helpers
 // ---------------------------------------------------------------------------
 
-/** Returns the index of the last user message in rows, or -1 if none. */
-function findLastUserMessageIndex(rows: readonly ConversationRow[]): number {
-  for (let i = rows.length - 1; i >= 0; i--) {
-    if (rows[i].isUserMessage) return i;
-  }
-  return -1;
-}
-
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -468,24 +460,28 @@ export function useConversationVirtualizer({
   const hasPreviousUserMessage = useCallback((): boolean => {
     if (rows.length === 0) return false;
     const scrollEl = scrollContainerRef.current;
-    const scrollTop = scrollEl?.scrollTop ?? 0;
+    // Synthetic cursor when scroll info is unavailable: rows.length, treating
+    // the cursor as parked just past the end. This is the permissive default —
+    // any earlier user message satisfies the selector.
     const fromIndex =
-      (scrollEl && scrollTop > 0
-        ? virtualizer.getVirtualItemForOffset(scrollTop)?.index
-        : undefined) ?? findLastUserMessageIndex(rows);
-    if (fromIndex < 0) return false;
+      (scrollEl
+        ? virtualizer.getVirtualItemForOffset(scrollEl.scrollTop)?.index
+        : undefined) ?? rows.length;
     return findPreviousUserMessageIndex(rows, fromIndex) !== -1;
   }, [scrollContainerRef, virtualizer, rows]);
 
   const hasNextUserMessage = useCallback((): boolean => {
     if (rows.length === 0) return false;
     const scrollEl = scrollContainerRef.current;
-    const scrollTop = scrollEl?.scrollTop ?? 0;
+    // Synthetic cursor when scroll info is unavailable: -1, treating the
+    // cursor as parked just before the first row. This is the permissive
+    // default — any user message anywhere satisfies the selector. This
+    // guards Bug #2: at scrollTop=0 with user messages further down, the
+    // down-chevron must remain enabled.
     const fromIndex =
-      (scrollEl && scrollTop > 0
-        ? virtualizer.getVirtualItemForOffset(scrollTop)?.index
-        : undefined) ?? findLastUserMessageIndex(rows);
-    if (fromIndex < 0) return false;
+      (scrollEl
+        ? virtualizer.getVirtualItemForOffset(scrollEl.scrollTop)?.index
+        : undefined) ?? -1;
     return findNextUserMessageIndex(rows, fromIndex) !== -1;
   }, [scrollContainerRef, virtualizer, rows]);
 

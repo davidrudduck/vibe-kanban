@@ -81,39 +81,60 @@ describe('useConversationVirtualizer — bottom-lock re-arm regression', () => {
 });
 
 describe('useConversationVirtualizer — message-existence selectors', () => {
-  it('hasNextUserMessage is false when no later user message exists', () => {
+  it('returns false for both selectors when no user messages exist', () => {
     const ref = { current: makeContainer(500, 2000) };
     const rows = [
-      { isUserMessage: true },
+      { isUserMessage: false },
       { isUserMessage: false },
       { isUserMessage: false },
     ];
     const { result } = renderHook(() =>
       useConversationVirtualizer({
         scrollContainerRef: ref as React.RefObject<HTMLElement>,
+        // @ts-expect-error -- minimal mock; real ConversationRow shape is wider.
         rows,
       } as Parameters<typeof useConversationVirtualizer>[0])
     );
-    expect(result.current.hasNextUserMessage()).toBe(false);
     expect(result.current.hasPreviousUserMessage()).toBe(false);
+    expect(result.current.hasNextUserMessage()).toBe(false);
   });
 
-  it('hasPreviousUserMessage is true when an earlier user message exists', () => {
+  it('hasNextUserMessage is true at scrollTop=0 when later rows contain a user message (Bug #2 regression)', () => {
+    // Repros the bug fixed by symmetric synthetic-cursor fallbacks: at
+    // scrollTop=0 with users further down, the down-chevron must enable.
+    const ref = { current: makeContainer(500, 2000) };
+    const rows = [
+      { isUserMessage: false },
+      { isUserMessage: false },
+      { isUserMessage: true },
+    ];
+    const { result } = renderHook(() =>
+      useConversationVirtualizer({
+        scrollContainerRef: ref as React.RefObject<HTMLElement>,
+        // @ts-expect-error -- minimal mock; real ConversationRow shape is wider.
+        rows,
+      } as Parameters<typeof useConversationVirtualizer>[0])
+    );
+    expect(result.current.hasNextUserMessage()).toBe(true);
+  });
+
+  it('hasPreviousUserMessage is true when synthetic cursor is at end-of-list and a user message exists earlier', () => {
+    // Symmetric to the next-message regression: the synthetic cursor falls
+    // back to rows.length when no scroll info is available, so any earlier
+    // user message satisfies the selector.
     const ref = { current: makeContainer(500, 2000) };
     const rows = [
       { isUserMessage: true },
       { isUserMessage: false },
-      { isUserMessage: true },
       { isUserMessage: false },
     ];
     const { result } = renderHook(() =>
       useConversationVirtualizer({
         scrollContainerRef: ref as React.RefObject<HTMLElement>,
+        // @ts-expect-error -- minimal mock; real ConversationRow shape is wider.
         rows,
       } as Parameters<typeof useConversationVirtualizer>[0])
     );
-    // From the last row, both should exist.
     expect(result.current.hasPreviousUserMessage()).toBe(true);
-    expect(result.current.hasNextUserMessage()).toBe(false);
   });
 });
