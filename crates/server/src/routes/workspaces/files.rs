@@ -58,6 +58,36 @@ pub struct FilesQuery {
 }
 
 const MAX_BYTES: u64 = 500 * 1024;
+const MAX_ENTRIES: usize = 2000;
+// Reject git blobs larger than this before spawning git-show; the read is
+// capped at MAX_BYTES+1 anyway, but spawning git-show for a 5 GB object still
+// ties up a blocking thread and inflates pack decompression.
+const MAX_GIT_BLOB_BYTES: u64 = 50 * 1024 * 1024;
+
+/// Reject characters that are structurally invalid or dangerous in file paths.
+/// Null bytes terminate C strings; backslashes are Windows separators that
+/// bypass the `/`-split hidden-file check; CR/LF can inject into log lines.
+fn validate_rel_path(rel_path: &str) -> Result<(), ApiError> {
+    if rel_path
+        .bytes()
+        .any(|b| matches!(b, 0 | b'\r' | b'\n' | b'\\'))
+    {
+        return Err(ApiError::BadRequest("Invalid path".to_string()));
+    }
+    Ok(())
+}
+
+/// Returns true if any path component is hidden (starts with '.'), is a
+/// parent-dir (`..`), or is an absolute root/prefix.  Uses `Path::components`
+/// so that valid filenames containing `..` (e.g. `a..b`) are not rejected.
+fn has_hidden_component(rel_path: &str) -> bool {
+    use std::path::Component;
+    Path::new(rel_path).components().any(|c| match c {
+        Component::Normal(s) => s.to_string_lossy().starts_with('.'),
+        Component::ParentDir | Component::RootDir | Component::Prefix(_) => true,
+        Component::CurDir => false,
+    })
+}
 
 fn detect_language(path: &str) -> Option<String> {
     let ext = Path::new(path).extension()?.to_str()?;
@@ -132,11 +162,8 @@ fn list_directory_fs(
     worktree_root: &Path,
     rel_path: &str,
 ) -> Result<Vec<DirectoryEntry>, ApiError> {
-    // Reject paths with any hidden component
-    if rel_path
-        .split('/')
-        .any(|c| !c.is_empty() && c.starts_with('.'))
-    {
+    validate_rel_path(rel_path)?;
+    if has_hidden_component(rel_path) {
         return Err(ApiError::BadRequest(
             "Hidden directories are not accessible".to_string(),
         ));
@@ -144,6 +171,24 @@ fn list_directory_fs(
     let canonical_root = worktree_root
         .canonicalize()
         .map_err(|_| ApiError::BadRequest("Workspace root not found".to_string()))?;
+
+    // Symlink guard: walk each path component and reject any symlink in the chain.
+    // This prevents a symlink inside the workspace pointing to .git or an
+    // external directory from being traversed.
+    let mut accumulated = canonical_root.clone();
+    for component in std::path::Path::new(rel_path).components() {
+        accumulated = accumulated.join(component);
+        match std::fs::symlink_metadata(&accumulated) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                return Err(ApiError::BadRequest(
+                    "Symlink access not allowed".to_string(),
+                ));
+            }
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+
     let target = canonical_root.join(rel_path);
     let canonical = target
         .canonicalize()
@@ -152,6 +197,16 @@ fn list_directory_fs(
         return Err(ApiError::BadRequest(
             "Path traversal not allowed".to_string(),
         ));
+    }
+    // Re-check the resolved canonical path for hidden components.  A symlink
+    // inside the workspace could resolve to e.g. `<root>/.git/objects` which
+    // passes the prefix check but must still be blocked.
+    if let Ok(relative) = canonical.strip_prefix(&canonical_root) {
+        if has_hidden_component(&relative.to_string_lossy()) {
+            return Err(ApiError::BadRequest(
+                "Hidden directories are not accessible".to_string(),
+            ));
+        }
     }
     if !canonical.is_dir() {
         return Err(ApiError::BadRequest("Path is not a directory".to_string()));
@@ -186,6 +241,7 @@ fn list_directory_fs(
                 last_modified,
             })
         })
+        .take(MAX_ENTRIES)
         .collect();
 
     entries.sort_by(|a, b| {
@@ -198,13 +254,11 @@ fn list_directory_fs(
 }
 
 fn list_directory_git(repo_path: &Path, rel_path: &str) -> Result<Vec<DirectoryEntry>, ApiError> {
-    if rel_path.contains("..") || rel_path.starts_with('/') || rel_path.starts_with('-') {
+    validate_rel_path(rel_path)?;
+    if rel_path.starts_with('/') || rel_path.starts_with('-') {
         return Err(ApiError::BadRequest("Invalid path".to_string()));
     }
-    if rel_path
-        .split('/')
-        .any(|c| !c.is_empty() && c.starts_with('.'))
-    {
+    if has_hidden_component(rel_path) {
         return Err(ApiError::BadRequest(
             "Hidden directories are not accessible".to_string(),
         ));
@@ -253,6 +307,7 @@ fn list_directory_git(repo_path: &Path, rel_path: &str) -> Result<Vec<DirectoryE
                 last_modified: None,
             })
         })
+        .take(MAX_ENTRIES)
         .collect();
 
     entries.sort_by(|a, b| {
@@ -300,11 +355,10 @@ pub async fn read_file(
     let is_binary = bytes.iter().take(8192).any(|&b: &u8| b == 0);
 
     let truncated = size_bytes > MAX_BYTES;
-    let display_bytes = if truncated {
-        &bytes[..MAX_BYTES as usize]
-    } else {
-        &bytes
-    };
+    // Guard against bytes being shorter than MAX_BYTES (e.g. git smudge filters
+    // can shrink content relative to what cat-file -s reported).
+    let cap = bytes.len().min(MAX_BYTES as usize);
+    let display_bytes = if truncated { &bytes[..cap] } else { &bytes };
 
     let content = if is_binary {
         String::new()
@@ -323,11 +377,8 @@ pub async fn read_file(
 }
 
 fn read_file_fs(worktree_root: &Path, rel_path: &str) -> Result<(Vec<u8>, u64), ApiError> {
-    // Reject hidden path components
-    if rel_path
-        .split('/')
-        .any(|c| !c.is_empty() && c.starts_with('.'))
-    {
+    validate_rel_path(rel_path)?;
+    if has_hidden_component(rel_path) {
         return Err(ApiError::BadRequest(
             "Hidden files are not accessible".to_string(),
         ));
@@ -360,15 +411,25 @@ fn read_file_fs(worktree_root: &Path, rel_path: &str) -> Result<(Vec<u8>, u64), 
             "Path traversal not allowed".to_string(),
         ));
     }
+    // Re-check the resolved canonical path for hidden components.
+    if let Ok(relative) = canonical.strip_prefix(&canonical_root) {
+        if has_hidden_component(&relative.to_string_lossy()) {
+            return Err(ApiError::BadRequest(
+                "Hidden files are not accessible".to_string(),
+            ));
+        }
+    }
     if canonical.is_dir() {
         return Err(ApiError::BadRequest("Path is a directory".to_string()));
     }
-    // Stat for true file size, then stream limited bytes
-    let size = std::fs::metadata(&canonical)
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?
-        .len();
+    // Open the file first, then stat via the handle so size and content are
+    // derived from the same file descriptor (no race between stat and open).
     let mut file =
         std::fs::File::open(&canonical).map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    let size = file
+        .metadata()
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .len();
     let mut bytes = Vec::new();
     file.by_ref()
         .take(MAX_BYTES + 1)
@@ -378,13 +439,11 @@ fn read_file_fs(worktree_root: &Path, rel_path: &str) -> Result<(Vec<u8>, u64), 
 }
 
 fn read_file_git(repo_path: &Path, rel_path: &str) -> Result<(Vec<u8>, u64), ApiError> {
-    if rel_path.contains("..") || rel_path.starts_with('/') || rel_path.starts_with('-') {
+    validate_rel_path(rel_path)?;
+    if rel_path.starts_with('/') || rel_path.starts_with('-') {
         return Err(ApiError::BadRequest("Invalid path".to_string()));
     }
-    if rel_path
-        .split('/')
-        .any(|c| !c.is_empty() && c.starts_with('.'))
-    {
+    if has_hidden_component(rel_path) {
         return Err(ApiError::BadRequest(
             "Hidden files are not accessible".to_string(),
         ));
@@ -405,6 +464,15 @@ fn read_file_git(repo_path: &Path, rel_path: &str) -> Result<(Vec<u8>, u64), Api
         .trim()
         .parse()
         .map_err(|e| ApiError::BadRequest(format!("git cat-file size: {e}")))?;
+
+    // Reject very large blobs before spawning git-show to avoid tying up
+    // blocking threads and triggering expensive pack decompression.
+    if size > MAX_GIT_BLOB_BYTES {
+        return Err(ApiError::BadRequest(format!(
+            "File too large ({} MB) for preview",
+            size / 1024 / 1024
+        )));
+    }
 
     // Stream content capped at MAX_BYTES + 1
     let mut child = std::process::Command::new("git")
@@ -620,5 +688,122 @@ mod tests {
             msg.contains("ymlink") || msg.contains("not allowed"),
             "err was: {msg}"
         );
+    }
+
+    // --- New tests for remediated issues ---
+
+    #[test]
+    fn validate_rel_path_rejects_null_byte() {
+        assert!(validate_rel_path("foo\0bar").is_err());
+    }
+
+    #[test]
+    fn validate_rel_path_rejects_backslash() {
+        assert!(validate_rel_path("foo\\bar").is_err());
+    }
+
+    #[test]
+    fn validate_rel_path_rejects_newline() {
+        assert!(validate_rel_path("foo\nbar").is_err());
+        assert!(validate_rel_path("foo\rbar").is_err());
+    }
+
+    #[test]
+    fn has_hidden_component_allows_dotdot_in_name() {
+        // Filenames with internal `..` are NOT hidden — must not be rejected
+        assert!(!has_hidden_component("a..b"));
+        assert!(!has_hidden_component("src/a..b.rs"));
+        assert!(!has_hidden_component("changelog..txt"));
+    }
+
+    #[test]
+    fn has_hidden_component_rejects_parent_dir() {
+        assert!(has_hidden_component("../etc/passwd"));
+        assert!(has_hidden_component("foo/../bar"));
+        assert!(has_hidden_component(".."));
+    }
+
+    #[test]
+    fn has_hidden_component_rejects_dot_prefix() {
+        assert!(has_hidden_component(".env"));
+        assert!(has_hidden_component("src/.hidden"));
+        assert!(has_hidden_component(".git/config"));
+    }
+
+    #[test]
+    fn read_file_fs_rejects_null_byte_in_path() {
+        let tmp = TempDir::new().unwrap();
+        let inner = tmp.path().join("workspace");
+        fs::create_dir(&inner).unwrap();
+        let result = read_file_fs(&inner, "foo\0.txt");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn list_directory_fs_rejects_null_byte_in_path() {
+        let tmp = TempDir::new().unwrap();
+        let inner = tmp.path().join("workspace");
+        fs::create_dir(&inner).unwrap();
+        let result = list_directory_fs(&inner, "foo\0bar");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn read_file_git_rejects_null_byte_in_path() {
+        let tmp = TempDir::new().unwrap();
+        let result = read_file_git(tmp.path(), "foo\0bar");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn read_file_git_allows_filename_with_internal_dots() {
+        // `a..b` is a valid filename — the old contains("..") check wrongly
+        // rejected it.  With component-based validation it must pass the
+        // guard (it will still fail at the git command, but not at the guard).
+        let tmp = TempDir::new().unwrap();
+        // The git command will fail because the repo is empty, but the path
+        // guard itself must not fire.
+        let result = read_file_git(tmp.path(), "a..b");
+        // Expect failure due to git, not due to the path guard
+        let msg = format!("{:?}", result.unwrap_err());
+        assert!(
+            !msg.contains("Invalid path"),
+            "path guard should not reject 'a..b', got: {msg}"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn list_directory_fs_rejects_symlink_dir() {
+        use std::os::unix::fs::symlink;
+        let tmp = TempDir::new().unwrap();
+        let inner = tmp.path().join("workspace");
+        fs::create_dir(&inner).unwrap();
+        let outside = tmp.path().join("outside_dir");
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("secret.txt"), "secret").unwrap();
+        symlink(&outside, inner.join("linked")).unwrap();
+        let result = list_directory_fs(&inner, "linked");
+        assert!(
+            result.is_err(),
+            "listing a symlinked directory should be rejected"
+        );
+    }
+
+    #[test]
+    fn display_bytes_cap_does_not_panic_when_bytes_shorter_than_max() {
+        // Simulates the case where git smudge filters shrink content below
+        // MAX_BYTES even though size_bytes (from cat-file -s) > MAX_BYTES.
+        let short_bytes: Vec<u8> = vec![b'x'; 100]; // way shorter than MAX_BYTES
+        let size_bytes: u64 = MAX_BYTES + 1; // triggers truncated = true
+        let truncated = size_bytes > MAX_BYTES;
+        let cap = short_bytes.len().min(MAX_BYTES as usize);
+        // This must not panic
+        let display_bytes = if truncated {
+            &short_bytes[..cap]
+        } else {
+            &short_bytes
+        };
+        assert_eq!(display_bytes.len(), 100);
     }
 }

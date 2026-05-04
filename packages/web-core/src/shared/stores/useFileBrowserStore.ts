@@ -68,6 +68,7 @@ export const useFileBrowserStore = create<FileBrowserState>()((set) => ({
 
   resetForWorkspace: () =>
     set({
+      source: 'worktree',
       currentPath: null,
       selectedFile: null,
       filterTerm: '',

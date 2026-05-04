@@ -17,6 +17,7 @@ export function FileBrowserHtmlViewer({
     <iframe
       srcDoc={content}
       sandbox=""
+      referrerPolicy="no-referrer"
       className="w-full h-full border-0 bg-white"
       title="HTML preview"
     />
