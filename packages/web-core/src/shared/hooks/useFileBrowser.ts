@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { workspacesApi } from '@/shared/lib/api';
 import type { FileSource } from '@/shared/stores/useFileBrowserStore';
 
@@ -19,6 +19,7 @@ export function useDirectoryListing(
     queryFn: () => workspacesApi.listFiles(workspaceId!, path ?? '', source),
     enabled: !!workspaceId,
     staleTime: 30_000,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -33,6 +34,7 @@ export function useFileContent(
       workspacesApi.getFileContent(workspaceId!, filePath!, source),
     enabled: !!workspaceId && !!filePath,
     staleTime: 60_000,
+    placeholderData: keepPreviousData,
   });
 }
 
