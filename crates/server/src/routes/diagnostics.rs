@@ -33,8 +33,13 @@ pub struct WorkspaceDiskUsage {
 #[ts(export)]
 pub struct DiskUsageResponse {
     pub workspaces: Vec<WorkspaceDiskUsage>,
+    /// Sum of disk usage across ALL workspaces (not just the displayed top-N).
     pub total_bytes: u64,
     pub total_human: String,
+    /// Sum of disk usage for the displayed workspaces (top-50 by size).
+    /// May be less than total_bytes when there are more than 50 workspaces.
+    pub displayed_bytes: u64,
+    pub displayed_human: String,
 }
 
 fn format_bytes(bytes: u64) -> String {
@@ -138,14 +143,20 @@ async fn get_disk_usage(
     }
 
     usage_list.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes));
+    // Compute total across ALL workspaces before truncating.
     let total_bytes: u64 = usage_list.iter().map(|w| w.size_bytes).sum();
-    usage_list.truncate(50);
     let total_human = format_bytes(total_bytes);
+    usage_list.truncate(50);
+    // Compute displayed total after truncating to top-50.
+    let displayed_bytes: u64 = usage_list.iter().map(|w| w.size_bytes).sum();
+    let displayed_human = format_bytes(displayed_bytes);
 
     Ok(ResponseJson(ApiResponse::success(DiskUsageResponse {
         workspaces: usage_list,
         total_bytes,
         total_human,
+        displayed_bytes,
+        displayed_human,
     })))
 }
 

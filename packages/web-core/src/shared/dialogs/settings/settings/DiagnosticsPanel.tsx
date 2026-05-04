@@ -47,7 +47,12 @@ function StatRow({
 }
 
 export function DiagnosticsPanel() {
-  const { data: diagnostics, isLoading: diagLoading } = useDiagnostics();
+  const {
+    data: diagnostics,
+    isLoading: diagLoading,
+    isError: diagIsError,
+    error: diagError,
+  } = useDiagnostics();
   const {
     data: diskData,
     isFetching: diskLoading,
@@ -67,6 +72,12 @@ export function DiagnosticsPanel() {
             <SpinnerIcon className="size-icon-sm animate-spin" weight="bold" />
             Loading...
           </div>
+        )}
+        {diagIsError && (
+          <p className="text-sm text-error py-2">
+            Failed to load diagnostics:{' '}
+            {(diagError as Error)?.message ?? 'Unknown error'}
+          </p>
         )}
         {diagnostics && (
           <div className="rounded-sm border border-border overflow-hidden">
@@ -93,6 +104,12 @@ export function DiagnosticsPanel() {
             <SpinnerIcon className="size-icon-sm animate-spin" weight="bold" />
             Loading...
           </div>
+        )}
+        {diagIsError && (
+          <p className="text-sm text-error py-2">
+            Failed to load diagnostics:{' '}
+            {(diagError as Error)?.message ?? 'Unknown error'}
+          </p>
         )}
         {diagnostics && (
           <div className="space-y-2">
@@ -176,11 +193,23 @@ export function DiagnosticsPanel() {
                   </span>
                 </div>
               ))}
-              <div className="flex items-center justify-between px-3 py-1.5 bg-secondary/50 border-t border-border">
-                <span className="text-sm font-medium text-normal">Total</span>
-                <span className="text-sm font-mono font-medium text-normal">
-                  {diskData.total_human}
-                </span>
+              <div className="flex flex-col gap-0.5 px-3 py-1.5 bg-secondary/50 border-t border-border">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-normal">
+                    Displayed total
+                  </span>
+                  <span className="text-sm font-mono font-medium text-normal">
+                    {diskData.displayed_human}
+                  </span>
+                </div>
+                {diskData.total_bytes !== diskData.displayed_bytes && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-low">All workspaces</span>
+                    <span className="text-xs font-mono text-low">
+                      {diskData.total_human}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           </>
