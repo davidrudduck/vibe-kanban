@@ -324,15 +324,23 @@ fn read_file_fs(worktree_root: &Path, rel_path: &str) -> Result<(Vec<u8>, u64), 
     let canonical_root = worktree_root
         .canonicalize()
         .map_err(|_| ApiError::BadRequest("Workspace root not found".to_string()))?;
-    let target = canonical_root.join(rel_path);
-    // Symlink guard: check before canonicalize resolves it
-    let sym_meta = std::fs::symlink_metadata(&target)
-        .map_err(|_| ApiError::BadRequest("File not found".to_string()))?;
-    if sym_meta.file_type().is_symlink() {
-        return Err(ApiError::BadRequest(
-            "Symlink access not allowed".to_string(),
-        ));
+    // Symlink guard: walk each component and reject any symlink in the chain
+    let mut accumulated = canonical_root.clone();
+    for component in std::path::Path::new(rel_path).components() {
+        accumulated = accumulated.join(component);
+        match std::fs::symlink_metadata(&accumulated) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                return Err(ApiError::BadRequest(
+                    "Symlink access not allowed".to_string(),
+                ));
+            }
+            Ok(_) => {}
+            Err(_) => {
+                return Err(ApiError::BadRequest("File not found".to_string()));
+            }
+        }
     }
+    let target = canonical_root.join(rel_path);
     let canonical = target
         .canonicalize()
         .map_err(|_| ApiError::BadRequest("File not found".to_string()))?;
@@ -476,6 +484,11 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let result = list_directory_git(tmp.path(), ".git");
         assert!(result.is_err());
+        let msg = format!("{:?}", result.unwrap_err());
+        assert!(
+            msg.contains("Hidden") || msg.contains("hidden"),
+            "expected hidden-path error, got: {msg}"
+        );
     }
 
     #[test]
@@ -483,9 +496,15 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let result = read_file_git(tmp.path(), ".env");
         assert!(result.is_err());
+        let msg = format!("{:?}", result.unwrap_err());
+        assert!(
+            msg.contains("Hidden") || msg.contains("hidden"),
+            "expected hidden-file error, got: {msg}"
+        );
     }
 
     #[test]
+    #[cfg(unix)]
     fn read_file_fs_rejects_symlink() {
         use std::os::unix::fs::symlink;
         let tmp = TempDir::new().unwrap();
