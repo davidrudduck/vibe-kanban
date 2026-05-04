@@ -49,6 +49,7 @@ import { KeyboardCommandsPlugin } from '@vibe/ui/components/KeyboardCommandsPlug
 import { ImageKeyboardPlugin } from '@vibe/ui/components/ImageKeyboardPlugin';
 import { ComponentInfoKeyboardPlugin } from '@vibe/ui/components/ComponentInfoKeyboardPlugin';
 import { ReadOnlyLinkPlugin } from '@vibe/ui/components/ReadOnlyLinkPlugin';
+import { AutoLinkPlugin } from '@vibe/ui/components/AutoLinkPlugin';
 import { ClickableCodePlugin } from '@vibe/ui/components/ClickableCodePlugin';
 import { ToolbarPlugin } from '@vibe/ui/components/ToolbarPlugin';
 import { StaticToolbarPlugin } from '@vibe/ui/components/StaticToolbarPlugin';
@@ -61,7 +62,7 @@ import { ListPlugin } from '@lexical/react/LexicalListPlugin';
 import { CodeNode, CodeHighlightNode } from '@lexical/code';
 import { CodeHighlightPlugin } from '@vibe/ui/components/CodeHighlightPlugin';
 import { CODE_HIGHLIGHT_CLASSES } from '@vibe/ui/lib/code-highlight-theme';
-import { LinkNode } from '@lexical/link';
+import { AutoLinkNode, LinkNode } from '@lexical/link';
 import { TableNode, TableRowNode, TableCellNode } from '@lexical/table';
 import { TablePlugin } from '@lexical/react/LexicalTablePlugin';
 import { type EditorState, type LexicalEditor } from 'lexical';
@@ -457,6 +458,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
           CodeNode,
           CodeHighlightNode,
           LinkNode,
+          AutoLinkNode,
           ImageNode,
           AttachmentNode,
           PrCommentNode,
@@ -652,7 +654,8 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                     />
                   </>
                 )}
-                {/* Link sanitization for read-only mode */}
+                {/* Auto-link bare URLs and sanitize links in read-only mode */}
+                {disabled && <AutoLinkPlugin />}
                 {disabled && <ReadOnlyLinkPlugin />}
                 {/* Clickable code for file paths in read-only mode */}
                 {disabled && findMatchingDiffPath && onCodeClick && (
