@@ -334,7 +334,7 @@ export function SessionChatBox<TExecutor extends string = string>({
     } else if (isInEditMode && canSend) {
       editMode?.onSubmitEdit();
     } else if (status === 'running' && canSend) {
-      actions.onQueue();
+      actions.onSend();
     } else if (status === 'idle' && canSend) {
       actions.onSend();
     }
@@ -529,7 +529,7 @@ export function SessionChatBox<TExecutor extends string = string>({
         return (
           <>
             <PrimaryButton
-              onClick={actions.onQueue}
+              onClick={actions.onSend}
               disabled={!canSend}
               value={t('conversation.actions.queue')}
             />
