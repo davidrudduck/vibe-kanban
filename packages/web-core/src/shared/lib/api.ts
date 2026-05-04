@@ -10,6 +10,7 @@ import {
   CreatePrApiRequest,
   CreateTag,
   DirectoryListResponse,
+  FileContentResponse,
   DirectoryEntry,
   ExecutionProcess,
   ExecutionProcessRepoState,
@@ -782,6 +783,30 @@ export const workspacesApi = {
       CreateWorkspaceFromPrResponse,
       CreateFromPrError
     >(response);
+  },
+
+  listFiles: async (
+    workspaceId: string,
+    path: string,
+    source: 'worktree' | 'main'
+  ): Promise<DirectoryListResponse> => {
+    const params = new URLSearchParams({ path, source });
+    const response = await makeRequest(
+      `/api/workspaces/${workspaceId}/files?${params}`
+    );
+    return handleApiResponse<DirectoryListResponse>(response);
+  },
+
+  getFileContent: async (
+    workspaceId: string,
+    filePath: string,
+    source: 'worktree' | 'main'
+  ): Promise<FileContentResponse> => {
+    const params = new URLSearchParams({ path: filePath, source });
+    const response = await makeRequest(
+      `/api/workspaces/${workspaceId}/files/content?${params}`
+    );
+    return handleApiResponse<FileContentResponse>(response);
   },
 };
 
