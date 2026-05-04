@@ -166,6 +166,12 @@
       "deleteBranchLabel": "Delete branch",
       "cannotDeleteOpenPr": "Cannot delete branch while PR is open",
       "unlinkFromIssueLabel": "Also unlink from issue"
+    },
+    "nav": {
+      "goToTop": "Go to top",
+      "previousUserMessage": "Previous user message",
+      "nextUserMessage": "Next user message",
+      "scrollToBottom": "Scroll to bottom"
     }
   },
   "fileTree": {
