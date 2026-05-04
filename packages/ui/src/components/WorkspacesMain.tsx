@@ -29,6 +29,8 @@ interface WorkspacesMainProps {
   onScrollToTop?: (behavior?: 'auto' | 'smooth') => void;
   onScrollToPreviousMessage?: () => void;
   onScrollToNextMessage?: () => void;
+  hasPreviousUserMessage?: boolean;
+  hasNextUserMessage?: boolean;
   isMobile?: boolean;
 }
 
@@ -66,6 +68,8 @@ export function WorkspacesMain({
   onScrollToTop,
   onScrollToPreviousMessage,
   onScrollToNextMessage,
+  hasPreviousUserMessage = true,
+  hasNextUserMessage = true,
   isMobile,
 }: WorkspacesMainProps) {
   const { t } = useTranslation(['tasks', 'common']);
@@ -110,14 +114,14 @@ export function WorkspacesMain({
                   onClick={() => onScrollToTop?.('auto')}
                 />
               )}
-              {!isAtTop && onScrollToPreviousMessage && (
+              {!isAtTop && hasPreviousUserMessage && onScrollToPreviousMessage && (
                 <NavButton
                   icon={ArrowUpIcon}
                   label="Previous user message"
                   onClick={onScrollToPreviousMessage}
                 />
               )}
-              {!isAtBottom && onScrollToNextMessage && (
+              {!isAtBottom && hasNextUserMessage && onScrollToNextMessage && (
                 <NavButton
                   icon={ArrowDownIcon}
                   label="Next user message"

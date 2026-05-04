@@ -177,6 +177,8 @@ function WorkspaceSessionPanel({
   const conversationListRef = useRef<ConversationListHandle>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [isAtTop, setIsAtTop] = useState(true);
+  const [hasPreviousUserMessage, setHasPreviousUserMessage] = useState(true);
+  const [hasNextUserMessage, setHasNextUserMessage] = useState(true);
   const { data: workspace, isLoading: isWorkspaceLoading } = useWorkspaceRecord(
     workspaceId,
     { enabled: !!workspaceId }
@@ -270,10 +272,22 @@ function WorkspaceSessionPanel({
 
   const handleAtBottomChange = useCallback((atBottom: boolean) => {
     setIsAtBottom(atBottom);
+    setHasPreviousUserMessage(
+      conversationListRef.current?.hasPreviousUserMessage() ?? true
+    );
+    setHasNextUserMessage(
+      conversationListRef.current?.hasNextUserMessage() ?? true
+    );
   }, []);
 
   const handleAtTopChange = useCallback((atTop: boolean) => {
     setIsAtTop(atTop);
+    setHasPreviousUserMessage(
+      conversationListRef.current?.hasPreviousUserMessage() ?? true
+    );
+    setHasNextUserMessage(
+      conversationListRef.current?.hasNextUserMessage() ?? true
+    );
   }, []);
 
   return (
@@ -356,14 +370,14 @@ function WorkspaceSessionPanel({
                           onClick={() => handleScrollToTop('auto')}
                         />
                       )}
-                      {!isAtTop && (
+                      {!isAtTop && hasPreviousUserMessage && (
                         <NavButton
                           icon={ArrowUpIcon}
                           label="Previous user message"
                           onClick={handleScrollToPreviousMessage}
                         />
                       )}
-                      {!isAtBottom && (
+                      {!isAtBottom && hasNextUserMessage && (
                         <NavButton
                           icon={ArrowDownIcon}
                           label="Next user message"
