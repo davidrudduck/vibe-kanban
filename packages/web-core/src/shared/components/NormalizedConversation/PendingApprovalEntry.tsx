@@ -7,8 +7,9 @@ import {
   useState,
 } from 'react';
 import type { ReactNode } from 'react';
-import type { ApprovalStatus, ToolStatus } from 'shared/types';
+import type { ApprovalStatus, QuestionAnswer, ToolStatus } from 'shared/types';
 import { Button } from '@vibe/ui/components/Button';
+import QuestionForm from './QuestionForm';
 import {
   Tooltip,
   TooltipContent,
@@ -276,6 +277,50 @@ const PendingApprovalEntry = ({
     [disabled, executionProcessId, pendingStatus.approval_id, clear]
   );
 
+  const handleSubmitAnswers = useCallback(
+    async (rawAnswers: Record<string, string[]>) => {
+      if (disabled) return;
+      if (!executionProcessId) {
+        setError('Missing executionProcessId');
+        return;
+      }
+
+      setIsResponding(true);
+      setError(null);
+
+      const answers: QuestionAnswer[] = (approvalInfo?.questions ?? []).map(
+        (q) => ({
+          question: q.question,
+          header: q.header,
+          answer: rawAnswers[q.header] ?? [],
+        })
+      );
+
+      try {
+        await approvalsApi.respond(pendingStatus.approval_id, {
+          execution_process_id: executionProcessId,
+          status: { status: 'answered', answers },
+        });
+        setHasResponded(true);
+        clear();
+      } catch (e: unknown) {
+        console.error('Question answer submit failed:', e);
+        const errorMessage =
+          e instanceof Error ? e.message : 'Failed to send response';
+        setError(errorMessage);
+      } finally {
+        setIsResponding(false);
+      }
+    },
+    [
+      disabled,
+      executionProcessId,
+      pendingStatus.approval_id,
+      approvalInfo,
+      clear,
+    ]
+  );
+
   const handleApprove = useCallback(() => respond(true), [respond]);
   const handleStartDeny = useCallback(() => {
     if (disabled) return;
@@ -315,6 +360,11 @@ const PendingApprovalEntry = ({
     preventDefault: true,
   });
 
+  const isQuestionMode =
+    approvalInfo?.is_question === true &&
+    approvalInfo.questions != null &&
+    approvalInfo.questions.length > 0;
+
   return (
     <div className="relative mt-3">
       <div className="overflow-hidden">
@@ -322,42 +372,65 @@ const PendingApprovalEntry = ({
 
         <div className="bg-background px-2 py-1.5 text-xs sm:text-sm">
           <TooltipProvider>
-            <div className="flex items-center justify-between gap-1.5 pl-4">
-              <div className="flex items-center gap-1.5">
-                {!isEnteringReason && (
-                  <span className="text-muted-foreground">
-                    Would you like to approve this?
-                  </span>
+            {isQuestionMode ? (
+              <>
+                {!hasResponded && (
+                  <QuestionForm
+                    questions={approvalInfo!.questions!}
+                    onSubmit={handleSubmitAnswers}
+                    disabled={disabled}
+                  />
                 )}
-              </div>
-              {!isEnteringReason && (
-                <ActionButtons
-                  disabled={disabled}
-                  isResponding={isResponding}
-                  onApprove={handleApprove}
-                  onStartDeny={handleStartDeny}
-                />
-              )}
-            </div>
+                {error && (
+                  <div
+                    className="mt-1 px-4 text-xs text-red-600"
+                    role="alert"
+                    aria-live="polite"
+                  >
+                    {error}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="flex items-center justify-between gap-1.5 pl-4">
+                  <div className="flex items-center gap-1.5">
+                    {!isEnteringReason && (
+                      <span className="text-muted-foreground">
+                        Would you like to approve this?
+                      </span>
+                    )}
+                  </div>
+                  {!isEnteringReason && (
+                    <ActionButtons
+                      disabled={disabled}
+                      isResponding={isResponding}
+                      onApprove={handleApprove}
+                      onStartDeny={handleStartDeny}
+                    />
+                  )}
+                </div>
 
-            {error && (
-              <div
-                className="mt-1 text-xs text-red-600"
-                role="alert"
-                aria-live="polite"
-              >
-                {error}
-              </div>
-            )}
+                {error && (
+                  <div
+                    className="mt-1 text-xs text-red-600"
+                    role="alert"
+                    aria-live="polite"
+                  >
+                    {error}
+                  </div>
+                )}
 
-            {isEnteringReason && !hasResponded && (
-              <DenyReasonForm
-                isResponding={isResponding}
-                value={denyReason}
-                onChange={setDenyReason}
-                onCancel={handleCancelDeny}
-                onSubmit={handleSubmitDeny}
-              />
+                {isEnteringReason && !hasResponded && (
+                  <DenyReasonForm
+                    isResponding={isResponding}
+                    value={denyReason}
+                    onChange={setDenyReason}
+                    onCancel={handleCancelDeny}
+                    onSubmit={handleSubmitDeny}
+                  />
+                )}
+              </>
             )}
           </TooltipProvider>
         </div>

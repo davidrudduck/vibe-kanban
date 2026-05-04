@@ -38,7 +38,11 @@ export const AskUserQuestionBanner = forwardRef<
     (rec: Record<string, string[]>): QuestionAnswer[] =>
       questions
         .filter((q) => rec[q.question] !== undefined)
-        .map((q) => ({ question: q.question, answer: rec[q.question] })),
+        .map((q) => ({
+          question: q.question,
+          header: q.header,
+          answer: rec[q.question],
+        })),
     [questions]
   );
   // Track which question index we're currently showing
