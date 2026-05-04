@@ -10,7 +10,7 @@ use axum::{
 use db::models::{
     coding_agent_turn::CodingAgentTurn,
     execution_process::{ExecutionProcess, ExecutionProcessRunReason},
-    merge::{Merge, MergeStatus, PrMerge},
+    merge::{DirectMerge, Merge, MergeStatus, PrMerge, PullRequestInfo},
     pull_request::PullRequest,
     repo::{Repo, RepoError},
     session::{CreateSession, Session},
@@ -863,4 +863,108 @@ pub fn router() -> Router<DeploymentImpl> {
         .route("/", post(create_pr))
         .route("/attach", post(attach_existing_pr))
         .route("/comments", get(get_pr_comments))
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+
+    use super::*;
+
+    fn make_pr_merge_with_status(status: MergeStatus) -> Merge {
+        Merge::Pr(PrMerge {
+            id: Uuid::new_v4(),
+            workspace_id: Uuid::new_v4(),
+            repo_id: Uuid::new_v4(),
+            created_at: Utc::now(),
+            target_branch_name: "main".to_string(),
+            pr_info: PullRequestInfo {
+                number: 1,
+                url: "https://github.com/owner/repo/pull/1".to_string(),
+                status,
+                merged_at: None,
+                merge_commit_sha: None,
+            },
+        })
+    }
+
+    fn make_direct_merge() -> Merge {
+        Merge::Direct(DirectMerge {
+            id: Uuid::new_v4(),
+            workspace_id: Uuid::new_v4(),
+            repo_id: Uuid::new_v4(),
+            merge_commit: "abc123".to_string(),
+            target_branch_name: "main".to_string(),
+            merge_strategy: "merge".to_string(),
+            created_at: Utc::now(),
+        })
+    }
+
+    #[test]
+    fn find_open_pr_merge_returns_none_for_empty_list() {
+        assert!(find_open_pr_merge(vec![]).is_none());
+    }
+
+    #[test]
+    fn find_open_pr_merge_returns_none_when_only_merged_pr() {
+        // Key regression case: a merged PR must NOT block new PR linking.
+        let merges = vec![make_pr_merge_with_status(MergeStatus::Merged)];
+        assert!(find_open_pr_merge(merges).is_none());
+    }
+
+    #[test]
+    fn find_open_pr_merge_returns_none_when_only_closed_pr() {
+        let merges = vec![make_pr_merge_with_status(MergeStatus::Closed)];
+        assert!(find_open_pr_merge(merges).is_none());
+    }
+
+    #[test]
+    fn find_open_pr_merge_returns_none_when_only_unknown_pr() {
+        let merges = vec![make_pr_merge_with_status(MergeStatus::Unknown)];
+        assert!(find_open_pr_merge(merges).is_none());
+    }
+
+    #[test]
+    fn find_open_pr_merge_returns_none_for_direct_merge_only() {
+        let merges = vec![make_direct_merge()];
+        assert!(find_open_pr_merge(merges).is_none());
+    }
+
+    #[test]
+    fn find_open_pr_merge_returns_open_pr() {
+        let merges = vec![make_pr_merge_with_status(MergeStatus::Open)];
+        let result = find_open_pr_merge(merges).expect("expected an open PR merge");
+        assert!(matches!(result.pr_info.status, MergeStatus::Open));
+    }
+
+    #[test]
+    fn find_open_pr_merge_returns_open_pr_when_mixed_with_merged() {
+        // Simulates: old merged PR + new open PR both in the list.
+        let merges = vec![
+            make_pr_merge_with_status(MergeStatus::Merged),
+            make_pr_merge_with_status(MergeStatus::Open),
+        ];
+        let result = find_open_pr_merge(merges).expect("expected an open PR merge");
+        assert!(matches!(result.pr_info.status, MergeStatus::Open));
+    }
+
+    #[test]
+    fn find_open_pr_merge_ignores_direct_merges_even_with_open_pr() {
+        let merges = vec![
+            make_direct_merge(),
+            make_pr_merge_with_status(MergeStatus::Open),
+        ];
+        let result = find_open_pr_merge(merges).expect("expected an open PR merge");
+        assert!(matches!(result.pr_info.status, MergeStatus::Open));
+    }
+
+    #[test]
+    fn find_open_pr_merge_returns_first_open_pr_when_multiple_open() {
+        let merges = vec![
+            make_pr_merge_with_status(MergeStatus::Open),
+            make_pr_merge_with_status(MergeStatus::Open),
+        ];
+        let result = find_open_pr_merge(merges).expect("expected an open PR merge");
+        assert!(matches!(result.pr_info.status, MergeStatus::Open));
+    }
 }
