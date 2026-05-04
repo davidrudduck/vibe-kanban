@@ -250,13 +250,43 @@ export const useConversationHistory = ({
       for (let i = 0; i < 20; i++) {
         try {
           await loadRunningAndEmit(executionProcess);
-          break;
+          return; // onFinished fired; stream settled cleanly
         } catch (_) {
           await new Promise((resolve) => setTimeout(resolve, 500));
         }
       }
+
+      // All retries exhausted without a clean Finished frame.
+      // If the process has already transitioned to non-running, load its
+      // final entries from the historic endpoint as a last resort.
+      if (settledStreamProcessIdsRef.current.has(executionProcess.id)) {
+        return; // settled concurrently while we were in the last retry sleep
+      }
+
+      const currentProcess = executionProcesses.current?.find(
+        (p) => p.id === executionProcess.id
+      );
+      if (
+        currentProcess &&
+        currentProcess.status !== ExecutionProcessStatus.running
+      ) {
+        const entries =
+          await loadEntriesForHistoricExecutionProcess(currentProcess);
+        if (entries.length > 0) {
+          const entriesWithKey = entries.map((e, idx) =>
+            patchWithKey(e, currentProcess.id, idx)
+          );
+          mergeIntoDisplayed((state) => {
+            state[currentProcess.id] = {
+              executionProcess: currentProcess,
+              entries: entriesWithKey,
+            };
+          });
+          emitEntries(displayedExecutionProcesses.current, 'running', false);
+        }
+      }
     },
-    [loadRunningAndEmit]
+    [loadRunningAndEmit, emitEntries]
   );
 
   const loadHistoricEntries = useCallback(
