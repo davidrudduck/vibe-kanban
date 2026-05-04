@@ -40,7 +40,6 @@ export const useConversationHistory = ({
   const loadedInitialEntries = useRef(false);
   const emittedEmptyInitialRef = useRef(false);
   const streamingProcessIdsRef = useRef<Set<string>>(new Set());
-  // @ts-expect-error -- declared for use in subsequent stream-dedup logic
   const settledStreamProcessIdsRef = useRef<Set<string>>(new Set());
   const onTimelineUpdatedRef = useRef<
     UseConversationHistoryParams['onTimelineUpdated'] | null
@@ -230,6 +229,7 @@ export const useConversationHistory = ({
             emitEntries(displayedExecutionProcesses.current, 'running', false);
           },
           onFinished: () => {
+            settledStreamProcessIdsRef.current.add(executionProcess.id);
             emitEntries(displayedExecutionProcesses.current, 'running', false);
             controller.close();
             resolve();
@@ -386,6 +386,7 @@ export const useConversationHistory = ({
     loadedInitialEntries.current = false;
     emittedEmptyInitialRef.current = false;
     streamingProcessIdsRef.current.clear();
+    settledStreamProcessIdsRef.current.clear();
     previousStatusMapRef.current.clear();
     emitEntries(displayedExecutionProcesses.current, 'initial', true);
   }, [scopeKey, emitEntries]);
@@ -484,7 +485,8 @@ export const useConversationHistory = ({
       if (
         previousStatus === ExecutionProcessStatus.running &&
         currentStatus !== ExecutionProcessStatus.running &&
-        displayedExecutionProcesses.current[process.id]
+        displayedExecutionProcesses.current[process.id] &&
+        !settledStreamProcessIdsRef.current.has(process.id)
       ) {
         processesToReload.push(process);
       }
