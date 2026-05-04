@@ -1,19 +1,13 @@
 // VS Code webview integration - install keyboard/clipboard bridge
 import '@/integrations/vscode/bridge';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { Session } from 'shared/types';
 import { useTranslation } from 'react-i18next';
 import { AppWithStyleOverride } from '@/shared/lib/StyleOverride';
 import { useStyleOverrideThemeSetter } from '@/shared/lib/StyleOverride';
 import { WebviewContextMenu } from '@/integrations/vscode/ContextMenu';
-import {
-  ArrowDownIcon,
-  ArrowLineDownIcon,
-  ArrowLineUpIcon,
-  ArrowUpIcon,
-  type Icon as PhosphorIcon,
-} from '@phosphor-icons/react';
+import { ConversationNavOverlay } from '@vibe/ui/components/ConversationNavOverlay';
 import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
 import { useDiffStats } from '@/shared/stores/useWorkspaceDiffStore';
 import { usePageTitle } from '@/shared/hooks/usePageTitle';
@@ -28,28 +22,7 @@ import { RetryUiProvider } from '@/features/workspace-chat/model/contexts/RetryU
 import { ApprovalFeedbackProvider } from '@/features/workspace-chat/model/contexts/ApprovalFeedbackContext';
 import { forwardWheelToScroller } from '@/features/workspace-chat/ui/forwardWheelToScroller';
 import { createWorkspaceWithSession } from '@/shared/types/attempt';
-
-function NavButton({
-  icon: Icon,
-  label,
-  onClick,
-}: {
-  icon: PhosphorIcon;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="pointer-events-auto flex items-center justify-center size-8 rounded-full bg-secondary/80 backdrop-blur-sm border border-secondary text-low hover:text-normal hover:bg-secondary shadow-md transition-all"
-      aria-label={label}
-      title={label}
-    >
-      <Icon className="size-icon-base" weight="bold" />
-    </button>
-  );
-}
+import { useConversationNavController } from '@/features/workspace-chat/model/useConversationNavController';
 
 function VSCodeChatBox({
   session,
@@ -70,7 +43,7 @@ function VSCodeChatBox({
   onSelectSession: (sessionId: string) => void;
   onStartNewSession: () => void;
   onScrollToPreviousMessage: () => void;
-  onScrollToBottom: (behavior?: 'auto' | 'smooth') => void;
+  onScrollToBottom: () => void;
   onScrollToUserMessage: (patchKey: string) => void;
   getActiveTurnPatchKey: () => string | null;
 }) {
@@ -113,11 +86,6 @@ export function VSCodeWorkspacePage() {
   const setTheme = useStyleOverrideThemeSetter();
   const mainContainerRef = useRef<HTMLElement>(null);
   const conversationListRef = useRef<ConversationListHandle>(null);
-  const [isAtBottom, setIsAtBottom] = useState(true);
-  const [isAtTop, setIsAtTop] = useState(true);
-  const [hasPreviousUserMessage, setHasPreviousUserMessage] = useState(true);
-  const [hasNextUserMessage, setHasNextUserMessage] = useState(true);
-  const isAtBottomRef = useRef(isAtBottom);
 
   const {
     workspace,
@@ -133,64 +101,13 @@ export function VSCodeWorkspacePage() {
 
   usePageTitle(workspace?.name);
 
-  const workspaceWithSession = workspace
-    ? createWorkspaceWithSession(workspace, selectedSession)
-    : undefined;
-
-  const handleScrollToPreviousMessage = useCallback(() => {
-    conversationListRef.current?.scrollToPreviousUserMessage();
-  }, []);
-
-  const handleScrollToNextMessage = useCallback(() => {
-    conversationListRef.current?.scrollToNextUserMessage();
-  }, []);
-
-  const handleScrollToUserMessage = useCallback((patchKey: string) => {
-    conversationListRef.current?.scrollToEntryByPatchKey(patchKey);
-  }, []);
-
-  const handleGetActiveTurnPatchKey = useCallback(() => {
-    return conversationListRef.current?.getVisibleUserMessagePatchKey() ?? null;
-  }, []);
-
-  const handleScrollToBottom = useCallback(
-    (behavior: 'auto' | 'smooth' = 'smooth') => {
-      conversationListRef.current?.scrollToBottom(behavior);
-    },
-    []
+  const workspaceWithSession = useMemo(
+    () =>
+      workspace ? createWorkspaceWithSession(workspace, selectedSession) : undefined,
+    [workspace, selectedSession]
   );
 
-  const handleScrollToTop = useCallback(
-    (behavior: 'auto' | 'smooth' = 'smooth') => {
-      conversationListRef.current?.scrollToTop(behavior);
-    },
-    []
-  );
-
-  const handleAtBottomChange = useCallback((atBottom: boolean) => {
-    isAtBottomRef.current = atBottom;
-    setIsAtBottom(atBottom);
-    setHasPreviousUserMessage(
-      conversationListRef.current?.hasPreviousUserMessage() ?? true
-    );
-    setHasNextUserMessage(
-      conversationListRef.current?.hasNextUserMessage() ?? true
-    );
-  }, []);
-
-  const handleAtTopChange = useCallback((atTop: boolean) => {
-    setIsAtTop(atTop);
-    setHasPreviousUserMessage(
-      conversationListRef.current?.hasPreviousUserMessage() ?? true
-    );
-    setHasNextUserMessage(
-      conversationListRef.current?.hasNextUserMessage() ?? true
-    );
-  }, []);
-
-  useEffect(() => {
-    isAtBottomRef.current = isAtBottom;
-  }, [isAtBottom]);
+  const nav = useConversationNavController(conversationListRef);
 
   useEffect(() => {
     const container = mainContainerRef.current;
@@ -212,10 +129,10 @@ export function VSCodeWorkspacePage() {
       const heightDelta = nextHeight - previousHeight;
       previousHeight = nextHeight;
 
-      if (!isAtBottomRef.current) return;
+      if (!nav.isAtBottomRef.current) return;
 
       requestAnimationFrame(() => {
-        if (!isAtBottomRef.current) return;
+        if (!nav.isAtBottomRef.current) return;
         conversationListRef.current?.adjustScrollBy(heightDelta);
       });
     });
@@ -225,7 +142,7 @@ export function VSCodeWorkspacePage() {
     return () => {
       observer.disconnect();
     };
-  }, [workspaceWithSession?.id, selectedSession?.id]);
+  }, [workspaceWithSession?.id, selectedSession?.id, nav.isAtBottomRef]);
 
   return (
     <AppWithStyleOverride setTheme={setTheme}>
@@ -267,8 +184,8 @@ export function VSCodeWorkspacePage() {
                           ref={conversationListRef}
                           attempt={workspaceWithSession}
                           repos={repos}
-                          onAtBottomChange={handleAtBottomChange}
-                          onAtTopChange={handleAtTopChange}
+                          onAtBottomChange={nav.onAtBottomChange}
+                          onAtTopChange={nav.onAtTopChange}
                           sessionScopeId={selectedSessionId}
                         />
                       </RetryUiProvider>
@@ -276,41 +193,17 @@ export function VSCodeWorkspacePage() {
                   </div>
                 )}
 
-                {workspaceWithSession && (!isAtTop || !isAtBottom) && (
-                  <div className="flex justify-center pointer-events-none">
-                    <div className="w-chat max-w-full relative">
-                      <div className="absolute bottom-2 right-4 z-10 flex flex-col gap-1 pointer-events-none">
-                        {!isAtTop && (
-                          <NavButton
-                            icon={ArrowLineUpIcon}
-                            label="Go to top"
-                            onClick={() => handleScrollToTop('auto')}
-                          />
-                        )}
-                        {!isAtTop && hasPreviousUserMessage && (
-                          <NavButton
-                            icon={ArrowUpIcon}
-                            label="Previous user message"
-                            onClick={handleScrollToPreviousMessage}
-                          />
-                        )}
-                        {!isAtBottom && hasNextUserMessage && (
-                          <NavButton
-                            icon={ArrowDownIcon}
-                            label="Next user message"
-                            onClick={handleScrollToNextMessage}
-                          />
-                        )}
-                        {!isAtBottom && (
-                          <NavButton
-                            icon={ArrowLineDownIcon}
-                            label="Scroll to bottom"
-                            onClick={() => handleScrollToBottom('auto')}
-                          />
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                {workspaceWithSession && (
+                  <ConversationNavOverlay
+                    isAtTop={nav.isAtTop}
+                    isAtBottom={nav.isAtBottom}
+                    hasPreviousUserMessage={nav.hasPreviousUserMessage}
+                    hasNextUserMessage={nav.hasNextUserMessage}
+                    onScrollToTop={nav.onScrollToTop}
+                    onScrollToPreviousMessage={nav.onScrollToPreviousMessage}
+                    onScrollToNextMessage={nav.onScrollToNextMessage}
+                    onScrollToBottom={nav.onScrollToBottom}
+                  />
                 )}
                 <div
                   className="flex justify-center @container pl-px"
@@ -323,10 +216,10 @@ export function VSCodeWorkspacePage() {
                     sessions={sessions}
                     onSelectSession={selectSession}
                     onStartNewSession={startNewSession}
-                    onScrollToPreviousMessage={handleScrollToPreviousMessage}
-                    onScrollToBottom={handleScrollToBottom}
-                    onScrollToUserMessage={handleScrollToUserMessage}
-                    getActiveTurnPatchKey={handleGetActiveTurnPatchKey}
+                    onScrollToPreviousMessage={nav.onScrollToPreviousMessage}
+                    onScrollToBottom={nav.onScrollToBottom}
+                    onScrollToUserMessage={nav.onScrollToUserMessage}
+                    getActiveTurnPatchKey={nav.getActiveTurnPatchKey}
                   />
                 </div>
               </MessageEditProvider>
