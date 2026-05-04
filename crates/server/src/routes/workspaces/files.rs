@@ -43,10 +43,19 @@ pub struct FileContentResponse {
     pub language: Option<String>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum FileSource {
+    #[default]
+    Worktree,
+    Main,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct FilesQuery {
     pub path: Option<String>,
-    pub source: Option<String>,
+    #[serde(default)]
+    pub source: FileSource,
 }
 
 fn detect_language(path: &str) -> Option<String> {
@@ -81,6 +90,7 @@ fn detect_language(path: &str) -> Option<String> {
     Some(lang.to_string())
 }
 
+#[axum::debug_handler]
 pub async fn list_directory(
     Extension(workspace): Extension<Workspace>,
     State(deployment): State<DeploymentImpl>,
@@ -98,17 +108,22 @@ pub async fn list_directory(
         .ok_or_else(|| ApiError::BadRequest("Workspace container not available".to_string()))?;
 
     let worktree_root = Path::new(container_ref).join(&repo.name);
-    let rel_path = query.path.as_deref().unwrap_or("");
-    let source = query.source.as_deref().unwrap_or("worktree");
+    let rel_path = query.path.as_deref().unwrap_or("").to_string();
+    let repo_path_owned = repo.path.clone();
+    let source = query.source;
 
-    let entries = match source {
-        "main" => list_directory_git(&repo.path, rel_path)?,
-        _ => list_directory_fs(&worktree_root, rel_path)?,
-    };
+    let entries = tokio::task::spawn_blocking(move || match source {
+        FileSource::Main => list_directory_git(&repo_path_owned, &rel_path),
+        FileSource::Worktree => list_directory_fs(&worktree_root, &rel_path),
+    })
+    .await
+    .map_err(|e| ApiError::Internal(e.to_string()))??;
+
+    let current_path = query.path.unwrap_or_default();
 
     Ok(ResponseJson(ApiResponse::success(DirectoryListResponse {
         entries,
-        current_path: rel_path.to_string(),
+        current_path,
     })))
 }
 
@@ -223,6 +238,7 @@ fn list_directory_git(repo_path: &Path, rel_path: &str) -> Result<Vec<DirectoryE
     Ok(entries)
 }
 
+#[axum::debug_handler]
 pub async fn read_file(
     Extension(workspace): Extension<Workspace>,
     State(deployment): State<DeploymentImpl>,
@@ -242,16 +258,22 @@ pub async fn read_file(
     let worktree_root = Path::new(container_ref).join(&repo.name);
     let rel_path = query
         .path
-        .as_deref()
         .ok_or_else(|| ApiError::BadRequest("path query param required".to_string()))?;
-    let source = query.source.as_deref().unwrap_or("worktree");
+    let repo_path_owned = repo.path.clone();
+    let source = query.source;
 
     const MAX_BYTES: u64 = 500 * 1024;
 
-    let (bytes, size_bytes) = match source {
-        "main" => read_file_git(&repo.path, rel_path)?,
-        _ => read_file_fs(&worktree_root, rel_path)?,
-    };
+    let rel_path_owned = rel_path.clone();
+    let (bytes, size_bytes) = tokio::task::spawn_blocking(move || match source {
+        FileSource::Main => read_file_git(&repo_path_owned, &rel_path_owned),
+        FileSource::Worktree => read_file_fs(&worktree_root, &rel_path_owned),
+    })
+    .await
+    .map_err(|e| ApiError::Internal(e.to_string()))??;
+
+    // Check first 8KB for null bytes (binary heuristic)
+    let is_binary = bytes.iter().take(8192).any(|&b| b == 0);
 
     let truncated = size_bytes > MAX_BYTES;
     let display_bytes = if truncated {
@@ -260,18 +282,18 @@ pub async fn read_file(
         &bytes
     };
 
-    let content = if String::from_utf8(display_bytes.to_vec()).is_err() && !truncated {
+    let content = if is_binary {
         "__BINARY__".to_string()
     } else {
         String::from_utf8_lossy(display_bytes).into_owned()
     };
 
     Ok(ResponseJson(ApiResponse::success(FileContentResponse {
-        path: rel_path.to_string(),
+        path: rel_path,
         content,
         size_bytes,
         truncated,
-        language: detect_language(rel_path),
+        language: detect_language(&rel_path),
     })))
 }
 
@@ -362,5 +384,18 @@ mod tests {
         fs::write(tmp.path().join("secret.txt"), "secret").unwrap();
         let result = read_file_fs(&inner, "../secret.txt");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn binary_detection_null_byte_heuristic() {
+        // File with null byte should be detected as binary
+        let binary_bytes: Vec<u8> = vec![0x89, 0x50, 0x4e, 0x47, 0x00, 0x0d, 0x0a, 0x1a];
+        let is_binary = binary_bytes.iter().take(8192).any(|&b| b == 0);
+        assert!(is_binary);
+
+        // Plain text should not be detected as binary
+        let text_bytes = b"fn main() { println!(\"hello\"); }".to_vec();
+        let is_binary = text_bytes.iter().take(8192).any(|&b| b == 0);
+        assert!(!is_binary);
     }
 }
