@@ -21,7 +21,24 @@ pub struct FileLoggingConfig {
 
 impl FileLoggingConfig {
     pub fn from_env(asset_dir: PathBuf) -> Self {
-        todo!()
+        let enabled = std::env::var("VK_FILE_LOGGING")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false);
+
+        let log_dir = std::env::var("VK_LOG_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| asset_dir.join("logs"));
+
+        let max_files = std::env::var("VK_LOG_MAX_FILES")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(7);
+
+        Self {
+            enabled,
+            log_dir,
+            max_files,
+        }
     }
 }
 
@@ -30,12 +47,44 @@ pub fn init_logging(filter_string: &str) -> Option<WorkerGuard> {
 }
 
 fn cleanup_old_logs(log_dir: &PathBuf, max_files: usize) {
-    todo!()
+    let entries = match std::fs::read_dir(log_dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
+    let mut log_files: Vec<_> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.path()
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.starts_with("vibe-kanban.log"))
+                .unwrap_or(false)
+        })
+        .filter_map(|e| {
+            e.metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .map(|t| (e.path(), t))
+        })
+        .collect();
+
+    // Newest first
+    log_files.sort_by(|a, b| b.1.cmp(&a.1));
+
+    for (path, _) in log_files.into_iter().skip(max_files) {
+        if let Err(e) = std::fs::remove_file(&path) {
+            tracing::warn!("Failed to remove old log file {:?}: {}", path, e);
+        } else {
+            tracing::debug!("Removed old log file: {:?}", path);
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::fs;
+
     use super::*;
 
     fn temp_dir() -> PathBuf {
@@ -97,7 +146,10 @@ mod tests {
                 std::env::set_var("VK_FILE_LOGGING", val);
             }
             let config = FileLoggingConfig::from_env(temp_dir());
-            assert!(!config.enabled, "expected disabled for VK_FILE_LOGGING={val}");
+            assert!(
+                !config.enabled,
+                "expected disabled for VK_FILE_LOGGING={val}"
+            );
         }
         unsafe {
             std::env::remove_var("VK_FILE_LOGGING");
@@ -152,10 +204,7 @@ mod tests {
 
         cleanup_old_logs(&dir, 3);
 
-        let remaining: Vec<_> = fs::read_dir(&dir)
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .collect();
+        let remaining: Vec<_> = fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).collect();
 
         assert_eq!(remaining.len(), 3, "should retain exactly 3 files");
     }
@@ -164,7 +213,11 @@ mod tests {
     fn cleanup_is_noop_when_under_limit() {
         let dir = temp_dir();
         for i in 0..3u8 {
-            fs::write(dir.join(format!("vibe-kanban.log.2025-01-{:02}", i + 1)), b"x").unwrap();
+            fs::write(
+                dir.join(format!("vibe-kanban.log.2025-01-{:02}", i + 1)),
+                b"x",
+            )
+            .unwrap();
         }
 
         cleanup_old_logs(&dir, 7);
