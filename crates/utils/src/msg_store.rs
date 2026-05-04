@@ -233,7 +233,10 @@ mod tests {
     /// The fix (`get_receiver()` before `get_history()`) ensures this by subscribing
     /// to the broadcast channel first.  If the ordering were reversed the event
     /// pushed inside the race window would be silently dropped.
-    #[tokio::test]
+    // Pin to current_thread so the scheduler guarantee (main task runs
+    // get_history() before the spawned task executes push()) is enforced.
+    // Do NOT change to multi_thread — it would break the ordering invariant.
+    #[tokio::test(flavor = "current_thread")]
     async fn history_plus_stream_subscribe_first_captures_race_window_push() {
         let store = Arc::new(MsgStore::new());
 
