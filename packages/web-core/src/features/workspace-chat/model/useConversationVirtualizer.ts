@@ -36,6 +36,18 @@ import {
 type ScrollToOptionsBehavior = 'auto' | 'smooth';
 
 // ---------------------------------------------------------------------------
+// Module-level helpers
+// ---------------------------------------------------------------------------
+
+/** Returns the index of the last user message in rows, or -1 if none. */
+function findLastUserMessageIndex(rows: readonly ConversationRow[]): number {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (rows[i].isUserMessage) return i;
+  }
+  return -1;
+}
+
+// ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
@@ -121,6 +133,18 @@ export interface ConversationVirtualizerResult {
    * Returns true if a target was found and scrolled to, false otherwise.
    */
   scrollToNextUserMessage: () => boolean;
+
+  /**
+   * Whether at least one user message exists before the current scroll position
+   * (or before the most recent user message when the scroll container is unmounted).
+   */
+  hasPreviousUserMessage: () => boolean;
+
+  /**
+   * Whether at least one user message exists after the current scroll position
+   * (or after the most recent user message when the scroll container is unmounted).
+   */
+  hasNextUserMessage: () => boolean;
 
   /**
    * Whether the scroll container is currently near the bottom.
@@ -441,6 +465,30 @@ export function useConversationVirtualizer({
     [virtualizer]
   );
 
+  const hasPreviousUserMessage = useCallback((): boolean => {
+    if (rows.length === 0) return false;
+    const scrollEl = scrollContainerRef.current;
+    const scrollTop = scrollEl?.scrollTop ?? 0;
+    const fromIndex =
+      (scrollEl && scrollTop > 0
+        ? virtualizer.getVirtualItemForOffset(scrollTop)?.index
+        : undefined) ?? findLastUserMessageIndex(rows);
+    if (fromIndex < 0) return false;
+    return findPreviousUserMessageIndex(rows, fromIndex) !== -1;
+  }, [scrollContainerRef, virtualizer, rows]);
+
+  const hasNextUserMessage = useCallback((): boolean => {
+    if (rows.length === 0) return false;
+    const scrollEl = scrollContainerRef.current;
+    const scrollTop = scrollEl?.scrollTop ?? 0;
+    const fromIndex =
+      (scrollEl && scrollTop > 0
+        ? virtualizer.getVirtualItemForOffset(scrollTop)?.index
+        : undefined) ?? findLastUserMessageIndex(rows);
+    if (fromIndex < 0) return false;
+    return findNextUserMessageIndex(rows, fromIndex) !== -1;
+  }, [scrollContainerRef, virtualizer, rows]);
+
   const scrollToPreviousUserMessage = useCallback((): boolean => {
     const scrollEl = scrollContainerRef.current;
     const items = virtualizer.getVirtualItems();
@@ -527,6 +575,8 @@ export function useConversationVirtualizer({
     scrollToIndex,
     scrollToPreviousUserMessage,
     scrollToNextUserMessage,
+    hasPreviousUserMessage,
+    hasNextUserMessage,
     isAtBottom: isAtBottomState,
     isAtTop: isAtTopState,
     checkIsAtBottom,

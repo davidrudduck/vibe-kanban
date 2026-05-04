@@ -94,9 +94,7 @@ describe('useConversationVirtualizer — message-existence selectors', () => {
         rows,
       } as Parameters<typeof useConversationVirtualizer>[0])
     );
-    // @ts-expect-error -- selectors arrive in Task 1.5
     expect(result.current.hasNextUserMessage()).toBe(false);
-    // @ts-expect-error -- selectors arrive in Task 1.5
     expect(result.current.hasPreviousUserMessage()).toBe(false);
   });
 
@@ -115,9 +113,7 @@ describe('useConversationVirtualizer — message-existence selectors', () => {
       } as Parameters<typeof useConversationVirtualizer>[0])
     );
     // From the last row, both should exist.
-    // @ts-expect-error -- selectors arrive in Task 1.5
     expect(result.current.hasPreviousUserMessage()).toBe(true);
-    // @ts-expect-error -- selectors arrive in Task 1.5
     expect(result.current.hasNextUserMessage()).toBe(false);
   });
 });
