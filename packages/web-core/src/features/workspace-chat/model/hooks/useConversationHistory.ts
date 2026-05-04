@@ -94,33 +94,34 @@ export const useConversationHistory = ({
     );
   }, [executionProcessesRaw]);
 
-  const loadEntriesForHistoricExecutionProcess = (
-    executionProcess: ExecutionProcess
-  ) => {
-    let url = '';
-    if (executionProcess.executor_action.typ.type === 'ScriptRequest') {
-      url = `/api/execution-processes/${executionProcess.id}/raw-logs/ws`;
-    } else {
-      url = `/api/execution-processes/${executionProcess.id}/normalized-logs/ws`;
-    }
+  const loadEntriesForHistoricExecutionProcess = useCallback(
+    (executionProcess: ExecutionProcess) => {
+      let url = '';
+      if (executionProcess.executor_action.typ.type === 'ScriptRequest') {
+        url = `/api/execution-processes/${executionProcess.id}/raw-logs/ws`;
+      } else {
+        url = `/api/execution-processes/${executionProcess.id}/normalized-logs/ws`;
+      }
 
-    return new Promise<PatchType[]>((resolve) => {
-      const controller = streamJsonPatchEntries<PatchType>(url, {
-        onFinished: (allEntries) => {
-          controller.close();
-          resolve(allEntries);
-        },
-        onError: (err) => {
-          console.warn(
-            `Error loading entries for historic execution process ${executionProcess.id}`,
-            err
-          );
-          controller.close();
-          resolve([]);
-        },
+      return new Promise<PatchType[]>((resolve) => {
+        const controller = streamJsonPatchEntries<PatchType>(url, {
+          onFinished: (allEntries) => {
+            controller.close();
+            resolve(allEntries);
+          },
+          onError: (err) => {
+            console.warn(
+              `Error loading entries for historic execution process ${executionProcess.id}`,
+              err
+            );
+            controller.close();
+            resolve([]);
+          },
+        });
       });
-    });
-  };
+    },
+    []
+  );
 
   const patchWithKey = (
     patch: PatchType,
@@ -263,7 +264,7 @@ export const useConversationHistory = ({
         return; // settled concurrently while we were in the last retry sleep
       }
 
-      const currentProcess = executionProcesses.current?.find(
+      const currentProcess = executionProcesses.current.find(
         (p) => p.id === executionProcess.id
       );
       if (
@@ -272,21 +273,22 @@ export const useConversationHistory = ({
       ) {
         const entries =
           await loadEntriesForHistoricExecutionProcess(currentProcess);
-        if (entries.length > 0) {
-          const entriesWithKey = entries.map((e, idx) =>
-            patchWithKey(e, currentProcess.id, idx)
-          );
-          mergeIntoDisplayed((state) => {
-            state[currentProcess.id] = {
-              executionProcess: currentProcess,
-              entries: entriesWithKey,
-            };
-          });
-          emitEntries(displayedExecutionProcesses.current, 'running', false);
+        if (settledStreamProcessIdsRef.current.has(executionProcess.id)) {
+          return; // late-arriving onFinished settled the stream during the fetch
         }
+        const entriesWithKey = entries.map((e, idx) =>
+          patchWithKey(e, currentProcess.id, idx)
+        );
+        mergeIntoDisplayed((state) => {
+          state[currentProcess.id] = {
+            executionProcess: currentProcess,
+            entries: entriesWithKey,
+          };
+        });
+        emitEntries(displayedExecutionProcesses.current, 'running', false);
       }
     },
-    [loadRunningAndEmit, emitEntries]
+    [loadRunningAndEmit, loadEntriesForHistoricExecutionProcess, emitEntries]
   );
 
   const loadHistoricEntries = useCallback(
@@ -322,7 +324,7 @@ export const useConversationHistory = ({
 
       return localDisplayedExecutionProcesses;
     },
-    [executionProcesses]
+    [executionProcesses, loadEntriesForHistoricExecutionProcess]
   );
 
   const loadRemainingEntriesInBatches = useCallback(
@@ -363,7 +365,7 @@ export const useConversationHistory = ({
       }
       return anyUpdated;
     },
-    [executionProcesses]
+    [executionProcesses, loadEntriesForHistoricExecutionProcess]
   );
 
   const ensureProcessVisible = useCallback((p: ExecutionProcess) => {
