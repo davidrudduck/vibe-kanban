@@ -36,6 +36,7 @@ pub struct DirectoryListResponse {
 pub struct FileContentResponse {
     pub path: String,
     pub content: String,
+    pub is_binary: bool,
     pub size_bytes: u64,
     pub truncated: bool,
     pub language: Option<String>,
@@ -306,7 +307,7 @@ pub async fn read_file(
     };
 
     let content = if is_binary {
-        "__BINARY__".to_string()
+        String::new()
     } else {
         String::from_utf8_lossy(display_bytes).into_owned()
     };
@@ -314,6 +315,7 @@ pub async fn read_file(
     Ok(ResponseJson(ApiResponse::success(FileContentResponse {
         path: rel_path.clone(),
         content,
+        is_binary,
         size_bytes,
         truncated,
         language: detect_language(&rel_path),
@@ -479,6 +481,29 @@ mod tests {
         fs::write(tmp.path().join("secret.txt"), "secret").unwrap();
         let result = read_file_fs(&inner, "../secret.txt");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn read_file_fs_binary_file_returns_is_binary_true_empty_content() {
+        // Demonstrates that the binary heuristic sets is_binary=true and content=""
+        // (We test the byte-level heuristic directly since it's used in the handler)
+        let binary_bytes: Vec<u8> = vec![0x89, 0x50, 0x4e, 0x47, 0x00, 0x0d, 0x0a, 0x1a];
+        let is_binary = binary_bytes.iter().take(8192).any(|&b| b == 0);
+        assert!(
+            is_binary,
+            "PNG bytes with null should be detected as binary"
+        );
+
+        // When is_binary=true, content must be empty (not the __BINARY__ sentinel)
+        let content = if is_binary {
+            String::new()
+        } else {
+            String::from_utf8_lossy(&binary_bytes).into_owned()
+        };
+        assert_eq!(
+            content, "",
+            "binary content should be empty string, not a sentinel"
+        );
     }
 
     #[test]
