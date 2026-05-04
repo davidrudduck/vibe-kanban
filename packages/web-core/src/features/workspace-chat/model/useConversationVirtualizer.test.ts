@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import type { RefObject } from 'react';
+import React from 'react';
 import { useConversationVirtualizer } from './useConversationVirtualizer';
 
 class MockResizeObserver {
@@ -76,5 +77,47 @@ describe('useConversationVirtualizer — bottom-lock re-arm regression', () => {
 
     // 4. Bottom lock MUST be re-armed (regression assertion — FAILS today)
     expect(result.current.isBottomScrollCorrectionActive()).toBe(true);
+  });
+});
+
+describe('useConversationVirtualizer — message-existence selectors', () => {
+  it('hasNextUserMessage is false when no later user message exists', () => {
+    const ref = { current: makeContainer(500, 2000) };
+    const rows = [
+      { isUserMessage: true },
+      { isUserMessage: false },
+      { isUserMessage: false },
+    ];
+    const { result } = renderHook(() =>
+      useConversationVirtualizer({
+        scrollContainerRef: ref as React.RefObject<HTMLElement>,
+        rows,
+      } as Parameters<typeof useConversationVirtualizer>[0])
+    );
+    // @ts-expect-error -- selectors arrive in Task 1.5
+    expect(result.current.hasNextUserMessage()).toBe(false);
+    // @ts-expect-error -- selectors arrive in Task 1.5
+    expect(result.current.hasPreviousUserMessage()).toBe(false);
+  });
+
+  it('hasPreviousUserMessage is true when an earlier user message exists', () => {
+    const ref = { current: makeContainer(500, 2000) };
+    const rows = [
+      { isUserMessage: true },
+      { isUserMessage: false },
+      { isUserMessage: true },
+      { isUserMessage: false },
+    ];
+    const { result } = renderHook(() =>
+      useConversationVirtualizer({
+        scrollContainerRef: ref as React.RefObject<HTMLElement>,
+        rows,
+      } as Parameters<typeof useConversationVirtualizer>[0])
+    );
+    // From the last row, both should exist.
+    // @ts-expect-error -- selectors arrive in Task 1.5
+    expect(result.current.hasPreviousUserMessage()).toBe(true);
+    // @ts-expect-error -- selectors arrive in Task 1.5
+    expect(result.current.hasNextUserMessage()).toBe(false);
   });
 });
