@@ -151,6 +151,11 @@ impl EventService {
         futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>,
         super::types::EventError,
     > {
+        // Subscribe to the broadcast BEFORE querying the DB so that any
+        // scratch update that races with the snapshot is captured in the
+        // live stream rather than silently dropped.
+        let receiver = self.msg_store.get_receiver();
+
         // Treat errors (e.g., corrupted/malformed data) the same as "scratch not found"
         // This prevents the websocket from closing and retrying indefinitely
         let scratch = match Scratch::find_by_id(&self.db.pool, scratch_id, scratch_type).await {
@@ -177,7 +182,7 @@ impl EventService {
 
         // Filter to only this scratch's events by matching id and payload.type in the patch value
         let filtered_stream =
-            BroadcastStream::new(self.msg_store.get_receiver()).filter_map(move |msg_result| {
+            BroadcastStream::new(receiver).filter_map(move |msg_result| {
                 let id_str = scratch_id.to_string();
                 let type_str = type_str.clone();
                 async move {
@@ -230,6 +235,10 @@ impl EventService {
         futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>,
         super::types::EventError,
     > {
+        // Subscribe to the broadcast BEFORE querying the DB (same TOCTOU
+        // fix as stream_execution_processes_for_session_raw).
+        let receiver = self.msg_store.get_receiver();
+
         let workspaces = Workspace::find_all_with_status(&self.db.pool, archived, limit).await?;
         let workspaces_map: serde_json::Map<String, serde_json::Value> = workspaces
             .into_iter()
@@ -243,7 +252,7 @@ impl EventService {
         }]);
         let initial_msg = LogMsg::JsonPatch(serde_json::from_value(initial_patch).unwrap());
 
-        let filtered_stream = BroadcastStream::new(self.msg_store.get_receiver()).filter_map(
+        let filtered_stream = BroadcastStream::new(receiver).filter_map(
             move |msg_result| async move {
                 match msg_result {
                     Ok(LogMsg::JsonPatch(patch)) => {
