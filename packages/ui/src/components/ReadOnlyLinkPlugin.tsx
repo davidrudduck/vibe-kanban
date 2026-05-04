@@ -93,14 +93,15 @@ export function ReadOnlyLinkPlugin() {
       handleMutations
     );
 
-    // Also handle existing links on mount by triggering a read
-    editor.getEditorState().read(() => {
-      const root = editor.getRootElement();
-      if (!root) return;
+    // Apply attributes to any links already in the DOM at mount time.
+    // DOM query is intentionally outside .read() — .read() is for Lexical state,
+    // not DOM access.
+    const root = editor.getRootElement();
+    if (root) {
       root.querySelectorAll('a').forEach((link) => {
         applyLinkAttributes(link as HTMLAnchorElement);
       });
-    });
+    }
 
     return () => {
       unregisterLink();
