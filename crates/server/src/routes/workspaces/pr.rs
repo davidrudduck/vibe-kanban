@@ -10,7 +10,7 @@ use axum::{
 use db::models::{
     coding_agent_turn::CodingAgentTurn,
     execution_process::{ExecutionProcess, ExecutionProcessRunReason},
-    merge::{Merge, MergeStatus},
+    merge::{Merge, MergeStatus, PrMerge},
     pull_request::PullRequest,
     repo::{Repo, RepoError},
     session::{CreateSession, Session},
@@ -37,6 +37,20 @@ use uuid::Uuid;
 use workspace_manager::WorkspaceManager;
 
 use crate::{DeploymentImpl, error::ApiError};
+
+/// Returns the first open PR merge for the given list of merges, or `None` if
+/// no open PR is attached. Ignores merged, closed, and direct merges so that a
+/// new PR can be linked after the previous one has been merged/closed.
+fn find_open_pr_merge(merges: Vec<Merge>) -> Option<PrMerge> {
+    merges.into_iter().find_map(|m| {
+        if let Merge::Pr(p) = m {
+            if matches!(p.pr_info.status, MergeStatus::Open) {
+                return Some(p);
+            }
+        }
+        None
+    })
+}
 
 #[derive(Debug, Deserialize, Serialize, TS)]
 pub struct CreatePrApiRequest {
@@ -404,9 +418,10 @@ pub async fn attach_existing_pr(
         .await?
         .ok_or(RepoError::NotFound)?;
 
-    // Check if PR already attached for this repo
+    // Only short-circuit if an *open* PR is already attached.
+    // A merged or closed PR should allow a new PR to be linked.
     let merges = Merge::find_by_workspace_and_repo_id(pool, workspace.id, request.repo_id).await?;
-    if let Some(Merge::Pr(pr_merge)) = merges.into_iter().next() {
+    if let Some(pr_merge) = find_open_pr_merge(merges) {
         return Ok(ResponseJson(ApiResponse::success(AttachPrResponse {
             pr_attached: true,
             pr_url: Some(pr_merge.pr_info.url.clone()),
