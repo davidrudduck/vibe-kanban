@@ -10,7 +10,7 @@ use axum::{
 use db::models::{
     coding_agent_turn::CodingAgentTurn,
     execution_process::{ExecutionProcess, ExecutionProcessRunReason},
-    merge::{DirectMerge, Merge, MergeStatus, PrMerge, PullRequestInfo},
+    merge::{Merge, MergeStatus, PrMerge},
     pull_request::PullRequest,
     repo::{Repo, RepoError},
     session::{CreateSession, Session},
