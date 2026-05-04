@@ -40,6 +40,8 @@ export const useConversationHistory = ({
   const loadedInitialEntries = useRef(false);
   const emittedEmptyInitialRef = useRef(false);
   const streamingProcessIdsRef = useRef<Set<string>>(new Set());
+  // @ts-expect-error -- declared for use in subsequent stream-dedup logic
+  const settledStreamProcessIdsRef = useRef<Set<string>>(new Set());
   const onTimelineUpdatedRef = useRef<
     UseConversationHistoryParams['onTimelineUpdated'] | null
   >(null);
