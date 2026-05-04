@@ -492,7 +492,8 @@ export const useConversationHistory = ({
         previousStatus === ExecutionProcessStatus.running &&
         currentStatus !== ExecutionProcessStatus.running &&
         displayedExecutionProcesses.current[process.id] &&
-        !settledStreamProcessIdsRef.current.has(process.id)
+        !settledStreamProcessIdsRef.current.has(process.id) &&
+        !streamingProcessIdsRef.current.has(process.id)
       ) {
         processesToReload.push(process);
       }
