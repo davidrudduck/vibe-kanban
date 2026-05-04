@@ -216,6 +216,26 @@ export type LogStatsResponse = { file_count: bigint, total_bytes: bigint, older_
 
 export type LogPurgeResult = { deleted_files: bigint, bytes_freed: bigint, older_than_days: bigint, };
 
+export type ArchivedWorkspaceItem = { id: string, name: string | null, 
+/**
+ * ISO-8601 string — the actual archive timestamp (archived_at if set, else updated_at)
+ */
+archived_at: string, 
+/**
+ * ISO-8601 string
+ */
+created_at: string, };
+
+export type ArchivedListResponse = { items: Array<ArchivedWorkspaceItem>, older_than_days: bigint, };
+
+export type LogSessionItem = { session_id: string, workspace_id: string, workspace_name: string | null, file_count: bigint, total_bytes: bigint, 
+/**
+ * ISO-8601 date string of the oldest log file in this session.
+ */
+oldest_file_date: string, };
+
+export type LogListResponse = { items: Array<LogSessionItem>, older_than_days: bigint, };
+
 export type PoolStats = { 
 /**
  * Total connections in the pool (idle + acquired)
