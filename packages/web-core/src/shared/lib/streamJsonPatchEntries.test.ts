@@ -49,7 +49,12 @@ class MockWebSocket {
     }
   }
 
+  private _closed = false;
+
   close() {
+    // Note: fires close event synchronously; real WebSocket fires asynchronously.
+    if (this._closed) return;
+    this._closed = true;
     this.triggerClose();
   }
 
@@ -92,6 +97,8 @@ describe('streamJsonPatchEntries', () => {
     await Promise.resolve();
     await Promise.resolve();
 
+    const triggerCloseSpy = vi.spyOn(mockWs, 'triggerClose');
+
     mockWs.triggerOpen();
     mockWs.triggerMessage({ JsonPatch: [] });
     mockWs.triggerMessage({ finished: '' });
@@ -100,6 +107,8 @@ describe('streamJsonPatchEntries', () => {
 
     expect(onFinished).toHaveBeenCalledOnce();
     expect(onError).not.toHaveBeenCalled();
+    // Verify that ws.close() was actually called (and triggered the close handler)
+    expect(triggerCloseSpy).toHaveBeenCalledOnce();
   });
 
   it('calls onError when WebSocket closes without Finished frame', async () => {
