@@ -98,8 +98,15 @@ const defaultTransport: LocalApiTransport = {
     } = init;
     return fetch(pathOrUrl, requestInit);
   },
-  openWebSocket: (pathOrUrl, _options = {}) =>
-    new WebSocket(toAbsoluteWsUrl(pathOrUrl)),
+  openWebSocket: async (pathOrUrl, _options = {}) => {
+    // Defer new WebSocket() by one microtask so React StrictMode's
+    // synchronous cleanup (mount→cleanup→mount) runs before the TCP
+    // upgrade is initiated. Without this, the Vite dev proxy can
+    // consume the initial snapshot on the discarded first-mount socket,
+    // leaving the kept socket starved for ~105s.
+    await Promise.resolve();
+    return new WebSocket(toAbsoluteWsUrl(pathOrUrl));
+  },
 };
 
 let transport: LocalApiTransport = defaultTransport;
