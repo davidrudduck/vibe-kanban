@@ -16,7 +16,7 @@ export function FileBrowserHtmlViewer({
   return (
     <iframe
       srcDoc={content}
-      sandbox="allow-scripts"
+      sandbox=""
       className="w-full h-full border-0 bg-white"
       title="HTML preview"
     />

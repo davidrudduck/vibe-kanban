@@ -186,6 +186,10 @@ fn list_directory_fs(
 }
 
 fn list_directory_git(repo_path: &Path, rel_path: &str) -> Result<Vec<DirectoryEntry>, ApiError> {
+    if rel_path.contains("..") || rel_path.starts_with('/') || rel_path.starts_with('-') {
+        return Err(ApiError::BadRequest("Invalid path".to_string()));
+    }
+
     let tree_path = if rel_path.is_empty() {
         String::new()
     } else {
@@ -193,7 +197,7 @@ fn list_directory_git(repo_path: &Path, rel_path: &str) -> Result<Vec<DirectoryE
     };
 
     let output = std::process::Command::new("git")
-        .args(["ls-tree", "--long", "HEAD", &tree_path])
+        .args(["ls-tree", "--long", "HEAD", "--", &tree_path])
         .current_dir(repo_path)
         .output()
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
@@ -317,6 +321,10 @@ fn read_file_fs(worktree_root: &Path, rel_path: &str) -> Result<(Vec<u8>, u64), 
 }
 
 fn read_file_git(repo_path: &Path, rel_path: &str) -> Result<(Vec<u8>, u64), ApiError> {
+    if rel_path.contains("..") || rel_path.starts_with('/') || rel_path.starts_with('-') {
+        return Err(ApiError::BadRequest("Invalid path".to_string()));
+    }
+
     let output = std::process::Command::new("git")
         .args(["show", &format!("HEAD:{}", rel_path)])
         .current_dir(repo_path)
