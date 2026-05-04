@@ -65,8 +65,7 @@ export const useFileBrowserStore = create<FileBrowserState>()((set) => ({
   },
 }));
 
-export const useFileBrowserSource = () =>
-  useFileBrowserStore((s) => s.source);
+export const useFileBrowserSource = () => useFileBrowserStore((s) => s.source);
 export const useFileBrowserCurrentPath = () =>
   useFileBrowserStore((s) => s.currentPath);
 export const useFileBrowserSelectedFile = () =>

@@ -56,7 +56,7 @@ export function FileBrowserViewerPanel({
                   'px-2 py-0.5 text-xs rounded border transition-colors',
                   viewMode === m
                     ? 'bg-secondary border-border text-normal'
-                    : 'border-transparent text-low hover:text-normal',
+                    : 'border-transparent text-low hover:text-normal'
                 )}
               >
                 {m === 'preview' ? 'Preview' : 'Raw'}
@@ -76,7 +76,7 @@ export function FileBrowserViewerPanel({
                   'px-2 py-0.5 text-xs rounded border transition-colors',
                   viewMode === m
                     ? 'bg-secondary border-border text-normal'
-                    : 'border-transparent text-low hover:text-normal',
+                    : 'border-transparent text-low hover:text-normal'
                 )}
               >
                 {m === 'rendered' ? 'Rendered' : 'Source'}
@@ -121,7 +121,7 @@ export function FileBrowserViewerPanel({
                 selectedFile,
                 fileData.content,
                 fileData.language ?? null,
-                viewMode,
+                viewMode
               )}
             </div>
           </div>
@@ -135,7 +135,7 @@ function renderContent(
   path: string,
   content: string,
   language: string | null,
-  viewMode: FileViewMode,
+  viewMode: FileViewMode
 ) {
   if (isMarkdownFile(path)) {
     return <FileBrowserMarkdownViewer content={content} viewMode={viewMode} />;

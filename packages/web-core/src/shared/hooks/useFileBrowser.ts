@@ -29,7 +29,8 @@ export function useFileContent(
 ) {
   return useQuery({
     queryKey: fileBrowserKeys.file(workspaceId ?? '', filePath ?? '', source),
-    queryFn: () => workspacesApi.getFileContent(workspaceId!, filePath!, source),
+    queryFn: () =>
+      workspacesApi.getFileContent(workspaceId!, filePath!, source),
     enabled: !!workspaceId && !!filePath,
     staleTime: 60_000,
   });

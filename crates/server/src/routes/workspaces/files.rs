@@ -1,18 +1,16 @@
+use std::path::Path;
+
 use axum::{
-    Extension,
-    Router,
+    Extension, Router,
     extract::{Query, State},
     response::Json as ResponseJson,
     routing::get,
 };
-use db::models::workspace::Workspace;
-use db::models::workspace_repo::WorkspaceRepo;
+use db::models::{workspace::Workspace, workspace_repo::WorkspaceRepo};
+use deployment::Deployment;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 use ts_rs::TS;
 use utils::response::ApiResponse;
-
-use deployment::Deployment;
 
 use crate::{DeploymentImpl, error::ApiError};
 
@@ -139,7 +137,9 @@ fn list_directory_fs(
         .canonicalize()
         .map_err(|_| ApiError::BadRequest("Directory not found".to_string()))?;
     if !canonical.starts_with(&canonical_root) {
-        return Err(ApiError::BadRequest("Path traversal not allowed".to_string()));
+        return Err(ApiError::BadRequest(
+            "Path traversal not allowed".to_string(),
+        ));
     }
     if !canonical.is_dir() {
         return Err(ApiError::BadRequest("Path is not a directory".to_string()));
@@ -199,9 +199,7 @@ fn list_directory_git(repo_path: &Path, rel_path: &str) -> Result<Vec<DirectoryE
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
     if !output.status.success() {
-        return Err(ApiError::BadRequest(
-            "Path not found in HEAD".to_string(),
-        ));
+        return Err(ApiError::BadRequest("Path not found in HEAD".to_string()));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -297,10 +295,7 @@ pub async fn read_file(
     })))
 }
 
-fn read_file_fs(
-    worktree_root: &Path,
-    rel_path: &str,
-) -> Result<(Vec<u8>, u64), ApiError> {
+fn read_file_fs(worktree_root: &Path, rel_path: &str) -> Result<(Vec<u8>, u64), ApiError> {
     let canonical_root = worktree_root
         .canonicalize()
         .map_err(|_| ApiError::BadRequest("Workspace root not found".to_string()))?;
@@ -309,7 +304,9 @@ fn read_file_fs(
         .canonicalize()
         .map_err(|_| ApiError::BadRequest("File not found".to_string()))?;
     if !canonical.starts_with(&canonical_root) {
-        return Err(ApiError::BadRequest("Path traversal not allowed".to_string()));
+        return Err(ApiError::BadRequest(
+            "Path traversal not allowed".to_string(),
+        ));
     }
     if canonical.is_dir() {
         return Err(ApiError::BadRequest("Path is a directory".to_string()));
@@ -342,9 +339,11 @@ pub fn router() -> Router<DeploymentImpl> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fs;
+
     use tempfile::TempDir;
+
+    use super::*;
 
     #[test]
     fn list_directory_fs_sorts_dirs_first_then_alpha() {

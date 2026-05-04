@@ -46,7 +46,7 @@ export function FileBrowserTreePanel({
         ? a.name.localeCompare(b.name)
         : a.is_directory
           ? -1
-          : 1,
+          : 1
     );
   }, [listing, filterTerm]);
 
@@ -66,7 +66,7 @@ export function FileBrowserTreePanel({
             'flex-1 flex items-center justify-center gap-1 py-1 text-xs rounded transition-colors',
             source === 'worktree'
               ? 'bg-brand text-white'
-              : 'bg-secondary text-low hover:text-normal',
+              : 'bg-secondary text-low hover:text-normal'
           )}
         >
           <GitBranchIcon className="size-3" />
@@ -79,7 +79,7 @@ export function FileBrowserTreePanel({
             'flex-1 flex items-center justify-center gap-1 py-1 text-xs rounded transition-colors',
             source === 'main'
               ? 'bg-brand text-white'
-              : 'bg-secondary text-low hover:text-normal',
+              : 'bg-secondary text-low hover:text-normal'
           )}
         >
           <FolderIcon className="size-3" />

@@ -9,7 +9,10 @@ import {
   useFileBrowserViewMode,
   useFileBrowserActions,
 } from '@/shared/stores/useFileBrowserStore';
-import { useDirectoryListing, useFileContent } from '@/shared/hooks/useFileBrowser';
+import {
+  useDirectoryListing,
+  useFileContent,
+} from '@/shared/hooks/useFileBrowser';
 
 interface FileBrowserContainerProps {
   workspaceId: string;
@@ -31,13 +34,13 @@ export function FileBrowserContainer({
   const { data: listing, isLoading: isListingLoading } = useDirectoryListing(
     workspaceId,
     currentPath,
-    source,
+    source
   );
 
   const { data: fileData, isLoading: isFileLoading } = useFileContent(
     workspaceId,
     selectedFile,
-    source,
+    source
   );
 
   return (
