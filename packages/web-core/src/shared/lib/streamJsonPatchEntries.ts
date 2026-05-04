@@ -46,6 +46,7 @@ export function streamJsonPatchEntries<E = unknown>(
   let connected = false;
   let closed = false;
   let finishedReceived = false;
+  let errored = false;
   let ws: WebSocket | null = null;
   let snapshot: PatchContainer<E> = structuredClone(
     opts.initial ?? ({ entries: [] } as PatchContainer<E>)
@@ -128,6 +129,7 @@ export function streamJsonPatchEntries<E = unknown>(
 
       ws.addEventListener('error', (err) => {
         connected = false;
+        errored = true;
         opts.onError?.(err);
       });
 
@@ -137,7 +139,7 @@ export function streamJsonPatchEntries<E = unknown>(
           cancelAnimationFrame(rafId);
           rafId = null;
         }
-        if (!finishedReceived && !closed) {
+        if (!finishedReceived && !closed && !errored) {
           opts.onError?.(new Error('WebSocket closed without Finished frame'));
         }
       });
