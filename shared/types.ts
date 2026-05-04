@@ -576,7 +576,7 @@ export type DirectoryEntry = { name: string, path: string, is_directory: boolean
 
 export type DirectoryListResponse = { entries: Array<DirectoryEntry>, current_path: string, };
 
-export type FileContentResponse = { path: string, content: string, size_bytes: bigint, truncated: boolean, language: string | null, };
+export type FileContentResponse = { path: string, content: string, is_binary: boolean, size_bytes: bigint, truncated: boolean, language: string | null, };
 
 export type SearchMode = "taskform" | "settings";
 

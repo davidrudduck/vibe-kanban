@@ -32,7 +32,7 @@ export function FileBrowserViewerPanel({
 
   const isMd = isMarkdownFile(selectedFile);
   const isHtml = isHtmlFile(selectedFile);
-  const isBinary = fileData?.content === '__BINARY__';
+  const isBinary = fileData?.is_binary ?? false;
 
   return (
     <div className="flex flex-col h-full min-h-0">
