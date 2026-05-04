@@ -39,6 +39,7 @@ use crate::{
     approvals::{ExecutorApprovalError, ExecutorApprovalService},
     env::RepoContext,
     executors::{ExecutorError, codex::normalize_logs::Approval},
+    logs::{AskUserQuestionItem, AskUserQuestionOption},
 };
 
 struct PendingPlan {
@@ -378,9 +379,8 @@ impl AppServerClient {
             }
             ServerRequest::ToolRequestUserInput { request_id, params } => {
                 let call_id = params.item_id.clone();
-                let question_count = params.questions.len();
                 let status = self
-                    .request_question_answer(question_count, &call_id)
+                    .request_question_answer(&params.questions, &call_id)
                     .await
                     .inspect_err(|err| {
                         if !matches!(
@@ -515,7 +515,7 @@ impl AppServerClient {
 
     async fn request_question_answer(
         &self,
-        question_count: usize,
+        questions: &[ToolRequestUserInputQuestion],
         tool_call_id: &str,
     ) -> Result<QuestionStatus, ExecutorError> {
         let approval_service = self
@@ -523,8 +523,27 @@ impl AppServerClient {
             .as_ref()
             .ok_or(ExecutorApprovalError::ServiceUnavailable)?;
 
+        let question_items: Vec<AskUserQuestionItem> = questions
+            .iter()
+            .map(|q| AskUserQuestionItem {
+                question: q.question.clone(),
+                header: q.header.clone(),
+                options: q
+                    .options
+                    .as_deref()
+                    .unwrap_or(&[])
+                    .iter()
+                    .map(|o| AskUserQuestionOption {
+                        label: o.label.clone(),
+                        description: o.description.clone(),
+                    })
+                    .collect(),
+                multi_select: false,
+            })
+            .collect();
+
         let approval_id = approval_service
-            .create_question_approval("question", question_count)
+            .create_question_approval("question", &question_items)
             .or_else(|err| async {
                 self.handle_question_error(tool_call_id).await;
                 Err(err)

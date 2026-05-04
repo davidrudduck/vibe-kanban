@@ -18,6 +18,7 @@ use crate::{
         },
         codex::client::LogWriter,
     },
+    logs::AskUserQuestionItem,
 };
 
 const EXIT_PLAN_MODE_NAME: &str = "ExitPlanMode";
@@ -153,14 +154,13 @@ impl ClaudeAgentClient {
             .as_ref()
             .ok_or(ExecutorApprovalError::ServiceUnavailable)?;
 
-        let question_count = tool_input
+        let questions: Vec<AskUserQuestionItem> = tool_input
             .get("questions")
-            .and_then(|q| q.as_array())
-            .map(|a| a.len())
-            .unwrap_or(1);
+            .and_then(|q| serde_json::from_value(q.clone()).ok())
+            .unwrap_or_default();
 
         let approval_id = match approval_service
-            .create_question_approval(&tool_name, question_count)
+            .create_question_approval(&tool_name, &questions)
             .await
         {
             Ok(id) => id,

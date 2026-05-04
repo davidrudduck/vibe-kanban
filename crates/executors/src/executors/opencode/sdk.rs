@@ -1372,7 +1372,10 @@ async fn process_event_stream(
                     .and_then(Value::as_array)
                     .cloned()
                     .unwrap_or_default();
-                let question_count = questions.len().max(1);
+                let question_items: Vec<crate::logs::AskUserQuestionItem> = questions
+                    .iter()
+                    .filter_map(|v| serde_json::from_value(v.clone()).ok())
+                    .collect();
 
                 let approvals = ctx.approvals.clone();
                 let client = ctx.client.clone();
@@ -1382,7 +1385,7 @@ async fn process_event_stream(
                 let cancel = ctx.cancel.clone();
                 let done_tx = ctx.pending_approvals.push().await;
                 tokio::spawn(async move {
-                    let status = match create_question_approval(approvals.clone(), question_count)
+                    let status = match create_question_approval(approvals.clone(), &question_items)
                         .await
                     {
                         Ok(created) => {
@@ -1743,14 +1746,14 @@ async fn wait_permission_approval(
 
 async fn create_question_approval(
     approvals: Option<Arc<dyn ExecutorApprovalService>>,
-    question_count: usize,
+    questions: &[crate::logs::AskUserQuestionItem],
 ) -> Result<ApprovalCreated, ExecutorApprovalError> {
     let Some(approvals) = approvals else {
         return Err(ExecutorApprovalError::ServiceUnavailable);
     };
 
     let approval_id = approvals
-        .create_question_approval("question", question_count)
+        .create_question_approval("question", questions)
         .await?;
     Ok(ApprovalCreated { approval_id })
 }
