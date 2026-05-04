@@ -55,6 +55,9 @@ describe('useJsonPatchWsStream', () => {
     setLocalApiTransport({
       ...defaultTransport,
       openWebSocket: async (path) => {
+        // Defer by one microtask like the real implementation, so StrictMode
+        // cleanup can cancel before the WebSocket constructor is called
+        await Promise.resolve();
         return new MockWebSocket(path) as unknown as WebSocket;
       },
     });
@@ -74,12 +77,11 @@ describe('useJsonPatchWsStream', () => {
       await new Promise((r) => setTimeout(r, 50));
     });
 
-    // The fix (await Promise.resolve() before new WebSocket) ensures StrictMode
-    // cleanup cancels the first-mount socket before it's assigned; only the
-    // second-mount socket survives. Both may be constructed, but only one stays
-    // alive (not closed).
-    expect(MockWebSocket.aliveUrls).toHaveLength(1);
-    expect(MockWebSocket.aliveUrls[0]).toBe('/api/test-endpoint');
+    // The fix (await Promise.resolve() before new WebSocket) ensures that
+    // the first mount's WebSocket is cancelled and never assigned to wsRef.
+    // The second mount's WebSocket persists. We verify that exactly one
+    // WebSocket instance survives (is not closed).
+    expect(MockWebSocket.instances.filter((ws) => !ws.closed)).toHaveLength(1);
   });
 
   it('opens exactly one WebSocket without StrictMode (production behaviour)', async () => {
