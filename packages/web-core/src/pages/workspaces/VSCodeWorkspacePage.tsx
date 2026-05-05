@@ -104,7 +104,9 @@ export function VSCodeWorkspacePage() {
 
   const workspaceWithSession = useMemo(
     () =>
-      workspace ? createWorkspaceWithSession(workspace, selectedSession) : undefined,
+      workspace
+        ? createWorkspaceWithSession(workspace, selectedSession)
+        : undefined,
     [workspace, selectedSession]
   );
 

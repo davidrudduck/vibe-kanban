@@ -41,7 +41,7 @@ export function FileBrowserContainer({
   // Reset navigation state whenever the active workspace changes
   useEffect(() => {
     resetForWorkspace();
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- resetForWorkspace is a stable Zustand action; adding it to deps would not change behavior
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- resetForWorkspace is a stable Zustand action; adding it to deps would not change behavior
   }, [workspaceId]);
 
   const {
