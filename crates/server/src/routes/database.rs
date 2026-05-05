@@ -730,41 +730,39 @@ async fn log_list(
 
     // Step 2: Batch DB lookup — get workspace info for all session IDs at once.
     // SQLite doesn't support array params, so build an IN clause manually.
+    // Chunk at 999 to stay under SQLITE_LIMIT_VARIABLE_NUMBER (default 999).
+    const SQLITE_MAX_VARS: usize = 999;
     let pool = &deployment.db().pool;
     let session_id_strings: Vec<String> = session_summaries
         .iter()
         .map(|s| s.session_id.to_string())
         .collect();
 
-    // Build a map of session_id -> (workspace_id, workspace_name).
-    let placeholders = session_id_strings
-        .iter()
-        .map(|_| "?")
-        .collect::<Vec<_>>()
-        .join(", ");
-    let sql = format!(
-        r#"SELECT s.id AS session_id, s.workspace_id, w.name AS workspace_name
-           FROM sessions s
-           JOIN workspaces w ON w.id = s.workspace_id
-           WHERE s.id IN ({})"#,
-        placeholders
-    );
-
-    let mut query_builder = sqlx::query(&sql);
-    for id in &session_id_strings {
-        query_builder = query_builder.bind(id);
-    }
-    let rows = query_builder.fetch_all(pool).await?;
-
     use sqlx::Row;
     let mut session_map: std::collections::HashMap<String, (Uuid, Option<String>)> =
         std::collections::HashMap::new();
-    for row in rows {
-        let session_id_str: String = row.get("session_id");
-        let workspace_id_str: String = row.get("workspace_id");
-        let workspace_name: Option<String> = row.get("workspace_name");
-        let workspace_id = Uuid::parse_str(&workspace_id_str).unwrap_or_default();
-        session_map.insert(session_id_str, (workspace_id, workspace_name));
+
+    for chunk in session_id_strings.chunks(SQLITE_MAX_VARS) {
+        let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+        let sql = format!(
+            r#"SELECT s.id AS session_id, s.workspace_id, w.name AS workspace_name
+               FROM sessions s
+               JOIN workspaces w ON w.id = s.workspace_id
+               WHERE s.id IN ({})"#,
+            placeholders
+        );
+        let mut query_builder = sqlx::query(&sql);
+        for id in chunk {
+            query_builder = query_builder.bind(id);
+        }
+        let rows = query_builder.fetch_all(pool).await?;
+        for row in rows {
+            let session_id_str: String = row.get("session_id");
+            let workspace_id_str: String = row.get("workspace_id");
+            let workspace_name: Option<String> = row.get("workspace_name");
+            let workspace_id = Uuid::parse_str(&workspace_id_str).unwrap_or_default();
+            session_map.insert(session_id_str, (workspace_id, workspace_name));
+        }
     }
 
     // Step 3: Build response items (already sorted by oldest_mtime).

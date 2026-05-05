@@ -394,12 +394,17 @@ impl Workspace {
         archived: bool,
     ) -> Result<(), sqlx::Error> {
         // Use sqlx::query (not query!) to support the CASE expression.
-        // archived_at is set to now() when archiving, cleared when un-archiving,
-        // so it always reflects the *most recent* archive action.
+        // When archiving: preserve the original archived_at if already set
+        // (COALESCE), so repeated archive/unarchive cycles don't lose the
+        // first-archive timestamp. Consistent with update() semantics.
+        // When un-archiving: clear archived_at.
         sqlx::query(
             "UPDATE workspaces
                 SET archived    = ?1,
-                    archived_at = CASE WHEN ?1 = 1 THEN datetime('now', 'subsec') ELSE NULL END,
+                    archived_at = CASE
+                                      WHEN ?1 = 1 THEN COALESCE(archived_at, datetime('now', 'subsec'))
+                                      ELSE NULL
+                                  END,
                     updated_at  = datetime('now', 'subsec')
               WHERE id = ?2",
         )

@@ -337,10 +337,10 @@ async fn remove_worktree(
         .container_ref
         .ok_or_else(|| ApiError::BadRequest("Workspace has no container reference".to_string()))?;
 
-    // Mark deleted in DB first.
-    db::models::workspace::Workspace::mark_worktree_deleted(pool, workspace_id).await?;
-
-    // Remove filesystem directory.
+    // Remove filesystem directory FIRST.
+    // Doing FS before DB means a crash/error leaves the DB still marking the
+    // worktree as present — the operator can retry. DB-first would leave the
+    // worktree permanently "deleted" in the DB with files still on disk.
     let workspace_path = std::path::PathBuf::from(container_ref);
     if workspace_path.exists() {
         tokio::task::spawn_blocking(move || std::fs::remove_dir_all(&workspace_path))
@@ -348,6 +348,9 @@ async fn remove_worktree(
             .map_err(|e| ApiError::Database(sqlx::Error::Protocol(e.to_string())))?
             .map_err(ApiError::Io)?;
     }
+
+    // Mark deleted in DB only after the filesystem removal succeeded.
+    db::models::workspace::Workspace::mark_worktree_deleted(pool, workspace_id).await?;
 
     Ok(ResponseJson(ApiResponse::success(RemoveWorktreeResult {
         workspace_id,
