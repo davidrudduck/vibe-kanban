@@ -194,6 +194,18 @@ interface SessionChatBoxProps<TExecutor extends string = string> {
   tokenUsageInfo?: ContextUsageInfo | null;
   supportsContextUsage?: boolean;
   dropzone?: DropzoneProps;
+  /**
+   * Whether a send/injection request is currently in-flight.
+   * Used to disable the running-state button and block Cmd+Enter
+   * while the async operation completes, preventing concurrent sends.
+   */
+  isSending?: boolean;
+  /**
+   * Whether live injection into the running process is available
+   * (i.e. a codingagent ProtocolPeer is connected).
+   * Controls the running-state button label: "Send" vs "Queue".
+   */
+  canInject?: boolean;
 }
 
 function defaultExecutorLabel(executor: string) {
@@ -256,6 +268,8 @@ export function SessionChatBox<TExecutor extends string = string>({
   tokenUsageInfo,
   supportsContextUsage,
   dropzone,
+  isSending = false,
+  canInject = false,
 }: SessionChatBoxProps<TExecutor>) {
   const { t } = useTranslation('tasks');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -333,9 +347,7 @@ export function SessionChatBox<TExecutor extends string = string>({
       feedbackMode?.onSubmitFeedback();
     } else if (isInEditMode && canSend) {
       editMode?.onSubmitEdit();
-    } else if (status === 'running' && canSend) {
-      actions.onSend();
-    } else if (status === 'idle' && canSend) {
+    } else if ((status === 'running' || status === 'idle') && canSend && !isSending) {
       actions.onSend();
     }
   };
@@ -530,8 +542,13 @@ export function SessionChatBox<TExecutor extends string = string>({
           <>
             <PrimaryButton
               onClick={actions.onSend}
-              disabled={!canSend}
-              value={t('conversation.actions.queue')}
+              disabled={!canSend || isSending}
+              actionIcon={isSending ? 'spinner' : undefined}
+              value={
+                canInject
+                  ? t('conversation.actions.send')
+                  : t('conversation.actions.queue')
+              }
             />
             <PrimaryButton
               onClick={actions.onStop}
