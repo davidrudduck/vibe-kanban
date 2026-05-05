@@ -1,7 +1,18 @@
-import { ArrowClockwiseIcon, SpinnerIcon } from '@phosphor-icons/react';
+import {
+  ArrowClockwiseIcon,
+  DatabaseIcon,
+  SpinnerIcon,
+  TrashIcon,
+} from '@phosphor-icons/react';
 import { PrimaryButton } from '@vibe/ui/components/PrimaryButton';
+import { ConfirmDialog } from '@vibe/ui/components/ConfirmDialog';
 import { SettingsCard } from './SettingsComponents';
-import { useDiagnostics, useDiskUsage } from '@/shared/hooks/useDiagnostics';
+import {
+  useCleanArtifacts,
+  useDiagnostics,
+  useDiskUsage,
+  useRemoveWorktree,
+} from '@/shared/hooks/useDiagnostics';
 import { formatBytes } from '@/shared/lib/utils';
 
 function WalStatusDot({ walSizeBytes }: { walSizeBytes: bigint }) {
@@ -59,6 +70,8 @@ export function DiagnosticsPanel() {
     error: diskError,
     refetch: refetchDisk,
   } = useDiskUsage();
+  const cleanArtifactsMutation = useCleanArtifacts();
+  const removeWorktreeMutation = useRemoveWorktree();
 
   return (
     <>
@@ -177,22 +190,87 @@ export function DiagnosticsPanel() {
                   No workspace data available.
                 </div>
               )}
-              {diskData.workspaces.map((ws) => (
-                <div
-                  key={ws.workspace_id}
-                  className="flex items-center justify-between px-3 py-1.5 border-b border-border last:border-b-0"
-                >
-                  <span
-                    className="text-sm text-normal truncate max-w-[65%]"
-                    title={ws.path}
+              {diskData.workspaces.map((ws) => {
+                const isCleaningThis =
+                  cleanArtifactsMutation.isPending &&
+                  cleanArtifactsMutation.variables === ws.workspace_id;
+                const isRemovingThis =
+                  removeWorktreeMutation.isPending &&
+                  removeWorktreeMutation.variables === ws.workspace_id;
+                return (
+                  <div
+                    key={ws.workspace_id}
+                    className="flex items-center justify-between px-3 py-1.5 border-b border-border last:border-b-0 gap-2"
                   >
-                    {ws.path}
-                  </span>
-                  <span className="text-sm font-mono text-normal shrink-0">
-                    {formatBytes(ws.size_bytes)}
-                  </span>
-                </div>
-              ))}
+                    <span
+                      className="text-sm text-normal truncate max-w-[45%]"
+                      title={ws.path}
+                    >
+                      {ws.path}
+                    </span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-sm font-mono text-normal">
+                        {formatBytes(ws.size_bytes)}
+                      </span>
+                      <button
+                        className="text-low hover:text-normal transition-colors disabled:opacity-50"
+                        title="Remove build artifacts (node_modules, target, .next, etc.)"
+                        disabled={isCleaningThis}
+                        onClick={async () => {
+                          const result = await ConfirmDialog.show({
+                            title: 'Remove Build Artifacts',
+                            message:
+                              'Remove build artifact directories (node_modules, target, .next, etc.) from this workspace? Source code will not be affected.',
+                            confirmText: 'Clean',
+                            variant: 'destructive',
+                          });
+                          if (result === 'confirmed') {
+                            cleanArtifactsMutation.mutate(ws.workspace_id);
+                          }
+                        }}
+                      >
+                        {isCleaningThis ? (
+                          <SpinnerIcon
+                            className="size-icon-sm animate-spin"
+                            weight="bold"
+                          />
+                        ) : (
+                          <DatabaseIcon
+                            className="size-icon-sm"
+                            weight="bold"
+                          />
+                        )}
+                      </button>
+                      <button
+                        className="text-low hover:text-error transition-colors disabled:opacity-50"
+                        title="Remove worktree directory (archived workspaces only)"
+                        disabled={isRemovingThis}
+                        onClick={async () => {
+                          const result = await ConfirmDialog.show({
+                            title: 'Remove Worktree',
+                            message:
+                              'Permanently remove the workspace directory from disk. The workspace record will remain in the app. This cannot be undone.',
+                            confirmText: 'Remove',
+                            variant: 'destructive',
+                          });
+                          if (result === 'confirmed') {
+                            removeWorktreeMutation.mutate(ws.workspace_id);
+                          }
+                        }}
+                      >
+                        {isRemovingThis ? (
+                          <SpinnerIcon
+                            className="size-icon-sm animate-spin"
+                            weight="bold"
+                          />
+                        ) : (
+                          <TrashIcon className="size-icon-sm" weight="bold" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
               <div className="flex flex-col gap-0.5 px-3 py-1.5 bg-secondary/50 border-t border-border">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-normal">

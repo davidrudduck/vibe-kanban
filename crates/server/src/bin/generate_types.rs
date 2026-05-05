@@ -61,6 +61,8 @@ fn generate_types_content() -> String {
         server::routes::diagnostics::DiagnosticsResponse::decl(),
         server::routes::diagnostics::WorkspaceDiskUsage::decl(),
         server::routes::diagnostics::DiskUsageResponse::decl(),
+        server::routes::diagnostics::CleanArtifactsResult::decl(),
+        server::routes::diagnostics::RemoveWorktreeResult::decl(),
         db::models::session::Session::decl(),
         db::models::execution_process::ExecutionProcess::decl(),
         db::models::execution_process::ExecutionProcessStatus::decl(),

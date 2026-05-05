@@ -265,6 +265,10 @@ total_bytes: bigint, total_human: string,
  */
 displayed_bytes: bigint, displayed_human: string, };
 
+export type CleanArtifactsResult = { dirs_removed: Array<string>, bytes_freed: bigint, };
+
+export type RemoveWorktreeResult = { workspace_id: string, success: boolean, };
+
 export type Session = { id: string, workspace_id: string, name: string | null, executor: string | null, agent_working_dir: string | null, host_id: string | null, created_at: string, updated_at: string, };
 
 export type ExecutionProcess = { id: string, session_id: string, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, status: ExecutionProcessStatus, exit_code: bigint | null, 
@@ -537,7 +541,12 @@ export type CreateFromPrError = { "type": "pr_not_found" } | { "type": "branch_f
 
 export type RepoBranchStatus = { repo_id: string, repo_name: string, commits_behind: number | null, commits_ahead: number | null, has_uncommitted_changes: boolean | null, head_oid: string | null, uncommitted_count: number | null, untracked_count: number | null, target_branch_name: string, remote_commits_behind: number | null, remote_commits_ahead: number | null, merges: Array<Merge>, is_rebase_in_progress: boolean, conflict_op: ConflictOp | null, conflicted_files: Array<string>, is_target_remote: boolean, };
 
-export type UpdateWorkspace = { archived: boolean | null, pinned: boolean | null, name: string | null, };
+export type UpdateWorkspace = { archived: boolean | null, pinned: boolean | null, name: string | null, 
+/**
+ * When true, skip the uncommitted-changes check and archive even if the
+ * worktree has local changes. Defaults to false.
+ */
+force_archive: boolean, };
 
 export type UpdateSession = { name: string | null, };
 
