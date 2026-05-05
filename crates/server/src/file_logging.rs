@@ -50,6 +50,35 @@ impl FileLoggingConfig {
     }
 }
 
+/// Build the tracing filter string from the `RUST_LOG` environment variable.
+///
+/// If `RUST_LOG` contains `=` or `,` it is treated as a full directive string
+/// and passed through verbatim (e.g. `"warn,hyper=error"`). Otherwise it is
+/// treated as a plain level name and interpolated into per-crate directives.
+///
+/// This prevents a panic when `RUST_LOG` holds a full directive and it is
+/// naively used as a `{level}` placeholder.
+pub fn build_filter_string() -> String {
+    let rust_log = std::env::var("RUST_LOG").unwrap_or_default();
+
+    if rust_log.contains('=') || rust_log.contains(',') {
+        // Full directive — pass through as-is
+        rust_log
+    } else {
+        let level = if rust_log.is_empty() {
+            "info".to_string()
+        } else {
+            rust_log
+        };
+        format!(
+            "warn,server={level},services={level},db={level},executors={level},\
+deployment={level},local_deployment={level},utils={level},embedded_ssh={level},\
+desktop_bridge={level},relay_hosts={level},relay_client={level},\
+relay_webrtc={level},codex_core=off"
+        )
+    }
+}
+
 /// Initialise the tracing subscriber with optional file output.
 ///
 /// Returns a [`WorkerGuard`] when file logging is enabled — **hold it for the
@@ -429,6 +458,58 @@ mod tests {
 
         let remaining: Vec<_> = fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).collect();
         assert_eq!(remaining.len(), 3);
+    }
+
+    #[test]
+    fn build_filter_string_with_plain_level_interpolates() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::remove_var("RUST_LOG");
+        }
+        let s = build_filter_string();
+        assert!(s.contains("server=info"), "got: {s}");
+        assert!(s.contains("services=info"), "got: {s}");
+        assert!(s.contains("codex_core=off"), "got: {s}");
+    }
+
+    #[test]
+    fn build_filter_string_with_full_directive_passes_through() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::set_var("RUST_LOG", "warn,hyper=error");
+        }
+        let s = build_filter_string();
+        assert_eq!(s, "warn,hyper=error", "got: {s}");
+        unsafe {
+            std::env::remove_var("RUST_LOG");
+        }
+    }
+
+    #[test]
+    fn build_filter_string_with_plain_warn_level() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::set_var("RUST_LOG", "warn");
+        }
+        let s = build_filter_string();
+        assert!(s.contains("server=warn"), "got: {s}");
+        assert!(!s.contains("server=warn,warn"), "double-interpolated: {s}");
+        unsafe {
+            std::env::remove_var("RUST_LOG");
+        }
+    }
+
+    #[test]
+    fn build_filter_string_with_equals_directive_passes_through() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::set_var("RUST_LOG", "server=debug");
+        }
+        let s = build_filter_string();
+        assert_eq!(s, "server=debug", "got: {s}");
+        unsafe {
+            std::env::remove_var("RUST_LOG");
+        }
     }
 
     #[test]
