@@ -126,6 +126,9 @@ impl LoggingHandle {
 /// Runs `cleanup_old_logs` once per day until `shutdown` is cancelled.
 pub async fn run_cleanup_loop(config: FileLoggingConfig, shutdown: CancellationToken) {
     const ONE_DAY: Duration = Duration::from_secs(24 * 60 * 60);
+    // Run once immediately — replaces the one-shot startup cleanup that
+    // init_logging used to spawn as a std::thread.
+    cleanup_old_logs(&config.log_dir, config.max_files);
     loop {
         tokio::select! {
             _ = shutdown.cancelled() => {
@@ -742,19 +745,18 @@ mod tests {
         );
     }
 
-    #[test]
-    fn logging_handle_spawn_cleanup_is_noop_when_disabled() {
-        // Verify LoggingHandle exists, has the expected fields, and
-        // spawn_cleanup_task is a no-op (no tokio::spawn) when cleanup_config is None.
-        use tokio_util::sync::CancellationToken;
+    #[tokio::test]
+    async fn logging_handle_spawn_cleanup_is_noop_when_disabled() {
+        // Verify spawn_cleanup_task is a true no-op when cleanup_config is None.
+        // Running inside a tokio runtime means if it accidentally spawned a task,
+        // that would be visible (no panic, but the test exercises the real path).
         let handle = LoggingHandle {
             _guard: None,
             cleanup_config: None,
         };
         let token = CancellationToken::new();
-        // Must not panic even without a running tokio runtime
-        handle.cleanup_config.as_ref().map(|_| ()).unwrap_or(());
-        drop(token);
+        handle.spawn_cleanup_task(token.clone()); // must not panic, must not spawn
+        token.cancel();
         drop(handle);
     }
 }
