@@ -193,10 +193,7 @@ impl MsgStore {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use futures::StreamExt;
-    use tokio::sync::Barrier;
     use tokio::time::{Duration, timeout};
     use tokio_stream::wrappers::BroadcastStream;
 
@@ -233,55 +230,52 @@ mod tests {
         );
     }
 
-    /// Race-safety: a push() that happens AFTER subscribe but BEFORE get_history()
-    /// must appear in the combined stream even when it is not in the snapshot.
+    /// Race-safety: a push() that arrives AFTER get_history() but for which we
+    /// were already subscribed must appear in the combined stream.
     ///
-    /// The fix (`get_receiver()` before `get_history()`) ensures this by subscribing
-    /// to the broadcast channel first.  If the ordering were reversed the event
-    /// pushed inside the race window would be silently dropped.
-    // Pin to current_thread so the scheduler guarantee (main task runs
-    // get_history() before the spawned task executes push()) is enforced.
-    // Do NOT change to multi_thread — it would break the ordering invariant.
-    #[tokio::test(flavor = "current_thread")]
+    /// The fix in `history_plus_stream()` calls `get_receiver()` **before**
+    /// `get_history()`.  This test simulates the race-window scenario:
+    ///
+    /// ```text
+    ///   get_receiver()   ← subscribed; any subsequent push() lands in rx
+    ///   get_history()    ← "race" not yet pushed; absent from snapshot
+    ///   push("race")     ← fires AFTER history read; only path is live broadcast
+    /// ```
+    ///
+    /// If the ordering were reversed (`get_history()` first, then `get_receiver()`),
+    /// the push in step 3 would arrive before the subscription exists and be lost.
+    /// No concurrency is needed to reproduce this: the three steps are executed
+    /// sequentially and the invariant is deterministic.
+    #[tokio::test]
     async fn history_plus_stream_subscribe_first_captures_race_window_push() {
-        let store = Arc::new(MsgStore::new());
+        let store = MsgStore::new();
 
-        // msg_A is already in history when we start.
+        // Baseline message — already in history before we start.
         store.push(LogMsg::Stdout("A".into()));
 
         // Step 1: subscribe FIRST (mirrors the fix in history_plus_stream).
         let rx = store.get_receiver();
 
-        // Step 2: race a concurrent push between subscribe and get_history.
-        // Use a Barrier so the push happens deterministically AFTER we have
-        // subscribed but BEFORE we have read history — exactly the race window.
-        let store2 = Arc::clone(&store);
-        let barrier = Arc::new(Barrier::new(2));
-        let barrier2 = Arc::clone(&barrier);
-
-        let push_task = tokio::spawn(async move {
-            // Wait until the main task signals "we are inside the race window".
-            barrier2.wait().await;
-            store2.push(LogMsg::Stdout("race".into()));
-        });
-
-        // Step 3: both sides reach the barrier, unblocking push_task.
-        // In single-threaded Tokio the main task keeps running (no yield point),
-        // so get_history() executes before the spawned task gets to push().
-        // This means "race" is NOT in history at read time — the only way it
-        // can appear in the combined stream is via the live broadcast segment,
-        // which works because rx was subscribed BEFORE the push fires.
-        barrier.wait().await;
-
-        // Step 4: read history BEFORE yielding — push_task has not run yet.
+        // Step 2: read history — "race" has not been pushed yet, so it is absent.
         let history = store.get_history();
 
-        // Step 5: now yield so push_task can complete.
-        push_task.await.unwrap();
+        // Guard: confirm "race" is genuinely absent from the snapshot.  If this
+        // assertion fires the test premise is broken and the final assertion below
+        // would pass vacuously (via history replay rather than the live segment).
+        assert!(
+            !history
+                .iter()
+                .any(|m| matches!(m, LogMsg::Stdout(s) if s == "race")),
+            "\"race\" must not be in the history snapshot before it is pushed"
+        );
 
-        // Step 5: build the same combined stream that history_plus_stream() builds.
-        let hist =
-            futures::stream::iter(history.into_iter().map(Ok::<_, std::io::Error>));
+        // Step 3: push "race" AFTER get_history().  Because rx was subscribed
+        // before get_history(), this push is captured by the live segment even
+        // though it is absent from the history snapshot.
+        store.push(LogMsg::Stdout("race".into()));
+
+        // Build the same combined stream that history_plus_stream() builds.
+        let hist = futures::stream::iter(history.into_iter().map(Ok::<_, std::io::Error>));
         let live = BroadcastStream::new(rx).filter_map(|res| async move {
             match res {
                 Ok(msg) => Some(Ok(msg)),
@@ -307,8 +301,7 @@ mod tests {
         assert!(
             msgs.contains(&"race".to_string()),
             "race-window push must be captured by the live stream segment \
-             because subscribe happens before get_history (the TOCTOU fix); \
-             got {msgs:?}"
+             because rx was subscribed before get_history(); got {msgs:?}"
         );
     }
 }

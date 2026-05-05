@@ -79,11 +79,10 @@ describe('useJsonPatchWsStream', () => {
       await new Promise((r) => setTimeout(r, 50));
     });
 
-    // With the source-level fix, StrictMode causes two socket constructions:
-    //   1. Mount-1 calls openWebSocket → defers → StrictMode cleanup cancels → socket built then closed
-    //   2. Mount-2 calls openWebSocket → defers → socket built and kept alive
-    // This is the expected behaviour: 2 constructed, 1 survives.
-    expect(MockWebSocket.instances).toHaveLength(2);
+    // The user-visible invariant: exactly one WebSocket survives (is not closed).
+    // We do NOT assert how many were constructed — that is an implementation detail
+    // of the microtask-defer approach and would break if a future fix avoids
+    // constructing the first-mount socket entirely.
     expect(MockWebSocket.instances.filter((ws) => !ws.closed)).toHaveLength(1);
   });
 
