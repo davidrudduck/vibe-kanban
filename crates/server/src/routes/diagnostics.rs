@@ -363,11 +363,11 @@ pub fn router() -> Router<DeploymentImpl> {
         .route("/diagnostics", get(get_diagnostics))
         .route("/diagnostics/disk-usage", get(get_disk_usage))
         .route(
-            "/diagnostics/disk-usage/:workspace_id/clean-artifacts",
+            "/diagnostics/disk-usage/{workspace_id}/clean-artifacts",
             axum::routing::post(clean_artifacts),
         )
         .route(
-            "/diagnostics/disk-usage/:workspace_id/remove-worktree",
+            "/diagnostics/disk-usage/{workspace_id}/remove-worktree",
             axum::routing::post(remove_worktree),
         )
 }
