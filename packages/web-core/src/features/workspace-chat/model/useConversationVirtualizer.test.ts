@@ -80,6 +80,76 @@ describe('useConversationVirtualizer — bottom-lock re-arm regression', () => {
   });
 });
 
+describe('useConversationVirtualizer — isAtTop sub-pixel tolerance', () => {
+  let container: HTMLDivElement;
+
+  beforeEach(() => {
+    container = makeContainer(500, 2000);
+    document.body.appendChild(container);
+  });
+
+  afterEach(() => {
+    container.remove();
+  });
+
+  it('treats sub-pixel scrollTop as at-top (no flicker on macOS rubber-band)', () => {
+    const ref: RefObject<HTMLDivElement | null> = { current: container };
+    const { result } = renderHook(() =>
+      useConversationVirtualizer({
+        rows: [],
+        totalRowCount: 0,
+        scrollContainerRef: ref,
+      })
+    );
+
+    act(() => {
+      container.scrollTop = 0.4; // sub-pixel — Safari/macOS rubber-band, fractional DPR
+      container.dispatchEvent(new Event('scroll'));
+    });
+
+    expect(result.current.isAtTop).toBe(true);
+  });
+});
+
+describe('useConversationVirtualizer — scrollToTop clears plan-reveal spacer', () => {
+  let container: HTMLDivElement;
+
+  beforeEach(() => {
+    container = makeContainer(500, 2000);
+    document.body.appendChild(container);
+  });
+
+  afterEach(() => {
+    container.remove();
+  });
+
+  it('zeros the plan-reveal spacer height when scrollToTop fires', () => {
+    const ref: RefObject<HTMLDivElement | null> = { current: container };
+    const spacer = document.createElement('div');
+    spacer.style.height = '320px';
+    document.body.appendChild(spacer);
+    const planRevealSpacerRef: RefObject<HTMLDivElement | null> = {
+      current: spacer,
+    };
+
+    const { result } = renderHook(() =>
+      useConversationVirtualizer({
+        rows: [],
+        totalRowCount: 0,
+        scrollContainerRef: ref,
+        planRevealSpacerRef,
+      })
+    );
+
+    act(() => {
+      result.current.scrollToTop('auto');
+    });
+
+    expect(spacer.style.height).toBe('0px');
+    spacer.remove();
+  });
+});
+
 describe('useConversationVirtualizer — message-existence selectors', () => {
   it('returns false for both selectors when no user messages exist', () => {
     const ref = { current: makeContainer(500, 2000) };

@@ -152,7 +152,13 @@
       "cannotDeleteOpenPr": "PR이 열려 있는 동안에는 브랜치를 삭제할 수 없습니다",
       "unlinkFromIssueLabel": "이슈에서도 연결 해제"
     },
-    "linkError": "Failed to link workspace"
+    "linkError": "Failed to link workspace",
+    "nav": {
+      "goToTop": "맨 위로 이동",
+      "previousUserMessage": "이전 사용자 메시지",
+      "nextUserMessage": "다음 사용자 메시지",
+      "scrollToBottom": "맨 아래로 이동"
+    }
   },
   "fileTree": {
     "searchPlaceholder": "파일 검색...",

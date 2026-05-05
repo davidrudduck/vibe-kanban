@@ -11,12 +11,19 @@ interface MarkdownPreviewProps {
   content: string;
   theme: 'light' | 'dark';
   className?: string;
+  /** Set false when rendering untrusted repository content to disable raw HTML passthrough. Defaults to true. */
+  allowRawHtml?: boolean;
 }
 
 const remarkPlugins = [remarkGfm];
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const rehypePlugins: any[] = [
+const rehypePluginsWithRaw: any[] = [
   rehypeRaw,
+  [rehypeSanitize, defaultSchema],
+  rehypeHighlight,
+];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const rehypePluginsSafe: any[] = [
   [rehypeSanitize, defaultSchema],
   rehypeHighlight,
 ];
@@ -25,7 +32,9 @@ export function MarkdownPreview({
   content,
   theme,
   className,
+  allowRawHtml = true,
 }: MarkdownPreviewProps) {
+  const rehypePlugins = allowRawHtml ? rehypePluginsWithRaw : rehypePluginsSafe;
   const components = useMemo(
     () => ({
       h1: ({ children, ...props }: ComponentPropsWithoutRef<'h1'>) => (

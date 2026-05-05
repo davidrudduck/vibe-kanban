@@ -152,7 +152,13 @@
       "cannotDeleteOpenPr": "No se puede eliminar la rama mientras el PR está abierto",
       "unlinkFromIssueLabel": "También desvincular del issue"
     },
-    "linkError": "Failed to link workspace"
+    "linkError": "Failed to link workspace",
+    "nav": {
+      "goToTop": "Ir al principio",
+      "previousUserMessage": "Mensaje anterior del usuario",
+      "nextUserMessage": "Siguiente mensaje del usuario",
+      "scrollToBottom": "Ir al final"
+    }
   },
   "fileTree": {
     "searchPlaceholder": "Buscar archivos...",

@@ -152,7 +152,13 @@
       "cannotDeleteOpenPr": "PRがオープン中はブランチを削除できません",
       "unlinkFromIssueLabel": "イシューからもリンク解除する"
     },
-    "linkError": "Failed to link workspace"
+    "linkError": "Failed to link workspace",
+    "nav": {
+      "goToTop": "先頭へ移動",
+      "previousUserMessage": "前のユーザーメッセージ",
+      "nextUserMessage": "次のユーザーメッセージ",
+      "scrollToBottom": "末尾へ移動"
+    }
   },
   "fileTree": {
     "searchPlaceholder": "ファイルを検索...",

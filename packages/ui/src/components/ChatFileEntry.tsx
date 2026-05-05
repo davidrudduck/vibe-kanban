@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import {
   CaretDownIcon,
   ArrowSquareUpRightIcon,
+  FolderOpenIcon,
   FileIcon as DefaultFileIcon,
 } from '@phosphor-icons/react';
 import { cn } from '../lib/cn';
@@ -35,6 +36,8 @@ interface ChatFileEntryProps {
   diffContent?: ChatFileEntryDiffInput;
   /** Optional callback to open file in changes panel */
   onOpenInChanges?: () => void;
+  /** Optional callback to open file in the files browser panel */
+  onOpenInFiles?: () => void;
   /** Optional file icon override from the app layer */
   fileIcon?: React.ElementType;
   /** Whether host app is running inside VSCode iframe */
@@ -55,6 +58,7 @@ export function ChatFileEntry({
   status,
   diffContent,
   onOpenInChanges,
+  onOpenInFiles,
   fileIcon,
   isVSCode = false,
   onOpenInVSCode,
@@ -127,6 +131,19 @@ export function ChatFileEntry({
                 title={t('conversation.viewInChangesPanel')}
               >
                 <ArrowSquareUpRightIcon className="size-icon-xs" />
+              </button>
+            )}
+            {onOpenInFiles && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenInFiles();
+                }}
+                className="shrink-0 p-0.5 rounded hover:bg-muted text-low hover:text-normal transition-colors"
+                title={t('conversation.openInFilesPanel')}
+              >
+                <FolderOpenIcon className="size-icon-xs" />
               </button>
             )}
             {hasStats && (

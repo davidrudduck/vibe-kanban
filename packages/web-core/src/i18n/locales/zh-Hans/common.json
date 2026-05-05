@@ -152,7 +152,13 @@
       "cannotDeleteOpenPr": "PR 开启时无法删除分支",
       "unlinkFromIssueLabel": "同时取消与议题的关联"
     },
-    "linkError": "Failed to link workspace"
+    "linkError": "Failed to link workspace",
+    "nav": {
+      "goToTop": "跳到顶部",
+      "previousUserMessage": "上一条用户消息",
+      "nextUserMessage": "下一条用户消息",
+      "scrollToBottom": "跳到底部"
+    }
   },
   "fileTree": {
     "searchPlaceholder": "搜索文件...",

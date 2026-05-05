@@ -195,6 +195,7 @@
     },
     "updatedTodos": "Updated Todos",
     "viewInChangesPanel": "View in changes panel",
+    "openInFilesPanel": "Open in files panel",
     "unableToRenderDiff": "Unable to render diff."
   },
   "attempt": {
