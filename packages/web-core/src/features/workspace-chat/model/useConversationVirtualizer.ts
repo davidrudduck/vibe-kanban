@@ -75,6 +75,16 @@ export interface ConversationVirtualizerOptions {
   onAtTopChange?: (atTop: boolean) => void;
 
   shouldSuppressSizeAdjustment?: () => boolean;
+
+  /**
+   * Optional ref to the plan-reveal spacer element. When provided, the hook's
+   * `scrollToTop` will zero its height before delegating to the underlying
+   * scroll, so callers no longer need to wrap `scrollToTop` to clear it.
+   * Owned by `ConversationListContainer` (rendered inside the scroll
+   * container at the tail). Other shells that don't render a spacer can omit
+   * this option.
+   */
+  planRevealSpacerRef?: RefObject<HTMLElement | null>;
 }
 
 export interface ConversationVirtualizerResult {
@@ -199,6 +209,7 @@ export function useConversationVirtualizer({
   onAtBottomChange,
   onAtTopChange,
   shouldSuppressSizeAdjustment,
+  planRevealSpacerRef,
 }: ConversationVirtualizerOptions): ConversationVirtualizerResult {
   const bottomLockedRef = useRef(false);
   const smoothScrollDeadlineRef = useRef(0);
@@ -422,6 +433,15 @@ export function useConversationVirtualizer({
       // immediately snap back to the bottom on the next render.
       bottomLockedRef.current = false;
 
+      // Zero the plan-reveal spacer (if any) before scrolling. The container
+      // previously wrapped this call to do the same thing; centralising it
+      // here keeps every shell at parity even if a future caller forgets to
+      // wrap.
+      const spacer = planRevealSpacerRef?.current;
+      if (spacer) {
+        spacer.style.height = '0px';
+      }
+
       if (behavior === 'smooth') {
         smoothScrollDeadlineRef.current = performance.now() + 500;
         el.scrollTo({ top: 0, behavior: 'smooth' });
@@ -429,7 +449,7 @@ export function useConversationVirtualizer({
         el.scrollTop = 0;
       }
     },
-    [scrollContainerRef]
+    [scrollContainerRef, planRevealSpacerRef]
   );
 
   const scrollToIndex = useCallback(

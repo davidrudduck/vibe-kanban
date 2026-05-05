@@ -486,6 +486,7 @@ export const ConversationList = forwardRef<
     onAtBottomChange,
     onAtTopChange,
     shouldSuppressSizeAdjustment: shouldSuppressInteractionDrivenSizeAdjustment,
+    planRevealSpacerRef,
   });
 
   // NOTE: Do NOT call conversationVirtualizer.virtualizer.measure() when
@@ -734,9 +735,9 @@ export const ConversationList = forwardRef<
   const scrollToTop = useCallback(
     (behavior: 'auto' | 'smooth' = 'smooth') => {
       conversationVirtualizer.releaseBottomLock();
-      if (planRevealSpacerRef.current) {
-        planRevealSpacerRef.current.style.height = '0px';
-      }
+      // The hook now zeros `planRevealSpacerRef` itself before scrolling
+      // (see `useConversationVirtualizer.scrollToTop`), so no wrapper logic
+      // is required here.
       conversationVirtualizer.scrollToTop(behavior);
     },
     [conversationVirtualizer]
