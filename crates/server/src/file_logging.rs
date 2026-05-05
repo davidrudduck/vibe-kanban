@@ -319,22 +319,28 @@ mod tests {
     }
 
     #[test]
-    fn init_logging_try_init_failure_returns_none() {
-        // Structural contract test: after the fix, the Err arm must drop(guard)
-        // and return None — making it structurally impossible for Some(guard) to
-        // be returned when try_init failed. This test documents the contract and
-        // exercises the function signature (returns Option<WorkerGuard>).
+    fn init_logging_second_call_returns_none() {
+        // The global tracing subscriber can only be set once per process.
+        // A second call to init_logging must hit the try_init Err arm and
+        // return None — verifying that the Err arm drops the guard and returns
+        // None rather than falling through to Some(guard).
+        //
+        // NOTE: this test installs a global tracing subscriber for the rest of
+        // the test binary. All other file_logging tests avoid calling init_logging
+        // so this is safe, but be aware when adding future tests.
         let _lock = ENV_LOCK.lock().unwrap();
         unsafe {
             std::env::set_var("VK_FILE_LOGGING", "true");
             std::env::set_var("VK_LOG_DIR", temp_dir().to_str().unwrap());
         }
-        let handle = init_logging("warn");
-        // Either None (try_init failed — subscriber already set from another test)
-        // or Some (first caller to init in this test binary). Both are valid.
-        // What must NEVER happen is returning Some when try_init failed — the fix
-        // makes this structurally impossible via early return.
-        let _ = handle;
+        // First call — may or may not succeed depending on test execution order
+        let _first = init_logging("warn");
+        // Second call — guaranteed to hit the Err arm (subscriber already set)
+        let second = init_logging("warn");
+        assert!(
+            second.is_none(),
+            "second init_logging call must return None when try_init fails"
+        );
         unsafe {
             std::env::remove_var("VK_FILE_LOGGING");
             std::env::remove_var("VK_LOG_DIR");
