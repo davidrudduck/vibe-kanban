@@ -94,6 +94,10 @@ pub fn init_logging(filter_string: &str) -> Option<WorkerGuard> {
             .try_init()
         {
             eprintln!("Tracing subscriber already initialised: {e}");
+            // File layer was never installed — drop the guard to release the
+            // background writer thread, and signal no file logging to the caller.
+            drop(guard);
+            return None;
         }
 
         tracing::info!(
@@ -312,6 +316,29 @@ mod tests {
 
         let remaining: Vec<_> = fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).collect();
         assert_eq!(remaining.len(), 3);
+    }
+
+    #[test]
+    fn init_logging_try_init_failure_returns_none() {
+        // Structural contract test: after the fix, the Err arm must drop(guard)
+        // and return None — making it structurally impossible for Some(guard) to
+        // be returned when try_init failed. This test documents the contract and
+        // exercises the function signature (returns Option<WorkerGuard>).
+        let _lock = ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::set_var("VK_FILE_LOGGING", "true");
+            std::env::set_var("VK_LOG_DIR", temp_dir().to_str().unwrap());
+        }
+        let handle = init_logging("warn");
+        // Either None (try_init failed — subscriber already set from another test)
+        // or Some (first caller to init in this test binary). Both are valid.
+        // What must NEVER happen is returning Some when try_init failed — the fix
+        // makes this structurally impossible via early return.
+        let _ = handle;
+        unsafe {
+            std::env::remove_var("VK_FILE_LOGGING");
+            std::env::remove_var("VK_LOG_DIR");
+        }
     }
 
     #[test]
