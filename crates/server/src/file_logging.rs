@@ -335,8 +335,7 @@ mod tests {
         use std::sync::atomic::{AtomicU64, Ordering};
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir()
-            .join(format!("vk-log-test-{}-{}", std::process::id(), n));
+        let dir = std::env::temp_dir().join(format!("vk-log-test-{}-{}", std::process::id(), n));
         fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -787,8 +786,19 @@ mod tests {
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .collect();
 
-        assert_eq!(remaining.len(), 2, "startup cleanup should keep 2 newest; got: {:?}", remaining);
-        assert!(remaining.contains("vibe-kanban.log.2025-02-04"), "day 04 missing");
-        assert!(remaining.contains("vibe-kanban.log.2025-02-05"), "day 05 missing");
+        assert_eq!(
+            remaining.len(),
+            2,
+            "startup cleanup should keep 2 newest; got: {:?}",
+            remaining
+        );
+        assert!(
+            remaining.contains("vibe-kanban.log.2025-02-04"),
+            "day 04 missing"
+        );
+        assert!(
+            remaining.contains("vibe-kanban.log.2025-02-05"),
+            "day 05 missing"
+        );
     }
 }
