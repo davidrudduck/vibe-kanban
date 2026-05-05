@@ -194,6 +194,7 @@
     },
     "updatedTodos": "À faire mis à jour",
     "viewInChangesPanel": "Voir dans le panneau des modifications",
+    "openInFilesPanel": "Ouvrir dans le panneau des fichiers",
     "unableToRenderDiff": "Impossible d'afficher le diff."
   },
   "attempt": {

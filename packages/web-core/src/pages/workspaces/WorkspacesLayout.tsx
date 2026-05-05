@@ -31,6 +31,7 @@ import { RightSidebar } from './RightSidebar';
 import { ChangesPanelContainer } from './ChangesPanelContainer';
 import { CreateChatBoxContainer } from '@/shared/components/CreateChatBoxContainer';
 import { PreviewBrowserContainer } from './PreviewBrowserContainer';
+import { FileBrowserContainer } from './FileBrowserContainer';
 import { WorkspacesGuideDialog } from '@/shared/dialogs/shared/WorkspacesGuideDialog';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
 
@@ -292,6 +293,21 @@ export function WorkspacesLayout() {
               )}
             </div>
 
+            {/* Files tab */}
+            <div
+              className={cn(
+                'flex-1 min-h-0 overflow-hidden',
+                mobileTab !== 'files' && 'hidden'
+              )}
+            >
+              {selectedWorkspace?.id && (
+                <FileBrowserContainer
+                  workspaceId={selectedWorkspace.id}
+                  className="h-full min-h-0"
+                />
+              )}
+            </div>
+
             {/* Git tab */}
             <div
               className={cn(
@@ -396,6 +412,13 @@ export function WorkspacesLayout() {
                     <PreviewBrowserContainer
                       workspaceId={selectedWorkspace.id}
                       className=""
+                    />
+                  )}
+                {rightMainPanelMode === RIGHT_MAIN_PANEL_MODES.FILES &&
+                  selectedWorkspace?.id && (
+                    <FileBrowserContainer
+                      workspaceId={selectedWorkspace.id}
+                      className="h-full min-h-0"
                     />
                   )}
               </Panel>
