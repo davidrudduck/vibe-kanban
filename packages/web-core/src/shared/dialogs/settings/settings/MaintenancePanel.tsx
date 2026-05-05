@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import {
   ArrowClockwiseIcon,
   DatabaseIcon,
@@ -21,8 +22,10 @@ import {
   useRunAnalyze,
   useArchivedStats,
   usePurgeArchived,
+  useArchivedList,
   useLogStats,
   usePurgeLogs,
+  useLogList,
 } from '@/shared/hooks/useDatabaseMaintenance';
 
 const DAYS_OPTIONS: { value: string; label: string }[] = [
@@ -49,9 +52,13 @@ function StatRow({
 }
 
 export function MaintenancePanel() {
+  const navigate = useNavigate();
+
   const {
     data: stats,
     isLoading: statsLoading,
+    isError: statsIsError,
+    error: statsError,
     refetch: refetchStats,
   } = useDatabaseStats();
 
@@ -61,15 +68,21 @@ export function MaintenancePanel() {
   // Archived cleanup state
   const [archivedDays, setArchivedDays] = useState<string>('14');
   const [showArchivedStats, setShowArchivedStats] = useState(false);
+  const [showArchivedList, setShowArchivedList] = useState(false);
   const archivedStats = useArchivedStats(
     showArchivedStats ? Number(archivedDays) : undefined
+  );
+  const archivedList = useArchivedList(
+    showArchivedList ? Number(archivedDays) : undefined
   );
   const purgeArchivedMutation = usePurgeArchived();
 
   // Log cleanup state
   const [logDays, setLogDays] = useState<string>('14');
   const [showLogStats, setShowLogStats] = useState(false);
+  const [showLogList, setShowLogList] = useState(false);
   const logStats = useLogStats(showLogStats ? Number(logDays) : undefined);
+  const logList = useLogList(showLogList ? Number(logDays) : undefined);
   const purgeLogsMutation = usePurgeLogs();
 
   const isVacuumCooldown =
@@ -101,6 +114,12 @@ export function MaintenancePanel() {
             <SpinnerIcon className="size-icon-sm animate-spin" weight="bold" />
             Loading...
           </div>
+        )}
+        {statsIsError && (
+          <p className="text-sm text-error py-2">
+            Failed to load database stats:{' '}
+            {(statsError as Error)?.message ?? 'Unknown error'}
+          </p>
         )}
         {stats && (
           <div className="rounded-sm border border-border overflow-hidden">
@@ -215,6 +234,7 @@ export function MaintenancePanel() {
             onChange={(value) => {
               setArchivedDays(value);
               setShowArchivedStats(false);
+              setShowArchivedList(false);
               purgeArchivedMutation.reset();
             }}
           />
@@ -225,7 +245,9 @@ export function MaintenancePanel() {
             variant="tertiary"
             onClick={() => {
               setShowArchivedStats(true);
+              setShowArchivedList(true);
               archivedStats.refetch();
+              archivedList.refetch();
             }}
             disabled={archivedStats.isFetching}
           >
@@ -274,6 +296,51 @@ export function MaintenancePanel() {
           </p>
         )}
 
+        {showArchivedList && archivedList.data && archivedList.data.items.length > 0 && (
+          <div className="rounded-sm border border-border overflow-hidden mt-2">
+            <div className="flex items-center justify-between px-3 py-1.5 bg-secondary/50 border-b border-border">
+              <span className="text-xs font-medium text-low uppercase tracking-wide">
+                Workspace
+              </span>
+              <span className="text-xs font-medium text-low uppercase tracking-wide">
+                Archived
+              </span>
+            </div>
+            {archivedList.data.items.map((item) => (
+              <div
+                key={item.id}
+                className="flex items-center justify-between px-3 py-1.5 border-b border-border last:border-b-0"
+              >
+                <button
+                  className="text-sm text-link hover:underline truncate max-w-[60%] text-left"
+                  title={item.name ?? 'Unnamed workspace'}
+                  onClick={() =>
+                    navigate({
+                      to: '/workspaces/$workspaceId',
+                      params: { workspaceId: item.id },
+                    })
+                  }
+                >
+                  {item.name ?? 'Unnamed workspace'}
+                </button>
+                <span className="text-xs font-mono text-low shrink-0">
+                  {new Date(item.archived_at).toLocaleDateString()}
+                </span>
+              </div>
+            ))}
+            <div className="px-3 py-1.5 bg-secondary/50 border-t border-border text-xs text-low">
+              {archivedList.data.items.length} workspace(s) eligible (oldest
+              first)
+            </div>
+          </div>
+        )}
+
+        {showArchivedList && archivedList.data?.items.length === 0 && (
+          <p className="text-sm text-low mt-1">
+            No archived workspaces older than {archivedDays} days.
+          </p>
+        )}
+
         {purgeArchivedMutation.isSuccess && purgeArchivedMutation.data && (
           <p className="text-sm text-success flex items-center gap-1.5">
             <CheckCircleIcon className="size-icon-sm" weight="bold" />
@@ -301,6 +368,7 @@ export function MaintenancePanel() {
             onChange={(value) => {
               setLogDays(value);
               setShowLogStats(false);
+              setShowLogList(false);
               purgeLogsMutation.reset();
             }}
           />
@@ -311,7 +379,9 @@ export function MaintenancePanel() {
             variant="tertiary"
             onClick={() => {
               setShowLogStats(true);
+              setShowLogList(true);
               logStats.refetch();
+              logList.refetch();
             }}
             disabled={logStats.isFetching}
           >
@@ -358,6 +428,52 @@ export function MaintenancePanel() {
             {String(logStats.data.file_count)} file(s),{' '}
             {formatBytes(logStats.data.total_bytes)} total (older than{' '}
             {String(logStats.data.older_than_days)} days)
+          </p>
+        )}
+
+        {showLogList && logList.data && logList.data.items.length > 0 && (
+          <div className="rounded-sm border border-border overflow-hidden mt-2">
+            <div className="flex items-center justify-between px-3 py-1.5 bg-secondary/50 border-b border-border">
+              <span className="text-xs font-medium text-low uppercase tracking-wide">
+                Workspace
+              </span>
+              <span className="text-xs font-medium text-low uppercase tracking-wide">
+                Files / Size / Oldest
+              </span>
+            </div>
+            {logList.data.items.map((item) => (
+              <div
+                key={item.session_id}
+                className="flex items-center justify-between px-3 py-1.5 border-b border-border last:border-b-0"
+              >
+                <button
+                  className="text-sm text-link hover:underline truncate max-w-[50%] text-left"
+                  title={item.workspace_name ?? 'Unnamed workspace'}
+                  onClick={() =>
+                    navigate({
+                      to: '/workspaces/$workspaceId',
+                      params: { workspaceId: item.workspace_id },
+                    })
+                  }
+                >
+                  {item.workspace_name ?? 'Unnamed workspace'}
+                </button>
+                <span className="text-xs font-mono text-low shrink-0">
+                  {String(item.file_count)} / {formatBytes(item.total_bytes)} /{' '}
+                  {item.oldest_file_date}
+                </span>
+              </div>
+            ))}
+            <div className="px-3 py-1.5 bg-secondary/50 border-t border-border text-xs text-low">
+              {logList.data.items.length} session(s) with eligible log files
+              (oldest first)
+            </div>
+          </div>
+        )}
+
+        {showLogList && logList.data?.items.length === 0 && (
+          <p className="text-sm text-low mt-1">
+            No log files older than {logDays} days.
           </p>
         )}
 

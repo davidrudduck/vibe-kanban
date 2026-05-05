@@ -426,7 +426,12 @@ export const workspacesApi = {
 
   update: async (
     workspaceId: string,
-    data: { archived?: boolean; pinned?: boolean; name?: string }
+    data: {
+      archived?: boolean;
+      pinned?: boolean;
+      name?: string;
+      force_archive?: boolean;
+    }
   ): Promise<Workspace> => {
     const response = await makeRequest(`/api/workspaces/${workspaceId}`, {
       method: 'PUT',

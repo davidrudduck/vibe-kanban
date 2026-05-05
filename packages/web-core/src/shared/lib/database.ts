@@ -6,8 +6,10 @@ import type {
   AnalyzeResult,
   ArchivedStatsResponse,
   ArchivedPurgeResult,
+  ArchivedListResponse,
   LogStatsResponse,
   LogPurgeResult,
+  LogListResponse,
 } from 'shared/types';
 
 export async function getDatabaseStats(): Promise<DatabaseStats> {
@@ -111,4 +113,28 @@ export async function purgeLogs(
     throw new Error(`Failed to purge logs: ${response.status}`);
   }
   return handleApiResponse<LogPurgeResult>(response);
+}
+
+export async function getArchivedList(
+  olderThanDays: number
+): Promise<ArchivedListResponse> {
+  const response = await makeLocalApiRequest(
+    `/api/database/archived-list?older_than_days=${olderThanDays}`
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to fetch archived list: ${response.status}`);
+  }
+  return handleApiResponse<ArchivedListResponse>(response);
+}
+
+export async function getLogList(
+  olderThanDays: number
+): Promise<LogListResponse> {
+  const response = await makeLocalApiRequest(
+    `/api/database/log-list?older_than_days=${olderThanDays}`
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to fetch log list: ${response.status}`);
+  }
+  return handleApiResponse<LogListResponse>(response);
 }

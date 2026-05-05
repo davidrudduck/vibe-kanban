@@ -80,6 +80,22 @@ export function useWorkspaceActions({
           archived: !isCurrentlyArchived,
         });
       } catch (error) {
+        if (!isCurrentlyArchived && (error as { status?: number }).status === 409) {
+          const result = await ConfirmDialog.show({
+            title: 'Uncommitted Changes Detected',
+            message:
+              'This workspace has uncommitted changes that will remain on disk after archiving. Archive anyway?',
+            confirmText: 'Archive Anyway',
+            variant: 'destructive',
+          });
+          if (result === 'confirmed') {
+            await workspacesApi.update(localWorkspaceId, {
+              archived: true,
+              force_archive: true,
+            });
+          }
+          return;
+        }
         ConfirmDialog.show({
           title: t('common:error'),
           message:

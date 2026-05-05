@@ -393,11 +393,23 @@ impl Workspace {
         workspace_id: Uuid,
         archived: bool,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            "UPDATE workspaces SET archived = $1, updated_at = datetime('now', 'subsec') WHERE id = $2",
-            archived,
-            workspace_id
+        // Use sqlx::query (not query!) to support the CASE expression.
+        // When archiving: preserve the original archived_at if already set
+        // (COALESCE), so repeated archive/unarchive cycles don't lose the
+        // first-archive timestamp. Consistent with update() semantics.
+        // When un-archiving: clear archived_at.
+        sqlx::query(
+            "UPDATE workspaces
+                SET archived    = ?1,
+                    archived_at = CASE
+                                      WHEN ?1 = 1 THEN COALESCE(archived_at, datetime('now', 'subsec'))
+                                      ELSE NULL
+                                  END,
+                    updated_at  = datetime('now', 'subsec')
+              WHERE id = ?2",
         )
+        .bind(archived)
+        .bind(workspace_id)
         .execute(pool)
         .await?;
         Ok(())
@@ -415,20 +427,31 @@ impl Workspace {
         // Convert empty string to None for name field (to store as NULL)
         let name_value = name.filter(|s| !s.is_empty());
         let name_provided = name.is_some();
+        // archived as i64 for use in CASE expressions (SQLite has no native bool binding
+        // when using sqlx::query non-macro path with repeated parameter references).
+        let archived_int: Option<i64> = archived.map(|a| if a { 1 } else { 0 });
 
-        sqlx::query!(
+        // Use sqlx::query (not query!) to support the CASE expression for archived_at.
+        // When archived transitions to true, set archived_at to now() if not already set
+        // (preserving the original archive time on re-archive). Clear it when un-archiving.
+        sqlx::query(
             r#"UPDATE workspaces SET
-                archived = COALESCE($1, archived),
-                pinned = COALESCE($2, pinned),
-                name = CASE WHEN $3 THEN $4 ELSE name END,
-                updated_at = datetime('now', 'subsec')
-            WHERE id = $5"#,
-            archived,
-            pinned,
-            name_provided,
-            name_value,
-            workspace_id
+                archived    = COALESCE(?1, archived),
+                archived_at = CASE
+                                  WHEN ?1 = 1 THEN COALESCE(archived_at, datetime('now', 'subsec'))
+                                  WHEN ?1 = 0 THEN NULL
+                                  ELSE archived_at
+                              END,
+                pinned      = COALESCE(?2, pinned),
+                name        = CASE WHEN ?3 THEN ?4 ELSE name END,
+                updated_at  = datetime('now', 'subsec')
+            WHERE id = ?5"#,
         )
+        .bind(archived_int)
+        .bind(pinned)
+        .bind(name_provided)
+        .bind(name_value)
+        .bind(workspace_id)
         .execute(pool)
         .await?;
         Ok(())

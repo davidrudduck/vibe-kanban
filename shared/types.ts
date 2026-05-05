@@ -216,6 +216,26 @@ export type LogStatsResponse = { file_count: bigint, total_bytes: bigint, older_
 
 export type LogPurgeResult = { deleted_files: bigint, bytes_freed: bigint, older_than_days: bigint, };
 
+export type ArchivedWorkspaceItem = { id: string, name: string | null, 
+/**
+ * ISO-8601 string — the actual archive timestamp (archived_at if set, else updated_at)
+ */
+archived_at: string, 
+/**
+ * ISO-8601 string
+ */
+created_at: string, };
+
+export type ArchivedListResponse = { items: Array<ArchivedWorkspaceItem>, older_than_days: bigint, };
+
+export type LogSessionItem = { session_id: string, workspace_id: string, workspace_name: string | null, file_count: bigint, total_bytes: bigint, 
+/**
+ * ISO-8601 date string of the oldest log file in this session.
+ */
+oldest_file_date: string, };
+
+export type LogListResponse = { items: Array<LogSessionItem>, older_than_days: bigint, };
+
 export type PoolStats = { 
 /**
  * Total connections in the pool (idle + acquired)
@@ -234,7 +254,20 @@ export type DiagnosticsResponse = { pool_stats: PoolStats, database_stats: Datab
 
 export type WorkspaceDiskUsage = { workspace_id: string, path: string, size_bytes: bigint, };
 
-export type DiskUsageResponse = { workspaces: Array<WorkspaceDiskUsage>, total_bytes: bigint, total_human: string, };
+export type DiskUsageResponse = { workspaces: Array<WorkspaceDiskUsage>, 
+/**
+ * Sum of disk usage across ALL workspaces (not just the displayed top-N).
+ */
+total_bytes: bigint, total_human: string, 
+/**
+ * Sum of disk usage for the displayed workspaces (top-50 by size).
+ * May be less than total_bytes when there are more than 50 workspaces.
+ */
+displayed_bytes: bigint, displayed_human: string, };
+
+export type CleanArtifactsResult = { dirs_removed: Array<string>, bytes_freed: bigint, };
+
+export type RemoveWorktreeResult = { workspace_id: string, success: boolean, };
 
 export type Session = { id: string, workspace_id: string, name: string | null, executor: string | null, agent_working_dir: string | null, host_id: string | null, created_at: string, updated_at: string, };
 
@@ -508,7 +541,12 @@ export type CreateFromPrError = { "type": "pr_not_found" } | { "type": "branch_f
 
 export type RepoBranchStatus = { repo_id: string, repo_name: string, commits_behind: number | null, commits_ahead: number | null, has_uncommitted_changes: boolean | null, head_oid: string | null, uncommitted_count: number | null, untracked_count: number | null, target_branch_name: string, remote_commits_behind: number | null, remote_commits_ahead: number | null, merges: Array<Merge>, is_rebase_in_progress: boolean, conflict_op: ConflictOp | null, conflicted_files: Array<string>, is_target_remote: boolean, };
 
-export type UpdateWorkspace = { archived: boolean | null, pinned: boolean | null, name: string | null, };
+export type UpdateWorkspace = { archived: boolean | null, pinned: boolean | null, name: string | null, 
+/**
+ * When true, skip the uncommitted-changes check and archive even if the
+ * worktree has local changes. Defaults to false.
+ */
+force_archive: boolean, };
 
 export type UpdateSession = { name: string | null, };
 

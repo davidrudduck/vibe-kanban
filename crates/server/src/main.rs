@@ -292,6 +292,11 @@ pub async fn perform_cleanup_actions(deployment: &DeploymentImpl) {
         .kill_all_running_processes()
         .await
         .expect("Failed to cleanly kill running execution processes");
+
+    // Signal the WAL monitor to stop and wait for its current checkpoint
+    // (if any) to complete before the process exits.
+    deployment.wal_monitor().shutdown().await;
+    tracing::info!("WAL monitor shut down cleanly");
 }
 
 fn parse_port(value: &str) -> Result<u16, String> {

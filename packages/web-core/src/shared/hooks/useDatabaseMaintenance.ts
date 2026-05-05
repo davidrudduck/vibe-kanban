@@ -5,8 +5,10 @@ import {
   runAnalyze,
   getArchivedStats,
   purgeArchived,
+  getArchivedList,
   getLogStats,
   purgeLogs,
+  getLogList,
 } from '@/shared/lib/database';
 
 export const DATABASE_STATS_QUERY_KEY = ['database', 'stats'] as const;
@@ -72,5 +74,23 @@ export function usePurgeLogs() {
       queryClient.invalidateQueries({ queryKey: ['database', 'log-stats'] });
       queryClient.invalidateQueries({ queryKey: DATABASE_STATS_QUERY_KEY });
     },
+  });
+}
+
+export function useArchivedList(olderThanDays?: number) {
+  return useQuery({
+    queryKey: ['database', 'archived-list', olderThanDays] as const,
+    queryFn: () => getArchivedList(olderThanDays!),
+    enabled: olderThanDays != null && olderThanDays > 0,
+    staleTime: 30_000,
+  });
+}
+
+export function useLogList(olderThanDays?: number) {
+  return useQuery({
+    queryKey: ['database', 'log-list', olderThanDays] as const,
+    queryFn: () => getLogList(olderThanDays!),
+    enabled: olderThanDays != null && olderThanDays > 0,
+    staleTime: 30_000,
   });
 }

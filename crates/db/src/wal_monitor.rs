@@ -309,24 +309,36 @@ impl WalMonitor {
 
         match result {
             Ok((blocked, log_pages, checkpointed)) => {
-                if blocked == 0 {
+                if blocked == 0 && log_pages == checkpointed {
+                    // True success: no readers blocked us AND all frames were checkpointed.
+                    // SQLite will truncate the WAL file after this.
                     tracing::info!(
                         duration_ms = duration.as_millis() as u64,
                         log_pages = log_pages,
                         checkpointed = checkpointed,
-                        "TRUNCATE checkpoint completed - all WAL flushed to main database"
+                        "TRUNCATE checkpoint completed — all WAL flushed to main database"
                     );
-                } else {
-                    // blocked != 0 is SQLite's indication that readers/writers prevented
-                    // full checkpointing — this is the WAL-mode equivalent of SQLITE_BUSY
-                    // for TRUNCATE mode. The WAL was not fully flushed; fall back to a
-                    // PASSIVE checkpoint rather than treating this as success.
+                } else if blocked != 0 {
+                    // Active readers or writers prevented the checkpoint from acquiring
+                    // the exclusive lock needed for TRUNCATE.
                     tracing::warn!(
                         duration_ms = duration.as_millis() as u64,
                         blocked = blocked,
                         log_pages = log_pages,
                         checkpointed = checkpointed,
-                        "TRUNCATE checkpoint was blocked - falling back to PASSIVE checkpoint"
+                        "TRUNCATE checkpoint blocked by active readers — falling back to PASSIVE"
+                    );
+                    self.run_checkpoint().await;
+                } else {
+                    // blocked == 0 but log_pages != checkpointed: SQLite acquired the lock
+                    // but could not checkpoint all frames. WAL is NOT truncated.
+                    tracing::warn!(
+                        duration_ms = duration.as_millis() as u64,
+                        log_pages = log_pages,
+                        checkpointed = checkpointed,
+                        "TRUNCATE checkpoint incomplete (partial): {} of {} frames checkpointed — falling back to PASSIVE",
+                        checkpointed,
+                        log_pages,
                     );
                     self.run_checkpoint().await;
                 }
@@ -378,5 +390,27 @@ mod tests {
     fn test_get_wal_size_nonexistent() {
         let size = get_wal_size("/nonexistent/path/db.sqlite");
         assert_eq!(size, 0);
+    }
+
+    #[test]
+    fn test_truncate_success_requires_log_eq_checkpointed() {
+        // blocked != 0 → blocked by readers; not a success
+        let (blocked, _log, _checkpointed) = (1i32, 10i32, 5i32);
+        assert!(blocked != 0, "blocked readers case");
+
+        // blocked == 0 but log != checkpointed → partial; not a success
+        let (blocked, log, checkpointed) = (0i32, 10i32, 5i32);
+        assert!(
+            blocked == 0 && log != checkpointed,
+            "partial checkpoint case"
+        );
+        assert!(
+            !(blocked == 0 && log == checkpointed),
+            "partial is NOT full success"
+        );
+
+        // blocked == 0 and log == checkpointed → full success
+        let (blocked, log, checkpointed) = (0i32, 10i32, 10i32);
+        assert!(blocked == 0 && log == checkpointed, "full success case");
     }
 }
