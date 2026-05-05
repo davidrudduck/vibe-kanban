@@ -116,7 +116,7 @@ async fn async_main(
     }
 
     let filter_string = file_logging::build_filter_string();
-    let _log_guard = file_logging::init_logging(&filter_string);
+    let logging_handle = file_logging::init_logging(&filter_string);
 
     // Copy old database to new location for safe downgrades
     let old_db = asset_dir().join("db.sqlite");
@@ -132,6 +132,7 @@ async fn async_main(
     }
 
     let shutdown_token = CancellationToken::new();
+    logging_handle.spawn_cleanup_task(shutdown_token.clone());
 
     let deployment = DeploymentImpl::new(shutdown_token.clone()).await?;
     deployment.update_sentry_scope().await?;

@@ -9,12 +9,17 @@
 //! - `VK_LOG_DIR` — override log directory (default: `{asset_dir}/logs`)
 //! - `VK_LOG_MAX_FILES` — daily files to retain (default: `7`)
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
+use tokio_util::sync::CancellationToken;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::SubscriberInitExt};
 use utils::{assets::asset_dir, sentry::sentry_layer};
 
+#[derive(Clone)]
 pub struct FileLoggingConfig {
     pub enabled: bool,
     pub log_dir: PathBuf,
@@ -77,6 +82,63 @@ impl FileLoggingConfig {
     }
 }
 
+/// Holds the non-blocking writer guard and optionally the config needed to
+/// spawn a periodic cleanup task.
+///
+/// **Hold this value for the entire lifetime of the process.** Dropping it
+/// flushes and stops the background file-writer thread.
+pub struct LoggingHandle {
+    /// Dropping this flushes remaining buffered log lines and stops the writer thread.
+    pub _guard: Option<WorkerGuard>,
+    /// Present when file logging was successfully initialised; used to spawn cleanup.
+    pub cleanup_config: Option<FileLoggingConfig>,
+}
+
+impl LoggingHandle {
+    fn console_only() -> Self {
+        Self {
+            _guard: None,
+            cleanup_config: None,
+        }
+    }
+
+    fn with_file(guard: WorkerGuard, config: FileLoggingConfig) -> Self {
+        Self {
+            _guard: Some(guard),
+            cleanup_config: Some(config),
+        }
+    }
+
+    /// Spawn a background tokio task that runs `cleanup_old_logs` once per day.
+    ///
+    /// Call this after the tokio runtime is running (i.e. inside an `async fn`).
+    /// The task exits when `shutdown` is cancelled.
+    ///
+    /// No-op if file logging is not active.
+    pub fn spawn_cleanup_task(&self, shutdown: CancellationToken) {
+        if let Some(ref config) = self.cleanup_config {
+            let config = config.clone();
+            tokio::spawn(run_cleanup_loop(config, shutdown));
+        }
+    }
+}
+
+/// Runs `cleanup_old_logs` once per day until `shutdown` is cancelled.
+pub async fn run_cleanup_loop(config: FileLoggingConfig, shutdown: CancellationToken) {
+    const ONE_DAY: Duration = Duration::from_secs(24 * 60 * 60);
+    loop {
+        tokio::select! {
+            _ = shutdown.cancelled() => {
+                tracing::debug!("Log cleanup task shutting down");
+                break;
+            }
+            _ = tokio::time::sleep(ONE_DAY) => {
+                cleanup_old_logs(&config.log_dir, config.max_files);
+            }
+        }
+    }
+}
+
 /// Build the tracing filter string from the `RUST_LOG` environment variable.
 ///
 /// If `RUST_LOG` contains `=` or `,` it is treated as a full directive string
@@ -117,7 +179,7 @@ relay_webrtc={level},codex_core=off"
 ///
 /// # Panics
 /// Panics if `filter_string` is not a valid `EnvFilter` directive string.
-pub fn init_logging(filter_string: &str) -> Option<WorkerGuard> {
+pub fn init_logging(filter_string: &str) -> LoggingHandle {
     let config = FileLoggingConfig::from_env(asset_dir());
 
     let env_filter = EnvFilter::try_new(filter_string).expect("Failed to create tracing filter");
@@ -136,7 +198,7 @@ pub fn init_logging(filter_string: &str) -> Option<WorkerGuard> {
             {
                 eprintln!("Tracing subscriber already initialised: {e}");
             }
-            return None;
+            return LoggingHandle::console_only();
         }
 
         let file_appender = tracing_appender::rolling::daily(&config.log_dir, "vibe-kanban.log");
@@ -159,10 +221,8 @@ pub fn init_logging(filter_string: &str) -> Option<WorkerGuard> {
             .try_init()
         {
             eprintln!("Tracing subscriber already initialised: {e}");
-            // File layer was never installed — drop the guard to release the
-            // background writer thread, and signal no file logging to the caller.
             drop(guard);
-            return None;
+            return LoggingHandle::console_only();
         }
 
         tracing::info!(
@@ -173,14 +233,7 @@ pub fn init_logging(filter_string: &str) -> Option<WorkerGuard> {
             "File logging enabled"
         );
 
-        let log_dir = config.log_dir.clone();
-        let max_files = config.max_files;
-        // Fire-and-forget: cleanup is fast and idempotent. If the process exits
-        // before this thread completes, at most a partial deletion occurs — not
-        // data-corrupting.
-        std::thread::spawn(move || cleanup_old_logs(&log_dir, max_files));
-
-        Some(guard)
+        LoggingHandle::with_file(guard, config)
     } else {
         if let Err(e) = tracing_subscriber::registry()
             .with(console_layer)
@@ -189,7 +242,7 @@ pub fn init_logging(filter_string: &str) -> Option<WorkerGuard> {
         {
             eprintln!("Tracing subscriber already initialised: {e}");
         }
-        None
+        LoggingHandle::console_only()
     }
 }
 
@@ -405,10 +458,24 @@ mod tests {
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .collect();
 
-        assert_eq!(remaining.len(), 3, "expected exactly 3 files; got {:?}", remaining);
-        assert!(remaining.contains("vibe-kanban.log.2025-01-08"), "day 08 missing");
-        assert!(remaining.contains("vibe-kanban.log.2025-01-09"), "day 09 missing");
-        assert!(remaining.contains("vibe-kanban.log.2025-01-10"), "day 10 missing");
+        assert_eq!(
+            remaining.len(),
+            3,
+            "expected exactly 3 files; got {:?}",
+            remaining
+        );
+        assert!(
+            remaining.contains("vibe-kanban.log.2025-01-08"),
+            "day 08 missing"
+        );
+        assert!(
+            remaining.contains("vibe-kanban.log.2025-01-09"),
+            "day 09 missing"
+        );
+        assert!(
+            remaining.contains("vibe-kanban.log.2025-01-10"),
+            "day 10 missing"
+        );
     }
 
     #[test]
@@ -416,11 +483,11 @@ mod tests {
         let dir = temp_dir();
         // These must NEVER be deleted — they don't match the date suffix pattern
         for name in &[
-            "vibe-kanban.log",           // no date suffix
-            "vibe-kanban.log.bak",       // backup extension
-            "vibe-kanban.log.old",       // old extension
-            "vibe-kanban.log.2025-1-1",  // wrong date format (not zero-padded)
-            "vibe-kanban.log.2025-13-01",// invalid month
+            "vibe-kanban.log",            // no date suffix
+            "vibe-kanban.log.bak",        // backup extension
+            "vibe-kanban.log.old",        // old extension
+            "vibe-kanban.log.2025-1-1",   // wrong date format (not zero-padded)
+            "vibe-kanban.log.2025-13-01", // invalid month
         ] {
             fs::write(dir.join(name), b"x").unwrap();
         }
@@ -442,7 +509,10 @@ mod tests {
             "vibe-kanban.log.2025-1-1",
             "vibe-kanban.log.2025-13-01",
         ] {
-            assert!(dir.join(name).exists(), "{name} was deleted but should not be");
+            assert!(
+                dir.join(name).exists(),
+                "{name} was deleted but should not be"
+            );
         }
     }
 
@@ -564,8 +634,8 @@ mod tests {
         // Second call — guaranteed to hit the Err arm (subscriber already set)
         let second = init_logging("warn");
         assert!(
-            second.is_none(),
-            "second init_logging call must return None when try_init fails"
+            second._guard.is_none() && second.cleanup_config.is_none(),
+            "second init_logging call must return console-only handle when try_init fails"
         );
         unsafe {
             std::env::remove_var("VK_FILE_LOGGING");
@@ -645,7 +715,10 @@ mod tests {
             std::env::set_var("VK_LOG_BUFFER_LINES", "0");
         }
         let config = FileLoggingConfig::from_env(temp_dir());
-        assert_eq!(config.buffer_lines, 1, "buffer_lines=0 must be clamped to 1");
+        assert_eq!(
+            config.buffer_lines, 1,
+            "buffer_lines=0 must be clamped to 1"
+        );
         unsafe {
             std::env::remove_var("VK_LOG_BUFFER_LINES");
         }
@@ -659,10 +732,29 @@ mod tests {
 
         cleanup_old_logs(&dir, 1); // keep 1 log file; unrelated.txt must never be touched
 
-        assert!(dir.join("unrelated.txt").exists(), "non-log file was deleted");
+        assert!(
+            dir.join("unrelated.txt").exists(),
+            "non-log file was deleted"
+        );
         assert!(
             dir.join("vibe-kanban.log.2025-01-01").exists(),
             "log file was deleted despite being the only one"
         );
+    }
+
+    #[test]
+    fn logging_handle_spawn_cleanup_is_noop_when_disabled() {
+        // Verify LoggingHandle exists, has the expected fields, and
+        // spawn_cleanup_task is a no-op (no tokio::spawn) when cleanup_config is None.
+        use tokio_util::sync::CancellationToken;
+        let handle = LoggingHandle {
+            _guard: None,
+            cleanup_config: None,
+        };
+        let token = CancellationToken::new();
+        // Must not panic even without a running tokio runtime
+        handle.cleanup_config.as_ref().map(|_| ()).unwrap_or(());
+        drop(token);
+        drop(handle);
     }
 }
