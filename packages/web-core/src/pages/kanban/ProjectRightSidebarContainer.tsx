@@ -7,15 +7,9 @@ import {
   type ReactNode,
 } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  ArrowDownIcon,
-  ArrowLineDownIcon,
-  ArrowLineUpIcon,
-  ArrowsOutIcon,
-  ArrowUpIcon,
-  XIcon,
-  type Icon as PhosphorIcon,
-} from '@phosphor-icons/react';
+import { ArrowsOutIcon, XIcon } from '@phosphor-icons/react';
+import { ConversationNavOverlay } from '@vibe/ui/components/ConversationNavOverlay';
+import { useConversationNavController } from '@/features/workspace-chat/model/useConversationNavController';
 import { useProjectContext } from '@/shared/hooks/useProjectContext';
 import { useUserContext } from '@/shared/hooks/useUserContext';
 import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
@@ -42,28 +36,6 @@ import {
   closeKanbanIssueComposer,
   useKanbanIssueComposer,
 } from '@/shared/stores/useKanbanIssueComposerStore';
-
-function NavButton({
-  icon: Icon,
-  label,
-  onClick,
-}: {
-  icon: PhosphorIcon;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="pointer-events-auto flex items-center justify-center size-8 rounded-full bg-secondary/80 backdrop-blur-sm border border-secondary text-low hover:text-normal hover:bg-secondary shadow-md transition-all"
-      aria-label={label}
-      title={label}
-    >
-      <Icon className="size-icon-base" weight="bold" />
-    </button>
-  );
-}
 
 interface WorkspaceSessionPanelProps {
   workspaceId: string;
@@ -175,10 +147,7 @@ function WorkspaceSessionPanel({
   const { workspaces: remoteWorkspaces } = useUserContext();
   const { activeWorkspaces, archivedWorkspaces } = useWorkspaceContext();
   const conversationListRef = useRef<ConversationListHandle>(null);
-  const [isAtBottom, setIsAtBottom] = useState(true);
-  const [isAtTop, setIsAtTop] = useState(true);
-  const [hasPreviousUserMessage, setHasPreviousUserMessage] = useState(true);
-  const [hasNextUserMessage, setHasNextUserMessage] = useState(true);
+  const nav = useConversationNavController(conversationListRef);
   const { data: workspace, isLoading: isWorkspaceLoading } = useWorkspaceRecord(
     workspaceId,
     { enabled: !!workspaceId }
@@ -240,56 +209,6 @@ function WorkspaceSessionPanel({
     return createWorkspaceWithSession(workspace, selectedSession);
   }, [workspace, selectedSession]);
 
-  const handleScrollToPreviousMessage = useCallback(() => {
-    conversationListRef.current?.scrollToPreviousUserMessage();
-  }, []);
-
-  const handleScrollToNextMessage = useCallback(() => {
-    conversationListRef.current?.scrollToNextUserMessage();
-  }, []);
-
-  const handleScrollToUserMessage = useCallback((patchKey: string) => {
-    conversationListRef.current?.scrollToEntryByPatchKey(patchKey);
-  }, []);
-
-  const handleGetActiveTurnPatchKey = useCallback(() => {
-    return conversationListRef.current?.getVisibleUserMessagePatchKey() ?? null;
-  }, []);
-
-  const handleScrollToBottom = useCallback(
-    (behavior: 'auto' | 'smooth' = 'smooth') => {
-      conversationListRef.current?.scrollToBottom(behavior);
-    },
-    []
-  );
-
-  const handleScrollToTop = useCallback(
-    (behavior: 'auto' | 'smooth' = 'smooth') => {
-      conversationListRef.current?.scrollToTop(behavior);
-    },
-    []
-  );
-
-  const handleAtBottomChange = useCallback((atBottom: boolean) => {
-    setIsAtBottom(atBottom);
-    setHasPreviousUserMessage(
-      conversationListRef.current?.hasPreviousUserMessage() ?? true
-    );
-    setHasNextUserMessage(
-      conversationListRef.current?.hasNextUserMessage() ?? true
-    );
-  }, []);
-
-  const handleAtTopChange = useCallback((atTop: boolean) => {
-    setIsAtTop(atTop);
-    setHasPreviousUserMessage(
-      conversationListRef.current?.hasPreviousUserMessage() ?? true
-    );
-    setHasNextUserMessage(
-      conversationListRef.current?.hasNextUserMessage() ?? true
-    );
-  }, []);
-
   return (
     <ExecutionProcessesProvider
       key={`${workspaceId}-${selectedSessionId ?? 'new'}`}
@@ -348,8 +267,8 @@ function WorkspaceSessionPanel({
                         key={`${workspaceId}-${selectedSessionId ?? 'new'}`}
                         ref={conversationListRef}
                         attempt={workspaceWithSession}
-                        onAtBottomChange={handleAtBottomChange}
-                        onAtTopChange={handleAtTopChange}
+                        onAtBottomChange={nav.onAtBottomChange}
+                        onAtTopChange={nav.onAtTopChange}
                         sessionScopeId={selectedSessionId}
                       />
                     </RetryUiProvider>
@@ -359,41 +278,17 @@ function WorkspaceSessionPanel({
                 <div className="flex-1" />
               )}
 
-              {workspaceWithSession && (!isAtTop || !isAtBottom) && (
-                <div className="flex justify-center pointer-events-none">
-                  <div className="w-chat max-w-full relative">
-                    <div className="absolute bottom-2 right-4 z-10 flex flex-col gap-1 pointer-events-none">
-                      {!isAtTop && (
-                        <NavButton
-                          icon={ArrowLineUpIcon}
-                          label="Go to top"
-                          onClick={() => handleScrollToTop('auto')}
-                        />
-                      )}
-                      {!isAtTop && hasPreviousUserMessage && (
-                        <NavButton
-                          icon={ArrowUpIcon}
-                          label="Previous user message"
-                          onClick={handleScrollToPreviousMessage}
-                        />
-                      )}
-                      {!isAtBottom && hasNextUserMessage && (
-                        <NavButton
-                          icon={ArrowDownIcon}
-                          label="Next user message"
-                          onClick={handleScrollToNextMessage}
-                        />
-                      )}
-                      {!isAtBottom && (
-                        <NavButton
-                          icon={ArrowLineDownIcon}
-                          label="Scroll to bottom"
-                          onClick={() => handleScrollToBottom('auto')}
-                        />
-                      )}
-                    </div>
-                  </div>
-                </div>
+              {workspaceWithSession && (
+                <ConversationNavOverlay
+                  isAtTop={nav.isAtTop}
+                  isAtBottom={nav.isAtBottom}
+                  hasPreviousUserMessage={nav.hasPreviousUserMessage}
+                  hasNextUserMessage={nav.hasNextUserMessage}
+                  onScrollToTop={nav.onScrollToTop}
+                  onScrollToPreviousMessage={nav.onScrollToPreviousMessage}
+                  onScrollToNextMessage={nav.onScrollToNextMessage}
+                  onScrollToBottom={nav.onScrollToBottom}
+                />
               )}
 
               <div className="flex justify-center @container pl-px">
@@ -424,10 +319,10 @@ function WorkspaceSessionPanel({
                   linesRemoved={workspaceSummary?.linesRemoved ?? 0}
                   disableViewCode
                   showOpenWorkspaceButton
-                  onScrollToPreviousMessage={handleScrollToPreviousMessage}
-                  onScrollToBottom={handleScrollToBottom}
-                  onScrollToUserMessage={handleScrollToUserMessage}
-                  getActiveTurnPatchKey={handleGetActiveTurnPatchKey}
+                  onScrollToPreviousMessage={nav.onScrollToPreviousMessage}
+                  onScrollToBottom={nav.onScrollToBottom}
+                  onScrollToUserMessage={nav.onScrollToUserMessage}
+                  getActiveTurnPatchKey={nav.getActiveTurnPatchKey}
                 />
               </div>
             </div>
