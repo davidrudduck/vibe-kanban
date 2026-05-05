@@ -66,11 +66,9 @@ describe('useJsonPatchWsStream', () => {
 
     renderHook(
       () =>
-        useJsonPatchWsStream('/api/test-endpoint', true, () => ({} as object)),
+        useJsonPatchWsStream('/api/test-endpoint', true, () => ({}) as object),
       {
-        wrapper: ({ children }) => (
-          <StrictMode>{children}</StrictMode>
-        ),
+        wrapper: ({ children }) => <StrictMode>{children}</StrictMode>,
       }
     );
 
@@ -95,7 +93,7 @@ describe('useJsonPatchWsStream', () => {
     });
 
     renderHook(() =>
-      useJsonPatchWsStream('/api/test-endpoint', true, () => ({} as object))
+      useJsonPatchWsStream('/api/test-endpoint', true, () => ({}) as object)
     );
 
     await act(async () => {
