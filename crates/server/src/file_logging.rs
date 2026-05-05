@@ -23,8 +23,11 @@ pub struct FileLoggingConfig {
     /// either drops (lossy=true) or blocks (lossy=false). Default: 128_000.
     pub buffer_lines: usize,
     /// When `true` (default), excess log lines are dropped under load rather
-    /// than blocking the application. Set `VK_LOG_LOSSY=false` to block instead
-    /// (useful for debugging; adds latency under log bursts).
+    /// than blocking the application. Set `VK_LOG_LOSSY=false` (or `0`) to
+    /// block instead (useful for debugging; adds latency under log bursts).
+    ///
+    /// Note: only the exact values `"false"` and `"0"` disable lossy mode;
+    /// all other values (including unrecognised strings) keep lossy enabled.
     pub lossy: bool,
 }
 
@@ -49,10 +52,16 @@ impl FileLoggingConfig {
             raw_max
         };
 
-        let buffer_lines = std::env::var("VK_LOG_BUFFER_LINES")
+        let raw_buffer = std::env::var("VK_LOG_BUFFER_LINES")
             .ok()
             .and_then(|s| s.parse::<usize>().ok())
             .unwrap_or(128_000);
+        let buffer_lines = if raw_buffer == 0 {
+            eprintln!("VK_LOG_BUFFER_LINES=0 is invalid (minimum is 1); using 1");
+            1
+        } else {
+            raw_buffer
+        };
 
         let lossy = std::env::var("VK_LOG_LOSSY")
             .map(|v| v != "false" && v != "0")
@@ -609,6 +618,36 @@ mod tests {
         }
         unsafe {
             std::env::remove_var("VK_LOG_LOSSY");
+        }
+    }
+
+    #[test]
+    fn lossy_enabled_by_other_values() {
+        // Only "false" and "0" disable lossy; everything else (including typos)
+        // must keep lossy enabled, matching the denylist semantics.
+        let _lock = ENV_LOCK.lock().unwrap();
+        for val in &["true", "1", "yes", "on", "flase", ""] {
+            unsafe {
+                std::env::set_var("VK_LOG_LOSSY", val);
+            }
+            let config = FileLoggingConfig::from_env(temp_dir());
+            assert!(config.lossy, "expected lossy=true for VK_LOG_LOSSY={val}");
+        }
+        unsafe {
+            std::env::remove_var("VK_LOG_LOSSY");
+        }
+    }
+
+    #[test]
+    fn buffer_lines_zero_is_clamped_to_one() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::set_var("VK_LOG_BUFFER_LINES", "0");
+        }
+        let config = FileLoggingConfig::from_env(temp_dir());
+        assert_eq!(config.buffer_lines, 1, "buffer_lines=0 must be clamped to 1");
+        unsafe {
+            std::env::remove_var("VK_LOG_BUFFER_LINES");
         }
     }
 
