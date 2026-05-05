@@ -332,13 +332,11 @@ mod tests {
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn temp_dir() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "vk-log-test-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .subsec_nanos()
-        ));
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir()
+            .join(format!("vk-log-test-{}-{}", std::process::id(), n));
         fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -758,5 +756,39 @@ mod tests {
         handle.spawn_cleanup_task(token.clone()); // must not panic, must not spawn
         token.cancel();
         drop(handle);
+    }
+
+    #[tokio::test]
+    async fn run_cleanup_loop_cleans_on_startup() {
+        // run_cleanup_loop runs cleanup_old_logs immediately before entering
+        // the select! loop. Cancel the token immediately to verify that the
+        // startup cleanup ran (without waiting 24h for the timer to fire).
+        let dir = temp_dir();
+        for i in 1..=5u32 {
+            let name = format!("vibe-kanban.log.2025-02-{:02}", i);
+            fs::write(dir.join(&name), b"log").unwrap();
+        }
+
+        let config = FileLoggingConfig {
+            enabled: true,
+            log_dir: dir.clone(),
+            max_files: 2,
+            buffer_lines: 128_000,
+            lossy: true,
+        };
+        let shutdown = CancellationToken::new();
+        shutdown.cancel(); // cancel before the loop so only startup cleanup runs
+
+        run_cleanup_loop(config, shutdown).await;
+
+        let remaining: std::collections::HashSet<String> = fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+
+        assert_eq!(remaining.len(), 2, "startup cleanup should keep 2 newest; got: {:?}", remaining);
+        assert!(remaining.contains("vibe-kanban.log.2025-02-04"), "day 04 missing");
+        assert!(remaining.contains("vibe-kanban.log.2025-02-05"), "day 05 missing");
     }
 }
