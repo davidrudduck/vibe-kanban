@@ -109,17 +109,14 @@ async fn async_main(
 
     sentry_utils::init_once(SentrySource::Backend);
 
-    let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
-    let filter_string = format!(
-        "warn,server={level},services={level},db={level},executors={level},deployment={level},local_deployment={level},utils={level},embedded_ssh={level},desktop_bridge={level},relay_hosts={level},relay_client={level},relay_webrtc={level},codex_core=off",
-        level = log_level
-    );
-    let _log_guard = file_logging::init_logging(&filter_string);
-
-    // Create asset directory if it doesn't exist
+    // Create asset directory before initialising logging — the default log
+    // directory is {asset_dir}/logs, so the parent must exist first.
     if !asset_dir().exists() {
         std::fs::create_dir_all(asset_dir())?;
     }
+
+    let filter_string = file_logging::build_filter_string();
+    let logging_handle = file_logging::init_logging(&filter_string);
 
     // Copy old database to new location for safe downgrades
     let old_db = asset_dir().join("db.sqlite");
@@ -135,6 +132,7 @@ async fn async_main(
     }
 
     let shutdown_token = CancellationToken::new();
+    logging_handle.spawn_cleanup_task(shutdown_token.clone());
 
     let deployment = DeploymentImpl::new(shutdown_token.clone()).await?;
     deployment.update_sentry_scope().await?;
