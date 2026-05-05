@@ -80,6 +80,37 @@ describe('useConversationVirtualizer — bottom-lock re-arm regression', () => {
   });
 });
 
+describe('useConversationVirtualizer — isAtTop sub-pixel tolerance', () => {
+  let container: HTMLDivElement;
+
+  beforeEach(() => {
+    container = makeContainer(500, 2000);
+    document.body.appendChild(container);
+  });
+
+  afterEach(() => {
+    container.remove();
+  });
+
+  it('treats sub-pixel scrollTop as at-top (no flicker on macOS rubber-band)', () => {
+    const ref: RefObject<HTMLDivElement | null> = { current: container };
+    const { result } = renderHook(() =>
+      useConversationVirtualizer({
+        rows: [],
+        totalRowCount: 0,
+        scrollContainerRef: ref,
+      })
+    );
+
+    act(() => {
+      container.scrollTop = 0.4; // sub-pixel — Safari/macOS rubber-band, fractional DPR
+      container.dispatchEvent(new Event('scroll'));
+    });
+
+    expect(result.current.isAtTop).toBe(true);
+  });
+});
+
 describe('useConversationVirtualizer — message-existence selectors', () => {
   it('returns false for both selectors when no user messages exist', () => {
     const ref = { current: makeContainer(500, 2000) };

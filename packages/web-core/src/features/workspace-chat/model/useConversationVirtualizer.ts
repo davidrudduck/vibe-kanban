@@ -291,7 +291,7 @@ export function useConversationVirtualizer({
       : el
         ? isNearBottom(el.scrollTop, el.clientHeight, el.scrollHeight)
         : true;
-    const nextAtTop = el ? el.scrollTop <= 0 : true;
+    const nextAtTop = el ? el.scrollTop < 1 : true;
 
     // Re-arm bottom-lock when the user has scrolled back to the bottom edge
     // after a manual release. Skipped while a programmatic scroll is in flight
