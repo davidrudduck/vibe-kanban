@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { ArrowsOutIcon, XIcon } from '@phosphor-icons/react';
 import { ConversationNavOverlay } from '@vibe/ui/components/ConversationNavOverlay';
 import { useConversationNavController } from '@/features/workspace-chat/model/useConversationNavController';
+import { useNarrowViewport } from '@/shared/hooks/useNarrowViewport';
 import { useProjectContext } from '@/shared/hooks/useProjectContext';
 import { useUserContext } from '@/shared/hooks/useUserContext';
 import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
@@ -148,6 +149,7 @@ function WorkspaceSessionPanel({
   const { activeWorkspaces, archivedWorkspaces } = useWorkspaceContext();
   const conversationListRef = useRef<ConversationListHandle>(null);
   const nav = useConversationNavController(conversationListRef);
+  const isNarrow = useNarrowViewport();
   const { data: workspace, isLoading: isWorkspaceLoading } = useWorkspaceRecord(
     workspaceId,
     { enabled: !!workspaceId }
@@ -288,6 +290,7 @@ function WorkspaceSessionPanel({
                   onScrollToPreviousMessage={nav.onScrollToPreviousMessage}
                   onScrollToNextMessage={nav.onScrollToNextMessage}
                   onScrollToBottom={nav.onScrollToBottom}
+                  isMobile={isNarrow}
                 />
               )}
 

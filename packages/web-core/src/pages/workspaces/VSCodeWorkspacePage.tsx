@@ -23,6 +23,7 @@ import { ApprovalFeedbackProvider } from '@/features/workspace-chat/model/contex
 import { forwardWheelToScroller } from '@/features/workspace-chat/ui/forwardWheelToScroller';
 import { createWorkspaceWithSession } from '@/shared/types/attempt';
 import { useConversationNavController } from '@/features/workspace-chat/model/useConversationNavController';
+import { useNarrowViewport } from '@/shared/hooks/useNarrowViewport';
 
 function VSCodeChatBox({
   session,
@@ -108,6 +109,7 @@ export function VSCodeWorkspacePage() {
   );
 
   const nav = useConversationNavController(conversationListRef);
+  const isNarrow = useNarrowViewport();
 
   useEffect(() => {
     const container = mainContainerRef.current;
@@ -203,6 +205,7 @@ export function VSCodeWorkspacePage() {
                     onScrollToPreviousMessage={nav.onScrollToPreviousMessage}
                     onScrollToNextMessage={nav.onScrollToNextMessage}
                     onScrollToBottom={nav.onScrollToBottom}
+                    isMobile={isNarrow}
                   />
                 )}
                 <div
