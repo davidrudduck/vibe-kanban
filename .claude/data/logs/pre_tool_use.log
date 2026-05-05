@@ -70,3 +70,7 @@
 {"timestamp": "2026-05-05T11:56:22Z", "event": "pre_tool_use_logged", "tool_name": "Bash"}
 {"timestamp": "2026-05-05T11:56:36Z", "event": "pre_tool_use_received", "tool_name": "Bash"}
 {"timestamp": "2026-05-05T11:56:36Z", "event": "pre_tool_use_logged", "tool_name": "Bash"}
+{"timestamp": "2026-05-05T12:01:46Z", "event": "pre_tool_use_received", "tool_name": "Bash"}
+{"timestamp": "2026-05-05T12:01:46Z", "event": "pre_tool_use_logged", "tool_name": "Bash"}
+{"timestamp": "2026-05-05T12:01:53Z", "event": "pre_tool_use_received", "tool_name": "Bash"}
+{"timestamp": "2026-05-05T12:01:53Z", "event": "pre_tool_use_logged", "tool_name": "Bash"}
