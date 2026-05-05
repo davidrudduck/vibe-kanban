@@ -164,7 +164,7 @@ pub(crate) fn is_log_date_suffix(name: &str) -> bool {
     // Range-check month (01-12) and day (01-31).
     let month = (b[5] - b'0') * 10 + (b[6] - b'0');
     let day = (b[8] - b'0') * 10 + (b[9] - b'0');
-    month >= 1 && month <= 12 && day >= 1 && day <= 31
+    (1..=12).contains(&month) && (1..=31).contains(&day)
 }
 
 pub(crate) fn cleanup_old_logs(log_dir: &Path, max_files: usize) {
@@ -195,8 +195,9 @@ pub(crate) fn cleanup_old_logs(log_dir: &Path, max_files: usize) {
     // Newest date first (reverse lexicographic).
     log_files.sort_by(|a, b| b.1.cmp(&a.1));
 
-    // max_files is already ≥ 1 (enforced in FileLoggingConfig::from_env).
-    for (path, _) in log_files.into_iter().skip(max_files) {
+    // Defensive floor: from_env enforces ≥ 1, but protect direct callers too.
+    let keep = max_files.max(1);
+    for (path, _) in log_files.into_iter().skip(keep) {
         if let Err(e) = std::fs::remove_file(&path) {
             tracing::warn!("Failed to remove old log file {:?}: {}", path, e);
         } else {
@@ -362,11 +363,16 @@ mod tests {
         ] {
             fs::write(dir.join(name), b"x").unwrap();
         }
-        // One real log file — with max_files clamped to 1, this survives
+        // One real log file — with max_files=1, only the one date-file is kept
         fs::write(dir.join("vibe-kanban.log.2025-01-01"), b"log").unwrap();
 
-        cleanup_old_logs(&dir, 0); // 0 clamps to 1; the one real file survives
+        cleanup_old_logs(&dir, 1); // keep 1 log file
 
+        // The one real log file must survive
+        assert!(
+            dir.join("vibe-kanban.log.2025-01-01").exists(),
+            "real log file was deleted"
+        );
         // All non-date files must still exist
         for name in &[
             "vibe-kanban.log",
@@ -460,8 +466,12 @@ mod tests {
         fs::write(dir.join("vibe-kanban.log.2025-01-01"), b"log").unwrap();
         fs::write(dir.join("unrelated.txt"), b"other").unwrap();
 
-        cleanup_old_logs(&dir, 0); // keep 0 log files
+        cleanup_old_logs(&dir, 1); // keep 1 log file; unrelated.txt must never be touched
 
-        assert!(dir.join("unrelated.txt").exists());
+        assert!(dir.join("unrelated.txt").exists(), "non-log file was deleted");
+        assert!(
+            dir.join("vibe-kanban.log.2025-01-01").exists(),
+            "log file was deleted despite being the only one"
+        );
     }
 }
