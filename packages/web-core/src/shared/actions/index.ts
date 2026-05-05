@@ -387,7 +387,27 @@ export const Actions = {
         : null;
 
       // Perform the archive/unarchive
-      await workspacesApi.update(workspaceId, { archived: !wasArchived });
+      try {
+        await workspacesApi.update(workspaceId, { archived: !wasArchived });
+      } catch (error) {
+        if (!wasArchived && (error as { status?: number }).status === 409) {
+          const result = await ConfirmDialog.show({
+            title: 'Uncommitted Changes Detected',
+            message:
+              'This workspace has uncommitted changes that will remain on disk after archiving. Archive anyway?',
+            confirmText: 'Archive Anyway',
+            variant: 'destructive',
+          });
+          if (result === 'confirmed') {
+            await workspacesApi.update(workspaceId, {
+              archived: true,
+              force_archive: true,
+            });
+          }
+          return;
+        }
+        throw error; // re-throw other errors
+      }
       invalidateWorkspaceQueries(ctx.queryClient, workspaceId);
 
       // Select next workspace after successful archive

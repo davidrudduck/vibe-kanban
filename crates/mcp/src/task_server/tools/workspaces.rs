@@ -191,6 +191,7 @@ impl McpServer {
             archived,
             pinned,
             name,
+            force_archive: false,
         };
 
         let updated: Workspace = match self.send_json(self.client.put(&url).json(&payload)).await {

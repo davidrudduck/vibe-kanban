@@ -48,6 +48,56 @@ pub async fn update_workspace(
     let pool = &deployment.db().pool;
     let is_archiving = request.archived == Some(true) && !workspace.archived;
 
+    // Guard: refuse to archive if the worktree has uncommitted changes,
+    // unless the client explicitly passes force_archive = true.
+    if is_archiving && !request.force_archive {
+        if let Some(ref container_ref) = workspace.container_ref {
+            if !workspace.worktree_deleted {
+                let workspace_path = std::path::PathBuf::from(container_ref);
+                if workspace_path.exists() {
+                    // container_ref is the PARENT directory; each subdir is a repo.
+                    let subdirs: Vec<std::path::PathBuf> = std::fs::read_dir(&workspace_path)
+                        .ok()
+                        .into_iter()
+                        .flatten()
+                        .flatten()
+                        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+                        .map(|e| e.path())
+                        .collect();
+
+                    let dirs_to_check = if subdirs.is_empty() {
+                        vec![workspace_path.clone()]
+                    } else {
+                        subdirs
+                    };
+
+                    for dir in &dirs_to_check {
+                        match deployment.git().is_worktree_clean(dir) {
+                            Ok(true) => {}
+                            Ok(false) => {
+                                return Err(ApiError::Conflict(
+                                    "Workspace has uncommitted changes. \
+                                     Pass force_archive=true to archive anyway."
+                                        .to_string(),
+                                ));
+                            }
+                            Err(e) => {
+                                // Cannot determine status (e.g. not a git repo).
+                                // Warn but do not block the archive.
+                                tracing::warn!(
+                                    workspace_id = %workspace.id,
+                                    dir = %dir.display(),
+                                    error = ?e,
+                                    "Could not determine git dirty status; proceeding with archive"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Workspace::update(
         pool,
         workspace.id,

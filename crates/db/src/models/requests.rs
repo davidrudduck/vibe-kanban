@@ -50,6 +50,10 @@ pub struct UpdateWorkspace {
     pub archived: Option<bool>,
     pub pinned: Option<bool>,
     pub name: Option<String>,
+    /// When true, skip the uncommitted-changes check and archive even if the
+    /// worktree has local changes. Defaults to false.
+    #[serde(default)]
+    pub force_archive: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
