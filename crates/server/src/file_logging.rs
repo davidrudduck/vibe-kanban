@@ -31,10 +31,16 @@ impl FileLoggingConfig {
             .map(PathBuf::from)
             .unwrap_or_else(|_| asset_dir.join("logs"));
 
-        let max_files = std::env::var("VK_LOG_MAX_FILES")
+        let raw_max = std::env::var("VK_LOG_MAX_FILES")
             .ok()
-            .and_then(|s| s.parse().ok())
+            .and_then(|s| s.parse::<usize>().ok())
             .unwrap_or(7);
+        let max_files = if raw_max == 0 {
+            eprintln!("VK_LOG_MAX_FILES=0 is invalid (minimum is 1); using 1");
+            1
+        } else {
+            raw_max
+        };
 
         Self {
             enabled,
@@ -126,7 +132,42 @@ pub fn init_logging(filter_string: &str) -> Option<WorkerGuard> {
     }
 }
 
-fn cleanup_old_logs(log_dir: &Path, max_files: usize) {
+/// Returns `true` only for filenames matching `vibe-kanban.log.YYYY-MM-DD`.
+///
+/// Strict: the date part must be exactly 10 characters, ASCII digits in the
+/// right positions, dashes at positions 4 and 7, month in 01–12, and day in
+/// 01–31 (calendar accuracy is not required; structural validity is enough to
+/// distinguish date-suffix files from `.bak`, `.old`, etc.).
+pub(crate) fn is_log_date_suffix(name: &str) -> bool {
+    const PREFIX: &str = "vibe-kanban.log.";
+    let Some(suffix) = name.strip_prefix(PREFIX) else {
+        return false;
+    };
+    if suffix.len() != 10 {
+        return false;
+    }
+    let b = suffix.as_bytes();
+    // YYYY-MM-DD: digits at 0-3, dash at 4, digits at 5-6, dash at 7, digits at 8-9
+    if !(b[0].is_ascii_digit()
+        && b[1].is_ascii_digit()
+        && b[2].is_ascii_digit()
+        && b[3].is_ascii_digit()
+        && b[4] == b'-'
+        && b[5].is_ascii_digit()
+        && b[6].is_ascii_digit()
+        && b[7] == b'-'
+        && b[8].is_ascii_digit()
+        && b[9].is_ascii_digit())
+    {
+        return false;
+    }
+    // Range-check month (01-12) and day (01-31).
+    let month = (b[5] - b'0') * 10 + (b[6] - b'0');
+    let day = (b[8] - b'0') * 10 + (b[9] - b'0');
+    month >= 1 && month <= 12 && day >= 1 && day <= 31
+}
+
+pub(crate) fn cleanup_old_logs(log_dir: &Path, max_files: usize) {
     let entries = match std::fs::read_dir(log_dir) {
         Ok(e) => e,
         Err(e) => {
@@ -135,26 +176,26 @@ fn cleanup_old_logs(log_dir: &Path, max_files: usize) {
         }
     };
 
-    let mut log_files: Vec<_> = entries
+    // Collect only files matching `vibe-kanban.log.YYYY-MM-DD`.
+    // Extract the date suffix for sorting — YYYY-MM-DD is lexicographically
+    // monotonic, so string sort == chronological sort with no mtime dependency.
+    let mut log_files: Vec<(std::path::PathBuf, String)> = entries
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path()
-                .file_name()
-                .and_then(|n| n.to_str())
-                .map(|n| n.starts_with("vibe-kanban.log"))
-                .unwrap_or(false)
-        })
         .filter_map(|e| {
-            e.metadata()
-                .ok()
-                .and_then(|m| m.modified().ok())
-                .map(|t| (e.path(), t))
+            let name = e.file_name().to_str()?.to_owned();
+            if is_log_date_suffix(&name) {
+                let date = name["vibe-kanban.log.".len()..].to_owned();
+                Some((e.path(), date))
+            } else {
+                None
+            }
         })
         .collect();
 
-    // Newest first
+    // Newest date first (reverse lexicographic).
     log_files.sort_by(|a, b| b.1.cmp(&a.1));
 
+    // max_files is already ≥ 1 (enforced in FileLoggingConfig::from_env).
     for (path, _) in log_files.into_iter().skip(max_files) {
         if let Err(e) = std::fs::remove_file(&path) {
             tracing::warn!("Failed to remove old log file {:?}: {}", path, e);
@@ -286,19 +327,85 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_keeps_newest_n_files() {
+    fn cleanup_keeps_newest_n_by_date() {
         let dir = temp_dir();
-
-        for i in 0..10u8 {
-            let path = dir.join(format!("vibe-kanban.log.2025-01-{:02}", i + 1));
+        // Create 10 files with explicit dates — newest 3 must survive
+        for i in 1..=10u32 {
+            let path = dir.join(format!("vibe-kanban.log.2025-01-{:02}", i));
             fs::write(&path, b"log").unwrap();
         }
 
         cleanup_old_logs(&dir, 3);
 
-        let remaining: Vec<_> = fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).collect();
+        let remaining: std::collections::HashSet<String> = fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
 
-        assert_eq!(remaining.len(), 3, "should retain exactly 3 files");
+        assert_eq!(remaining.len(), 3, "expected exactly 3 files; got {:?}", remaining);
+        assert!(remaining.contains("vibe-kanban.log.2025-01-08"), "day 08 missing");
+        assert!(remaining.contains("vibe-kanban.log.2025-01-09"), "day 09 missing");
+        assert!(remaining.contains("vibe-kanban.log.2025-01-10"), "day 10 missing");
+    }
+
+    #[test]
+    fn cleanup_rejects_non_date_suffix_files() {
+        let dir = temp_dir();
+        // These must NEVER be deleted — they don't match the date suffix pattern
+        for name in &[
+            "vibe-kanban.log",           // no date suffix
+            "vibe-kanban.log.bak",       // backup extension
+            "vibe-kanban.log.old",       // old extension
+            "vibe-kanban.log.2025-1-1",  // wrong date format (not zero-padded)
+            "vibe-kanban.log.2025-13-01",// invalid month
+        ] {
+            fs::write(dir.join(name), b"x").unwrap();
+        }
+        // One real log file — with max_files clamped to 1, this survives
+        fs::write(dir.join("vibe-kanban.log.2025-01-01"), b"log").unwrap();
+
+        cleanup_old_logs(&dir, 0); // 0 clamps to 1; the one real file survives
+
+        // All non-date files must still exist
+        for name in &[
+            "vibe-kanban.log",
+            "vibe-kanban.log.bak",
+            "vibe-kanban.log.old",
+            "vibe-kanban.log.2025-1-1",
+            "vibe-kanban.log.2025-13-01",
+        ] {
+            assert!(dir.join(name).exists(), "{name} was deleted but should not be");
+        }
+    }
+
+    #[test]
+    fn max_files_zero_is_clamped_to_one() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::set_var("VK_LOG_MAX_FILES", "0");
+        }
+        let config = FileLoggingConfig::from_env(temp_dir());
+        assert_eq!(config.max_files, 1, "max_files=0 must be clamped to 1");
+        unsafe {
+            std::env::remove_var("VK_LOG_MAX_FILES");
+        }
+    }
+
+    #[test]
+    fn is_log_date_suffix_accepts_valid_names() {
+        assert!(is_log_date_suffix("vibe-kanban.log.2025-01-15"));
+        assert!(is_log_date_suffix("vibe-kanban.log.2099-12-31"));
+    }
+
+    #[test]
+    fn is_log_date_suffix_rejects_invalid_names() {
+        assert!(!is_log_date_suffix("vibe-kanban.log"));
+        assert!(!is_log_date_suffix("vibe-kanban.log.bak"));
+        assert!(!is_log_date_suffix("vibe-kanban.log.2025-1-1"));
+        assert!(!is_log_date_suffix("vibe-kanban.log.2025-13-01"));
+        assert!(!is_log_date_suffix("vibe-kanban.log.abcd-ef-gh"));
+        assert!(!is_log_date_suffix("other.log.2025-01-01"));
     }
 
     #[test]
