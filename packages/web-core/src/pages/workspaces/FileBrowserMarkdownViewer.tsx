@@ -21,7 +21,11 @@ export function FileBrowserMarkdownViewer({
   }
   return (
     <div className="h-full overflow-auto p-4 prose prose-sm max-w-none dark:prose-invert">
-      <MarkdownPreview content={content} theme={actualTheme} allowRawHtml={false} />
+      <MarkdownPreview
+        content={content}
+        theme={actualTheme}
+        allowRawHtml={false}
+      />
     </div>
   );
 }

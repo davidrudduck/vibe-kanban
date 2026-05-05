@@ -26,7 +26,9 @@ function makeHandle(
   };
 }
 
-function makeRef(handle: ConversationListHandle): RefObject<ConversationListHandle> {
+function makeRef(
+  handle: ConversationListHandle
+): RefObject<ConversationListHandle> {
   return { current: handle };
 }
 

@@ -21,6 +21,7 @@ import { ApprovalFeedbackProvider } from '@/features/workspace-chat/model/contex
 import { forwardWheelToScroller } from '@/features/workspace-chat/ui/forwardWheelToScroller';
 import { useDiffStats } from '@/shared/stores/useWorkspaceDiffStore';
 import { useConversationNavController } from '@/features/workspace-chat/model/useConversationNavController';
+import { useNarrowViewport } from '@/shared/hooks/useNarrowViewport';
 
 /**
  * Isolated component that reads diffStats from WorkspaceContext.
@@ -129,6 +130,7 @@ export const WorkspacesMainContainer = forwardRef<
   }, [selectedWorkspace, selectedSession]);
 
   const nav = useConversationNavController(conversationListRef);
+  const isNarrow = useNarrowViewport();
 
   const { session } = workspaceWithSession ?? {};
 
@@ -242,6 +244,7 @@ export const WorkspacesMainContainer = forwardRef<
             onScrollToTop={nav.onScrollToTop}
             onScrollToPreviousMessage={nav.onScrollToPreviousMessage}
             onScrollToNextMessage={nav.onScrollToNextMessage}
+            isMobile={isNarrow}
           />
         </MessageEditProvider>
       </EntriesProvider>

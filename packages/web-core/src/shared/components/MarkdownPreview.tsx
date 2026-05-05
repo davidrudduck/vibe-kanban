@@ -23,7 +23,10 @@ const rehypePluginsWithRaw: any[] = [
   rehypeHighlight,
 ];
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const rehypePluginsSafe: any[] = [[rehypeSanitize, defaultSchema], rehypeHighlight];
+const rehypePluginsSafe: any[] = [
+  [rehypeSanitize, defaultSchema],
+  rehypeHighlight,
+];
 
 export function MarkdownPreview({
   content,
