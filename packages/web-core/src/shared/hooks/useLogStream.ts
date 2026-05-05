@@ -86,9 +86,7 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
       const capturedProcessId = processId;
       void (async () => {
         try {
-          await Promise.resolve();
-          if (cancelled) return;
-
+          // Transport defers WebSocket construction by one microtask; see localApiTransport.ts.
           const ws = await openLocalApiWebSocket(
             `/api/execution-processes/${processId}/raw-logs/ws`
           );

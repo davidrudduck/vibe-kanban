@@ -238,10 +238,14 @@ impl Approvals {
 
     pub fn patch_stream(&self) -> futures::stream::BoxStream<'static, Patch> {
         let approvals = self.clone();
+        // Subscribe to the broadcast BEFORE taking the snapshot so that any
+        // approval change that races with snapshot generation is captured in
+        // the live stream rather than silently dropped.
+        let live_rx = self.patches_tx.subscribe();
         let snapshot =
             crate::services::events::patches::approvals_patch::snapshot(&approvals.pending_infos());
 
-        let live = BroadcastStream::new(self.patches_tx.subscribe()).filter_map(move |result| {
+        let live = BroadcastStream::new(live_rx).filter_map(move |result| {
             let approvals = approvals.clone();
             async move {
                 match result {
