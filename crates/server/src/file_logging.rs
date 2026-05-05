@@ -19,6 +19,13 @@ pub struct FileLoggingConfig {
     pub enabled: bool,
     pub log_dir: PathBuf,
     pub max_files: usize,
+    /// Maximum number of log lines buffered before the non-blocking writer
+    /// either drops (lossy=true) or blocks (lossy=false). Default: 128_000.
+    pub buffer_lines: usize,
+    /// When `true` (default), excess log lines are dropped under load rather
+    /// than blocking the application. Set `VK_LOG_LOSSY=false` to block instead
+    /// (useful for debugging; adds latency under log bursts).
+    pub lossy: bool,
 }
 
 impl FileLoggingConfig {
@@ -42,10 +49,21 @@ impl FileLoggingConfig {
             raw_max
         };
 
+        let buffer_lines = std::env::var("VK_LOG_BUFFER_LINES")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(128_000);
+
+        let lossy = std::env::var("VK_LOG_LOSSY")
+            .map(|v| v != "false" && v != "0")
+            .unwrap_or(true);
+
         Self {
             enabled,
             log_dir,
             max_files,
+            buffer_lines,
+            lossy,
         }
     }
 }
@@ -113,7 +131,10 @@ pub fn init_logging(filter_string: &str) -> Option<WorkerGuard> {
         }
 
         let file_appender = tracing_appender::rolling::daily(&config.log_dir, "vibe-kanban.log");
-        let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+        let (non_blocking, guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
+            .buffered_lines_limit(config.buffer_lines)
+            .lossy(config.lossy)
+            .finish(file_appender);
 
         let file_filter =
             EnvFilter::try_new(filter_string).expect("Failed to create file tracing filter");
@@ -138,6 +159,8 @@ pub fn init_logging(filter_string: &str) -> Option<WorkerGuard> {
         tracing::info!(
             log_dir = ?config.log_dir,
             max_files = config.max_files,
+            buffer_lines = config.buffer_lines,
+            lossy = config.lossy,
             "File logging enabled"
         );
 
@@ -538,6 +561,54 @@ mod tests {
         unsafe {
             std::env::remove_var("VK_FILE_LOGGING");
             std::env::remove_var("VK_LOG_DIR");
+        }
+    }
+
+    #[test]
+    fn buffer_lines_defaults_to_128000() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::remove_var("VK_LOG_BUFFER_LINES");
+        }
+        let config = FileLoggingConfig::from_env(temp_dir());
+        assert_eq!(config.buffer_lines, 128_000);
+    }
+
+    #[test]
+    fn buffer_lines_overridden_by_env() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::set_var("VK_LOG_BUFFER_LINES", "1000");
+        }
+        let config = FileLoggingConfig::from_env(temp_dir());
+        assert_eq!(config.buffer_lines, 1000);
+        unsafe {
+            std::env::remove_var("VK_LOG_BUFFER_LINES");
+        }
+    }
+
+    #[test]
+    fn lossy_defaults_to_true() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::remove_var("VK_LOG_LOSSY");
+        }
+        let config = FileLoggingConfig::from_env(temp_dir());
+        assert!(config.lossy);
+    }
+
+    #[test]
+    fn lossy_disabled_by_env() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        for val in &["false", "0"] {
+            unsafe {
+                std::env::set_var("VK_LOG_LOSSY", val);
+            }
+            let config = FileLoggingConfig::from_env(temp_dir());
+            assert!(!config.lossy, "expected lossy=false for VK_LOG_LOSSY={val}");
+        }
+        unsafe {
+            std::env::remove_var("VK_LOG_LOSSY");
         }
     }
 
