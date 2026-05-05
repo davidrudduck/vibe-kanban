@@ -1,6 +1,11 @@
 import { useCallback, useState } from 'react';
 import type { ExecutorConfig } from 'shared/types';
-import { executionProcessesApi, queueApi, sessionsApi } from '@/shared/lib/api';
+import {
+  ApiError,
+  executionProcessesApi,
+  queueApi,
+  sessionsApi,
+} from '@/shared/lib/api';
 import { useCreateSession } from './useCreateSession';
 
 interface UseSessionSendOptions {
@@ -115,15 +120,26 @@ export function useSessionSend({
               // support live injection (e.g. unsupported executor type).
               // Queue for after the current turn finishes.
             } catch (e) {
-              // The HTTP call failed — most likely because the process exited
-              // between our status check and this call. Route to followUp so
-              // we start a fresh execution rather than queuing for an event
-              // that may never fire.
-              console.warn(
-                '[useSessionSend] inject-message failed, process may have exited — falling back to followUp:',
-                e
-              );
-              processExited = true;
+              // Only treat definitive "process not running" responses (4xx) as
+              // confirmation that the process exited. Transient failures (network
+              // drop, 5xx, proxy error) should queue rather than spawn a new
+              // execution while the process may still be alive.
+              const isProcessGone =
+                e instanceof ApiError &&
+                e.status !== undefined &&
+                e.status < 500;
+              if (isProcessGone) {
+                console.warn(
+                  '[useSessionSend] inject-message: process no longer running — falling back to followUp:',
+                  e
+                );
+                processExited = true;
+              } else {
+                console.warn(
+                  '[useSessionSend] inject-message failed transiently — queuing instead:',
+                  e
+                );
+              }
             }
 
             if (processExited) {

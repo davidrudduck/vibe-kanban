@@ -515,7 +515,12 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     onSelectSession,
     executorConfig,
     runningExecutionProcessId: runningCodingAgentProcess?.id ?? null,
-    hasAnyRunningProcess: isAttemptRunning,
+    // Compute directly from the process list to cover ALL run_reason values
+    // including 'setupscript', which isAttemptRunning (isAttemptRunningVisible)
+    // excludes from the visible set.
+    hasAnyRunningProcess: processes.some(
+      (p) => p.status === ExecutionProcessStatus.running
+    ),
   });
 
   const handleSend = useCallback(async () => {
