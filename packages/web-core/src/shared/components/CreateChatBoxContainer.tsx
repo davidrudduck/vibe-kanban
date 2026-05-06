@@ -59,7 +59,7 @@ export function CreateChatBoxContainer({
     setAttachments: setDraftAttachments,
   } = useCreateMode();
 
-  const { createWorkspace } = useCreateWorkspace();
+  const { createWorkspace, createDraftWorkspace } = useCreateWorkspace();
   const isSubmitting = useRef(false);
   const hasSelectedRepos = repos.length > 0;
   const [workspaceName, setWorkspaceName] = useState('');
@@ -306,6 +306,44 @@ export function CreateChatBoxContainer({
     linkedIssue,
   ]);
 
+  const handleSaveDraft = useCallback(async () => {
+    if (!hasSelectedRepos || !hasSelectedBranchesForAllRepos) {
+      setHasAttemptedSubmit(true);
+      return;
+    }
+
+    const { title: autoTitle } = splitMessageToTitleDescription(message);
+    const name = workspaceName.trim() || autoTitle || null;
+
+    try {
+      const workspace = await createDraftWorkspace.mutateAsync({
+        name,
+        repos: repos.map((r) => ({
+          repo_id: r.id,
+          target_branch: targetBranches[r.id]!,
+        })),
+        is_draft: true,
+      });
+
+      if (workspace) {
+        onWorkspaceCreated(workspace.id);
+      }
+      await clearDraft();
+    } catch {
+      // error handled by mutation onError
+    }
+  }, [
+    hasSelectedRepos,
+    hasSelectedBranchesForAllRepos,
+    message,
+    workspaceName,
+    repos,
+    targetBranches,
+    createDraftWorkspace,
+    onWorkspaceCreated,
+    clearDraft,
+  ]);
+
   // Determine error to display
   const displayError =
     hasAttemptedSubmit && repos.length === 0
@@ -391,6 +429,8 @@ export function CreateChatBoxContainer({
                   }}
                   onSend={handleSubmit}
                   isSending={createWorkspace.isPending}
+                  onSaveDraft={handleSaveDraft}
+                  isSavingDraft={createDraftWorkspace.isPending}
                   disabled={!hasSelectedRepos}
                   executor={{
                     selected: effectiveExecutor,
