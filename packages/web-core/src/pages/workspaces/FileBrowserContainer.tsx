@@ -37,6 +37,7 @@ export function FileBrowserContainer({
     setFilterTerm,
     setViewMode,
     resetForWorkspace,
+    consumeOpenFileIntent,
   } = useFileBrowserActions();
 
   // Tracks whether this component instance has completed its first mount.
@@ -55,9 +56,9 @@ export function FileBrowserContainer({
 
       if (openFileWorkspaceId === workspaceId) {
         // openFile() was called for THIS workspace just before the panel
-        // mounted — preserve the pending selectedFile/currentPath state.
-        // The intent is consumed by resetForWorkspace clearing openFileWorkspaceId,
-        // or the next workspace change will trigger a reset naturally.
+        // mounted — preserve the pending selectedFile/currentPath state,
+        // then clear the intent so future remounts start fresh.
+        consumeOpenFileIntent();
         return;
       }
       // No pending openFile() for this workspace (e.g. panel reopened after a
@@ -71,7 +72,12 @@ export function FileBrowserContainer({
       lastWorkspaceIdRef.current = workspaceId;
       resetForWorkspace();
     }
-  }, [workspaceId, openFileWorkspaceId, resetForWorkspace]);
+  }, [
+    workspaceId,
+    openFileWorkspaceId,
+    resetForWorkspace,
+    consumeOpenFileIntent,
+  ]);
 
   const {
     data: listing,

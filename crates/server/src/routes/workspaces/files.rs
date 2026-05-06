@@ -82,7 +82,9 @@ fn validate_rel_path(rel_path: &str) -> Result<(), ApiError> {
 /// git internals because `.git/config` may contain embedded credentials
 /// (e.g. `https://user:TOKEN@github.com/...`).
 fn is_git_internal(rel_path: &str) -> bool {
-    rel_path == ".git" || rel_path.starts_with(".git/")
+    // Block access to *any* `.git` directory, whether at the root or nested
+    // inside a submodule (e.g. `packages/foo/.git/config`).
+    rel_path.split('/').any(|component| component == ".git")
 }
 
 fn detect_language(path: &str) -> Option<String> {
@@ -209,6 +211,11 @@ fn list_directory_fs(
             } else {
                 format!("{}/{}", rel_path, name)
             };
+            // Hide .git from listings — it can never be opened (is_git_internal
+            // blocks navigation into it) so showing it would only confuse users.
+            if name == ".git" {
+                return None;
+            }
             let is_directory = meta.is_dir();
             let is_git_repo = is_directory && e.path().join(".git").exists();
             let last_modified = meta
