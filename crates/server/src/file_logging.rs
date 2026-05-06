@@ -88,6 +88,9 @@ impl FileLoggingConfig {
 ///
 /// **Hold this value for the entire lifetime of the process.** Dropping it
 /// flushes and stops the background file-writer thread.
+/// Maximum time to wait for the log cleanup task to finish during shutdown.
+const CLEANUP_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+
 pub struct LoggingHandle {
     /// Held purely for RAII: dropping flushes buffered lines and stops the writer thread.
     _guard: Option<WorkerGuard>,
@@ -134,7 +137,7 @@ impl LoggingHandle {
     /// No-op if no cleanup task was spawned.
     pub async fn wait_for_cleanup_task(&mut self) {
         if let Some(task) = self.cleanup_task.take() {
-            match tokio::time::timeout(Duration::from_secs(5), task).await {
+            match tokio::time::timeout(CLEANUP_SHUTDOWN_TIMEOUT, task).await {
                 Ok(Ok(())) => {}
                 Ok(Err(e)) => eprintln!("Log cleanup task panicked: {e}"),
                 Err(_) => {
