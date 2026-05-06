@@ -382,6 +382,7 @@ fn generate_mock_logs(prompt: &str) -> Vec<String> {
             session_id: Some(session_id),
             model_usage: None,
             usage: None,
+            permission_denials: None,
         },
     ];
 

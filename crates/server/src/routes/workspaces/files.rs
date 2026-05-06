@@ -555,12 +555,12 @@ mod tests {
     fn binary_detection_null_byte_heuristic() {
         // File with null byte should be detected as binary
         let binary_bytes: Vec<u8> = vec![0x89, 0x50, 0x4e, 0x47, 0x00, 0x0d, 0x0a, 0x1a];
-        let is_binary = binary_bytes.iter().take(8192).any(|&b| b == 0);
+        let is_binary = binary_bytes.contains(&0);
         assert!(is_binary);
 
         // Plain text should not be detected as binary
         let text_bytes = b"fn main() { println!(\"hello\"); }".to_vec();
-        let is_binary = text_bytes.iter().take(8192).any(|&b| b == 0);
+        let is_binary = text_bytes.contains(&0);
         assert!(!is_binary);
     }
 

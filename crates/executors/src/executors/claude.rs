@@ -1874,30 +1874,28 @@ impl ClaudeLogProcessor {
                     patches.push(ConversationPatch::add_normalized_entry(idx, entry));
                 }
 
-                if let Some(denials) = permission_denials {
-                    if !denials.is_empty() {
-                        let tool_names: Vec<String> = denials
-                            .iter()
-                            .map(|d| {
-                                d.get("toolName")
-                                    .or_else(|| d.get("tool_name"))
-                                    .and_then(|v| v.as_str())
-                                    .map(|s| s.to_string())
-                                    .unwrap_or_else(|| d.to_string())
-                            })
-                            .collect();
-                        let entry = NormalizedEntry {
-                            timestamp: None,
-                            entry_type: NormalizedEntryType::SystemMessage,
-                            content: format!(
-                                "Permission denied for tool(s): {}",
-                                tool_names.join(", ")
-                            ),
-                            metadata: None,
-                        };
-                        let idx = entry_index_provider.next();
-                        patches.push(ConversationPatch::add_normalized_entry(idx, entry));
-                    }
+                if let Some(denials) = permission_denials.as_ref().filter(|d| !d.is_empty()) {
+                    let tool_names: Vec<String> = denials
+                        .iter()
+                        .map(|d| {
+                            d.get("toolName")
+                                .or_else(|| d.get("tool_name"))
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|| d.to_string())
+                        })
+                        .collect();
+                    let entry = NormalizedEntry {
+                        timestamp: None,
+                        entry_type: NormalizedEntryType::SystemMessage,
+                        content: format!(
+                            "Permission denied for tool(s): {}",
+                            tool_names.join(", ")
+                        ),
+                        metadata: None,
+                    };
+                    let idx = entry_index_provider.next();
+                    patches.push(ConversationPatch::add_normalized_entry(idx, entry));
                 }
             }
             ClaudeJson::ApprovalRequested {
