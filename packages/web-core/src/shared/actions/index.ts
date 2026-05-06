@@ -1701,5 +1701,6 @@ export const ContextBarActionGroups = {
     Actions.ToggleDevServer,
     Actions.TogglePreviewMode,
     Actions.ToggleChangesMode,
+    Actions.ToggleFilesMode,
   ] as ActionDefinition[],
 };

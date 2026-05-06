@@ -163,18 +163,13 @@ fn list_directory_fs(
     rel_path: &str,
 ) -> Result<Vec<DirectoryEntry>, ApiError> {
     validate_rel_path(rel_path)?;
-    if has_hidden_component(rel_path) {
-        return Err(ApiError::BadRequest(
-            "Hidden directories are not accessible".to_string(),
-        ));
-    }
     let canonical_root = worktree_root
         .canonicalize()
         .map_err(|_| ApiError::BadRequest("Workspace root not found".to_string()))?;
 
     // Symlink guard: walk each path component and reject any symlink in the chain.
-    // This prevents a symlink inside the workspace pointing to .git or an
-    // external directory from being traversed.
+    // This prevents a symlink inside the workspace pointing to an external
+    // directory from being traversed.
     let mut accumulated = canonical_root.clone();
     for component in std::path::Path::new(rel_path).components() {
         accumulated = accumulated.join(component);
@@ -197,16 +192,6 @@ fn list_directory_fs(
         return Err(ApiError::BadRequest(
             "Path traversal not allowed".to_string(),
         ));
-    }
-    // Re-check the resolved canonical path for hidden components.  A symlink
-    // inside the workspace could resolve to e.g. `<root>/.git/objects` which
-    // passes the prefix check but must still be blocked.
-    if let Ok(relative) = canonical.strip_prefix(&canonical_root) {
-        if has_hidden_component(&relative.to_string_lossy()) {
-            return Err(ApiError::BadRequest(
-                "Hidden directories are not accessible".to_string(),
-            ));
-        }
     }
     if !canonical.is_dir() {
         return Err(ApiError::BadRequest("Path is not a directory".to_string()));
@@ -254,11 +239,6 @@ fn list_directory_git(repo_path: &Path, rel_path: &str) -> Result<Vec<DirectoryE
     validate_rel_path(rel_path)?;
     if rel_path.starts_with('/') || rel_path.starts_with('-') {
         return Err(ApiError::BadRequest("Invalid path".to_string()));
-    }
-    if has_hidden_component(rel_path) {
-        return Err(ApiError::BadRequest(
-            "Hidden directories are not accessible".to_string(),
-        ));
     }
 
     let tree_path = if rel_path.is_empty() {
@@ -597,24 +577,35 @@ mod tests {
     }
 
     #[test]
-    fn list_directory_fs_rejects_hidden_path() {
+    fn list_directory_fs_allows_hidden_path() {
         let tmp = TempDir::new().unwrap();
         let inner = tmp.path().join("workspace");
-        fs::create_dir_all(inner.join(".git")).unwrap();
-        let result = list_directory_fs(&inner, ".git");
-        assert!(result.is_err());
+        fs::create_dir_all(inner.join(".hidden")).unwrap();
+        fs::write(inner.join(".hidden").join("config.toml"), "key=value").unwrap();
+        let result = list_directory_fs(&inner, ".hidden");
+        assert!(
+            result.is_ok(),
+            "listing a hidden directory should succeed: {result:?}"
+        );
+        let entries = result.unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "config.toml");
     }
 
     #[test]
-    fn list_directory_git_rejects_hidden_path() {
+    fn list_directory_git_allows_hidden_path() {
         let tmp = TempDir::new().unwrap();
-        let result = list_directory_git(tmp.path(), ".git");
-        assert!(result.is_err());
-        let msg = format!("{:?}", result.unwrap_err());
-        assert!(
-            msg.contains("Hidden") || msg.contains("hidden"),
-            "expected hidden-path error, got: {msg}"
-        );
+        // The git command will fail (empty/non-git dir) but NOT due to a path guard.
+        let result = list_directory_git(tmp.path(), ".hidden");
+        // It may succeed (empty listing) or fail due to git, but must not fail
+        // with a "Hidden" message.
+        if let Err(ref e) = result {
+            let msg = format!("{e:?}");
+            assert!(
+                !msg.contains("Hidden") && !msg.contains("hidden"),
+                "path guard should not reject hidden dirs, got: {msg}"
+            );
+        }
     }
 
     #[test]
