@@ -158,7 +158,8 @@ const FileChangeRenderer = ({
           className="ml-auto shrink-0 p-1 rounded text-low hover:text-normal hover:bg-secondary transition-colors"
           onClick={(e) => {
             e.stopPropagation();
-            openFile(path);
+            if (!workspaceId) return;
+            openFile(path, workspaceId);
             setRightMainPanelMode(RIGHT_MAIN_PANEL_MODES.FILES, workspaceId);
           }}
         >

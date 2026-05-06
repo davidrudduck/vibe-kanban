@@ -10,12 +10,18 @@ type FileBrowserState = {
   selectedFile: string | null;
   filterTerm: string;
   viewMode: FileViewMode;
+  /**
+   * Tracks which workspaceId last called openFile(). FileBrowserContainer uses
+   * this on first mount to decide whether to preserve the pending selection
+   * (same workspace → skip reset) or clear it (different workspace → reset).
+   */
+  openFileWorkspaceId: string | null;
   setSource: (source: FileSource) => void;
   navigate: (path: string | null) => void;
   selectFile: (path: string | null, viewMode?: FileViewMode) => void;
   setFilterTerm: (term: string) => void;
   setViewMode: (mode: FileViewMode) => void;
-  openFile: (path: string) => void;
+  openFile: (path: string, workspaceId: string) => void;
   resetForWorkspace: () => void;
 };
 
@@ -40,6 +46,7 @@ export const useFileBrowserStore = create<FileBrowserState>()((set) => ({
   selectedFile: null,
   filterTerm: '',
   viewMode: null,
+  openFileWorkspaceId: null,
 
   setSource: (source) =>
     set({ source, currentPath: null, selectedFile: null, filterTerm: '' }),
@@ -54,15 +61,17 @@ export const useFileBrowserStore = create<FileBrowserState>()((set) => ({
 
   setViewMode: (viewMode) => set({ viewMode }),
 
-  openFile: (path) => {
+  openFile: (path, workspaceId) => {
     const lastSlash = path.lastIndexOf('/');
     const parentPath = lastSlash > 0 ? path.slice(0, lastSlash) : null;
-    // Does NOT override source — preserves user's current worktree/main selection
+    // Does NOT override source — preserves user's current worktree/main selection.
+    // Stores workspaceId so FileBrowserContainer can detect a pending intent on mount.
     set({
       currentPath: parentPath,
       selectedFile: path,
       viewMode: autoViewMode(path),
       filterTerm: '',
+      openFileWorkspaceId: workspaceId,
     });
   },
 
@@ -73,6 +82,7 @@ export const useFileBrowserStore = create<FileBrowserState>()((set) => ({
       selectedFile: null,
       filterTerm: '',
       viewMode: null,
+      openFileWorkspaceId: null,
     }),
 }));
 
@@ -85,6 +95,9 @@ export const useFileBrowserFilterTerm = () =>
   useFileBrowserStore((s) => s.filterTerm);
 export const useFileBrowserViewMode = () =>
   useFileBrowserStore((s) => s.viewMode);
+export const useFileBrowserOpenFileWorkspaceId = () =>
+  useFileBrowserStore((s) => s.openFileWorkspaceId);
+
 export const useFileBrowserActions = () =>
   useFileBrowserStore(
     useShallow((s) => ({

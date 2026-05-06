@@ -77,6 +77,14 @@ fn validate_rel_path(rel_path: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// Returns true if the path points into the `.git` directory.
+/// We expose regular dot-files (`.env`, `.gitignore`, etc.) but block
+/// git internals because `.git/config` may contain embedded credentials
+/// (e.g. `https://user:TOKEN@github.com/...`).
+fn is_git_internal(rel_path: &str) -> bool {
+    rel_path == ".git" || rel_path.starts_with(".git/")
+}
+
 fn detect_language(path: &str) -> Option<String> {
     let ext = Path::new(path).extension()?.to_str()?;
     let lang = match ext {
@@ -151,6 +159,11 @@ fn list_directory_fs(
     rel_path: &str,
 ) -> Result<Vec<DirectoryEntry>, ApiError> {
     validate_rel_path(rel_path)?;
+    if is_git_internal(rel_path) {
+        return Err(ApiError::BadRequest(
+            "Git internals are not accessible".to_string(),
+        ));
+    }
     let canonical_root = worktree_root
         .canonicalize()
         .map_err(|_| ApiError::BadRequest("Workspace root not found".to_string()))?;
@@ -227,6 +240,11 @@ fn list_directory_git(repo_path: &Path, rel_path: &str) -> Result<Vec<DirectoryE
     validate_rel_path(rel_path)?;
     if rel_path.starts_with('/') || rel_path.starts_with('-') {
         return Err(ApiError::BadRequest("Invalid path".to_string()));
+    }
+    if is_git_internal(rel_path) {
+        return Err(ApiError::BadRequest(
+            "Git internals are not accessible".to_string(),
+        ));
     }
 
     let tree_path = if rel_path.is_empty() {
@@ -339,6 +357,11 @@ pub async fn read_file(
 
 fn read_file_fs(worktree_root: &Path, rel_path: &str) -> Result<(Vec<u8>, u64), ApiError> {
     validate_rel_path(rel_path)?;
+    if is_git_internal(rel_path) {
+        return Err(ApiError::BadRequest(
+            "Git internals are not accessible".to_string(),
+        ));
+    }
     let canonical_root = worktree_root
         .canonicalize()
         .map_err(|_| ApiError::BadRequest("Workspace root not found".to_string()))?;
@@ -388,6 +411,11 @@ fn read_file_fs(worktree_root: &Path, rel_path: &str) -> Result<(Vec<u8>, u64), 
 
 fn read_file_git(repo_path: &Path, rel_path: &str) -> Result<(Vec<u8>, u64), ApiError> {
     validate_rel_path(rel_path)?;
+    if is_git_internal(rel_path) {
+        return Err(ApiError::BadRequest(
+            "Git internals are not accessible".to_string(),
+        ));
+    }
     if rel_path.starts_with('/') || rel_path.starts_with('-') {
         return Err(ApiError::BadRequest("Invalid path".to_string()));
     }

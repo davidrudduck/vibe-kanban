@@ -145,7 +145,7 @@ export function ChatFileEntry({
               <ArrowSquareUpRightIcon className="size-icon-xs" />
             </button>
           )}
-          {onOpenInFiles && (
+          {!isVSCode && onOpenInFiles && (
             <button
               type="button"
               onClick={(e) => {
@@ -226,7 +226,7 @@ export function ChatFileEntry({
           <ArrowSquareUpRightIcon className="size-icon-xs" />
         </button>
       )}
-      {onOpenInFiles && (
+      {!isVSCode && onOpenInFiles && (
         <button
           type="button"
           onClick={(e) => {
