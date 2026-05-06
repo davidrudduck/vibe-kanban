@@ -166,6 +166,7 @@ export function ProcessListContainer() {
                   }
                 : undefined
             }
+            stopLabel={t('processes.stopExecution')}
           />
         ))}
       </div>

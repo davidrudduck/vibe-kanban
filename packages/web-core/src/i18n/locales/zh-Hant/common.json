@@ -263,6 +263,7 @@
   },
   "processes": {
     "noProcesses": "無程序",
+    "stopExecution": "Stop execution",
     "terminal": "終端機"
   },
   "search": {

@@ -263,6 +263,7 @@
   },
   "processes": {
     "noProcesses": "プロセスがありません",
+    "stopExecution": "Stop execution",
     "terminal": "ターミナル"
   },
   "search": {

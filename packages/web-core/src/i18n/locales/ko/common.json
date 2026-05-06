@@ -263,6 +263,7 @@
   },
   "processes": {
     "noProcesses": "프로세스 없음",
+    "stopExecution": "Stop execution",
     "terminal": "터미널"
   },
   "search": {

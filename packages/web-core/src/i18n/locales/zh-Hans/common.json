@@ -263,6 +263,7 @@
   },
   "processes": {
     "noProcesses": "无进程",
+    "stopExecution": "Stop execution",
     "terminal": "终端"
   },
   "search": {
