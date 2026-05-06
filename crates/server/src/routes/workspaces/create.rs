@@ -24,6 +24,7 @@ use crate::{
 pub(crate) async fn create_workspace_record(
     deployment: &DeploymentImpl,
     name: Option<String>,
+    is_draft: bool,
 ) -> Result<Workspace, ApiError> {
     let workspace_id = Uuid::new_v4();
     let branch_label = name
@@ -40,6 +41,7 @@ pub(crate) async fn create_workspace_record(
         &CreateWorkspace {
             branch: git_branch_name,
             name: name.filter(|workspace_name| !workspace_name.is_empty()),
+            is_draft,
         },
         workspace_id,
     )
@@ -52,13 +54,35 @@ pub async fn create_workspace(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<CreateWorkspaceApiRequest>,
 ) -> Result<ResponseJson<ApiResponse<Workspace>>, ApiError> {
-    let workspace = create_workspace_record(&deployment, payload.name).await?;
+    if payload.is_draft && payload.repos.is_empty() {
+        return Err(ApiError::BadRequest(
+            "Draft workspace requires at least one repository".to_string(),
+        ));
+    }
+
+    let mut managed_workspace = deployment
+        .workspace_manager()
+        .load_managed_workspace(
+            create_workspace_record(&deployment, payload.name, payload.is_draft).await?,
+        )
+        .await?;
+
+    // TODO: wrap workspace creation + repo attachment in a transaction to prevent partial state
+    for repo in &payload.repos {
+        managed_workspace
+            .add_repository(repo, deployment.git())
+            .await
+            .map_err(ApiError::from)?;
+    }
+
+    let workspace = managed_workspace.workspace.clone();
 
     deployment
         .track_if_analytics_allowed(
             "workspace_created",
             serde_json::json!({
                 "workspace_id": workspace.id.to_string(),
+                "is_draft": workspace.is_draft,
             }),
         )
         .await;
@@ -237,7 +261,7 @@ pub async fn create_and_start_workspace(
 
     let mut managed_workspace = deployment
         .workspace_manager()
-        .load_managed_workspace(create_workspace_record(&deployment, name).await?)
+        .load_managed_workspace(create_workspace_record(&deployment, name, false).await?)
         .await?;
     let remote_client = match linked_issue.as_ref() {
         Some(_) => match deployment.remote_client() {

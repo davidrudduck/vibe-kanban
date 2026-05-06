@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT  id                AS \"id!: Uuid\",\n                       task_id           AS \"task_id: Uuid\",\n                       container_ref,\n                       branch,\n                       setup_completed_at AS \"setup_completed_at: DateTime<Utc>\",\n                       created_at        AS \"created_at!: DateTime<Utc>\",\n                       updated_at        AS \"updated_at!: DateTime<Utc>\",\n                       archived          AS \"archived!: bool\",\n                       pinned            AS \"pinned!: bool\",\n                       name,\n                       worktree_deleted  AS \"worktree_deleted!: bool\"\n               FROM    workspaces\n               WHERE   rowid = $1",
+  "query": "SELECT id AS \"id!: Uuid\",\n                          task_id AS \"task_id: Uuid\",\n                          container_ref,\n                          branch,\n                          setup_completed_at AS \"setup_completed_at: DateTime<Utc>\",\n                          created_at AS \"created_at!: DateTime<Utc>\",\n                          updated_at AS \"updated_at!: DateTime<Utc>\",\n                          archived AS \"archived!: bool\",\n                          pinned AS \"pinned!: bool\",\n                          name,\n                          worktree_deleted AS \"worktree_deleted!: bool\",\n                          is_draft AS \"is_draft!: bool\"\n                   FROM workspaces\n                   ORDER BY created_at DESC",
   "describe": {
     "columns": [
       {
@@ -57,10 +57,15 @@
         "name": "worktree_deleted!: bool",
         "ordinal": 10,
         "type_info": "Bool"
+      },
+      {
+        "name": "is_draft!: bool",
+        "ordinal": 11,
+        "type_info": "Bool"
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 0
     },
     "nullable": [
       true,
@@ -73,8 +78,9 @@
       false,
       false,
       true,
+      false,
       false
     ]
   },
-  "hash": "f2dbb49b2f839e84a46fdd865d9982b758160517b93bc92d8e12060426daa05d"
+  "hash": "9641f364554451375d0d25f3dc8ef76b08f7451a8fbad7c2c928417b0ff7f9b3"
 }

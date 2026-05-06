@@ -48,6 +48,8 @@ export interface WorkspaceSummaryProps {
   summary?: boolean;
   /** Whether this is a draft workspace (shows "Draft" instead of elapsed time) */
   isDraft?: boolean;
+  /** Whether this is a saved draft workspace from the backend (shows "Draft" badge next to name) */
+  isSavedDraft?: boolean;
   onOpenWorkspaceActions?: (workspaceId: string) => void;
 }
 
@@ -71,6 +73,7 @@ export function WorkspaceSummary({
   className,
   summary = false,
   isDraft = false,
+  isSavedDraft = false,
   onOpenWorkspaceActions,
 }: WorkspaceSummaryProps) {
   const { t } = useTranslation('common');
@@ -110,7 +113,7 @@ export function WorkspaceSummary({
       >
         <div
           className={cn(
-            'overflow-hidden whitespace-nowrap pr-double',
+            'flex items-center gap-1 overflow-hidden whitespace-nowrap pr-double',
             !summary && 'text-normal'
           )}
           style={{
@@ -120,7 +123,12 @@ export function WorkspaceSummary({
               'linear-gradient(to right, black calc(100% - 24px), transparent 100%)',
           }}
         >
-          {name}
+          <span className="truncate">{name}</span>
+          {isSavedDraft && (
+            <span className="ml-half shrink-0 text-xs px-1 py-px rounded bg-subtle text-low border border-border/50 font-medium">
+              Draft
+            </span>
+          )}
         </div>
         {(!summary || isActive) && (
           <div className="flex w-full items-center gap-base text-sm h-5">

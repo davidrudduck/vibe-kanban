@@ -152,9 +152,9 @@ export type CreateScratch = { payload: ScratchPayload, };
 
 export type UpdateScratch = { payload: ScratchPayload, };
 
-export type Workspace = { id: string, task_id: string | null, container_ref: string | null, branch: string, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, worktree_deleted: boolean, };
+export type Workspace = { id: string, task_id: string | null, container_ref: string | null, branch: string, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, worktree_deleted: boolean, is_draft: boolean, };
 
-export type WorkspaceWithStatus = { is_running: boolean, is_errored: boolean, id: string, task_id: string | null, container_ref: string | null, branch: string, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, worktree_deleted: boolean, };
+export type WorkspaceWithStatus = { is_running: boolean, is_errored: boolean, id: string, task_id: string | null, container_ref: string | null, branch: string, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, worktree_deleted: boolean, is_draft: boolean, };
 
 export type DatabaseStats = { 
 /**
@@ -467,7 +467,7 @@ export type ListRelayPairedHostsResponse = { hosts: Array<RelayPairedHost>, };
 
 export type RemoveRelayPairedHostResponse = { removed: boolean, };
 
-export type CreateWorkspaceApiRequest = { name: string | null, };
+export type CreateWorkspaceApiRequest = { name: string | null, repos: Array<WorkspaceRepoInput>, is_draft: boolean, };
 
 export type LinkedIssueInfo = { remote_project_id: string, issue_id: string, };
 

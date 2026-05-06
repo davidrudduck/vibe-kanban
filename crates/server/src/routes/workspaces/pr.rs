@@ -733,6 +733,7 @@ pub async fn create_workspace_from_pr(
         &CreateWorkspace {
             branch: target_branch_ref.clone(),
             name: Some(payload.pr_title.clone()),
+            is_draft: false,
         },
         workspace_id,
     )

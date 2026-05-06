@@ -124,7 +124,11 @@ export function NavbarContainer({
 }) {
   const { t } = useTranslation('common');
   const { executeAction } = useActions();
-  const { workspace: selectedWorkspace, isCreateMode } = useWorkspaceContext();
+  const {
+    workspace: selectedWorkspace,
+    isCreateMode,
+    selectedSession,
+  } = useWorkspaceContext();
   const { workspaces } = useUserContext();
   const syncErrorContext = useSyncErrorContext();
   const { remoteAuthDegraded } = useUserSystem();
@@ -193,7 +197,9 @@ export function NavbarContainer({
     ? 'Create Workspace'
     : isOnProjectPage
       ? orgName
-      : selectedWorkspace?.branch;
+      : (selectedSession?.name ??
+        selectedWorkspace?.name ??
+        selectedWorkspace?.branch);
 
   // Breadcrumbs: Project / Issue / Workspace (only on workspace pages with linked project)
   const linkedProjectId = linkedRemoteWorkspace?.project_id ?? null;

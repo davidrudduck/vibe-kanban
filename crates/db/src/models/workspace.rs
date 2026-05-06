@@ -51,6 +51,7 @@ pub struct Workspace {
     pub pinned: bool,
     pub name: Option<String>,
     pub worktree_deleted: bool,
+    pub is_draft: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -85,6 +86,7 @@ pub struct WorkspaceContext {
 pub struct CreateWorkspace {
     pub branch: String,
     pub name: Option<String>,
+    pub is_draft: bool,
 }
 
 impl Workspace {
@@ -102,7 +104,8 @@ impl Workspace {
                           archived AS "archived!: bool",
                           pinned AS "pinned!: bool",
                           name,
-                          worktree_deleted AS "worktree_deleted!: bool"
+                          worktree_deleted AS "worktree_deleted!: bool",
+                          is_draft AS "is_draft!: bool"
                    FROM workspaces
                    ORDER BY created_at DESC"#
         )
@@ -204,7 +207,8 @@ impl Workspace {
                        archived          AS "archived!: bool",
                        pinned            AS "pinned!: bool",
                        name,
-                       worktree_deleted  AS "worktree_deleted!: bool"
+                       worktree_deleted  AS "worktree_deleted!: bool",
+                       is_draft          AS "is_draft!: bool"
                FROM    workspaces
                WHERE   id = $1"#,
             id
@@ -226,7 +230,8 @@ impl Workspace {
                        archived          AS "archived!: bool",
                        pinned            AS "pinned!: bool",
                        name,
-                       worktree_deleted  AS "worktree_deleted!: bool"
+                       worktree_deleted  AS "worktree_deleted!: bool",
+                       is_draft          AS "is_draft!: bool"
                FROM    workspaces
                WHERE   rowid = $1"#,
             rowid
@@ -269,7 +274,8 @@ impl Workspace {
                 w.archived as "archived!: bool",
                 w.pinned as "pinned!: bool",
                 w.name,
-                w.worktree_deleted as "worktree_deleted!: bool"
+                w.worktree_deleted as "worktree_deleted!: bool",
+                w.is_draft as "is_draft!: bool"
             FROM workspaces w
             LEFT JOIN sessions s ON w.id = s.workspace_id
             LEFT JOIN execution_processes ep ON s.id = ep.session_id AND ep.completed_at IS NOT NULL
@@ -315,15 +321,24 @@ impl Workspace {
     ) -> Result<Self, WorkspaceError> {
         Ok(sqlx::query_as!(
             Workspace,
-            r#"INSERT INTO workspaces (id, task_id, container_ref, branch, setup_completed_at, name)
-               VALUES ($1, $2, $3, $4, $5, $6)
-               RETURNING id as "id!: Uuid", task_id as "task_id: Uuid", container_ref, branch, setup_completed_at as "setup_completed_at: DateTime<Utc>", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", archived as "archived!: bool", pinned as "pinned!: bool", name, worktree_deleted as "worktree_deleted!: bool""#,
+            r#"INSERT INTO workspaces (id, task_id, container_ref, branch, setup_completed_at, name, is_draft)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)
+               RETURNING id as "id!: Uuid", task_id as "task_id: Uuid", container_ref, branch,
+                         setup_completed_at as "setup_completed_at: DateTime<Utc>",
+                         created_at as "created_at!: DateTime<Utc>",
+                         updated_at as "updated_at!: DateTime<Utc>",
+                         archived as "archived!: bool",
+                         pinned as "pinned!: bool",
+                         name,
+                         worktree_deleted as "worktree_deleted!: bool",
+                         is_draft as "is_draft!: bool""#,
             id,
             Option::<Uuid>::None,
             Option::<String>::None,
             data.branch,
             Option::<DateTime<Utc>>::None,
-            data.name
+            data.name,
+            data.is_draft,
         )
         .fetch_one(pool)
         .await?)
@@ -410,6 +425,21 @@ impl Workspace {
         )
         .bind(archived)
         .bind(workspace_id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn set_draft(
+        pool: &SqlitePool,
+        workspace_id: Uuid,
+        is_draft: bool,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            "UPDATE workspaces SET is_draft = $1, updated_at = datetime('now', 'subsec') WHERE id = $2",
+            is_draft,
+            workspace_id
+        )
         .execute(pool)
         .await?;
         Ok(())
@@ -537,6 +567,7 @@ impl Workspace {
                 w.pinned AS "pinned!: bool",
                 w.name,
                 w.worktree_deleted AS "worktree_deleted!: bool",
+                w.is_draft AS "is_draft!: bool",
 
                 CASE WHEN EXISTS (
                     SELECT 1
@@ -579,6 +610,7 @@ impl Workspace {
                     pinned: rec.pinned,
                     name: rec.name,
                     worktree_deleted: rec.worktree_deleted,
+                    is_draft: rec.is_draft,
                 },
                 is_running: rec.is_running != 0,
                 is_errored: rec.is_errored != 0,
@@ -631,6 +663,7 @@ impl Workspace {
                 w.pinned AS "pinned!: bool",
                 w.name,
                 w.worktree_deleted AS "worktree_deleted!: bool",
+                w.is_draft AS "is_draft!: bool",
 
                 CASE WHEN EXISTS (
                     SELECT 1
@@ -676,6 +709,7 @@ impl Workspace {
                 pinned: rec.pinned,
                 name: rec.name,
                 worktree_deleted: rec.worktree_deleted,
+                is_draft: rec.is_draft,
             },
             is_running: rec.is_running != 0,
             is_errored: rec.is_errored != 0,

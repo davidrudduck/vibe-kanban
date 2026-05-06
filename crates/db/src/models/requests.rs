@@ -20,6 +20,8 @@ pub struct WorkspaceRepoInput {
 #[derive(Debug, Serialize, Deserialize, TS)]
 pub struct CreateWorkspaceApiRequest {
     pub name: Option<String>,
+    pub repos: Vec<WorkspaceRepoInput>,
+    pub is_draft: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
