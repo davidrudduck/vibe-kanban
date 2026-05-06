@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import {
   GitBranchIcon,
   FolderIcon,
@@ -6,58 +5,34 @@ import {
   WarningCircleIcon,
 } from '@phosphor-icons/react';
 import { cn } from '@/shared/lib/utils';
-import { FileBrowserTreeNode } from '@vibe/ui/components/FileBrowserTreeNode';
-import type { DirectoryListResponse } from 'shared/types';
+import { FileBrowserTreeFolder } from './FileBrowserTreeFolder';
 import type { FileSource } from '@/shared/stores/useFileBrowserStore';
 
 interface FileBrowserTreePanelProps {
-  listing: DirectoryListResponse | undefined;
-  isLoading: boolean;
-  isError: boolean;
+  workspaceId: string;
   source: FileSource;
-  currentPath: string | null;
   selectedFile: string | null;
   filterTerm: string;
+  expandedFolderPaths: Set<string>;
+  isError: boolean;
   onSetSource: (s: FileSource) => void;
-  onNavigate: (path: string | null) => void;
+  onToggleFolder: (path: string) => void;
   onSelectFile: (path: string) => void;
   onSetFilterTerm: (t: string) => void;
 }
 
 export function FileBrowserTreePanel({
-  listing,
-  isLoading,
-  isError,
+  workspaceId,
   source,
-  currentPath,
   selectedFile,
   filterTerm,
+  expandedFolderPaths,
+  isError,
   onSetSource,
-  onNavigate,
+  onToggleFolder,
   onSelectFile,
   onSetFilterTerm,
 }: FileBrowserTreePanelProps) {
-  const filteredEntries = useMemo(() => {
-    if (!listing) return [];
-    const term = filterTerm.toLowerCase();
-    const entries = term
-      ? listing.entries.filter((e) => e.name.toLowerCase().includes(term))
-      : listing.entries;
-    // Dirs first, then alphabetical (backend already sorts, but re-sort after filter)
-    return [...entries].sort((a, b) =>
-      a.is_directory === b.is_directory
-        ? a.name.localeCompare(b.name)
-        : a.is_directory
-          ? -1
-          : 1
-    );
-  }, [listing, filterTerm]);
-
-  const breadcrumbs = useMemo(() => {
-    if (!currentPath) return [];
-    return currentPath.split('/').filter(Boolean);
-  }, [currentPath]);
-
   return (
     <div className="flex flex-col h-full min-h-0 border-r border-border">
       {/* Source toggle */}
@@ -90,34 +65,6 @@ export function FileBrowserTreePanel({
         </button>
       </div>
 
-      {/* Breadcrumb */}
-      {currentPath && (
-        <div className="flex items-center gap-0.5 px-2 py-1 text-xs text-low shrink-0 border-b border-border overflow-x-auto">
-          <button
-            type="button"
-            onClick={() => onNavigate(null)}
-            className="hover:text-normal shrink-0"
-          >
-            root
-          </button>
-          {breadcrumbs.map((crumb, i) => {
-            const path = breadcrumbs.slice(0, i + 1).join('/');
-            return (
-              <span key={path} className="flex items-center gap-0.5 shrink-0">
-                <span className="text-border">/</span>
-                <button
-                  type="button"
-                  onClick={() => onNavigate(path)}
-                  className="hover:text-normal"
-                >
-                  {crumb}
-                </button>
-              </span>
-            );
-          })}
-        </div>
-      )}
-
       {/* Filter */}
       <div className="px-2 py-1.5 shrink-0 border-b border-border">
         <div className="flex items-center gap-1.5 bg-secondary rounded px-2 py-1">
@@ -139,24 +86,18 @@ export function FileBrowserTreePanel({
             <WarningCircleIcon className="size-5" />
             <span className="text-xs">Failed to load directory</span>
           </div>
-        ) : isLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <div className="size-4 animate-spin rounded-full border-2 border-border border-t-brand" />
-          </div>
-        ) : filteredEntries.length === 0 ? (
-          <div className="px-3 py-4 text-xs text-low text-center">
-            {filterTerm ? 'No matches' : 'Empty directory'}
-          </div>
         ) : (
-          filteredEntries.map((entry) => (
-            <FileBrowserTreeNode
-              key={entry.path}
-              entry={entry}
-              isSelected={selectedFile === entry.path}
-              onClickFolder={(path) => onNavigate(path)}
-              onClickFile={(path) => onSelectFile(path)}
-            />
-          ))
+          <FileBrowserTreeFolder
+            workspaceId={workspaceId}
+            path=""
+            source={source}
+            depth={0}
+            expandedPaths={expandedFolderPaths}
+            selectedFile={selectedFile}
+            filterTerm={filterTerm}
+            onToggleFolder={onToggleFolder}
+            onSelectFile={onSelectFile}
+          />
         )}
       </div>
     </div>
