@@ -248,6 +248,8 @@ pub async fn follow_up(
         .await?;
 
     // Clear draft status when execution begins
+    // Note: workspace prompt is not persisted on draft save (V1 limitation).
+    // Users re-enter their prompt when executing a draft workspace.
     if let Err(e) = Workspace::set_draft(pool, workspace.id, false).await {
         tracing::warn!(
             "Failed to clear is_draft for workspace {}: {}",

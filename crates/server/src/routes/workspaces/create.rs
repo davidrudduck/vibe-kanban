@@ -54,6 +54,12 @@ pub async fn create_workspace(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<CreateWorkspaceApiRequest>,
 ) -> Result<ResponseJson<ApiResponse<Workspace>>, ApiError> {
+    if payload.is_draft && payload.repos.is_empty() {
+        return Err(ApiError::BadRequest(
+            "Draft workspace requires at least one repository".to_string(),
+        ));
+    }
+
     let mut managed_workspace = deployment
         .workspace_manager()
         .load_managed_workspace(
@@ -61,6 +67,7 @@ pub async fn create_workspace(
         )
         .await?;
 
+    // TODO: wrap workspace creation + repo attachment in a transaction to prevent partial state
     for repo in &payload.repos {
         managed_workspace
             .add_repository(repo, deployment.git())
