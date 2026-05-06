@@ -16,6 +16,7 @@ export interface SidebarWorkspace {
   id: string;
   name: string;
   branch: string;
+  is_draft: boolean;
   createdAt: string;
   updatedAt: string;
   description: string;
@@ -61,6 +62,7 @@ function toSidebarWorkspace(
     id: ws.id,
     name: ws.name ?? ws.branch, // Use name if available, fallback to branch
     branch: ws.branch,
+    is_draft: ws.is_draft,
     createdAt: ws.created_at,
     updatedAt: ws.updated_at,
     description: '',

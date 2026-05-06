@@ -22,6 +22,7 @@ export type WorkspaceLayoutMode = 'flat' | 'accordion';
 export interface WorkspacesSidebarWorkspace {
   id: string;
   name: string;
+  is_draft?: boolean;
   filesChanged?: number;
   linesAdded?: number;
   linesRemoved?: number;
@@ -160,6 +161,7 @@ function WorkspaceList({
           latestProcessStatus={workspace.latestProcessStatus}
           prStatus={workspace.prStatus}
           hostName={workspace.hostName}
+          isSavedDraft={workspace.is_draft}
           onOpenWorkspaceActions={onOpenWorkspaceActions}
           onClick={() => onSelectWorkspace(workspace.id)}
         />
@@ -353,6 +355,7 @@ export function WorkspacesSidebar({
                   latestProcessCompletedAt={workspace.latestProcessCompletedAt}
                   latestProcessStatus={workspace.latestProcessStatus}
                   prStatus={workspace.prStatus}
+                  isSavedDraft={workspace.is_draft}
                   onOpenWorkspaceActions={handleOpenWorkspaceActions}
                   onClick={() => onSelectWorkspace(workspace.id)}
                 />
@@ -470,6 +473,7 @@ export function WorkspacesSidebar({
                 latestProcessCompletedAt={workspace.latestProcessCompletedAt}
                 latestProcessStatus={workspace.latestProcessStatus}
                 prStatus={workspace.prStatus}
+                isSavedDraft={workspace.is_draft}
                 onOpenWorkspaceActions={handleOpenWorkspaceActions}
                 onClick={() => onSelectWorkspace(workspace.id)}
               />
