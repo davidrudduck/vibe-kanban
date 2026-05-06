@@ -603,7 +603,8 @@ function FileEditEntry({
     openFileInVSCode(filename, { openAsDiff: false });
   }, []);
   const handleOpenInFiles = useCallback(() => {
-    openFile(path);
+    if (!workspaceId) return;
+    openFile(path, workspaceId);
     setRightMainPanelMode(RIGHT_MAIN_PANEL_MODES.FILES, workspaceId);
   }, [openFile, setRightMainPanelMode, path, workspaceId]);
 

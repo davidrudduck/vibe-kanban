@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import { FileBrowserTreePanel } from './FileBrowserTreePanel';
 import { FileBrowserViewerPanel } from './FileBrowserViewerPanel';
@@ -9,6 +9,7 @@ import {
   useFileBrowserFilterTerm,
   useFileBrowserViewMode,
   useFileBrowserActions,
+  useFileBrowserOpenFileWorkspaceId,
 } from '@/shared/stores/useFileBrowserStore';
 import {
   useDirectoryListing,
@@ -38,11 +39,39 @@ export function FileBrowserContainer({
     resetForWorkspace,
   } = useFileBrowserActions();
 
-  // Reset navigation state whenever the active workspace changes
+  // Tracks whether this component instance has completed its first mount.
+  const hasMountedRef = useRef(false);
+  // Tracks the workspaceId seen on the previous render, for change detection.
+  const lastWorkspaceIdRef = useRef(workspaceId);
+  // Pending openFile() intent from the store — set by the caller before the
+  // panel mounts so we know whether to preserve selectedFile on first mount.
+  const openFileWorkspaceId = useFileBrowserOpenFileWorkspaceId();
+
   useEffect(() => {
-    resetForWorkspace();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- resetForWorkspace is a stable Zustand action; adding it to deps would not change behavior
-  }, [workspaceId]);
+    if (!hasMountedRef.current) {
+      // First mount of this instance.
+      hasMountedRef.current = true;
+      lastWorkspaceIdRef.current = workspaceId;
+
+      if (openFileWorkspaceId === workspaceId) {
+        // openFile() was called for THIS workspace just before the panel
+        // mounted — preserve the pending selectedFile/currentPath state.
+        // The intent is consumed by resetForWorkspace clearing openFileWorkspaceId,
+        // or the next workspace change will trigger a reset naturally.
+        return;
+      }
+      // No pending openFile() for this workspace (e.g. panel reopened after a
+      // workspace switch, or opened manually) — start with a clean slate.
+      resetForWorkspace();
+      return;
+    }
+
+    // Subsequent renders: reset only when the workspace actually changes.
+    if (lastWorkspaceIdRef.current !== workspaceId) {
+      lastWorkspaceIdRef.current = workspaceId;
+      resetForWorkspace();
+    }
+  }, [workspaceId, openFileWorkspaceId, resetForWorkspace]);
 
   const {
     data: listing,
