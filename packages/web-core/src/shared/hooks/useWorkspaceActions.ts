@@ -80,7 +80,10 @@ export function useWorkspaceActions({
           archived: !isCurrentlyArchived,
         });
       } catch (error) {
-        if (!isCurrentlyArchived && (error as { status?: number }).status === 409) {
+        if (
+          !isCurrentlyArchived &&
+          (error as { status?: number }).status === 409
+        ) {
           const result = await ConfirmDialog.show({
             title: 'Uncommitted Changes Detected',
             message:

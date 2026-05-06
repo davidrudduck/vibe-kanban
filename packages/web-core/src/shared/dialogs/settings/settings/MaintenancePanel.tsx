@@ -296,44 +296,46 @@ export function MaintenancePanel() {
           </p>
         )}
 
-        {showArchivedList && archivedList.data && archivedList.data.items.length > 0 && (
-          <div className="rounded-sm border border-border overflow-hidden mt-2">
-            <div className="flex items-center justify-between px-3 py-1.5 bg-secondary/50 border-b border-border">
-              <span className="text-xs font-medium text-low uppercase tracking-wide">
-                Workspace
-              </span>
-              <span className="text-xs font-medium text-low uppercase tracking-wide">
-                Archived
-              </span>
-            </div>
-            {archivedList.data.items.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center justify-between px-3 py-1.5 border-b border-border last:border-b-0"
-              >
-                <button
-                  className="text-sm text-link hover:underline truncate max-w-[60%] text-left"
-                  title={item.name ?? 'Unnamed workspace'}
-                  onClick={() =>
-                    navigate({
-                      to: '/workspaces/$workspaceId',
-                      params: { workspaceId: item.id },
-                    })
-                  }
-                >
-                  {item.name ?? 'Unnamed workspace'}
-                </button>
-                <span className="text-xs font-mono text-low shrink-0">
-                  {new Date(item.archived_at).toLocaleDateString()}
+        {showArchivedList &&
+          archivedList.data &&
+          archivedList.data.items.length > 0 && (
+            <div className="rounded-sm border border-border overflow-hidden mt-2">
+              <div className="flex items-center justify-between px-3 py-1.5 bg-secondary/50 border-b border-border">
+                <span className="text-xs font-medium text-low uppercase tracking-wide">
+                  Workspace
+                </span>
+                <span className="text-xs font-medium text-low uppercase tracking-wide">
+                  Archived
                 </span>
               </div>
-            ))}
-            <div className="px-3 py-1.5 bg-secondary/50 border-t border-border text-xs text-low">
-              {archivedList.data.items.length} workspace(s) eligible (oldest
-              first)
+              {archivedList.data.items.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex items-center justify-between px-3 py-1.5 border-b border-border last:border-b-0"
+                >
+                  <button
+                    className="text-sm text-link hover:underline truncate max-w-[60%] text-left"
+                    title={item.name ?? 'Unnamed workspace'}
+                    onClick={() =>
+                      navigate({
+                        to: '/workspaces/$workspaceId',
+                        params: { workspaceId: item.id },
+                      })
+                    }
+                  >
+                    {item.name ?? 'Unnamed workspace'}
+                  </button>
+                  <span className="text-xs font-mono text-low shrink-0">
+                    {new Date(item.archived_at).toLocaleDateString()}
+                  </span>
+                </div>
+              ))}
+              <div className="px-3 py-1.5 bg-secondary/50 border-t border-border text-xs text-low">
+                {archivedList.data.items.length} workspace(s) eligible (oldest
+                first)
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
         {showArchivedList && archivedList.data?.items.length === 0 && (
           <p className="text-sm text-low mt-1">
