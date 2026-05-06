@@ -77,6 +77,15 @@ interface CreateChatBoxProps<TExecutor extends string = string> {
   repoSummaryLabel: string;
   repoSummaryTitle: string;
   linkedIssue?: LinkedIssueBadgeProps | null;
+  /** Optional title input rendered above the editor */
+  title?: {
+    value: string;
+    onChange: (v: string) => void;
+    placeholder?: string;
+  };
+  /** If provided, renders a "Save as Draft" secondary button */
+  onSaveDraft?: () => void;
+  isSavingDraft?: boolean;
 }
 
 /**
@@ -112,6 +121,9 @@ export function CreateChatBox<TExecutor extends string = string>({
   repoSummaryLabel,
   repoSummaryTitle,
   linkedIssue,
+  title,
+  onSaveDraft,
+  isSavingDraft,
 }: CreateChatBoxProps<TExecutor>) {
   const { t } = useTranslation(['common', 'tasks']);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -142,17 +154,31 @@ export function CreateChatBox<TExecutor extends string = string>({
 
   return (
     <ChatBoxBase
-      editor={renderEditor({
-        value: editor.value,
-        onChange: editor.onChange,
-        onCmdEnter: handleCmdEnter,
-        disabled: isDisabled,
-        repoIds,
-        repoId,
-        executor: executor.selected ?? null,
-        onPasteFiles,
-        localAttachments,
-      })}
+      editor={
+        <div className="flex flex-col gap-base">
+          {title && (
+            <input
+              type="text"
+              value={title.value}
+              onChange={(e) => title.onChange(e.target.value)}
+              placeholder={title.placeholder ?? 'Workspace title (optional)'}
+              disabled={isDisabled}
+              className="w-full bg-transparent text-base font-medium text-high placeholder:text-low focus:outline-none border-b border-border pb-base disabled:cursor-not-allowed disabled:opacity-50"
+            />
+          )}
+          {renderEditor({
+            value: editor.value,
+            onChange: editor.onChange,
+            onCmdEnter: handleCmdEnter,
+            disabled: isDisabled,
+            repoIds,
+            repoId,
+            executor: executor.selected ?? null,
+            onPasteFiles,
+            localAttachments,
+          })}
+        </div>
+      }
       error={error}
       visualVariant={VisualVariant.NORMAL}
       dropzone={dropzone}
@@ -236,16 +262,27 @@ export function CreateChatBox<TExecutor extends string = string>({
         </>
       }
       footerRight={
-        <PrimaryButton
-          onClick={onSend}
-          disabled={!canSend}
-          actionIcon={isSending ? 'spinner' : undefined}
-          value={
-            isSending
-              ? t('tasks:conversation.workspace.creating')
-              : t('tasks:conversation.workspace.create')
-          }
-        />
+        <div className="flex gap-base">
+          {onSaveDraft && (
+            <PrimaryButton
+              variant="secondary"
+              onClick={onSaveDraft}
+              disabled={disabled || isSavingDraft}
+              actionIcon={isSavingDraft ? 'spinner' : undefined}
+              value={isSavingDraft ? 'Saving…' : 'Save as Draft'}
+            />
+          )}
+          <PrimaryButton
+            onClick={onSend}
+            disabled={!canSend}
+            actionIcon={isSending ? 'spinner' : undefined}
+            value={
+              isSending
+                ? t('tasks:conversation.workspace.creating')
+                : t('tasks:conversation.workspace.create')
+            }
+          />
+        </div>
       }
     />
   );

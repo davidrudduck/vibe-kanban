@@ -62,6 +62,7 @@ export function CreateChatBoxContainer({
   const { createWorkspace } = useCreateWorkspace();
   const isSubmitting = useRef(false);
   const hasSelectedRepos = repos.length > 0;
+  const [workspaceName, setWorkspaceName] = useState('');
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const [hasInitializedStep, setHasInitializedStep] = useState(false);
   const [isSelectingRepos, setIsSelectingRepos] = useState(true);
@@ -233,10 +234,10 @@ export function CreateChatBoxContainer({
     }
 
     try {
-      const { title } = splitMessageToTitleDescription(message);
+      const { title: autoTitle } = splitMessageToTitleDescription(message);
       const data = {
         executor_config: executorConfig,
-        name: title,
+        name: workspaceName.trim() || autoTitle,
         prompt: message,
         repos: repos.map((r) => ({
           repo_id: r.id,
@@ -294,6 +295,7 @@ export function CreateChatBoxContainer({
     canSubmit,
     executorConfig,
     message,
+    workspaceName,
     repos,
     targetBranches,
     createWorkspace,
@@ -383,6 +385,10 @@ export function CreateChatBoxContainer({
                       className="size-icon-xl"
                     />
                   }
+                  title={{
+                    value: workspaceName,
+                    onChange: setWorkspaceName,
+                  }}
                   onSend={handleSubmit}
                   isSending={createWorkspace.isPending}
                   disabled={!hasSelectedRepos}
