@@ -389,7 +389,7 @@ mod tests {
     #[test]
     fn answer_map_uses_header_as_key() {
         use workspace_utils::approvals::QuestionAnswer;
-        let answers = vec![QuestionAnswer {
+        let answers = [QuestionAnswer {
             question: "Which colour?".to_string(),
             header: "colour".to_string(),
             answer: vec!["Red".to_string()],

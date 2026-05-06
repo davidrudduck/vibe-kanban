@@ -23,6 +23,7 @@ import {
   ChatsTeardropIcon,
   GitDiffIcon,
   TerminalIcon,
+  FolderOpenIcon,
   SignInIcon,
   SignOutIcon,
   CaretDoubleUpIcon,
@@ -49,7 +50,6 @@ import {
   LinkIcon,
   ArrowBendUpRightIcon,
   ProhibitIcon,
-  FolderOpenIcon,
 } from '@phosphor-icons/react';
 import { useDiffViewStore } from '@/shared/stores/useDiffViewStore';
 import { useWorkspaceDiffStore } from '@/shared/stores/useWorkspaceDiffStore';
@@ -868,6 +868,7 @@ export const Actions = {
         );
     },
   },
+
 
   // === Diff Actions for Navbar ===
   ToggleAllDiffs: {

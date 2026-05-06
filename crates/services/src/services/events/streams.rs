@@ -265,14 +265,14 @@ impl EventService {
         let id_str = scratch_id.to_string();
         let type_str = scratch_type.to_string();
         let live_pool = self.db.pool.clone();
-        let live_scratch_type = scratch_type.clone();
+        let live_scratch_type = *scratch_type;
 
         let live = BroadcastStream::new(receiver)
             .then(move |msg_result| {
                 let id_str = id_str.clone();
                 let type_str = type_str.clone();
                 let live_pool = live_pool.clone();
-                let live_scratch_type = live_scratch_type.clone();
+                let live_scratch_type = live_scratch_type;
                 async move {
                     match msg_result {
                         Ok(LogMsg::JsonPatch(patch)) => {

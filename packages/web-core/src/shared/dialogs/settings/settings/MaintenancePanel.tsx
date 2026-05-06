@@ -317,10 +317,9 @@ export function MaintenancePanel() {
                     className="text-sm text-link hover:underline truncate max-w-[60%] text-left"
                     title={item.name ?? 'Unnamed workspace'}
                     onClick={() =>
-                      navigate({
-                        to: '/workspaces/$workspaceId',
-                        params: { workspaceId: item.id },
-                      })
+                      // Route exists in local-web; cast avoids remote-web router type mismatch
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      (navigate as any)({ to: '/workspaces/$workspaceId', params: { workspaceId: item.id } })
                     }
                   >
                     {item.name ?? 'Unnamed workspace'}
@@ -452,10 +451,10 @@ export function MaintenancePanel() {
                   className="text-sm text-link hover:underline truncate max-w-[50%] text-left"
                   title={item.workspace_name ?? 'Unnamed workspace'}
                   onClick={() =>
-                    navigate({
-                      to: '/workspaces/$workspaceId',
-                      params: { workspaceId: item.workspace_id },
-                    })
+                    // Route exists in local-web; cast avoids remote-web router type mismatch
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    (navigate as any)({ to: '/workspaces/$workspaceId', params: { workspaceId: item.workspace_id } })
                   }
                 >
                   {item.workspace_name ?? 'Unnamed workspace'}

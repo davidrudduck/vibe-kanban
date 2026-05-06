@@ -4,16 +4,16 @@ import { FileBrowserTreePanel } from './FileBrowserTreePanel';
 import { FileBrowserViewerPanel } from './FileBrowserViewerPanel';
 import {
   useFileBrowserSource,
-  useFileBrowserCurrentPath,
   useFileBrowserSelectedFile,
   useFileBrowserFilterTerm,
   useFileBrowserViewMode,
-  useFileBrowserActions,
+  useFileBrowserExpandedFolderPaths,
   useFileBrowserOpenFileWorkspaceId,
+  useFileBrowserActions,
 } from '@/shared/stores/useFileBrowserStore';
 import {
-  useDirectoryListing,
   useFileContent,
+  useDirectoryListing,
 } from '@/shared/hooks/useFileBrowser';
 
 interface FileBrowserContainerProps {
@@ -26,26 +26,24 @@ export function FileBrowserContainer({
   className,
 }: FileBrowserContainerProps) {
   const source = useFileBrowserSource();
-  const currentPath = useFileBrowserCurrentPath();
   const selectedFile = useFileBrowserSelectedFile();
   const filterTerm = useFileBrowserFilterTerm();
   const viewMode = useFileBrowserViewMode();
+  const expandedFolderPaths = useFileBrowserExpandedFolderPaths();
+  const openFileWorkspaceId = useFileBrowserOpenFileWorkspaceId();
   const {
     setSource,
-    navigate,
     selectFile,
     setFilterTerm,
     setViewMode,
     resetForWorkspace,
+    toggleFolderExpanded,
   } = useFileBrowserActions();
 
   // Tracks whether this component instance has completed its first mount.
   const hasMountedRef = useRef(false);
   // Tracks the workspaceId seen on the previous render, for change detection.
   const lastWorkspaceIdRef = useRef(workspaceId);
-  // Pending openFile() intent from the store — set by the caller before the
-  // panel mounts so we know whether to preserve selectedFile on first mount.
-  const openFileWorkspaceId = useFileBrowserOpenFileWorkspaceId();
 
   useEffect(() => {
     if (!hasMountedRef.current) {
@@ -56,12 +54,9 @@ export function FileBrowserContainer({
       if (openFileWorkspaceId === workspaceId) {
         // openFile() was called for THIS workspace just before the panel
         // mounted — preserve the pending selectedFile/currentPath state.
-        // The intent is consumed by resetForWorkspace clearing openFileWorkspaceId,
-        // or the next workspace change will trigger a reset naturally.
         return;
       }
-      // No pending openFile() for this workspace (e.g. panel reopened after a
-      // workspace switch, or opened manually) — start with a clean slate.
+      // No pending openFile() for this workspace — start with a clean slate.
       resetForWorkspace();
       return;
     }
@@ -73,11 +68,8 @@ export function FileBrowserContainer({
     }
   }, [workspaceId, openFileWorkspaceId, resetForWorkspace]);
 
-  const {
-    data: listing,
-    isLoading: isListingLoading,
-    isError: isListingError,
-  } = useDirectoryListing(workspaceId, currentPath, source);
+  // Root listing is only needed to surface top-level errors in the tree panel
+  const { isError: isRootError } = useDirectoryListing(workspaceId, '', source);
 
   const {
     data: fileData,
@@ -94,15 +86,14 @@ export function FileBrowserContainer({
       >
         <Panel id="file-browser-tree" minSize="20%">
           <FileBrowserTreePanel
-            listing={listing}
-            isLoading={isListingLoading}
-            isError={isListingError}
+            workspaceId={workspaceId}
             source={source}
-            currentPath={currentPath}
             selectedFile={selectedFile}
             filterTerm={filterTerm}
+            expandedFolderPaths={expandedFolderPaths}
+            isError={isRootError}
             onSetSource={setSource}
-            onNavigate={navigate}
+            onToggleFolder={toggleFolderExpanded}
             onSelectFile={(path) => selectFile(path)}
             onSetFilterTerm={setFilterTerm}
           />
