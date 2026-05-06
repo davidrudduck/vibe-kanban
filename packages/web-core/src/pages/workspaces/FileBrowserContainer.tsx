@@ -38,6 +38,7 @@ export function FileBrowserContainer({
     setViewMode,
     resetForWorkspace,
     toggleFolderExpanded,
+    consumeOpenFileIntent,
   } = useFileBrowserActions();
 
   // Tracks whether this component instance has completed its first mount.
@@ -53,7 +54,9 @@ export function FileBrowserContainer({
 
       if (openFileWorkspaceId === workspaceId) {
         // openFile() was called for THIS workspace just before the panel
-        // mounted — preserve the pending selectedFile/currentPath state.
+        // mounted — preserve the pending selectedFile/currentPath state,
+        // then clear the intent so future remounts start fresh.
+        consumeOpenFileIntent();
         return;
       }
       // No pending openFile() for this workspace — start with a clean slate.
@@ -66,7 +69,12 @@ export function FileBrowserContainer({
       lastWorkspaceIdRef.current = workspaceId;
       resetForWorkspace();
     }
-  }, [workspaceId, openFileWorkspaceId, resetForWorkspace]);
+  }, [
+    workspaceId,
+    openFileWorkspaceId,
+    resetForWorkspace,
+    consumeOpenFileIntent,
+  ]);
 
   // Root listing is only needed to surface top-level errors in the tree panel
   const { isError: isRootError } = useDirectoryListing(workspaceId, '', source);

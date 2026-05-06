@@ -24,6 +24,8 @@ type FileBrowserState = {
   setFilterTerm: (term: string) => void;
   setViewMode: (mode: FileViewMode) => void;
   openFile: (path: string, workspaceId: string) => void;
+  /** Clear the pending openFile intent without resetting other state. */
+  consumeOpenFileIntent: () => void;
   resetForWorkspace: () => void;
   toggleFolderExpanded: (path: string) => void;
   collapseAllFolders: () => void;
@@ -100,6 +102,8 @@ export const useFileBrowserStore = create<FileBrowserState>()((set) => ({
     });
   },
 
+  consumeOpenFileIntent: () => set({ openFileWorkspaceId: null }),
+
   resetForWorkspace: () =>
     set({
       source: 'worktree',
@@ -148,6 +152,7 @@ export const useFileBrowserActions = () =>
       setFilterTerm: s.setFilterTerm,
       setViewMode: s.setViewMode,
       openFile: s.openFile,
+      consumeOpenFileIntent: s.consumeOpenFileIntent,
       resetForWorkspace: s.resetForWorkspace,
       toggleFolderExpanded: s.toggleFolderExpanded,
       collapseAllFolders: s.collapseAllFolders,
