@@ -89,9 +89,8 @@ impl FileLoggingConfig {
 /// **Hold this value for the entire lifetime of the process.** Dropping it
 /// flushes and stops the background file-writer thread.
 pub struct LoggingHandle {
-    /// RAII guard: dropping this flushes buffered log lines and stops the writer thread.
-    /// `pub(crate)` — never drop or replace externally; file logging stops silently.
-    pub(crate) guard: Option<WorkerGuard>,
+    /// Held purely for RAII: dropping flushes buffered lines and stops the writer thread.
+    _guard: Option<WorkerGuard>,
     /// Present when file logging was successfully initialised; used to spawn cleanup.
     pub cleanup_config: Option<FileLoggingConfig>,
     /// JoinHandle for the daily cleanup task; set by `spawn_cleanup_task`.
@@ -101,7 +100,7 @@ pub struct LoggingHandle {
 impl LoggingHandle {
     fn console_only() -> Self {
         Self {
-            guard: None,
+            _guard: None,
             cleanup_config: None,
             cleanup_task: None,
         }
@@ -109,7 +108,7 @@ impl LoggingHandle {
 
     fn with_file(guard: WorkerGuard, config: FileLoggingConfig) -> Self {
         Self {
-            guard: Some(guard),
+            _guard: Some(guard),
             cleanup_config: Some(config),
             cleanup_task: None,
         }
@@ -678,7 +677,7 @@ mod tests {
         // Second call — guaranteed to hit the Err arm (subscriber already set)
         let second = init_logging("warn");
         assert!(
-            second.guard.is_none() && second.cleanup_config.is_none(),
+            second.cleanup_config.is_none(),
             "second init_logging call must return console-only handle when try_init fails"
         );
         unsafe {
@@ -792,7 +791,7 @@ mod tests {
         // Running inside a tokio runtime means if it accidentally spawned a task,
         // that would be visible (no panic, but the test exercises the real path).
         let mut handle = LoggingHandle {
-            guard: None,
+            _guard: None,
             cleanup_config: None,
             cleanup_task: None,
         };
