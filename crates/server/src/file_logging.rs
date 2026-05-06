@@ -918,6 +918,12 @@ mod tests {
             dir.join("vibe-kanban.log.2025-06-01").exists(),
             "real log file was deleted because directory consumed its slot"
         );
+
+        // The directory must NOT have been removed — cleanup never deletes non-files.
+        assert!(
+            dir.join("vibe-kanban.log.2025-06-02").is_dir(),
+            "directory was unexpectedly removed by cleanup"
+        );
     }
 
     #[test]
