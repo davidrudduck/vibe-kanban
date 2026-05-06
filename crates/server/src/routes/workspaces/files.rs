@@ -217,9 +217,6 @@ fn list_directory_fs(
         .filter_map(|e| e.ok())
         .filter_map(|e| {
             let name = e.file_name().to_string_lossy().to_string();
-            if name.starts_with('.') {
-                return None;
-            }
             let meta = e.metadata().ok()?;
             let path = if rel_path.is_empty() {
                 name.clone()
@@ -286,10 +283,6 @@ fn list_directory_git(repo_path: &Path, rel_path: &str) -> Result<Vec<DirectoryE
         .filter_map(|line| {
             let tab = line.find('\t')?;
             let name = line[tab + 1..].to_string();
-            // Filter hidden entries from listing output
-            if name.starts_with('.') {
-                return None;
-            }
             let meta = &line[..tab];
             let parts: Vec<&str> = meta.split_whitespace().collect();
             let kind = parts.get(1)?;
@@ -378,11 +371,6 @@ pub async fn read_file(
 
 fn read_file_fs(worktree_root: &Path, rel_path: &str) -> Result<(Vec<u8>, u64), ApiError> {
     validate_rel_path(rel_path)?;
-    if has_hidden_component(rel_path) {
-        return Err(ApiError::BadRequest(
-            "Hidden files are not accessible".to_string(),
-        ));
-    }
     let canonical_root = worktree_root
         .canonicalize()
         .map_err(|_| ApiError::BadRequest("Workspace root not found".to_string()))?;
@@ -411,14 +399,6 @@ fn read_file_fs(worktree_root: &Path, rel_path: &str) -> Result<(Vec<u8>, u64), 
             "Path traversal not allowed".to_string(),
         ));
     }
-    // Re-check the resolved canonical path for hidden components.
-    if let Ok(relative) = canonical.strip_prefix(&canonical_root) {
-        if has_hidden_component(&relative.to_string_lossy()) {
-            return Err(ApiError::BadRequest(
-                "Hidden files are not accessible".to_string(),
-            ));
-        }
-    }
     if canonical.is_dir() {
         return Err(ApiError::BadRequest("Path is a directory".to_string()));
     }
@@ -442,11 +422,6 @@ fn read_file_git(repo_path: &Path, rel_path: &str) -> Result<(Vec<u8>, u64), Api
     validate_rel_path(rel_path)?;
     if rel_path.starts_with('/') || rel_path.starts_with('-') {
         return Err(ApiError::BadRequest("Invalid path".to_string()));
-    }
-    if has_hidden_component(rel_path) {
-        return Err(ApiError::BadRequest(
-            "Hidden files are not accessible".to_string(),
-        ));
     }
 
     let git_ref = format!("HEAD:{}", rel_path);
@@ -594,28 +569,31 @@ mod tests {
     }
 
     #[test]
-    fn read_file_fs_rejects_hidden_file() {
+    fn read_file_fs_allows_hidden_file() {
         let tmp = TempDir::new().unwrap();
         let inner = tmp.path().join("workspace");
         fs::create_dir(&inner).unwrap();
         fs::write(inner.join(".env"), "SECRET=abc").unwrap();
+        // Hidden files are now allowed — reading .env should succeed
         let result = read_file_fs(&inner, ".env");
-        assert!(result.is_err());
-        let msg = format!("{:?}", result.unwrap_err());
         assert!(
-            msg.contains("Hidden") || msg.contains("hidden"),
-            "err was: {msg}"
+            result.is_ok(),
+            "hidden file read should succeed: {result:?}"
         );
     }
 
     #[test]
-    fn read_file_fs_rejects_hidden_dir_component() {
+    fn read_file_fs_allows_file_in_hidden_dir() {
         let tmp = TempDir::new().unwrap();
         let inner = tmp.path().join("workspace");
         fs::create_dir_all(inner.join(".config")).unwrap();
-        fs::write(inner.join(".config").join("secrets.toml"), "token=x").unwrap();
-        let result = read_file_fs(&inner, ".config/secrets.toml");
-        assert!(result.is_err());
+        fs::write(inner.join(".config").join("settings.toml"), "token=x").unwrap();
+        // Files inside hidden directories are now allowed
+        let result = read_file_fs(&inner, ".config/settings.toml");
+        assert!(
+            result.is_ok(),
+            "file inside hidden dir should be readable: {result:?}"
+        );
     }
 
     #[test]
@@ -640,14 +618,16 @@ mod tests {
     }
 
     #[test]
-    fn read_file_git_rejects_hidden_file() {
+    fn read_file_git_allows_hidden_file() {
         let tmp = TempDir::new().unwrap();
+        // Hidden files are now allowed — the guard should not fire.
+        // The git command will still fail (empty repo), but not due to the path guard.
         let result = read_file_git(tmp.path(), ".env");
         assert!(result.is_err());
         let msg = format!("{:?}", result.unwrap_err());
         assert!(
-            msg.contains("Hidden") || msg.contains("hidden"),
-            "expected hidden-file error, got: {msg}"
+            !msg.contains("Hidden") && !msg.contains("hidden"),
+            "path guard should not reject hidden files, got: {msg}"
         );
     }
 

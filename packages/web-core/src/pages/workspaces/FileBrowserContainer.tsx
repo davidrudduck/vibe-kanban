@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import { FileBrowserTreePanel } from './FileBrowserTreePanel';
 import { FileBrowserViewerPanel } from './FileBrowserViewerPanel';
@@ -38,11 +38,22 @@ export function FileBrowserContainer({
     resetForWorkspace,
   } = useFileBrowserActions();
 
-  // Reset navigation state whenever the active workspace changes
+  // Reset navigation state whenever the active workspace changes, but not on
+  // first mount — so that a selectedFile set by openFile() before the panel
+  // mounts is preserved.
+  const prevWorkspaceIdRef = useRef<string | null>(null);
+
   useEffect(() => {
-    resetForWorkspace();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- resetForWorkspace is a stable Zustand action; adding it to deps would not change behavior
-  }, [workspaceId]);
+    if (prevWorkspaceIdRef.current === null) {
+      // First mount — don't reset; honour any selectedFile set before mount
+      prevWorkspaceIdRef.current = workspaceId;
+      return;
+    }
+    if (prevWorkspaceIdRef.current !== workspaceId) {
+      resetForWorkspace();
+      prevWorkspaceIdRef.current = workspaceId;
+    }
+  }, [workspaceId, resetForWorkspace]);
 
   const {
     data: listing,

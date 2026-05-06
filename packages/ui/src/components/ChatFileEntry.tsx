@@ -133,19 +133,6 @@ export function ChatFileEntry({
                 <ArrowSquareUpRightIcon className="size-icon-xs" />
               </button>
             )}
-            {onOpenInFiles && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onOpenInFiles();
-                }}
-                className="shrink-0 p-0.5 rounded hover:bg-muted text-low hover:text-normal transition-colors"
-                title={t('conversation.openInFilesPanel')}
-              >
-                <FolderOpenIcon className="size-icon-xs" />
-              </button>
-            )}
             {hasStats && (
               <span className="text-sm shrink-0">
                 {additions !== undefined && additions > 0 && (
@@ -158,6 +145,19 @@ export function ChatFileEntry({
               </span>
             )}
           </div>
+          {onOpenInFiles && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenInFiles();
+              }}
+              className="shrink-0 p-0.5 rounded hover:bg-muted text-low hover:text-normal transition-colors"
+              title={t('conversation.openInFilesPanel')}
+            >
+              <FolderOpenIcon className="size-icon-xs" />
+            </button>
+          )}
           {!isVSCode && onToggle && (
             <CaretDownIcon
               className={cn(
@@ -226,6 +226,19 @@ export function ChatFileEntry({
           </span>
         )}
       </div>
+      {onOpenInFiles && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenInFiles();
+          }}
+          className="shrink-0 p-0.5 rounded hover:bg-muted text-low hover:text-normal transition-colors"
+          title={t('conversation.openInFilesPanel')}
+        >
+          <FolderOpenIcon className="size-icon-xs" />
+        </button>
+      )}
       {!isVSCode && onToggle && (
         <CaretDownIcon
           className={cn(
