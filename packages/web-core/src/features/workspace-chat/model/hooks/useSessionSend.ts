@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { ExecutorConfig } from 'shared/types';
 import {
   ApiError,
@@ -69,6 +69,9 @@ export function useSessionSend({
     useCreateSession();
   const [isSendingFollowUp, setIsSendingFollowUp] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Ref-based guard so rapid concurrent sends don't both call followUp before
+  // React state has a chance to update with the new running process.
+  const isFollowUpInFlightRef = useRef(false);
 
   const send = useCallback(
     async (message: string): Promise<boolean> => {
@@ -143,14 +146,32 @@ export function useSessionSend({
             }
 
             if (processExited) {
-              await sessionsApi.followUp(sessionId, {
-                prompt: trimmed,
-                executor_config: executorConfig,
-                retry_process_id: null,
-                force_when_dirty: null,
-                perform_git_reset: null,
-                override_session_id: null,
-              });
+              try {
+                await sessionsApi.followUp(sessionId, {
+                  prompt: trimmed,
+                  executor_config: executorConfig,
+                  retry_process_id: null,
+                  force_when_dirty: null,
+                  perform_git_reset: null,
+                  override_session_id: null,
+                });
+              } catch (followUpErr) {
+                // Backend says a process is already running (new one may have
+                // started between inject-failure and our followUp call) — queue.
+                if (
+                  followUpErr instanceof ApiError &&
+                  (
+                    followUpErr.error_data as { type?: string } | undefined
+                  )?.type === 'process_already_running'
+                ) {
+                  await queueApi.queue(sessionId, {
+                    message: trimmed,
+                    executor_config: executorConfig,
+                  });
+                } else {
+                  throw followUpErr;
+                }
+              }
               return true;
             }
 
@@ -163,9 +184,10 @@ export function useSessionSend({
           }
 
           // No codingagent process is running. If a non-codingagent process
-          // (setupscript, cleanupscript) is active, queue rather than
-          // spawning a second concurrent execution via followUp.
-          if (hasAnyRunningProcess) {
+          // (setupscript, cleanupscript) is active, or a followUp call is
+          // already in flight, queue rather than spawning a second concurrent
+          // execution via followUp.
+          if (hasAnyRunningProcess || isFollowUpInFlightRef.current) {
             await queueApi.queue(sessionId, {
               message: trimmed,
               executor_config: executorConfig,
@@ -173,14 +195,33 @@ export function useSessionSend({
             return true;
           }
 
-          await sessionsApi.followUp(sessionId, {
-            prompt: trimmed,
-            executor_config: executorConfig,
-            retry_process_id: null,
-            force_when_dirty: null,
-            perform_git_reset: null,
-            override_session_id: null,
-          });
+          isFollowUpInFlightRef.current = true;
+          try {
+            await sessionsApi.followUp(sessionId, {
+              prompt: trimmed,
+              executor_config: executorConfig,
+              retry_process_id: null,
+              force_when_dirty: null,
+              perform_git_reset: null,
+              override_session_id: null,
+            });
+          } catch (e) {
+            // Backend rejected because a process started racing us — queue instead.
+            if (
+              e instanceof ApiError &&
+              (e.error_data as { type?: string } | undefined)?.type ===
+                'process_already_running'
+            ) {
+              await queueApi.queue(sessionId, {
+                message: trimmed,
+                executor_config: executorConfig,
+              });
+            } else {
+              throw e;
+            }
+          } finally {
+            isFollowUpInFlightRef.current = false;
+          }
           return true;
         } catch (e: unknown) {
           const err = e as { message?: string };

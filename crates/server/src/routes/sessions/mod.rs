@@ -25,7 +25,7 @@ use executors::{
     },
     profile::ExecutorConfig,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use services::services::container::ContainerService;
 use ts_rs::TS;
 use utils::response::ApiResponse;
@@ -113,6 +113,13 @@ pub async fn update_session(
     Ok(ResponseJson(ApiResponse::success(updated)))
 }
 
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[ts(tag = "type", rename_all = "snake_case")]
+pub enum FollowUpError {
+    ProcessAlreadyRunning,
+}
+
 #[derive(Debug, Deserialize, TS)]
 pub struct CreateFollowUpAttempt {
     pub prompt: String,
@@ -134,7 +141,7 @@ pub async fn follow_up(
     Extension(session): Extension<Session>,
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<CreateFollowUpAttempt>,
-) -> Result<ResponseJson<ApiResponse<ExecutionProcess>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<ExecutionProcess, FollowUpError>>, ApiError> {
     let pool = &deployment.db().pool;
 
     // Load workspace from session
@@ -143,6 +150,17 @@ pub async fn follow_up(
         .ok_or(ApiError::Workspace(WorkspaceError::ValidationError(
             "Workspace not found".to_string(),
         )))?;
+
+    // Guard: prevent starting a second executor while one is already running.
+    // This is the authoritative server-side check — the frontend may have stale
+    // state after a rapid send-send sequence.
+    if ExecutionProcess::has_running_non_dev_server_processes_for_workspace(pool, workspace.id)
+        .await?
+    {
+        return Ok(ResponseJson(ApiResponse::error_with_data(
+            FollowUpError::ProcessAlreadyRunning,
+        )));
+    }
 
     tracing::info!("{:?}", workspace);
 

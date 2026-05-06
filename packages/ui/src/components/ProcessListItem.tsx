@@ -3,6 +3,7 @@ import {
   GearIcon,
   CodeIcon,
   GlobeIcon,
+  StopIcon,
 } from '@phosphor-icons/react';
 import { cn } from '../lib/cn';
 import { RunningDots } from './RunningDots';
@@ -13,6 +14,7 @@ interface ProcessListItemProps {
   startedAt: string;
   selected?: boolean;
   onClick?: () => void;
+  onStop?: () => void;
   className?: string;
 }
 
@@ -88,6 +90,7 @@ export function ProcessListItem({
   startedAt,
   selected,
   onClick,
+  onStop,
   className,
 }: ProcessListItemProps) {
   const IconComponent = getRunReasonIcon(runReason);
@@ -125,9 +128,23 @@ export function ProcessListItem({
       >
         {label}
       </span>
-      <span className="text-xs text-low flex-shrink-0">
-        {formatRelativeElapsed(startedAt)}
-      </span>
+      {isRunning && onStop ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onStop();
+          }}
+          className="flex-shrink-0 p-0.5 rounded text-low hover:text-destructive transition-colors"
+          title="Stop execution"
+        >
+          <StopIcon className="size-icon-sm" weight="fill" />
+        </button>
+      ) : (
+        <span className="text-xs text-low flex-shrink-0">
+          {formatRelativeElapsed(startedAt)}
+        </span>
+      )}
     </button>
   );
 }
