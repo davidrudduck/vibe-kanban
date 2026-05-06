@@ -66,7 +66,9 @@ impl FileLoggingConfig {
             eprintln!("VK_LOG_BUFFER_LINES=0 is invalid (minimum is 1); using 1");
             1
         } else if raw_buffer > MAX_BUFFER_LINES {
-            eprintln!("VK_LOG_BUFFER_LINES={raw_buffer} exceeds maximum ({MAX_BUFFER_LINES}); using {MAX_BUFFER_LINES}");
+            eprintln!(
+                "VK_LOG_BUFFER_LINES={raw_buffer} exceeds maximum ({MAX_BUFFER_LINES}); using {MAX_BUFFER_LINES}"
+            );
             MAX_BUFFER_LINES
         } else {
             raw_buffer
@@ -797,10 +799,7 @@ mod tests {
                 std::env::set_var("VK_LOG_LOSSY", val);
             }
             let config = FileLoggingConfig::from_env(temp_dir());
-            assert!(
-                !config.lossy,
-                "expected lossy=false for VK_LOG_LOSSY={val}"
-            );
+            assert!(!config.lossy, "expected lossy=false for VK_LOG_LOSSY={val}");
         }
         unsafe {
             std::env::remove_var("VK_LOG_LOSSY");
