@@ -77,18 +77,6 @@ fn validate_rel_path(rel_path: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
-/// Returns true if any path component is hidden (starts with '.'), is a
-/// parent-dir (`..`), or is an absolute root/prefix.  Uses `Path::components`
-/// so that valid filenames containing `..` (e.g. `a..b`) are not rejected.
-fn has_hidden_component(rel_path: &str) -> bool {
-    use std::path::Component;
-    Path::new(rel_path).components().any(|c| match c {
-        Component::Normal(s) => s.to_string_lossy().starts_with('.'),
-        Component::ParentDir | Component::RootDir | Component::Prefix(_) => true,
-        Component::CurDir => false,
-    })
-}
-
 fn detect_language(path: &str) -> Option<String> {
     let ext = Path::new(path).extension()?.to_str()?;
     let lang = match ext {
@@ -677,28 +665,6 @@ mod tests {
     fn validate_rel_path_rejects_newline() {
         assert!(validate_rel_path("foo\nbar").is_err());
         assert!(validate_rel_path("foo\rbar").is_err());
-    }
-
-    #[test]
-    fn has_hidden_component_allows_dotdot_in_name() {
-        // Filenames with internal `..` are NOT hidden — must not be rejected
-        assert!(!has_hidden_component("a..b"));
-        assert!(!has_hidden_component("src/a..b.rs"));
-        assert!(!has_hidden_component("changelog..txt"));
-    }
-
-    #[test]
-    fn has_hidden_component_rejects_parent_dir() {
-        assert!(has_hidden_component("../etc/passwd"));
-        assert!(has_hidden_component("foo/../bar"));
-        assert!(has_hidden_component(".."));
-    }
-
-    #[test]
-    fn has_hidden_component_rejects_dot_prefix() {
-        assert!(has_hidden_component(".env"));
-        assert!(has_hidden_component("src/.hidden"));
-        assert!(has_hidden_component(".git/config"));
     }
 
     #[test]
