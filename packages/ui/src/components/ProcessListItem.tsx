@@ -3,6 +3,7 @@ import {
   GearIcon,
   CodeIcon,
   GlobeIcon,
+  StopIcon,
 } from '@phosphor-icons/react';
 import { cn } from '../lib/cn';
 import { RunningDots } from './RunningDots';
@@ -13,6 +14,9 @@ interface ProcessListItemProps {
   startedAt: string;
   selected?: boolean;
   onClick?: () => void;
+  onStop?: () => void;
+  /** Accessible label for the stop button. Pass an i18n string from the caller. */
+  stopLabel?: string;
   className?: string;
 }
 
@@ -88,6 +92,8 @@ export function ProcessListItem({
   startedAt,
   selected,
   onClick,
+  onStop,
+  stopLabel = 'Stop execution',
   className,
 }: ProcessListItemProps) {
   const IconComponent = getRunReasonIcon(runReason);
@@ -95,39 +101,54 @@ export function ProcessListItem({
   const statusColor = getStatusColor(status);
 
   const isRunning = status === 'running';
+  const showStopButton = isRunning && !!onStop;
 
+  // Wrap in a div so the row-selection button and the stop button are siblings,
+  // not nested — nested <button> elements are invalid HTML.
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'w-full h-[26px] flex items-center gap-half px-half rounded-sm text-left transition-colors',
-        className
-      )}
-    >
-      <IconComponent
-        className="size-icon-sm flex-shrink-0 text-low"
-        weight="regular"
-      />
-      {isRunning ? (
-        <RunningDots />
-      ) : (
-        <span
-          className={cn('size-dot rounded-full flex-shrink-0', statusColor)}
-          title={status}
-        />
-      )}
-      <span
-        className={cn(
-          'text-sm truncate flex-1',
-          selected ? 'text-high' : 'text-normal'
-        )}
+    <div className={cn('w-full h-[26px] flex items-center', className)}>
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex-1 min-w-0 h-full flex items-center gap-half px-half rounded-sm text-left transition-colors"
       >
-        {label}
-      </span>
-      <span className="text-xs text-low flex-shrink-0">
-        {formatRelativeElapsed(startedAt)}
-      </span>
-    </button>
+        <IconComponent
+          className="size-icon-sm flex-shrink-0 text-low"
+          weight="regular"
+        />
+        {isRunning ? (
+          <RunningDots />
+        ) : (
+          <span
+            className={cn('size-dot rounded-full flex-shrink-0', statusColor)}
+            title={status}
+          />
+        )}
+        <span
+          className={cn(
+            'text-sm truncate flex-1',
+            selected ? 'text-high' : 'text-normal'
+          )}
+        >
+          {label}
+        </span>
+        {!showStopButton && (
+          <span className="text-xs text-low flex-shrink-0">
+            {formatRelativeElapsed(startedAt)}
+          </span>
+        )}
+      </button>
+      {showStopButton && (
+        <button
+          type="button"
+          onClick={onStop}
+          className="flex-shrink-0 p-0.5 rounded text-low hover:text-destructive transition-colors"
+          title={stopLabel}
+          aria-label={stopLabel}
+        >
+          <StopIcon className="size-icon-sm" weight="fill" />
+        </button>
+      )}
+    </div>
   );
 }

@@ -28,7 +28,7 @@ interface UseSessionQueueInteractionResult {
   refreshQueueStatus: () => Promise<void>;
 }
 
-const QUEUE_STATUS_KEY = 'queue-status';
+export const QUEUE_STATUS_KEY = 'queue-status';
 
 /**
  * Hook to manage queue interaction for session messages.

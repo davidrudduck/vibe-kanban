@@ -2,7 +2,9 @@ import { useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useExecutionProcessesContext } from '@/shared/hooks/useExecutionProcessesContext';
 import { useLogsPanel } from '@/shared/hooks/useLogsPanel';
+import { executionProcessesApi } from '@/shared/lib/api';
 import { ProcessListItem } from '@vibe/ui/components/ProcessListItem';
+import { ExecutionProcessStatus } from 'shared/types';
 import { InputField } from '@vibe/ui/components/InputField';
 import {
   CaretUpIcon,
@@ -157,6 +159,14 @@ export function ProcessListContainer() {
             startedAt={process.started_at}
             selected={process.id === selectedProcessId}
             onClick={() => handleSelectProcess(process.id)}
+            onStop={
+              process.status === ExecutionProcessStatus.running
+                ? () => {
+                    void executionProcessesApi.stopExecutionProcess(process.id);
+                  }
+                : undefined
+            }
+            stopLabel={t('processes.stopExecution')}
           />
         ))}
       </div>

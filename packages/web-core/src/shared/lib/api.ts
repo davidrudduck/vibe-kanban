@@ -349,7 +349,7 @@ export const sessionsApi = {
       method: 'POST',
       body: JSON.stringify(data),
     });
-    return handleApiResponse<ExecutionProcess>(response);
+    return handleApiResponse<ExecutionProcess, { type: string }>(response);
   },
 
   startReview: async (

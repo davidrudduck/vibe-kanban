@@ -1,4 +1,5 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import type { ExecutorConfig } from 'shared/types';
 import {
   ApiError,
@@ -7,6 +8,7 @@ import {
   sessionsApi,
 } from '@/shared/lib/api';
 import { useCreateSession } from './useCreateSession';
+import { QUEUE_STATUS_KEY } from './useSessionQueueInteraction';
 
 interface UseSessionSendOptions {
   /** Session ID for existing sessions */
@@ -69,6 +71,10 @@ export function useSessionSend({
     useCreateSession();
   const [isSendingFollowUp, setIsSendingFollowUp] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Ref-based guard so rapid concurrent sends don't both call followUp before
+  // React state has a chance to update with the new running process.
+  const isFollowUpInFlightRef = useRef(false);
+  const queryClient = useQueryClient();
 
   const send = useCallback(
     async (message: string): Promise<boolean> => {
@@ -143,14 +149,26 @@ export function useSessionSend({
             }
 
             if (processExited) {
-              await sessionsApi.followUp(sessionId, {
-                prompt: trimmed,
-                executor_config: executorConfig,
-                retry_process_id: null,
-                force_when_dirty: null,
-                perform_git_reset: null,
-                override_session_id: null,
-              });
+              isFollowUpInFlightRef.current = true;
+              try {
+                await sessionsApi.followUp(sessionId, {
+                  prompt: trimmed,
+                  executor_config: executorConfig,
+                  retry_process_id: null,
+                  force_when_dirty: null,
+                  perform_git_reset: null,
+                  override_session_id: null,
+                });
+              } catch (followUpErr) {
+                // If the backend says a process is already running, surface
+                // that as a visible error rather than silently queuing.
+                // A queued message on a session with no active process would
+                // be stranded — nothing drains the queue until the session's
+                // own executor exits.
+                throw followUpErr;
+              } finally {
+                isFollowUpInFlightRef.current = false;
+              }
               return true;
             }
 
@@ -159,28 +177,48 @@ export function useSessionSend({
               message: trimmed,
               executor_config: executorConfig,
             });
-            return true;
-          }
-
-          // No codingagent process is running. If a non-codingagent process
-          // (setupscript, cleanupscript) is active, queue rather than
-          // spawning a second concurrent execution via followUp.
-          if (hasAnyRunningProcess) {
-            await queueApi.queue(sessionId, {
-              message: trimmed,
-              executor_config: executorConfig,
+            void queryClient.invalidateQueries({
+              queryKey: [QUEUE_STATUS_KEY, sessionId],
             });
             return true;
           }
 
-          await sessionsApi.followUp(sessionId, {
-            prompt: trimmed,
-            executor_config: executorConfig,
-            retry_process_id: null,
-            force_when_dirty: null,
-            perform_git_reset: null,
-            override_session_id: null,
-          });
+          // No codingagent process is running. If a non-codingagent process
+          // (setupscript, cleanupscript) is active, or a followUp call is
+          // already in flight, queue rather than spawning a second concurrent
+          // execution via followUp.
+          if (hasAnyRunningProcess || isFollowUpInFlightRef.current) {
+            await queueApi.queue(sessionId, {
+              message: trimmed,
+              executor_config: executorConfig,
+            });
+            void queryClient.invalidateQueries({
+              queryKey: [QUEUE_STATUS_KEY, sessionId],
+            });
+            return true;
+          }
+
+          isFollowUpInFlightRef.current = true;
+          try {
+            await sessionsApi.followUp(sessionId, {
+              prompt: trimmed,
+              executor_config: executorConfig,
+              retry_process_id: null,
+              force_when_dirty: null,
+              perform_git_reset: null,
+              override_session_id: null,
+            });
+          } catch (e) {
+            // Surface backend rejections (including process_already_running) as
+            // a visible error rather than silently queuing. A queued message on
+            // a session with no active process would be stranded — nothing drains
+            // the queue until the session's own executor exits. The
+            // isFollowUpInFlightRef guard handles the common rapid-send case
+            // before the request ever reaches the server.
+            throw e;
+          } finally {
+            isFollowUpInFlightRef.current = false;
+          }
           return true;
         } catch (e: unknown) {
           const err = e as { message?: string };

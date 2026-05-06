@@ -263,6 +263,7 @@
   },
   "processes": {
     "noProcesses": "Aucun processus",
+    "stopExecution": "Stop execution",
     "terminal": "Terminal"
   },
   "search": {
