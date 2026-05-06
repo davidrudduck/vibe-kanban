@@ -767,7 +767,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn run_cleanup_loop_uses_spawn_blocking() {
+    async fn run_cleanup_loop_keeps_newest_with_max_files_1() {
         // Validates that run_cleanup_loop correctly offloads I/O to the
         // blocking thread pool and still cleans up files as expected.
         let dir = temp_dir();
