@@ -206,6 +206,8 @@ interface SessionChatBoxProps<TExecutor extends string = string> {
    * Controls the running-state button label: "Send" vs "Queue".
    */
   canInject?: boolean;
+  /** Workspace/session display title shown in header */
+  workspaceTitle?: string;
 }
 
 function defaultExecutorLabel(executor: string) {
@@ -270,6 +272,7 @@ export function SessionChatBox<TExecutor extends string = string>({
   dropzone,
   isSending = false,
   canInject = false,
+  workspaceTitle,
 }: SessionChatBoxProps<TExecutor>) {
   const { t } = useTranslation('tasks');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -725,6 +728,18 @@ export function SessionChatBox<TExecutor extends string = string>({
           {/* Existing session mode: show in-progress todo when running, otherwise file stats */}
           {!isNewSessionMode && (
             <>
+              {/* Workspace title — shown when idle */}
+              {workspaceTitle && !isRunning && (
+                <span
+                  className="text-sm text-low truncate max-w-[160px] shrink-0"
+                  title={workspaceTitle}
+                >
+                  {workspaceTitle}
+                </span>
+              )}
+              {workspaceTitle && !isRunning && (
+                <span className="text-low text-sm shrink-0 select-none">·</span>
+              )}
               {isRunning && inProgressTodo ? (
                 <span className="text-sm flex items-center gap-1 min-w-0">
                   <SpinnerIcon className="size-icon-sm animate-spin flex-shrink-0" />

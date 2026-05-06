@@ -109,6 +109,8 @@ interface SharedProps {
   disableViewCode: boolean;
   /** Replace diff stats with an "Open Workspace" button in header */
   showOpenWorkspaceButton: boolean;
+  /** Title derived from session.name ?? workspace.name ?? workspace.branch */
+  workspaceTitle?: string;
 }
 
 /** Props for existing session mode */
@@ -154,6 +156,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     getActiveTurnPatchKey,
     disableViewCode = false,
     showOpenWorkspaceButton,
+    workspaceTitle,
   } = props;
 
   // Extract mode-specific values
@@ -1022,6 +1025,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
           linesRemoved: 0,
         }}
         onViewCode={disableViewCode ? undefined : handleViewCode}
+      workspaceTitle={workspaceTitle}
       />
     );
   }
@@ -1155,6 +1159,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       localAttachments={localAttachments}
       dropzone={{ getRootProps, getInputProps, isDragActive }}
       modelSelector={modelSelectorNode}
+      workspaceTitle={workspaceTitle}
     />
   );
 }
