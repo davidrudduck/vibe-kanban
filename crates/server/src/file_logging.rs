@@ -153,23 +153,26 @@ pub(crate) async fn run_cleanup_loop(config: FileLoggingConfig, shutdown: Cancel
 
 /// Build the tracing filter string from the `RUST_LOG` environment variable.
 ///
-/// If `RUST_LOG` contains `=` or `,` it is treated as a full directive string
-/// and passed through verbatim (e.g. `"warn,hyper=error"`). Otherwise it is
-/// treated as a plain level name and interpolated into per-crate directives.
-///
-/// This prevents a panic when `RUST_LOG` holds a full directive and it is
-/// naively used as a `{level}` placeholder.
+/// If `RUST_LOG` (after trimming whitespace) contains `=` or `,` it is treated
+/// as a full directive string and passed through verbatim (e.g. `"warn,hyper=error"`).
+/// Otherwise it is treated as a plain level name; unrecognised names fall back to
+/// `"info"` with a stderr warning rather than panicking.
 pub fn build_filter_string() -> String {
     let rust_log = std::env::var("RUST_LOG").unwrap_or_default();
+    let rust_log = rust_log.trim();
 
     if rust_log.contains('=') || rust_log.contains(',') {
-        // Full directive — pass through as-is
-        rust_log
+        // Full directive — pass through as-is; init_logging falls back on parse error.
+        rust_log.to_string()
     } else {
+        const VALID_LEVELS: &[&str] = &["trace", "debug", "info", "warn", "error", "off"];
         let level = if rust_log.is_empty() {
-            "info".to_string()
-        } else {
+            "info"
+        } else if VALID_LEVELS.contains(&rust_log) {
             rust_log
+        } else {
+            eprintln!("Unrecognised RUST_LOG level '{rust_log}'; using 'info'");
+            "info"
         };
         format!(
             "warn,server={level},services={level},db={level},executors={level},\
@@ -189,12 +192,15 @@ relay_webrtc={level},codex_core=off"
 /// `filter_string` is a `tracing-subscriber` filter directive, e.g.
 /// `"warn,server=info,services=info"`.
 ///
-/// # Panics
-/// Panics if `filter_string` is not a valid `EnvFilter` directive string.
+/// If `filter_string` is not a valid `EnvFilter` directive, falls back to `"warn"`
+/// and prints a diagnostic to stderr rather than panicking.
 pub fn init_logging(filter_string: &str) -> LoggingHandle {
     let config = FileLoggingConfig::from_env(asset_dir());
 
-    let env_filter = EnvFilter::try_new(filter_string).expect("Failed to create tracing filter");
+    let env_filter = EnvFilter::try_new(filter_string).unwrap_or_else(|e| {
+        eprintln!("Invalid tracing filter '{filter_string}': {e}; using 'warn'");
+        EnvFilter::new("warn")
+    });
     let console_layer = tracing_subscriber::fmt::layer().with_filter(env_filter);
 
     if config.enabled {
@@ -219,8 +225,10 @@ pub fn init_logging(filter_string: &str) -> LoggingHandle {
             .lossy(config.lossy)
             .finish(file_appender);
 
-        let file_filter =
-            EnvFilter::try_new(filter_string).expect("Failed to create file tracing filter");
+        let file_filter = EnvFilter::try_new(filter_string).unwrap_or_else(|e| {
+            eprintln!("Invalid file tracing filter '{filter_string}': {e}; using 'warn'");
+            EnvFilter::new("warn")
+        });
         let file_layer = tracing_subscriber::fmt::layer()
             .json()
             .with_writer(non_blocking)
@@ -799,6 +807,49 @@ mod tests {
             remaining.contains("vibe-kanban.log.2025-03-03"),
             "newest file missing"
         );
+    }
+
+    #[test]
+    fn build_filter_string_trims_whitespace() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::set_var("RUST_LOG", "  warn  ");
+        }
+        let s = build_filter_string();
+        // Trimmed "warn" is a plain level — must be interpolated, not passed through
+        assert!(s.contains("server=warn"), "got: {s}");
+        assert!(!s.contains("  "), "whitespace not trimmed: {s}");
+        unsafe {
+            std::env::remove_var("RUST_LOG");
+        }
+    }
+
+    #[test]
+    fn build_filter_string_unknown_level_falls_back_to_info() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::set_var("RUST_LOG", "notavalid");
+        }
+        let s = build_filter_string();
+        assert!(s.contains("server=info"), "got: {s}");
+        unsafe {
+            std::env::remove_var("RUST_LOG");
+        }
+    }
+
+    #[test]
+    fn build_filter_string_malformed_directive_passes_through_verbatim() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        for val in &[",", "==", "warn,", "=debug"] {
+            unsafe {
+                std::env::set_var("RUST_LOG", val);
+            }
+            let s = build_filter_string();
+            assert_eq!(&s, val, "should pass through verbatim: {val}");
+        }
+        unsafe {
+            std::env::remove_var("RUST_LOG");
+        }
     }
 
     #[tokio::test]
