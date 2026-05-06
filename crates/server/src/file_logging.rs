@@ -124,19 +124,28 @@ impl LoggingHandle {
 }
 
 /// Runs `cleanup_old_logs` once per day until `shutdown` is cancelled.
-pub async fn run_cleanup_loop(config: FileLoggingConfig, shutdown: CancellationToken) {
+///
+/// Filesystem I/O is offloaded to `tokio::task::spawn_blocking` so cleanup
+/// never blocks the async runtime's worker threads.
+pub(crate) async fn run_cleanup_loop(config: FileLoggingConfig, shutdown: CancellationToken) {
     const ONE_DAY: Duration = Duration::from_secs(24 * 60 * 60);
-    // Run once immediately — replaces the one-shot startup cleanup that
-    // init_logging used to spawn as a std::thread.
-    cleanup_old_logs(&config.log_dir, config.max_files);
+    // Run once immediately at startup on the blocking thread pool.
+    {
+        let dir = config.log_dir.clone();
+        let max = config.max_files;
+        let _ = tokio::task::spawn_blocking(move || cleanup_old_logs(&dir, max)).await;
+    }
     loop {
         tokio::select! {
+            biased;
             _ = shutdown.cancelled() => {
                 tracing::debug!("Log cleanup task shutting down");
                 break;
             }
             _ = tokio::time::sleep(ONE_DAY) => {
-                cleanup_old_logs(&config.log_dir, config.max_files);
+                let dir = config.log_dir.clone();
+                let max = config.max_files;
+                let _ = tokio::task::spawn_blocking(move || cleanup_old_logs(&dir, max)).await;
             }
         }
     }
@@ -755,6 +764,41 @@ mod tests {
         handle.spawn_cleanup_task(token.clone()); // must not panic, must not spawn
         token.cancel();
         drop(handle);
+    }
+
+    #[tokio::test]
+    async fn run_cleanup_loop_uses_spawn_blocking() {
+        // Validates that run_cleanup_loop correctly offloads I/O to the
+        // blocking thread pool and still cleans up files as expected.
+        let dir = temp_dir();
+        for i in 1..=3u32 {
+            let name = format!("vibe-kanban.log.2025-03-{:02}", i);
+            fs::write(dir.join(&name), b"log").unwrap();
+        }
+
+        let config = FileLoggingConfig {
+            enabled: true,
+            log_dir: dir.clone(),
+            max_files: 1,
+            buffer_lines: 128_000,
+            lossy: true,
+        };
+        let shutdown = CancellationToken::new();
+        shutdown.cancel();
+
+        run_cleanup_loop(config, shutdown).await;
+
+        let remaining: std::collections::HashSet<String> = fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+
+        assert_eq!(remaining.len(), 1, "got: {:?}", remaining);
+        assert!(
+            remaining.contains("vibe-kanban.log.2025-03-03"),
+            "newest file missing"
+        );
     }
 
     #[tokio::test]
