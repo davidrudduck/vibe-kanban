@@ -88,6 +88,7 @@ import {
   CreateWorkspaceFromPrBody,
   CreateWorkspaceFromPrResponse,
   CreateFromPrError,
+  CreateWorkspaceApiRequest,
   CreateAndStartWorkspaceRequest,
   CreateAndStartWorkspaceResponse,
   RelayPairedClient,
@@ -407,6 +408,15 @@ export const workspacesApi = {
       body: JSON.stringify(data),
     });
     return handleApiResponse<CreateAndStartWorkspaceResponse>(response);
+  },
+
+  /** Create a workspace without starting execution (draft mode). */
+  createDraft: async (data: CreateWorkspaceApiRequest): Promise<Workspace> => {
+    const response = await makeRequest('/api/workspaces', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    return handleApiResponse<Workspace>(response);
   },
 
   getAll: async (taskId: string): Promise<Workspace[]> => {

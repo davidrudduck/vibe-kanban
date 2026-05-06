@@ -3,6 +3,8 @@ import { workspacesApi } from '@/shared/lib/api';
 import type {
   CreateAndStartWorkspaceRequest,
   CreateAndStartWorkspaceResponse,
+  CreateWorkspaceApiRequest,
+  Workspace,
 } from 'shared/types';
 import { workspaceSummaryKeys } from '@/shared/hooks/workspaceSummaryKeys';
 
@@ -64,5 +66,17 @@ export function useCreateWorkspace() {
     },
   });
 
-  return { createWorkspace };
+  const createDraftWorkspace = useMutation({
+    mutationFn: async (data: CreateWorkspaceApiRequest): Promise<Workspace> => {
+      return workspacesApi.createDraft(data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: workspaceSummaryKeys.all });
+    },
+    onError: (err) => {
+      console.error('Failed to save draft workspace:', err);
+    },
+  });
+
+  return { createWorkspace, createDraftWorkspace };
 }
