@@ -247,6 +247,11 @@ pub async fn follow_up(
         )
         .await?;
 
+    // Clear draft status when execution begins
+    if let Err(e) = Workspace::set_draft(pool, workspace.id, false).await {
+        tracing::warn!("Failed to clear is_draft for workspace {}: {}", workspace.id, e);
+    }
+
     // Clear the draft follow-up scratch on successful spawn
     // This ensures the scratch is wiped even if the user navigates away quickly
     if let Err(e) = Scratch::delete(pool, session.id, &ScratchType::DraftFollowUp).await {
