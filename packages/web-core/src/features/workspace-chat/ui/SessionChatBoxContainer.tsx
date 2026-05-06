@@ -1025,7 +1025,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
           linesRemoved: 0,
         }}
         onViewCode={disableViewCode ? undefined : handleViewCode}
-      workspaceTitle={workspaceTitle}
+        workspaceTitle={workspaceTitle}
       />
     );
   }

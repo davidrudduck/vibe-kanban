@@ -249,7 +249,11 @@ pub async fn follow_up(
 
     // Clear draft status when execution begins
     if let Err(e) = Workspace::set_draft(pool, workspace.id, false).await {
-        tracing::warn!("Failed to clear is_draft for workspace {}: {}", workspace.id, e);
+        tracing::warn!(
+            "Failed to clear is_draft for workspace {}: {}",
+            workspace.id,
+            e
+        );
     }
 
     // Clear the draft follow-up scratch on successful spawn
