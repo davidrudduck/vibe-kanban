@@ -14,6 +14,7 @@ use std::{
     time::Duration,
 };
 
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::SubscriberInitExt};
@@ -88,37 +89,60 @@ impl FileLoggingConfig {
 /// **Hold this value for the entire lifetime of the process.** Dropping it
 /// flushes and stops the background file-writer thread.
 pub struct LoggingHandle {
-    /// Dropping this flushes remaining buffered log lines and stops the writer thread.
-    pub _guard: Option<WorkerGuard>,
+    /// RAII guard: dropping this flushes buffered log lines and stops the writer thread.
+    /// `pub(crate)` — never drop or replace externally; file logging stops silently.
+    #[allow(dead_code)]
+    pub(crate) guard: Option<WorkerGuard>,
     /// Present when file logging was successfully initialised; used to spawn cleanup.
     pub cleanup_config: Option<FileLoggingConfig>,
+    /// JoinHandle for the daily cleanup task; set by `spawn_cleanup_task`.
+    cleanup_task: Option<JoinHandle<()>>,
 }
 
 impl LoggingHandle {
     fn console_only() -> Self {
         Self {
-            _guard: None,
+            guard: None,
             cleanup_config: None,
+            cleanup_task: None,
         }
     }
 
     fn with_file(guard: WorkerGuard, config: FileLoggingConfig) -> Self {
         Self {
-            _guard: Some(guard),
+            guard: Some(guard),
             cleanup_config: Some(config),
+            cleanup_task: None,
         }
     }
 
     /// Spawn a background tokio task that runs `cleanup_old_logs` once per day.
     ///
     /// Call this after the tokio runtime is running (i.e. inside an `async fn`).
-    /// The task exits when `shutdown` is cancelled.
+    /// The task exits when `shutdown` is cancelled. Await completion via
+    /// [`wait_for_cleanup_task`] before the process exits.
     ///
     /// No-op if file logging is not active.
-    pub fn spawn_cleanup_task(&self, shutdown: CancellationToken) {
+    pub fn spawn_cleanup_task(&mut self, shutdown: CancellationToken) {
         if let Some(ref config) = self.cleanup_config {
             let config = config.clone();
-            tokio::spawn(run_cleanup_loop(config, shutdown));
+            self.cleanup_task = Some(tokio::spawn(run_cleanup_loop(config, shutdown)));
+        }
+    }
+
+    /// Wait for the cleanup task to finish (up to 5 seconds after cancellation).
+    ///
+    /// Call this after `shutdown_token.cancel()` and before the process exits.
+    /// No-op if no cleanup task was spawned.
+    pub async fn wait_for_cleanup_task(&mut self) {
+        if let Some(task) = self.cleanup_task.take() {
+            match tokio::time::timeout(Duration::from_secs(5), task).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => eprintln!("Log cleanup task panicked: {e}"),
+                Err(_) => {
+                    eprintln!("Log cleanup task did not finish within 5s; continuing shutdown")
+                }
+            }
         }
     }
 }
@@ -655,7 +679,7 @@ mod tests {
         // Second call — guaranteed to hit the Err arm (subscriber already set)
         let second = init_logging("warn");
         assert!(
-            second._guard.is_none() && second.cleanup_config.is_none(),
+            second.guard.is_none() && second.cleanup_config.is_none(),
             "second init_logging call must return console-only handle when try_init fails"
         );
         unsafe {
@@ -768,9 +792,10 @@ mod tests {
         // Verify spawn_cleanup_task is a true no-op when cleanup_config is None.
         // Running inside a tokio runtime means if it accidentally spawned a task,
         // that would be visible (no panic, but the test exercises the real path).
-        let handle = LoggingHandle {
-            _guard: None,
+        let mut handle = LoggingHandle {
+            guard: None,
             cleanup_config: None,
+            cleanup_task: None,
         };
         let token = CancellationToken::new();
         handle.spawn_cleanup_task(token.clone()); // must not panic, must not spawn

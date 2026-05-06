@@ -116,7 +116,7 @@ async fn async_main(
     }
 
     let filter_string = file_logging::build_filter_string();
-    let logging_handle = file_logging::init_logging(&filter_string);
+    let mut logging_handle = file_logging::init_logging(&filter_string);
 
     // Copy old database to new location for safe downgrades
     let old_db = asset_dir().join("db.sqlite");
@@ -244,6 +244,9 @@ async fn async_main(
     if let Some(ref mut process) = mcp_process {
         process.terminate();
     }
+
+    // Await the cleanup task's final run before flushing the WorkerGuard.
+    logging_handle.wait_for_cleanup_task().await;
 
     Ok(())
 }
