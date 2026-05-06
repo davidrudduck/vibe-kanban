@@ -166,13 +166,17 @@ pub fn build_filter_string() -> String {
         rust_log.to_string()
     } else {
         const VALID_LEVELS: &[&str] = &["trace", "debug", "info", "warn", "error", "off"];
+        let rust_log_lower;
         let level = if rust_log.is_empty() {
             "info"
-        } else if VALID_LEVELS.contains(&rust_log) {
-            rust_log
         } else {
-            eprintln!("Unrecognised RUST_LOG level '{rust_log}'; using 'info'");
-            "info"
+            rust_log_lower = rust_log.to_ascii_lowercase();
+            if VALID_LEVELS.contains(&rust_log_lower.as_str()) {
+                rust_log_lower.as_str()
+            } else {
+                eprintln!("Unrecognised RUST_LOG level '{rust_log}'; using 'info'");
+                "info"
+            }
         };
         format!(
             "warn,server={level},services={level},db={level},executors={level},\
@@ -847,6 +851,19 @@ mod tests {
             let s = build_filter_string();
             assert_eq!(&s, val, "should pass through verbatim: {val}");
         }
+        unsafe {
+            std::env::remove_var("RUST_LOG");
+        }
+    }
+
+    #[test]
+    fn build_filter_string_with_uppercase_level() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::set_var("RUST_LOG", "WARN");
+        }
+        let s = build_filter_string();
+        assert!(s.contains("server=warn"), "uppercase WARN should work: {s}");
         unsafe {
             std::env::remove_var("RUST_LOG");
         }
