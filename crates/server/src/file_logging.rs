@@ -29,11 +29,11 @@ pub struct FileLoggingConfig {
     /// either drops (lossy=true) or blocks (lossy=false). Default: 128_000.
     pub buffer_lines: usize,
     /// When `true` (default), excess log lines are dropped under load rather
-    /// than blocking the application. Set `VK_LOG_LOSSY=false` (or `0`) to
-    /// block instead (useful for debugging; adds latency under log bursts).
+    /// than blocking the application.
+    /// Set `VK_LOG_LOSSY` to `false`, `0`, `no`, or `off` (case-insensitive) to block instead.
     ///
-    /// Note: only the exact values `"false"` and `"0"` disable lossy mode;
-    /// all other values (including unrecognised strings) keep lossy enabled.
+    /// Caution: `lossy=false` can block tokio workers under log burst; use only
+    /// for debugging on non-production deployments.
     pub lossy: bool,
 }
 
@@ -58,6 +58,7 @@ impl FileLoggingConfig {
             raw_max
         };
 
+        const MAX_BUFFER_LINES: usize = 1_000_000;
         let raw_buffer = std::env::var("VK_LOG_BUFFER_LINES")
             .ok()
             .and_then(|s| s.parse::<usize>().ok())
@@ -65,12 +66,21 @@ impl FileLoggingConfig {
         let buffer_lines = if raw_buffer == 0 {
             eprintln!("VK_LOG_BUFFER_LINES=0 is invalid (minimum is 1); using 1");
             1
+        } else if raw_buffer > MAX_BUFFER_LINES {
+            eprintln!(
+                "VK_LOG_BUFFER_LINES={raw_buffer} exceeds maximum ({MAX_BUFFER_LINES}); \
+using {MAX_BUFFER_LINES}"
+            );
+            MAX_BUFFER_LINES
         } else {
             raw_buffer
         };
 
         let lossy = std::env::var("VK_LOG_LOSSY")
-            .map(|v| v != "false" && v != "0")
+            .map(|v| {
+                let v = v.to_lowercase();
+                v != "false" && v != "0" && v != "no" && v != "off"
+            })
             .unwrap_or(true);
 
         Self {
@@ -757,6 +767,40 @@ mod tests {
             }
             let config = FileLoggingConfig::from_env(temp_dir());
             assert!(config.lossy, "expected lossy=true for VK_LOG_LOSSY={val}");
+        }
+        unsafe {
+            std::env::remove_var("VK_LOG_LOSSY");
+        }
+    }
+
+    #[test]
+    fn buffer_lines_exceeding_maximum_is_clamped() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::set_var("VK_LOG_BUFFER_LINES", "99999999");
+        }
+        let config = FileLoggingConfig::from_env(temp_dir());
+        assert_eq!(
+            config.buffer_lines, 1_000_000,
+            "buffer_lines above max must be clamped to 1_000_000"
+        );
+        unsafe {
+            std::env::remove_var("VK_LOG_BUFFER_LINES");
+        }
+    }
+
+    #[test]
+    fn lossy_disabled_by_env_case_insensitive() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        for val in &["False", "FALSE", "no", "No", "off", "OFF"] {
+            unsafe {
+                std::env::set_var("VK_LOG_LOSSY", val);
+            }
+            let config = FileLoggingConfig::from_env(temp_dir());
+            assert!(
+                !config.lossy,
+                "expected lossy=false for VK_LOG_LOSSY={val}"
+            );
         }
         unsafe {
             std::env::remove_var("VK_LOG_LOSSY");
