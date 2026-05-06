@@ -58,7 +58,6 @@ impl FileLoggingConfig {
             raw_max
         };
 
-        const MAX_BUFFER_LINES: usize = 1_000_000;
         let raw_buffer = std::env::var("VK_LOG_BUFFER_LINES")
             .ok()
             .and_then(|s| s.parse::<usize>().ok())
@@ -67,10 +66,7 @@ impl FileLoggingConfig {
             eprintln!("VK_LOG_BUFFER_LINES=0 is invalid (minimum is 1); using 1");
             1
         } else if raw_buffer > MAX_BUFFER_LINES {
-            eprintln!(
-                "VK_LOG_BUFFER_LINES={raw_buffer} exceeds maximum ({MAX_BUFFER_LINES}); \
-using {MAX_BUFFER_LINES}"
-            );
+            eprintln!("VK_LOG_BUFFER_LINES={raw_buffer} exceeds maximum ({MAX_BUFFER_LINES}); using {MAX_BUFFER_LINES}");
             MAX_BUFFER_LINES
         } else {
             raw_buffer
@@ -98,6 +94,10 @@ using {MAX_BUFFER_LINES}"
 ///
 /// **Hold this value for the entire lifetime of the process.** Dropping it
 /// flushes and stops the background file-writer thread.
+/// Maximum non-blocking writer buffer capacity.
+/// At ~200 bytes/line this caps in-process queue memory at ~200 MB.
+const MAX_BUFFER_LINES: usize = 1_000_000;
+
 /// Maximum time to wait for the log cleanup task to finish during shutdown.
 const CLEANUP_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -758,8 +758,8 @@ mod tests {
 
     #[test]
     fn lossy_enabled_by_other_values() {
-        // Only "false" and "0" disable lossy; everything else (including typos)
-        // must keep lossy enabled, matching the denylist semantics.
+        // Only "false", "0", "no", and "off" (case-insensitive) disable lossy;
+        // everything else (including typos) must keep lossy enabled.
         let _lock = ENV_LOCK.lock().unwrap();
         for val in &["true", "1", "yes", "on", "flase", ""] {
             unsafe {
