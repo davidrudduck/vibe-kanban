@@ -295,6 +295,10 @@ pub fn init_logging(filter_string: &str) -> LoggingHandle {
     }
 }
 
+/// Filename prefix used by the daily rolling appender.
+/// Shared between `is_log_date_suffix` and `cleanup_old_logs` to prevent drift.
+const LOG_PREFIX: &str = "vibe-kanban.log.";
+
 /// Returns `true` only for filenames matching `vibe-kanban.log.YYYY-MM-DD`.
 ///
 /// Strict: the date part must be exactly 10 characters, ASCII digits in the
@@ -302,8 +306,7 @@ pub fn init_logging(filter_string: &str) -> LoggingHandle {
 /// 01–31 (calendar accuracy is not required; structural validity is enough to
 /// distinguish date-suffix files from `.bak`, `.old`, etc.).
 pub(crate) fn is_log_date_suffix(name: &str) -> bool {
-    const PREFIX: &str = "vibe-kanban.log.";
-    let Some(suffix) = name.strip_prefix(PREFIX) else {
+    let Some(suffix) = name.strip_prefix(LOG_PREFIX) else {
         return false;
     };
     if suffix.len() != 10 {
@@ -324,10 +327,14 @@ pub(crate) fn is_log_date_suffix(name: &str) -> bool {
     {
         return false;
     }
-    // Range-check month (01-12) and day (01-31).
+    // Year 2000-2099: rejects far-future dates that would block log rotation.
+    let year = ((b[0] - b'0') as u32 * 1000)
+        + ((b[1] - b'0') as u32 * 100)
+        + ((b[2] - b'0') as u32 * 10)
+        + (b[3] - b'0') as u32;
     let month = (b[5] - b'0') * 10 + (b[6] - b'0');
     let day = (b[8] - b'0') * 10 + (b[9] - b'0');
-    (1..=12).contains(&month) && (1..=31).contains(&day)
+    (2000..=2099).contains(&year) && (1..=12).contains(&month) && (1..=31).contains(&day)
 }
 
 pub(crate) fn cleanup_old_logs(log_dir: &Path, max_files: usize) {
@@ -344,10 +351,12 @@ pub(crate) fn cleanup_old_logs(log_dir: &Path, max_files: usize) {
     // monotonic, so string sort == chronological sort with no mtime dependency.
     let mut log_files: Vec<(std::path::PathBuf, String)> = entries
         .filter_map(|e| e.ok())
+        // Only regular files — directories/symlinks/FIFOs with matching names are skipped.
+        .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
         .filter_map(|e| {
             let name = e.file_name().to_str()?.to_owned();
             if is_log_date_suffix(&name) {
-                let date = name["vibe-kanban.log.".len()..].to_owned();
+                let date = name[LOG_PREFIX.len()..].to_owned();
                 Some((e.path(), date))
             } else {
                 None
@@ -893,6 +902,31 @@ mod tests {
         unsafe {
             std::env::remove_var("RUST_LOG");
         }
+    }
+
+    #[test]
+    fn cleanup_skips_directories_with_log_names() {
+        let dir = temp_dir();
+        // A directory named like a log file must NOT count as a retention slot.
+        fs::create_dir(dir.join("vibe-kanban.log.2025-06-02")).unwrap();
+        fs::write(dir.join("vibe-kanban.log.2025-06-01"), b"log").unwrap();
+
+        // With max_files=1 the real file must survive; directory is silently skipped.
+        cleanup_old_logs(&dir, 1);
+
+        assert!(
+            dir.join("vibe-kanban.log.2025-06-01").exists(),
+            "real log file was deleted because directory consumed its slot"
+        );
+    }
+
+    #[test]
+    fn is_log_date_suffix_rejects_far_future_year() {
+        assert!(!is_log_date_suffix("vibe-kanban.log.9999-01-01"));
+        assert!(!is_log_date_suffix("vibe-kanban.log.2100-01-01"));
+        // Years in valid range must still be accepted.
+        assert!(is_log_date_suffix("vibe-kanban.log.2000-01-01"));
+        assert!(is_log_date_suffix("vibe-kanban.log.2099-12-31"));
     }
 
     #[tokio::test]
