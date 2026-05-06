@@ -14,6 +14,7 @@ use std::{
     time::Duration,
 };
 
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::SubscriberInitExt};
@@ -28,11 +29,11 @@ pub struct FileLoggingConfig {
     /// either drops (lossy=true) or blocks (lossy=false). Default: 128_000.
     pub buffer_lines: usize,
     /// When `true` (default), excess log lines are dropped under load rather
-    /// than blocking the application. Set `VK_LOG_LOSSY=false` (or `0`) to
-    /// block instead (useful for debugging; adds latency under log bursts).
+    /// than blocking the application.
+    /// Set `VK_LOG_LOSSY` to `false`, `0`, `no`, or `off` (case-insensitive) to block instead.
     ///
-    /// Note: only the exact values `"false"` and `"0"` disable lossy mode;
-    /// all other values (including unrecognised strings) keep lossy enabled.
+    /// Caution: `lossy=false` can block tokio workers under log burst; use only
+    /// for debugging on non-production deployments.
     pub lossy: bool,
 }
 
@@ -64,12 +65,20 @@ impl FileLoggingConfig {
         let buffer_lines = if raw_buffer == 0 {
             eprintln!("VK_LOG_BUFFER_LINES=0 is invalid (minimum is 1); using 1");
             1
+        } else if raw_buffer > MAX_BUFFER_LINES {
+            eprintln!(
+                "VK_LOG_BUFFER_LINES={raw_buffer} exceeds maximum ({MAX_BUFFER_LINES}); using {MAX_BUFFER_LINES}"
+            );
+            MAX_BUFFER_LINES
         } else {
             raw_buffer
         };
 
         let lossy = std::env::var("VK_LOG_LOSSY")
-            .map(|v| v != "false" && v != "0")
+            .map(|v| {
+                let v = v.to_lowercase();
+                v != "false" && v != "0" && v != "no" && v != "off"
+            })
             .unwrap_or(true);
 
         Self {
@@ -87,11 +96,20 @@ impl FileLoggingConfig {
 ///
 /// **Hold this value for the entire lifetime of the process.** Dropping it
 /// flushes and stops the background file-writer thread.
+/// Maximum non-blocking writer buffer capacity.
+/// At ~200 bytes/line this caps in-process queue memory at ~200 MB.
+const MAX_BUFFER_LINES: usize = 1_000_000;
+
+/// Maximum time to wait for the log cleanup task to finish during shutdown.
+const CLEANUP_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+
 pub struct LoggingHandle {
-    /// Dropping this flushes remaining buffered log lines and stops the writer thread.
-    pub _guard: Option<WorkerGuard>,
+    /// Held purely for RAII: dropping flushes buffered lines and stops the writer thread.
+    _guard: Option<WorkerGuard>,
     /// Present when file logging was successfully initialised; used to spawn cleanup.
     pub cleanup_config: Option<FileLoggingConfig>,
+    /// JoinHandle for the daily cleanup task; set by `spawn_cleanup_task`.
+    cleanup_task: Option<JoinHandle<()>>,
 }
 
 impl LoggingHandle {
@@ -99,6 +117,7 @@ impl LoggingHandle {
         Self {
             _guard: None,
             cleanup_config: None,
+            cleanup_task: None,
         }
     }
 
@@ -106,37 +125,64 @@ impl LoggingHandle {
         Self {
             _guard: Some(guard),
             cleanup_config: Some(config),
+            cleanup_task: None,
         }
     }
 
     /// Spawn a background tokio task that runs `cleanup_old_logs` once per day.
     ///
     /// Call this after the tokio runtime is running (i.e. inside an `async fn`).
-    /// The task exits when `shutdown` is cancelled.
+    /// The task exits when `shutdown` is cancelled. Await completion via
+    /// [`wait_for_cleanup_task`] before the process exits.
     ///
     /// No-op if file logging is not active.
-    pub fn spawn_cleanup_task(&self, shutdown: CancellationToken) {
+    pub fn spawn_cleanup_task(&mut self, shutdown: CancellationToken) {
         if let Some(ref config) = self.cleanup_config {
             let config = config.clone();
-            tokio::spawn(run_cleanup_loop(config, shutdown));
+            self.cleanup_task = Some(tokio::spawn(run_cleanup_loop(config, shutdown)));
+        }
+    }
+
+    /// Wait for the cleanup task to finish (up to 5 seconds after cancellation).
+    ///
+    /// Call this after `shutdown_token.cancel()` and before the process exits.
+    /// No-op if no cleanup task was spawned.
+    pub async fn wait_for_cleanup_task(&mut self) {
+        if let Some(task) = self.cleanup_task.take() {
+            match tokio::time::timeout(CLEANUP_SHUTDOWN_TIMEOUT, task).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => eprintln!("Log cleanup task panicked: {e}"),
+                Err(_) => {
+                    eprintln!("Log cleanup task did not finish within 5s; continuing shutdown")
+                }
+            }
         }
     }
 }
 
 /// Runs `cleanup_old_logs` once per day until `shutdown` is cancelled.
-pub async fn run_cleanup_loop(config: FileLoggingConfig, shutdown: CancellationToken) {
+///
+/// Filesystem I/O is offloaded to `tokio::task::spawn_blocking` so cleanup
+/// never blocks the async runtime's worker threads.
+pub(crate) async fn run_cleanup_loop(config: FileLoggingConfig, shutdown: CancellationToken) {
     const ONE_DAY: Duration = Duration::from_secs(24 * 60 * 60);
-    // Run once immediately — replaces the one-shot startup cleanup that
-    // init_logging used to spawn as a std::thread.
-    cleanup_old_logs(&config.log_dir, config.max_files);
+    // Run once immediately at startup on the blocking thread pool.
+    {
+        let dir = config.log_dir.clone();
+        let max = config.max_files;
+        let _ = tokio::task::spawn_blocking(move || cleanup_old_logs(&dir, max)).await;
+    }
     loop {
         tokio::select! {
+            biased;
             _ = shutdown.cancelled() => {
                 tracing::debug!("Log cleanup task shutting down");
                 break;
             }
             _ = tokio::time::sleep(ONE_DAY) => {
-                cleanup_old_logs(&config.log_dir, config.max_files);
+                let dir = config.log_dir.clone();
+                let max = config.max_files;
+                let _ = tokio::task::spawn_blocking(move || cleanup_old_logs(&dir, max)).await;
             }
         }
     }
@@ -144,23 +190,30 @@ pub async fn run_cleanup_loop(config: FileLoggingConfig, shutdown: CancellationT
 
 /// Build the tracing filter string from the `RUST_LOG` environment variable.
 ///
-/// If `RUST_LOG` contains `=` or `,` it is treated as a full directive string
-/// and passed through verbatim (e.g. `"warn,hyper=error"`). Otherwise it is
-/// treated as a plain level name and interpolated into per-crate directives.
-///
-/// This prevents a panic when `RUST_LOG` holds a full directive and it is
-/// naively used as a `{level}` placeholder.
+/// If `RUST_LOG` (after trimming whitespace) contains `=` or `,` it is treated
+/// as a full directive string and passed through verbatim (e.g. `"warn,hyper=error"`).
+/// Otherwise it is treated as a plain level name; unrecognised names fall back to
+/// `"info"` with a stderr warning rather than panicking.
 pub fn build_filter_string() -> String {
     let rust_log = std::env::var("RUST_LOG").unwrap_or_default();
+    let rust_log = rust_log.trim();
 
     if rust_log.contains('=') || rust_log.contains(',') {
-        // Full directive — pass through as-is
-        rust_log
+        // Full directive — pass through as-is; init_logging falls back on parse error.
+        rust_log.to_string()
     } else {
+        const VALID_LEVELS: &[&str] = &["trace", "debug", "info", "warn", "error", "off"];
+        let rust_log_lower;
         let level = if rust_log.is_empty() {
-            "info".to_string()
+            "info"
         } else {
-            rust_log
+            rust_log_lower = rust_log.to_ascii_lowercase();
+            if VALID_LEVELS.contains(&rust_log_lower.as_str()) {
+                rust_log_lower.as_str()
+            } else {
+                eprintln!("Unrecognised RUST_LOG level '{rust_log}'; using 'info'");
+                "info"
+            }
         };
         format!(
             "warn,server={level},services={level},db={level},executors={level},\
@@ -180,12 +233,15 @@ relay_webrtc={level},codex_core=off"
 /// `filter_string` is a `tracing-subscriber` filter directive, e.g.
 /// `"warn,server=info,services=info"`.
 ///
-/// # Panics
-/// Panics if `filter_string` is not a valid `EnvFilter` directive string.
+/// If `filter_string` is not a valid `EnvFilter` directive, falls back to `"warn"`
+/// and prints a diagnostic to stderr rather than panicking.
 pub fn init_logging(filter_string: &str) -> LoggingHandle {
     let config = FileLoggingConfig::from_env(asset_dir());
 
-    let env_filter = EnvFilter::try_new(filter_string).expect("Failed to create tracing filter");
+    let env_filter = EnvFilter::try_new(filter_string).unwrap_or_else(|e| {
+        eprintln!("Invalid tracing filter '{filter_string}': {e}; using 'warn'");
+        EnvFilter::new("warn")
+    });
     let console_layer = tracing_subscriber::fmt::layer().with_filter(env_filter);
 
     if config.enabled {
@@ -210,8 +266,10 @@ pub fn init_logging(filter_string: &str) -> LoggingHandle {
             .lossy(config.lossy)
             .finish(file_appender);
 
-        let file_filter =
-            EnvFilter::try_new(filter_string).expect("Failed to create file tracing filter");
+        let file_filter = EnvFilter::try_new(filter_string).unwrap_or_else(|e| {
+            eprintln!("Invalid file tracing filter '{filter_string}': {e}; using 'warn'");
+            EnvFilter::new("warn")
+        });
         let file_layer = tracing_subscriber::fmt::layer()
             .json()
             .with_writer(non_blocking)
@@ -249,6 +307,10 @@ pub fn init_logging(filter_string: &str) -> LoggingHandle {
     }
 }
 
+/// Filename prefix used by the daily rolling appender.
+/// Shared between `is_log_date_suffix` and `cleanup_old_logs` to prevent drift.
+const LOG_PREFIX: &str = "vibe-kanban.log.";
+
 /// Returns `true` only for filenames matching `vibe-kanban.log.YYYY-MM-DD`.
 ///
 /// Strict: the date part must be exactly 10 characters, ASCII digits in the
@@ -256,8 +318,7 @@ pub fn init_logging(filter_string: &str) -> LoggingHandle {
 /// 01–31 (calendar accuracy is not required; structural validity is enough to
 /// distinguish date-suffix files from `.bak`, `.old`, etc.).
 pub(crate) fn is_log_date_suffix(name: &str) -> bool {
-    const PREFIX: &str = "vibe-kanban.log.";
-    let Some(suffix) = name.strip_prefix(PREFIX) else {
+    let Some(suffix) = name.strip_prefix(LOG_PREFIX) else {
         return false;
     };
     if suffix.len() != 10 {
@@ -278,10 +339,14 @@ pub(crate) fn is_log_date_suffix(name: &str) -> bool {
     {
         return false;
     }
-    // Range-check month (01-12) and day (01-31).
+    // Year 2000-2099: rejects far-future dates that would block log rotation.
+    let year = ((b[0] - b'0') as u32 * 1000)
+        + ((b[1] - b'0') as u32 * 100)
+        + ((b[2] - b'0') as u32 * 10)
+        + (b[3] - b'0') as u32;
     let month = (b[5] - b'0') * 10 + (b[6] - b'0');
     let day = (b[8] - b'0') * 10 + (b[9] - b'0');
-    (1..=12).contains(&month) && (1..=31).contains(&day)
+    (2000..=2099).contains(&year) && (1..=12).contains(&month) && (1..=31).contains(&day)
 }
 
 pub(crate) fn cleanup_old_logs(log_dir: &Path, max_files: usize) {
@@ -298,10 +363,12 @@ pub(crate) fn cleanup_old_logs(log_dir: &Path, max_files: usize) {
     // monotonic, so string sort == chronological sort with no mtime dependency.
     let mut log_files: Vec<(std::path::PathBuf, String)> = entries
         .filter_map(|e| e.ok())
+        // Only regular files — directories/symlinks/FIFOs with matching names are skipped.
+        .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
         .filter_map(|e| {
             let name = e.file_name().to_str()?.to_owned();
             if is_log_date_suffix(&name) {
-                let date = name["vibe-kanban.log.".len()..].to_owned();
+                let date = name[LOG_PREFIX.len()..].to_owned();
                 Some((e.path(), date))
             } else {
                 None
@@ -634,7 +701,7 @@ mod tests {
         // Second call — guaranteed to hit the Err arm (subscriber already set)
         let second = init_logging("warn");
         assert!(
-            second._guard.is_none() && second.cleanup_config.is_none(),
+            second.cleanup_config.is_none(),
             "second init_logging call must return console-only handle when try_init fails"
         );
         unsafe {
@@ -693,8 +760,8 @@ mod tests {
 
     #[test]
     fn lossy_enabled_by_other_values() {
-        // Only "false" and "0" disable lossy; everything else (including typos)
-        // must keep lossy enabled, matching the denylist semantics.
+        // Only "false", "0", "no", and "off" (case-insensitive) disable lossy;
+        // everything else (including typos) must keep lossy enabled.
         let _lock = ENV_LOCK.lock().unwrap();
         for val in &["true", "1", "yes", "on", "flase", ""] {
             unsafe {
@@ -702,6 +769,37 @@ mod tests {
             }
             let config = FileLoggingConfig::from_env(temp_dir());
             assert!(config.lossy, "expected lossy=true for VK_LOG_LOSSY={val}");
+        }
+        unsafe {
+            std::env::remove_var("VK_LOG_LOSSY");
+        }
+    }
+
+    #[test]
+    fn buffer_lines_exceeding_maximum_is_clamped() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::set_var("VK_LOG_BUFFER_LINES", "99999999");
+        }
+        let config = FileLoggingConfig::from_env(temp_dir());
+        assert_eq!(
+            config.buffer_lines, 1_000_000,
+            "buffer_lines above max must be clamped to 1_000_000"
+        );
+        unsafe {
+            std::env::remove_var("VK_LOG_BUFFER_LINES");
+        }
+    }
+
+    #[test]
+    fn lossy_disabled_by_env_case_insensitive() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        for val in &["False", "FALSE", "no", "No", "off", "OFF"] {
+            unsafe {
+                std::env::set_var("VK_LOG_LOSSY", val);
+            }
+            let config = FileLoggingConfig::from_env(temp_dir());
+            assert!(!config.lossy, "expected lossy=false for VK_LOG_LOSSY={val}");
         }
         unsafe {
             std::env::remove_var("VK_LOG_LOSSY");
@@ -747,14 +845,137 @@ mod tests {
         // Verify spawn_cleanup_task is a true no-op when cleanup_config is None.
         // Running inside a tokio runtime means if it accidentally spawned a task,
         // that would be visible (no panic, but the test exercises the real path).
-        let handle = LoggingHandle {
+        let mut handle = LoggingHandle {
             _guard: None,
             cleanup_config: None,
+            cleanup_task: None,
         };
         let token = CancellationToken::new();
         handle.spawn_cleanup_task(token.clone()); // must not panic, must not spawn
         token.cancel();
         drop(handle);
+    }
+
+    #[tokio::test]
+    async fn run_cleanup_loop_keeps_newest_with_max_files_1() {
+        // Validates that run_cleanup_loop correctly offloads I/O to the
+        // blocking thread pool and still cleans up files as expected.
+        let dir = temp_dir();
+        for i in 1..=3u32 {
+            let name = format!("vibe-kanban.log.2025-03-{:02}", i);
+            fs::write(dir.join(&name), b"log").unwrap();
+        }
+
+        let config = FileLoggingConfig {
+            enabled: true,
+            log_dir: dir.clone(),
+            max_files: 1,
+            buffer_lines: 128_000,
+            lossy: true,
+        };
+        let shutdown = CancellationToken::new();
+        shutdown.cancel();
+
+        run_cleanup_loop(config, shutdown).await;
+
+        let remaining: std::collections::HashSet<String> = fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+
+        assert_eq!(remaining.len(), 1, "got: {:?}", remaining);
+        assert!(
+            remaining.contains("vibe-kanban.log.2025-03-03"),
+            "newest file missing"
+        );
+    }
+
+    #[test]
+    fn build_filter_string_trims_whitespace() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::set_var("RUST_LOG", "  warn  ");
+        }
+        let s = build_filter_string();
+        // Trimmed "warn" is a plain level — must be interpolated, not passed through
+        assert!(s.contains("server=warn"), "got: {s}");
+        assert!(!s.contains("  "), "whitespace not trimmed: {s}");
+        unsafe {
+            std::env::remove_var("RUST_LOG");
+        }
+    }
+
+    #[test]
+    fn build_filter_string_unknown_level_falls_back_to_info() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::set_var("RUST_LOG", "notavalid");
+        }
+        let s = build_filter_string();
+        assert!(s.contains("server=info"), "got: {s}");
+        unsafe {
+            std::env::remove_var("RUST_LOG");
+        }
+    }
+
+    #[test]
+    fn build_filter_string_malformed_directive_passes_through_verbatim() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        for val in &[",", "==", "warn,", "=debug"] {
+            unsafe {
+                std::env::set_var("RUST_LOG", val);
+            }
+            let s = build_filter_string();
+            assert_eq!(&s, val, "should pass through verbatim: {val}");
+        }
+        unsafe {
+            std::env::remove_var("RUST_LOG");
+        }
+    }
+
+    #[test]
+    fn build_filter_string_with_uppercase_level() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::set_var("RUST_LOG", "WARN");
+        }
+        let s = build_filter_string();
+        assert!(s.contains("server=warn"), "uppercase WARN should work: {s}");
+        unsafe {
+            std::env::remove_var("RUST_LOG");
+        }
+    }
+
+    #[test]
+    fn cleanup_skips_directories_with_log_names() {
+        let dir = temp_dir();
+        // A directory named like a log file must NOT count as a retention slot.
+        fs::create_dir(dir.join("vibe-kanban.log.2025-06-02")).unwrap();
+        fs::write(dir.join("vibe-kanban.log.2025-06-01"), b"log").unwrap();
+
+        // With max_files=1 the real file must survive; directory is silently skipped.
+        cleanup_old_logs(&dir, 1);
+
+        assert!(
+            dir.join("vibe-kanban.log.2025-06-01").exists(),
+            "real log file was deleted because directory consumed its slot"
+        );
+
+        // The directory must NOT have been removed — cleanup never deletes non-files.
+        assert!(
+            dir.join("vibe-kanban.log.2025-06-02").is_dir(),
+            "directory was unexpectedly removed by cleanup"
+        );
+    }
+
+    #[test]
+    fn is_log_date_suffix_rejects_far_future_year() {
+        assert!(!is_log_date_suffix("vibe-kanban.log.9999-01-01"));
+        assert!(!is_log_date_suffix("vibe-kanban.log.2100-01-01"));
+        // Years in valid range must still be accepted.
+        assert!(is_log_date_suffix("vibe-kanban.log.2000-01-01"));
+        assert!(is_log_date_suffix("vibe-kanban.log.2099-12-31"));
     }
 
     #[tokio::test]
