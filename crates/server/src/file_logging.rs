@@ -91,7 +91,6 @@ impl FileLoggingConfig {
 pub struct LoggingHandle {
     /// RAII guard: dropping this flushes buffered log lines and stops the writer thread.
     /// `pub(crate)` — never drop or replace externally; file logging stops silently.
-    #[allow(dead_code)]
     pub(crate) guard: Option<WorkerGuard>,
     /// Present when file logging was successfully initialised; used to spawn cleanup.
     pub cleanup_config: Option<FileLoggingConfig>,
