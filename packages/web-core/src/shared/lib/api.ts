@@ -411,10 +411,12 @@ export const workspacesApi = {
   },
 
   /** Create a workspace without starting execution (draft mode). */
-  createDraft: async (data: CreateWorkspaceApiRequest): Promise<Workspace> => {
+  createDraft: async (
+    data: Omit<CreateWorkspaceApiRequest, 'is_draft'>
+  ): Promise<Workspace> => {
     const response = await makeRequest('/api/workspaces', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify({ ...data, is_draft: true }),
     });
     return handleApiResponse<Workspace>(response);
   },
