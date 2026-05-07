@@ -67,12 +67,23 @@ pub async fn create_workspace(
         )
         .await?;
 
-    // TODO: wrap workspace creation + repo attachment in a transaction to prevent partial state
+    // If any repo attachment fails, clean up the orphaned workspace row
+    // (and any already-attached repos) before returning the error.
     for repo in &payload.repos {
-        managed_workspace
+        if let Err(e) = managed_workspace
             .add_repository(repo, deployment.git())
             .await
-            .map_err(ApiError::from)?;
+        {
+            let workspace_id = managed_workspace.workspace.id;
+            if let Err(cleanup_err) = Workspace::delete(&deployment.db().pool, workspace_id).await {
+                tracing::warn!(
+                    "Failed to clean up orphaned workspace {} after repo-attach failure: {}",
+                    workspace_id,
+                    cleanup_err
+                );
+            }
+            return Err(ApiError::from(e));
+        }
     }
 
     let workspace = managed_workspace.workspace.clone();
