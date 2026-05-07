@@ -22,7 +22,7 @@ export type WorkspaceLayoutMode = 'flat' | 'accordion';
 export interface WorkspacesSidebarWorkspace {
   id: string;
   name: string;
-  is_draft?: boolean;
+  is_draft: boolean;
   filesChanged?: number;
   linesAdded?: number;
   linesRemoved?: number;

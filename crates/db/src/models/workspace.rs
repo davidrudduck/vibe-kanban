@@ -281,6 +281,7 @@ impl Workspace {
             LEFT JOIN execution_processes ep ON s.id = ep.session_id AND ep.completed_at IS NOT NULL
             WHERE w.container_ref IS NOT NULL
                 AND w.worktree_deleted = FALSE
+                AND w.is_draft = FALSE
                 AND w.id NOT IN (
                     SELECT DISTINCT s2.workspace_id
                     FROM sessions s2
@@ -626,6 +627,7 @@ impl Workspace {
 
         for ws in &mut workspaces {
             if ws.workspace.name.is_none()
+                && !ws.workspace.is_draft
                 && let Some(prompt) = Self::get_first_user_message(pool, ws.workspace.id).await?
             {
                 let name = Self::truncate_to_name(&prompt, WORKSPACE_NAME_MAX_LEN);
@@ -716,6 +718,7 @@ impl Workspace {
         };
 
         if ws.workspace.name.is_none()
+            && !ws.workspace.is_draft
             && let Some(prompt) = Self::get_first_user_message(pool, ws.workspace.id).await?
         {
             let name = Self::truncate_to_name(&prompt, WORKSPACE_NAME_MAX_LEN);

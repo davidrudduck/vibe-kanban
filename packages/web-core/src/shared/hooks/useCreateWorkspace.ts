@@ -67,7 +67,9 @@ export function useCreateWorkspace() {
   });
 
   const createDraftWorkspace = useMutation({
-    mutationFn: async (data: CreateWorkspaceApiRequest): Promise<Workspace> => {
+    mutationFn: async (
+      data: Omit<CreateWorkspaceApiRequest, 'is_draft'>
+    ): Promise<Workspace> => {
       return workspacesApi.createDraft(data);
     },
     onSuccess: () => {

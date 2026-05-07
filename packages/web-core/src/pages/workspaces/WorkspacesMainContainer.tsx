@@ -137,7 +137,9 @@ export const WorkspacesMainContainer = forwardRef<
 
   const { session } = workspaceWithSession ?? {};
   const workspaceTitle =
-    session?.name ?? selectedWorkspace?.name ?? selectedWorkspace?.branch;
+    session?.name?.trim() ||
+    selectedWorkspace?.name?.trim() ||
+    selectedWorkspace?.branch;
 
   useEffect(() => {
     const container = containerRef.current;
