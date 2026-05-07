@@ -132,7 +132,7 @@ export function ChatFileEntry({
               </span>
             )}
           </div>
-          {onOpenInChanges && (
+          {!isVSCode && onOpenInChanges && (
             <button
               type="button"
               onClick={(e) => {
@@ -213,7 +213,7 @@ export function ChatFileEntry({
           </span>
         )}
       </div>
-      {onOpenInChanges && (
+      {!isVSCode && onOpenInChanges && (
         <button
           type="button"
           onClick={(e) => {
