@@ -127,7 +127,7 @@ export function NavbarContainer({
   const {
     workspace: selectedWorkspace,
     isCreateMode,
-    selectedSession,
+    repos,
   } = useWorkspaceContext();
   const { workspaces } = useUserContext();
   const syncErrorContext = useSyncErrorContext();
@@ -197,9 +197,15 @@ export function NavbarContainer({
     ? 'Create Workspace'
     : isOnProjectPage
       ? orgName
-      : (selectedSession?.name ??
-        selectedWorkspace?.name ??
-        selectedWorkspace?.branch);
+      : (() => {
+          if (!selectedWorkspace) return undefined;
+          const repoName =
+            repos[0]?.display_name || repos[0]?.name;
+          const branch = selectedWorkspace.branch;
+          const taskTitle = selectedWorkspace.name;
+          const prefix = repoName ? `${repoName} (${branch})` : branch;
+          return taskTitle ? `${prefix}: ${taskTitle}` : prefix;
+        })();
 
   // Breadcrumbs: Project / Issue / Workspace (only on workspace pages with linked project)
   const linkedProjectId = linkedRemoteWorkspace?.project_id ?? null;
