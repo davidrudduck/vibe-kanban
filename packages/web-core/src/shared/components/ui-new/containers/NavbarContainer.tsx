@@ -197,9 +197,9 @@ export function NavbarContainer({
     ? 'Create Workspace'
     : isOnProjectPage
       ? orgName
-      : (selectedSession?.name ??
-        selectedWorkspace?.name ??
-        selectedWorkspace?.branch);
+      : selectedSession?.name?.trim() ||
+        selectedWorkspace?.name?.trim() ||
+        selectedWorkspace?.branch;
 
   // Breadcrumbs: Project / Issue / Workspace (only on workspace pages with linked project)
   const linkedProjectId = linkedRemoteWorkspace?.project_id ?? null;

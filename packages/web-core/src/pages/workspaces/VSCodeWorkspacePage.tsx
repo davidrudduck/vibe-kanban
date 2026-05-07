@@ -36,6 +36,7 @@ function VSCodeChatBox({
   onScrollToBottom,
   onScrollToUserMessage,
   getActiveTurnPatchKey,
+  workspaceTitle,
 }: {
   session: Session | undefined;
   workspaceId: string | undefined;
@@ -47,6 +48,7 @@ function VSCodeChatBox({
   onScrollToBottom: () => void;
   onScrollToUserMessage: (patchKey: string) => void;
   getActiveTurnPatchKey: () => string | null;
+  workspaceTitle: string | undefined;
 }) {
   const diffStats = useDiffStats();
 
@@ -78,6 +80,7 @@ function VSCodeChatBox({
       onScrollToBottom={onScrollToBottom}
       onScrollToUserMessage={onScrollToUserMessage}
       getActiveTurnPatchKey={getActiveTurnPatchKey}
+      workspaceTitle={workspaceTitle}
     />
   );
 }
@@ -100,7 +103,7 @@ export function VSCodeWorkspacePage() {
     repos,
   } = useWorkspaceContext();
 
-  usePageTitle(workspace?.name);
+  usePageTitle(selectedSession?.name?.trim() || workspace?.name);
 
   const workspaceWithSession = useMemo(
     () =>
@@ -112,6 +115,11 @@ export function VSCodeWorkspacePage() {
 
   const nav = useConversationNavController(conversationListRef);
   const isNarrow = useNarrowViewport();
+
+  const workspaceTitle =
+    selectedSession?.name?.trim() ||
+    workspace?.name?.trim() ||
+    workspace?.branch;
 
   useEffect(() => {
     const container = mainContainerRef.current;
@@ -225,6 +233,7 @@ export function VSCodeWorkspacePage() {
                     onScrollToBottom={nav.onScrollToBottom}
                     onScrollToUserMessage={nav.onScrollToUserMessage}
                     getActiveTurnPatchKey={nav.getActiveTurnPatchKey}
+                    workspaceTitle={workspaceTitle}
                   />
                 </div>
               </MessageEditProvider>
