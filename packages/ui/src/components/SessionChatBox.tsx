@@ -730,15 +730,15 @@ export function SessionChatBox<TExecutor extends string = string>({
             <>
               {/* Workspace title — shown when idle */}
               {workspaceTitle && !isRunning && (
-                <span
-                  className="text-sm text-low truncate max-w-[160px] shrink-0"
-                  title={workspaceTitle}
-                >
-                  {workspaceTitle}
-                </span>
-              )}
-              {workspaceTitle && !isRunning && (
-                <span className="text-low text-sm shrink-0 select-none">·</span>
+                <>
+                  <span
+                    className="text-sm text-low truncate max-w-[160px] shrink-0"
+                    title={workspaceTitle}
+                  >
+                    {workspaceTitle}
+                  </span>
+                  <span className="text-low text-sm shrink-0 select-none">·</span>
+                </>
               )}
               {isRunning && inProgressTodo ? (
                 <span className="text-sm flex items-center gap-1 min-w-0">

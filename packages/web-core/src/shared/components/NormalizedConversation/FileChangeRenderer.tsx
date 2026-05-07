@@ -95,6 +95,17 @@ const FileChangeRenderer = ({
         defaultExpanded={defaultExpanded}
         statusAppearance={statusAppearance}
         forceExpanded={forceExpanded}
+        onOpenInFiles={
+          workspaceId
+            ? () => {
+                openFile(path, workspaceId);
+                setRightMainPanelMode(
+                  RIGHT_MAIN_PANEL_MODES.FILES,
+                  workspaceId
+                );
+              }
+            : undefined
+        }
       />
     );
   }

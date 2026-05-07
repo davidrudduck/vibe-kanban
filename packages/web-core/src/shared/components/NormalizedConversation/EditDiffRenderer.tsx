@@ -5,7 +5,7 @@ import {
   DiffLineType,
   parseInstance,
 } from '@git-diff-view/react';
-import { SquarePen } from 'lucide-react';
+import { FolderOpen, SquarePen } from 'lucide-react';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
 import { getHighLightLanguageFromPath } from '@/shared/lib/extToLanguage';
 import { getActualTheme } from '@/shared/lib/theme';
@@ -21,6 +21,8 @@ type Props = {
   defaultExpanded?: boolean;
   statusAppearance?: 'default' | 'denied' | 'timed_out';
   forceExpanded?: boolean;
+  /** Optional callback to open the file in the Files browser panel */
+  onOpenInFiles?: () => void;
 };
 
 /**
@@ -69,6 +71,7 @@ function EditDiffRenderer({
   defaultExpanded = false,
   statusAppearance = 'default',
   forceExpanded = false,
+  onOpenInFiles,
 }: Props) {
   const { config } = useUserSystem();
   const [expanded, setExpanded] = useExpandable(expansionKey, defaultExpanded);
@@ -113,6 +116,19 @@ function EditDiffRenderer({
             -{deletions}
           </span>
         </p>
+        {onOpenInFiles && (
+          <button
+            type="button"
+            title="Open in Files"
+            className="shrink-0 p-1 rounded text-low hover:text-normal hover:bg-secondary transition-colors"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenInFiles();
+            }}
+          >
+            <FolderOpen className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
 
       {effectiveExpanded && (

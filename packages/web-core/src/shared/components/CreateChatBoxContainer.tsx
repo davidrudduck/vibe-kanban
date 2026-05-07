@@ -322,19 +322,19 @@ export function CreateChatBoxContainer({
           repo_id: r.id,
           target_branch: targetBranches[r.id]!,
         })),
-        is_draft: true,
       });
 
       if (workspace) {
+        await clearDraft();
         onWorkspaceCreated(workspace.id);
       }
-      await clearDraft();
     } catch {
       // error handled by mutation onError
     }
   }, [
     hasSelectedRepos,
     hasSelectedBranchesForAllRepos,
+    setHasAttemptedSubmit,
     message,
     workspaceName,
     repos,
