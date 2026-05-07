@@ -40,7 +40,6 @@ function ChatBoxWithDiffStats({
   onScrollToBottom,
   onScrollToUserMessage,
   getActiveTurnPatchKey,
-  workspaceTitle,
 }: {
   session: Session | undefined;
   workspaceId: string | undefined;
@@ -52,7 +51,6 @@ function ChatBoxWithDiffStats({
   onScrollToBottom: () => void;
   onScrollToUserMessage: (patchKey: string) => void;
   getActiveTurnPatchKey: () => string | null;
-  workspaceTitle: string | undefined;
 }) {
   const diffStats = useDiffStats();
 
@@ -84,7 +82,6 @@ function ChatBoxWithDiffStats({
       onScrollToBottom={onScrollToBottom}
       onScrollToUserMessage={onScrollToUserMessage}
       getActiveTurnPatchKey={getActiveTurnPatchKey}
-      workspaceTitle={workspaceTitle}
     />
   );
 }
@@ -136,10 +133,7 @@ export const WorkspacesMainContainer = forwardRef<
   const isNarrow = useNarrowViewport();
 
   const { session } = workspaceWithSession ?? {};
-  const workspaceTitle =
-    session?.name?.trim() ||
-    selectedWorkspace?.name?.trim() ||
-    selectedWorkspace?.branch;
+  // workspaceTitle intentionally not passed to chat box — title is shown in the navbar instead
 
   useEffect(() => {
     const container = containerRef.current;
@@ -213,7 +207,6 @@ export const WorkspacesMainContainer = forwardRef<
       onScrollToBottom={nav.onScrollToBottom}
       onScrollToUserMessage={nav.onScrollToUserMessage}
       getActiveTurnPatchKey={nav.getActiveTurnPatchKey}
-      workspaceTitle={workspaceTitle}
     />
   );
 
