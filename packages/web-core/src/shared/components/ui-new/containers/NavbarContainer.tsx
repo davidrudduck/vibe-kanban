@@ -113,6 +113,16 @@ function toNavbarSectionItems(
   }, []);
 }
 
+/**
+ * Abbreviate a branch name to at most maxLen chars so the task title has
+ * room to be visible before CSS `truncate` clips the navbar string.
+ * e.g. "vk/4ac2-add-task-workspace-title-to-chat-window" → "vk/4ac2-add-task-wo…"
+ */
+function abbreviateBranch(branch: string, maxLen = 24): string {
+  if (branch.length <= maxLen) return branch;
+  return branch.slice(0, maxLen) + '…';
+}
+
 export function NavbarContainer({
   mobileMode = false,
   onOrgSelect,
@@ -127,7 +137,9 @@ export function NavbarContainer({
   const {
     workspace: selectedWorkspace,
     isCreateMode,
+    selectedSession,
     repos,
+    isReposLoading,
   } = useWorkspaceContext();
   const { workspaces } = useUserContext();
   const syncErrorContext = useSyncErrorContext();
@@ -193,19 +205,38 @@ export function NavbarContainer({
     [actionCtx, handleExecuteAction]
   );
 
-  const navbarTitle = isCreateMode
-    ? 'Create Workspace'
-    : isOnProjectPage
-      ? orgName
-      : (() => {
-          if (!selectedWorkspace) return undefined;
-          const repoName =
-            repos[0]?.display_name || repos[0]?.name;
-          const branch = selectedWorkspace.branch;
-          const taskTitle = selectedWorkspace.name;
-          const prefix = repoName ? `${repoName} (${branch})` : branch;
-          return taskTitle ? `${prefix}: ${taskTitle}` : prefix;
-        })();
+  // Fix 1: selectedSession?.name is top priority (preserves user-renamed sessions).
+  // Fix 2: useMemo instead of IIFE — stable reference, consistent with rest of component.
+  // Fix 3: isReposLoading guard avoids a visible title flicker while repos resolve.
+  // Fix 4: abbreviateBranch caps branch length so task title survives CSS truncation.
+  const navbarTitle = useMemo(() => {
+    if (isCreateMode) return 'Create Workspace';
+    if (isOnProjectPage) return orgName;
+    if (!selectedWorkspace) return undefined;
+
+    // User-renamed session names take top priority for workspace pages.
+    if (selectedSession?.name?.trim()) return selectedSession.name.trim();
+
+    // While repos are loading, show the stable workspace name/branch to avoid
+    // a jarring title jump once the repo name arrives.
+    if (isReposLoading) {
+      return selectedWorkspace.name?.trim() || selectedWorkspace.branch;
+    }
+
+    const repoName = repos[0]?.display_name || repos[0]?.name;
+    const branch = abbreviateBranch(selectedWorkspace.branch);
+    const taskTitle = selectedWorkspace.name?.trim();
+    const prefix = repoName ? `${repoName} (${branch})` : branch;
+    return taskTitle ? `${prefix}: ${taskTitle}` : prefix;
+  }, [
+    isCreateMode,
+    isOnProjectPage,
+    orgName,
+    selectedWorkspace,
+    selectedSession,
+    repos,
+    isReposLoading,
+  ]);
 
   // Breadcrumbs: Project / Issue / Workspace (only on workspace pages with linked project)
   const linkedProjectId = linkedRemoteWorkspace?.project_id ?? null;
