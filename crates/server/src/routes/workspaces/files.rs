@@ -170,31 +170,24 @@ fn list_directory_fs(
         .canonicalize()
         .map_err(|_| ApiError::BadRequest("Workspace root not found".to_string()))?;
 
-    // Symlink guard: walk each path component and reject any symlink in the chain.
-    // This prevents a symlink inside the workspace pointing to an external
-    // directory from being traversed.
-    let mut accumulated = canonical_root.clone();
-    for component in std::path::Path::new(rel_path).components() {
-        accumulated = accumulated.join(component);
-        match std::fs::symlink_metadata(&accumulated) {
-            Ok(meta) if meta.file_type().is_symlink() => {
-                return Err(ApiError::BadRequest(
-                    "Symlink access not allowed".to_string(),
-                ));
-            }
-            Ok(_) => {}
-            Err(_) => break,
-        }
-    }
-
     let target = canonical_root.join(rel_path);
     let canonical = target
         .canonicalize()
         .map_err(|_| ApiError::BadRequest("Directory not found".to_string()))?;
+    // Reject any path (including symlinks) that resolves outside the workspace.
     if !canonical.starts_with(&canonical_root) {
         return Err(ApiError::BadRequest(
             "Path traversal not allowed".to_string(),
         ));
+    }
+    // Re-check for git internals on the resolved path so a symlink like
+    // `safe_link -> .git/config` cannot bypass the is_git_internal guard above.
+    if let Ok(relative) = canonical.strip_prefix(&canonical_root) {
+        if is_git_internal(&relative.to_string_lossy()) {
+            return Err(ApiError::BadRequest(
+                "Git internals are not accessible".to_string(),
+            ));
+        }
     }
     if !canonical.is_dir() {
         return Err(ApiError::BadRequest("Path is not a directory".to_string()));
@@ -372,30 +365,24 @@ fn read_file_fs(worktree_root: &Path, rel_path: &str) -> Result<(Vec<u8>, u64), 
     let canonical_root = worktree_root
         .canonicalize()
         .map_err(|_| ApiError::BadRequest("Workspace root not found".to_string()))?;
-    // Symlink guard: walk each component and reject any symlink in the chain
-    let mut accumulated = canonical_root.clone();
-    for component in std::path::Path::new(rel_path).components() {
-        accumulated = accumulated.join(component);
-        match std::fs::symlink_metadata(&accumulated) {
-            Ok(meta) if meta.file_type().is_symlink() => {
-                return Err(ApiError::BadRequest(
-                    "Symlink access not allowed".to_string(),
-                ));
-            }
-            Ok(_) => {}
-            Err(_) => {
-                return Err(ApiError::BadRequest("File not found".to_string()));
-            }
-        }
-    }
     let target = canonical_root.join(rel_path);
     let canonical = target
         .canonicalize()
         .map_err(|_| ApiError::BadRequest("File not found".to_string()))?;
+    // Reject any path (including symlinks) that resolves outside the workspace.
     if !canonical.starts_with(&canonical_root) {
         return Err(ApiError::BadRequest(
             "Path traversal not allowed".to_string(),
         ));
+    }
+    // Re-check for git internals on the resolved path so a symlink like
+    // `safe_link -> .git/config` cannot bypass the is_git_internal guard above.
+    if let Ok(relative) = canonical.strip_prefix(&canonical_root) {
+        if is_git_internal(&relative.to_string_lossy()) {
+            return Err(ApiError::BadRequest(
+                "Git internals are not accessible".to_string(),
+            ));
+        }
     }
     if canonical.is_dir() {
         return Err(ApiError::BadRequest("Path is a directory".to_string()));
@@ -758,7 +745,77 @@ mod tests {
         let result = list_directory_fs(&inner, "linked");
         assert!(
             result.is_err(),
-            "listing a symlinked directory should be rejected"
+            "symlink to directory outside workspace must be rejected"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn read_file_fs_allows_inworkspace_symlink() {
+        // Regression test for CLAUDE.md -> AGENTS.md pattern.
+        // Symlinks whose target stays inside the workspace must be readable.
+        use std::os::unix::fs::symlink;
+        let tmp = TempDir::new().unwrap();
+        let inner = tmp.path().join("workspace");
+        fs::create_dir(&inner).unwrap();
+        fs::write(inner.join("agents.md"), "# Agents").unwrap();
+        // Relative symlink (same as `ln -s agents.md claude.md`)
+        symlink("agents.md", inner.join("claude.md")).unwrap();
+        let result = read_file_fs(&inner, "claude.md");
+        assert!(
+            result.is_ok(),
+            "symlink within workspace must be readable, got: {:?}",
+            result
+        );
+        let (bytes, _) = result.unwrap();
+        assert_eq!(bytes, b"# Agents");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn read_file_fs_rejects_symlink_to_git_internal() {
+        // A symlink inside the workspace pointing to a .git internal must be
+        // blocked even though its resolved canonical path is still inside the
+        // workspace root (so the traversal check alone would pass).
+        use std::os::unix::fs::symlink;
+        let tmp = TempDir::new().unwrap();
+        let inner = tmp.path().join("workspace");
+        fs::create_dir_all(inner.join(".git")).unwrap();
+        fs::write(inner.join(".git").join("config"), "[core]\n").unwrap();
+        // Absolute symlink: safe_link -> <workspace>/.git/config
+        symlink(inner.join(".git/config"), inner.join("safe_link.md")).unwrap();
+        let result = read_file_fs(&inner, "safe_link.md");
+        assert!(
+            result.is_err(),
+            "symlink to .git internal must be blocked"
+        );
+        let msg = format!("{:?}", result.unwrap_err());
+        assert!(
+            msg.contains("Git internals") || msg.contains("git"),
+            "expected git-internal error, got: {msg}"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn list_directory_fs_allows_inworkspace_symlink_dir() {
+        // A symlinked directory whose target is inside the workspace must be listable.
+        use std::os::unix::fs::symlink;
+        let tmp = TempDir::new().unwrap();
+        let inner = tmp.path().join("workspace");
+        fs::create_dir_all(inner.join("real_dir")).unwrap();
+        fs::write(inner.join("real_dir").join("file.txt"), "hello").unwrap();
+        symlink(inner.join("real_dir"), inner.join("linked_dir")).unwrap();
+        let result = list_directory_fs(&inner, "linked_dir");
+        assert!(
+            result.is_ok(),
+            "symlinked directory within workspace must be listable, got: {:?}",
+            result
+        );
+        let entries = result.unwrap();
+        assert!(
+            entries.iter().any(|e| e.name == "file.txt"),
+            "linked directory should show its contents"
         );
     }
 
