@@ -237,6 +237,23 @@ pub async fn follow_up(
 
     let action = ExecutorAction::new(action_type, cleanup_action.map(Box::new));
 
+    // Clear draft status BEFORE starting execution to close the crash window:
+    // if the server crashes mid-way the worst case is a non-draft workspace
+    // with no execution process (user can retry), rather than a permanently
+    // stuck draft. Guarded by `workspace.is_draft` so we don't issue a
+    // pointless UPDATE (and bump `updated_at`) on every follow-up message.
+    // Note: workspace prompt is not persisted on draft save (V1 limitation).
+    // Users re-enter their prompt when executing a draft workspace.
+    if workspace.is_draft {
+        if let Err(e) = Workspace::set_draft(pool, workspace.id, false).await {
+            tracing::warn!(
+                "Failed to clear is_draft for workspace {}: {}",
+                workspace.id,
+                e
+            );
+        }
+    }
+
     let execution_process = deployment
         .container()
         .start_execution(
@@ -246,17 +263,6 @@ pub async fn follow_up(
             &ExecutionProcessRunReason::CodingAgent,
         )
         .await?;
-
-    // Clear draft status when execution begins
-    // Note: workspace prompt is not persisted on draft save (V1 limitation).
-    // Users re-enter their prompt when executing a draft workspace.
-    if let Err(e) = Workspace::set_draft(pool, workspace.id, false).await {
-        tracing::warn!(
-            "Failed to clear is_draft for workspace {}: {}",
-            workspace.id,
-            e
-        );
-    }
 
     // Clear the draft follow-up scratch on successful spawn
     // This ensures the scratch is wiped even if the user navigates away quickly

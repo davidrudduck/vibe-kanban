@@ -20,7 +20,9 @@ pub struct WorkspaceRepoInput {
 #[derive(Debug, Serialize, Deserialize, TS)]
 pub struct CreateWorkspaceApiRequest {
     pub name: Option<String>,
+    #[serde(default)]
     pub repos: Vec<WorkspaceRepoInput>,
+    #[serde(default)]
     pub is_draft: bool,
 }
 
