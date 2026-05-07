@@ -114,13 +114,15 @@ function toNavbarSectionItems(
 }
 
 /**
- * Abbreviate a branch name to at most maxLen chars so the task title has
- * room to be visible before CSS `truncate` clips the navbar string.
- * e.g. "vk/4ac2-add-task-workspace-title-to-chat-window" → "vk/4ac2-add-task-wo…"
+ * Abbreviate a branch name so the total output is at most maxLen chars
+ * (ellipsis included), giving the task title room to be visible before CSS
+ * `truncate` clips the navbar string.
+ * e.g. "vk/4ac2-add-task-workspace-title-to-chat-window" → "vk/4ac2-add-task-wo…" (24 chars)
  */
 function abbreviateBranch(branch: string, maxLen = 24): string {
   if (branch.length <= maxLen) return branch;
-  return branch.slice(0, maxLen) + '…';
+  // slice to maxLen-1 so the appended '…' keeps total length ≤ maxLen
+  return branch.slice(0, maxLen - 1) + '…';
 }
 
 export function NavbarContainer({
