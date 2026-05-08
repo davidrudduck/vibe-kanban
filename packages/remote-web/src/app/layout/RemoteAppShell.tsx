@@ -35,8 +35,6 @@ import {
   CreateRemoteProjectDialog,
   type CreateRemoteProjectResult,
 } from "@/shared/dialogs/org/CreateRemoteProjectDialog";
-import { CloudShutdownExportBanner } from "@/shared/components/CloudShutdownExportBanner";
-
 interface RemoteAppShellProps {
   children: ReactNode;
 }
@@ -58,10 +56,6 @@ export function RemoteAppShell({ children }: RemoteAppShellProps) {
   const { isSignedIn } = useAuth();
   const isWorkspaceContextRoute = location.pathname.includes("/workspaces");
   const isProjectRoute = /^\/projects\/[^/]+/.test(location.pathname);
-  const isExportRoute = location.pathname === "/export";
-  const showCloudShutdownBanner =
-    isExportRoute || (isSignedIn && isProjectRoute);
-
   useCommandBarShortcut(
     () => CommandBarDialog.show(),
     isWorkspaceContextRoute || isProjectRoute,
@@ -179,10 +173,6 @@ export function RemoteAppShell({ children }: RemoteAppShellProps) {
     [navigate],
   );
 
-  const handleExportClick = useCallback(() => {
-    navigate({ to: "/export" });
-  }, [navigate]);
-
   const handleCreateProject = useCallback(async () => {
     if (!activeOrganizationId) {
       return;
@@ -250,10 +240,6 @@ export function RemoteAppShell({ children }: RemoteAppShellProps) {
           : "h-screen",
       )}
     >
-      {showCloudShutdownBanner && (
-        <CloudShutdownExportBanner onClick={handleExportClick} />
-      )}
-
       <div className="flex min-h-0 flex-1">
         {!isMobile && (
           <AppBar
