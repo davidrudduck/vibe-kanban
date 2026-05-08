@@ -6,6 +6,7 @@ import { PreviewControlsContainer } from './PreviewControlsContainer';
 import { GitPanelContainer } from './GitPanelContainer';
 import { TerminalPanelContainer } from '@/shared/components/TerminalPanelContainer';
 import { WorkspaceNotesContainer } from './WorkspaceNotesContainer';
+import { SessionMonitorPanel } from '@/features/workspace-chat/ui/SessionMonitorPanel';
 import { useDiffs } from '@/shared/stores/useWorkspaceDiffStore';
 import { ArrowsOutSimpleIcon } from '@phosphor-icons/react';
 import { useLogsPanel } from '@/shared/hooks/useLogsPanel';
@@ -72,6 +73,10 @@ export const RightSidebar = memo(function RightSidebar({
     PERSIST_KEYS.notesSection,
     false
   );
+  const [sessionMonitorExpanded] = usePersistedExpanded(
+    PERSIST_KEYS.sessionMonitorSection,
+    true
+  );
 
   const hasUpperContent =
     rightMainPanelMode === RIGHT_MAIN_PANEL_MODES.CHANGES ||
@@ -117,6 +122,14 @@ export const RightSidebar = memo(function RightSidebar({
         visible: true,
         expanded: notesExpanded,
         content: <WorkspaceNotesContainer />,
+        actions: [],
+      },
+      {
+        title: 'Session Monitor',
+        persistKey: PERSIST_KEYS.sessionMonitorSection,
+        visible: true,
+        expanded: sessionMonitorExpanded,
+        content: <SessionMonitorPanel />,
         actions: [],
       },
     ];
@@ -181,6 +194,7 @@ export const RightSidebar = memo(function RightSidebar({
     gitExpanded,
     terminalExpanded,
     notesExpanded,
+    sessionMonitorExpanded,
     changesExpanded,
     processesExpanded,
     devServerExpanded,

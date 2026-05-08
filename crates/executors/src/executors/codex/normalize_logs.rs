@@ -752,25 +752,31 @@ fn add_thread_token_usage(
     msg_store: &Arc<MsgStore>,
     entry_index: &EntryIndexProvider,
 ) {
+    let usage = &notification.token_usage.last;
+    let total = usage.total_tokens as u64;
+    let context_window = notification
+        .token_usage
+        .model_context_window
+        .unwrap_or_default() as u64;
     add_normalized_entry(
         msg_store,
         entry_index,
         NormalizedEntry {
-            timestamp: None,
+            timestamp: Some(chrono::Utc::now().to_rfc3339()),
             entry_type: NormalizedEntryType::TokenUsageInfo(crate::logs::TokenUsageInfo {
-                total_tokens: notification.token_usage.last.total_tokens as u32,
-                model_context_window: notification
-                    .token_usage
-                    .model_context_window
-                    .unwrap_or_default() as u32,
+                total_tokens: total,
+                model_context_window: context_window,
+                output_tokens: Some(usage.output_tokens as u64),
+                cache_creation_tokens: None,
+                cache_read_tokens: Some(usage.cached_input_tokens as u64),
+                cost_microusd: None,
+                num_turns: None,
+                duration_ms: None,
+                max_output_tokens: None,
             }),
             content: format!(
                 "Tokens used: {} / Context window: {}",
-                notification.token_usage.last.total_tokens,
-                notification
-                    .token_usage
-                    .model_context_window
-                    .unwrap_or_default()
+                total, context_window
             ),
             metadata: None,
         },
@@ -2278,24 +2284,33 @@ pub fn normalize_logs(
                 }
                 EventMsg::TokenCount(payload) => {
                     if let Some(info) = payload.info {
+                        let total = info.last_token_usage.total_tokens as u64;
+                        let context_window = info.model_context_window.unwrap_or_default() as u64;
                         add_normalized_entry(
                             &msg_store,
                             &entry_index,
                             NormalizedEntry {
-                                timestamp: None,
+                                timestamp: Some(chrono::Utc::now().to_rfc3339()),
                                 entry_type: NormalizedEntryType::TokenUsageInfo(
                                     crate::logs::TokenUsageInfo {
-                                        total_tokens: info.last_token_usage.total_tokens as u32,
-                                        model_context_window: info
-                                            .model_context_window
-                                            .unwrap_or_default()
-                                            as u32,
+                                        total_tokens: total,
+                                        model_context_window: context_window,
+                                        output_tokens: Some(
+                                            info.last_token_usage.output_tokens as u64,
+                                        ),
+                                        cache_creation_tokens: None,
+                                        cache_read_tokens: Some(
+                                            info.last_token_usage.cached_input_tokens as u64,
+                                        ),
+                                        cost_microusd: None,
+                                        num_turns: None,
+                                        duration_ms: None,
+                                        max_output_tokens: None,
                                     },
                                 ),
                                 content: format!(
                                     "Tokens used: {} / Context window: {}",
-                                    info.last_token_usage.total_tokens,
-                                    info.model_context_window.unwrap_or_default()
+                                    total, context_window,
                                 ),
                                 metadata: None,
                             },
@@ -3107,5 +3122,19 @@ mod tests {
             }
             other => panic!("unexpected dynamic tool entry: {other:?}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod context_monitor_tests {
+    #[test]
+    fn test_codex_token_count_mapping() {
+        // cached_input_tokens → cache_read_tokens (not cache_creation_tokens)
+        let cached = 500i64;
+        let output = 200i64;
+        let cache_read_tokens = cached as u64;
+        let output_tokens = output as u64;
+        assert_eq!(cache_read_tokens, 500u64);
+        assert_eq!(output_tokens, 200u64);
     }
 }

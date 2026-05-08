@@ -224,6 +224,13 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   // Get entries early to extract pending approval for scratch key
   const { entries } = useEntries();
   const tokenUsageInfo = useTokenUsage();
+  // Convert bigint → number for the gauge (which expects ContextUsageInfo with number fields)
+  const contextUsageInfo = tokenUsageInfo
+    ? {
+        total_tokens: Number(tokenUsageInfo.total_tokens),
+        model_context_window: Number(tokenUsageInfo.model_context_window),
+      }
+    : null;
 
   // Extract user messages for turn navigation
   const userMessageTurns: TurnNavigationItem[] = useMemo(() => {
@@ -987,7 +994,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         status="idle"
         renderEditor={renderEditor}
         repoIds={repoIds}
-        tokenUsageInfo={tokenUsageInfo}
+        tokenUsageInfo={contextUsageInfo}
         supportsContextUsage={false}
         formatExecutorLabel={toPrettyCase}
         formatSessionDate={(createdAt) =>
@@ -1043,7 +1050,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       getActiveTurnPatchKey={getActiveTurnPatchKey}
       renderEditor={renderEditor}
       repoIds={repoIds}
-      tokenUsageInfo={tokenUsageInfo}
+      tokenUsageInfo={contextUsageInfo}
       supportsContextUsage={supportsContextUsage}
       formatExecutorLabel={toPrettyCase}
       formatSessionDate={(createdAt) =>

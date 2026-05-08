@@ -15,6 +15,10 @@ import {
 import type { WorkspaceWithSession } from '@/shared/types/attempt';
 import { parseDiffStats } from '@/shared/lib/diffStatsParser';
 import {
+  formatTokenCount,
+  formatMsDuration,
+} from '@/features/workspace-chat/model/sessionSummary';
+import {
   usePersistedExpanded,
   useUiPreferencesStore,
   RIGHT_MAIN_PANEL_MODES,
@@ -426,9 +430,77 @@ function DisplayConversationEntry(props: Props) {
       // The new design doesn't need the next action bar
       return null;
 
-    case 'token_usage_info':
-      // Displayed in the chat header as the context-usage gauge
-      return null;
+    case 'token_usage_info': {
+      const info = entryType as {
+        type: 'token_usage_info';
+      } & import('shared/types').TokenUsageInfo;
+      const entryTimestamp = entry.timestamp
+        ? new Date(entry.timestamp).toLocaleTimeString([], {
+            hour: 'numeric',
+            minute: '2-digit',
+          })
+        : null;
+
+      const total = Number(info.total_tokens);
+      const contextWindow = Number(info.model_context_window);
+      const contextPct =
+        contextWindow > 0 ? Math.round((total / contextWindow) * 100) : 0;
+
+      const output =
+        info.output_tokens != null ? Number(info.output_tokens) : null;
+      const cacheCreation =
+        info.cache_creation_tokens != null
+          ? Number(info.cache_creation_tokens)
+          : null;
+      const cacheRead =
+        info.cache_read_tokens != null ? Number(info.cache_read_tokens) : null;
+
+      let cacheRate: number | null = null;
+      if (output !== null && cacheCreation !== null && cacheRead !== null) {
+        const freshInput = total - output - cacheCreation - cacheRead;
+        const denominator = Math.max(0, freshInput) + cacheCreation + cacheRead;
+        if (denominator > 0)
+          cacheRate = Math.round((cacheRead / denominator) * 100);
+      }
+
+      const costUSD =
+        info.cost_microusd != null
+          ? (Number(info.cost_microusd) / 1_000_000).toFixed(2)
+          : null;
+
+      return (
+        <div className="flex flex-col gap-0.5 py-1 px-2 text-xs text-muted-foreground border-t border-border/40">
+          <div className="flex items-center gap-2">
+            <span className="font-medium">
+              {formatTokenCount(total)} / {formatTokenCount(contextWindow)} (
+              {contextPct}%)
+            </span>
+            {entryTimestamp && (
+              <span className="ml-auto opacity-60 tabular-nums">
+                {entryTimestamp}
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 opacity-70">
+            {output !== null && <span>↑ {formatTokenCount(output)} out</span>}
+            {cacheRate !== null && <span>⚡ {cacheRate}% cached</span>}
+            {costUSD !== null ? (
+              <span>${costUSD}</span>
+            ) : (
+              <span className="opacity-40">—</span>
+            )}
+            {info.num_turns != null && info.duration_ms != null ? (
+              <span>
+                {info.num_turns} turns ·{' '}
+                {formatMsDuration(Number(info.duration_ms))}
+              </span>
+            ) : (
+              <span className="opacity-40">—</span>
+            )}
+          </div>
+        </div>
+      );
+    }
 
     case 'user_feedback':
       return (

@@ -23,7 +23,11 @@ import { useScrollCommandExecutor } from '../model/useScrollCommandExecutor';
 
 import DisplayConversationEntry from './DisplayConversationEntry';
 import { ApprovalFormProvider } from '@/shared/hooks/ApprovalForm';
-import { useEntriesActions } from '../model/contexts/EntriesContext';
+import {
+  useEntriesActions,
+  useSetTokenUsageInfo,
+  useSetTokenUsageByProcess,
+} from '../model/contexts/EntriesContext';
 import {
   useResetProcess,
   type UseResetProcessResult,
@@ -39,7 +43,6 @@ import {
   isAggregatedThinkingGroup,
 } from '@/shared/hooks/useConversationHistory/types';
 import { useConversationHistory } from '../model/hooks/useConversationHistory';
-import { useSetTokenUsageInfo } from '../model/contexts/EntriesContext';
 import type { WorkspaceWithSession } from '@/shared/types/attempt';
 import type { RepoWithTargetBranch } from 'shared/types';
 import { ChatEmptyState } from '@vibe/ui/components/ChatEmptyState';
@@ -184,6 +187,7 @@ export const ConversationList = forwardRef<
   const lastSettledTailStartIndexRef = useRef<number | null>(null);
   const { setEntries, reset } = useEntriesActions();
   const setTokenUsageInfo = useSetTokenUsageInfo();
+  const setTokenUsageByProcess = useSetTokenUsageByProcess();
   const scriptOutputCacheRef = useRef<
     Map<string, { count: number; output: string }>
   >(new Map());
@@ -365,6 +369,7 @@ export const ConversationList = forwardRef<
     setHasCleanupScriptRun(derivedEntries.hasCleanupScriptRun);
     setHasRunningProcess(derivedEntries.hasRunningProcess);
     setTokenUsageInfo(derivedEntries.latestTokenUsageInfo);
+    setTokenUsageByProcess(derivedEntries.tokenUsageByProcess);
 
     const derivedTimeline = deriveConversationTimeline(
       derivedEntries.entries,

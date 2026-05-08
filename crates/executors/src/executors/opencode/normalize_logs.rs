@@ -84,18 +84,27 @@ pub(super) fn normalize_logs(
                     total_tokens,
                     model_context_window,
                 } => {
+                    let total = total_tokens as u64;
+                    let context_window = model_context_window as u64;
                     add_normalized_entry(
                         &msg_store,
                         &entry_index,
                         NormalizedEntry {
-                            timestamp: None,
+                            timestamp: Some(chrono::Utc::now().to_rfc3339()),
                             entry_type: NormalizedEntryType::TokenUsageInfo(TokenUsageInfo {
-                                total_tokens,
-                                model_context_window,
+                                total_tokens: total,
+                                model_context_window: context_window,
+                                output_tokens: None,
+                                cache_creation_tokens: None,
+                                cache_read_tokens: None,
+                                cost_microusd: None,
+                                num_turns: None,
+                                duration_ms: None,
+                                max_output_tokens: None,
                             }),
                             content: format!(
                                 "Tokens used: {} / Context window: {}",
-                                total_tokens, model_context_window
+                                total, context_window
                             ),
                             metadata: None,
                         },

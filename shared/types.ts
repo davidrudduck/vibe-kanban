@@ -423,6 +423,8 @@ export type RefreshRelaySigningSessionResponse = { signing_session_id: string, }
 
 export type CreateFollowUpAttempt = { prompt: string, executor_config: ExecutorConfig, retry_process_id: string | null, force_when_dirty: boolean | null, perform_git_reset: boolean | null, override_session_id: string | null, };
 
+export type FollowUpError = { "type": "process_already_running" };
+
 export type ResetProcessRequest = { process_id: string, force_when_dirty: boolean | null, perform_git_reset: boolean | null, };
 
 export type ChangeTargetBranchRequest = { repo_id: string, new_target_branch: string, };
@@ -859,7 +861,7 @@ export type NormalizedEntry = { timestamp: string | null, entry_type: Normalized
 
 export type NormalizedEntryType = { "type": "user_message" } | { "type": "user_feedback", denied_tool: string, } | { "type": "assistant_message" } | { "type": "tool_use", tool_name: string, action_type: ActionType, status: ToolStatus, } | { "type": "system_message" } | { "type": "error_message", error_type: NormalizedEntryError, } | { "type": "thinking" } | { "type": "loading" } | { "type": "next_action", failed: boolean, execution_processes: number, needs_setup: boolean, } | { "type": "token_usage_info" } & TokenUsageInfo | { "type": "user_answered_questions", answers: Array<AnsweredQuestion>, };
 
-export type TokenUsageInfo = { total_tokens: number, model_context_window: number, };
+export type TokenUsageInfo = { total_tokens: bigint, model_context_window: bigint, output_tokens?: bigint | null, cache_creation_tokens?: bigint | null, cache_read_tokens?: bigint | null, cost_microusd?: bigint | null, num_turns?: number | null, duration_ms?: bigint | null, max_output_tokens?: bigint | null, };
 
 export type FileChange = { "action": "write", content: string, } | { "action": "delete" } | { "action": "rename", new_path: string, } | { "action": "edit", 
 /**
