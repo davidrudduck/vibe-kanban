@@ -302,10 +302,7 @@ export function SharedAppLayout() {
           'bg-primary',
           isMobile
             ? 'flex fixed inset-0 pb-[env(safe-area-inset-bottom)]'
-            : cn(
-                'grid grid-cols-[auto_1fr] h-screen',
-                'grid-rows-[auto_1fr]'
-              )
+            : 'grid grid-cols-[auto_1fr] grid-rows-[auto_1fr] h-screen'
         )}
       >
         {!isMobile && (

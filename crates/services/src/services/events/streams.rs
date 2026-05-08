@@ -537,6 +537,7 @@ mod tests {
             &CreateWorkspace {
                 branch: "branch-1".into(),
                 name: Some("WS1".into()),
+                is_draft: false,
             },
             ws_id_1,
         )
@@ -574,6 +575,7 @@ mod tests {
             &CreateWorkspace {
                 branch: "branch-2".into(),
                 name: Some("WS2".into()),
+                is_draft: false,
             },
             ws_id_2,
         )
