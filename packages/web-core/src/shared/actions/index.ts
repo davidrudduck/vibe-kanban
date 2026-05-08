@@ -869,7 +869,6 @@ export const Actions = {
     },
   },
 
-
   // === Diff Actions for Navbar ===
   ToggleAllDiffs: {
     id: 'toggle-all-diffs',
