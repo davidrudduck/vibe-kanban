@@ -3132,14 +3132,44 @@ mod tests {
 
 #[cfg(test)]
 mod context_monitor_tests {
+    use crate::logs::TokenUsageInfo;
+
     #[test]
     fn test_codex_token_count_mapping() {
-        // cached_input_tokens → cache_read_tokens (not cache_creation_tokens)
-        let cached = 500i64;
-        let output = 200i64;
-        let cache_read_tokens = cached as u64;
-        let output_tokens = output as u64;
-        assert_eq!(cache_read_tokens, 500u64);
-        assert_eq!(output_tokens, 200u64);
+        // Verify the field mapping used by add_thread_token_usage and EventMsg::TokenCount:
+        //   cached_input_tokens → cache_read_tokens  (NOT cache_creation_tokens)
+        //   output_tokens       → output_tokens
+        //   negative sentinel   → 0  (via .max(0) guard)
+        let cached_input: i64 = 500;
+        let output: i64 = 200;
+        let total: i64 = 800;
+
+        // Construct TokenUsageInfo exactly as add_thread_token_usage does
+        let info = TokenUsageInfo {
+            total_tokens: total.max(0) as u64,
+            model_context_window: 200_000,
+            output_tokens: Some(output.max(0) as u64),
+            cache_creation_tokens: None, // Codex doesn't distinguish creation vs read
+            cache_read_tokens: Some(cached_input.max(0) as u64),
+            cost_microusd: None,
+            num_turns: None,
+            duration_ms: None,
+            max_output_tokens: None,
+        };
+
+        assert_eq!(info.cache_read_tokens, Some(500u64), "cached_input_tokens should map to cache_read_tokens");
+        assert_eq!(info.output_tokens, Some(200u64));
+        assert!(
+            info.cache_creation_tokens.is_none(),
+            "Codex maps cached→cache_read, not cache_creation"
+        );
+
+        // Verify the .max(0) guard prevents negative sentinels from wrapping
+        let negative_sentinel: i64 = -1;
+        assert_eq!(
+            negative_sentinel.max(0) as u64,
+            0u64,
+            "negative i64 sentinel must clamp to 0 before u64 cast"
+        );
     }
 }

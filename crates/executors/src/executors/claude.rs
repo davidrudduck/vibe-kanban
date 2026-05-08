@@ -1820,15 +1820,17 @@ impl ClaudeLogProcessor {
                     if parent_tool_use_id.is_none()
                         && let Some(usage) = usage
                     {
-                        let cache_creation = usage.cache_creation_input_tokens.unwrap_or(0);
-                        let cache_read = usage.cache_read_input_tokens.unwrap_or(0);
-                        let input_fresh = usage.input_tokens.unwrap_or(0);
-                        let output = usage.output_tokens.unwrap_or(0);
-                        let total_tokens = input_fresh + cache_creation + cache_read + output;
+                        // Preserve per-field Option<u64> so the UI can distinguish
+                        // "not reported by this event" from "reported as zero".
+                        // Only the running total uses unwrap_or(0).
+                        let total_tokens = usage.input_tokens.unwrap_or(0)
+                            + usage.cache_creation_input_tokens.unwrap_or(0)
+                            + usage.cache_read_input_tokens.unwrap_or(0)
+                            + usage.output_tokens.unwrap_or(0);
                         self.context_tokens_used = total_tokens;
-                        self.context_output_tokens = Some(output);
-                        self.context_cache_creation = Some(cache_creation);
-                        self.context_cache_read = Some(cache_read);
+                        self.context_output_tokens = usage.output_tokens;
+                        self.context_cache_creation = usage.cache_creation_input_tokens;
+                        self.context_cache_read = usage.cache_read_input_tokens;
 
                         patches.push(self.add_token_usage_entry(entry_index_provider));
                     }
@@ -1870,16 +1872,16 @@ impl ClaudeLogProcessor {
                 }) {
                     self.context_max_output_tokens = Some(max_out);
                 }
-                // NEW: capture usage fields from Result (may be more precise than streaming)
+                // NEW: capture usage fields from Result (may be more precise than streaming).
+                // Preserve per-field Option<u64>; only the running total uses unwrap_or(0).
                 if let Some(u) = usage.as_ref() {
-                    let cache_creation = u.cache_creation_input_tokens.unwrap_or(0);
-                    let cache_read = u.cache_read_input_tokens.unwrap_or(0);
-                    let input_fresh = u.input_tokens.unwrap_or(0);
-                    let output = u.output_tokens.unwrap_or(0);
-                    self.context_tokens_used = input_fresh + cache_creation + cache_read + output;
-                    self.context_output_tokens = Some(output);
-                    self.context_cache_creation = Some(cache_creation);
-                    self.context_cache_read = Some(cache_read);
+                    self.context_tokens_used = u.input_tokens.unwrap_or(0)
+                        + u.cache_creation_input_tokens.unwrap_or(0)
+                        + u.cache_read_input_tokens.unwrap_or(0)
+                        + u.output_tokens.unwrap_or(0);
+                    self.context_output_tokens = u.output_tokens;
+                    self.context_cache_creation = u.cache_creation_input_tokens;
+                    self.context_cache_read = u.cache_read_input_tokens;
                 }
                 // NEW: capture terminal-only fields
                 self.context_num_turns = *num_turns;
@@ -3496,7 +3498,21 @@ mod context_monitor_tests {
 
     #[test]
     fn test_streaming_fields_only() {
-        let delta_json = r#"{"type":"message_delta","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":0,"cache_read_input_tokens":200}}"#;
+        // The correct wire format for ClaudeJson::StreamEvent is:
+        //   {"type":"stream_event","event":{"type":"message_delta",...}}
+        // NOT bare {"type":"message_delta",...} which parses as ClaudeJson::Unknown.
+        let delta_json = r#"{
+            "type": "stream_event",
+            "event": {
+                "type": "message_delta",
+                "usage": {
+                    "input_tokens": 100,
+                    "output_tokens": 50,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 200
+                }
+            }
+        }"#;
         let parsed: ClaudeJson = serde_json::from_str(delta_json).unwrap();
         match parsed {
             ClaudeJson::StreamEvent {
@@ -3506,8 +3522,9 @@ mod context_monitor_tests {
                 let u = usage.unwrap();
                 assert!(u.input_tokens.is_some());
                 assert!(u.output_tokens.is_some());
+                // Terminal-only fields are absent from streaming MessageDelta events
             }
-            _ => {} // ok if parsed differently
+            other => panic!("Expected ClaudeJson::StreamEvent/MessageDelta, got {other:?}"),
         }
     }
 }

@@ -44,7 +44,38 @@ import {
 } from '@/shared/hooks/useConversationHistory/types';
 import { useConversationHistory } from '../model/hooks/useConversationHistory';
 import type { WorkspaceWithSession } from '@/shared/types/attempt';
-import type { RepoWithTargetBranch } from 'shared/types';
+import type { RepoWithTargetBranch, TokenUsageInfo } from 'shared/types';
+
+/** Shallow-structural equality for TokenUsageInfo (all fields are primitives or bigints). */
+function tokenUsageInfoEqual(a: TokenUsageInfo, b: TokenUsageInfo): boolean {
+  return (
+    a.total_tokens === b.total_tokens &&
+    a.model_context_window === b.model_context_window &&
+    a.output_tokens === b.output_tokens &&
+    a.cache_creation_tokens === b.cache_creation_tokens &&
+    a.cache_read_tokens === b.cache_read_tokens &&
+    a.cost_microusd === b.cost_microusd &&
+    a.num_turns === b.num_turns &&
+    a.duration_ms === b.duration_ms &&
+    a.max_output_tokens === b.max_output_tokens
+  );
+}
+
+/**
+ * Returns true when two token-usage maps have the same keys and identical field values.
+ * Used to skip no-op setTokenUsageByProcess calls during high-frequency streaming flushes.
+ */
+function tokenUsageMapsEqual(
+  prev: Map<string, TokenUsageInfo>,
+  next: Map<string, TokenUsageInfo>
+): boolean {
+  if (prev.size !== next.size) return false;
+  for (const [key, nextVal] of next) {
+    const prevVal = prev.get(key);
+    if (!prevVal || !tokenUsageInfoEqual(prevVal, nextVal)) return false;
+  }
+  return true;
+}
 import { ChatEmptyState } from '@vibe/ui/components/ChatEmptyState';
 import { ChatScriptPlaceholder } from '@vibe/ui/components/ChatScriptPlaceholder';
 import { ScriptFixerDialog } from '@/shared/dialogs/scripts/ScriptFixerDialog';
@@ -188,6 +219,13 @@ export const ConversationList = forwardRef<
   const { setEntries, reset } = useEntriesActions();
   const setTokenUsageInfo = useSetTokenUsageInfo();
   const setTokenUsageByProcess = useSetTokenUsageByProcess();
+  // Guard: only dispatch context update when the map content actually changed.
+  // deriveConversationEntries creates a new Map object every flush (~60fps during
+  // streaming), so referential equality is always false; semantic equality avoids
+  // spurious re-renders in SESSION MONITOR consumers.
+  const lastTokenUsageByProcessRef = useRef<Map<string, TokenUsageInfo>>(
+    new Map()
+  );
   const scriptOutputCacheRef = useRef<
     Map<string, { count: number; output: string }>
   >(new Map());
@@ -369,7 +407,15 @@ export const ConversationList = forwardRef<
     setHasCleanupScriptRun(derivedEntries.hasCleanupScriptRun);
     setHasRunningProcess(derivedEntries.hasRunningProcess);
     setTokenUsageInfo(derivedEntries.latestTokenUsageInfo);
-    setTokenUsageByProcess(derivedEntries.tokenUsageByProcess);
+    if (
+      !tokenUsageMapsEqual(
+        lastTokenUsageByProcessRef.current,
+        derivedEntries.tokenUsageByProcess
+      )
+    ) {
+      lastTokenUsageByProcessRef.current = derivedEntries.tokenUsageByProcess;
+      setTokenUsageByProcess(derivedEntries.tokenUsageByProcess);
+    }
 
     const derivedTimeline = deriveConversationTimeline(
       derivedEntries.entries,
