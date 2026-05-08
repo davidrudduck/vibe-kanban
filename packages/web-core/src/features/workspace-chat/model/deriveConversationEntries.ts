@@ -18,6 +18,7 @@ export interface DerivedConversationEntriesResult {
   readonly hasSetupScriptRun: boolean;
   readonly hasCleanupScriptRun: boolean;
   readonly latestTokenUsageInfo: TokenUsageInfo | null;
+  readonly tokenUsageByProcess: Map<string, TokenUsageInfo>;
 }
 
 interface DeriveConversationEntriesParams {
@@ -186,6 +187,7 @@ export function deriveConversationEntries({
   let needsSetup = false;
   let setupHelpText: string | undefined;
   let latestTokenUsageInfo: TokenUsageInfo | null = null;
+  const tokenUsageByProcess = new Map<string, TokenUsageInfo>();
   let hasSetupScriptRun = false;
   let hasCleanupScriptRun = false;
 
@@ -195,6 +197,7 @@ export function deriveConversationEntries({
     if (isAgentTurn(turn)) {
       if (turn.latestTokenUsageInfo) {
         latestTokenUsageInfo = turn.latestTokenUsageInfo;
+        tokenUsageByProcess.set(turn.key, turn.latestTokenUsageInfo);
       }
 
       if (turn.kind === 'agent_pending_approval') {
@@ -258,5 +261,6 @@ export function deriveConversationEntries({
     hasSetupScriptRun,
     hasCleanupScriptRun,
     latestTokenUsageInfo,
+    tokenUsageByProcess,
   };
 }

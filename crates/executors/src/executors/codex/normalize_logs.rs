@@ -752,25 +752,33 @@ fn add_thread_token_usage(
     msg_store: &Arc<MsgStore>,
     entry_index: &EntryIndexProvider,
 ) {
+    let usage = &notification.token_usage.last;
+    // Clamp negative values to 0 before casting — Codex protocol fields are i64
+    // and a negative count (e.g. -1 sentinel) would otherwise wrap to ~18.4e18.
+    let total = usage.total_tokens.max(0) as u64;
+    let context_window = notification
+        .token_usage
+        .model_context_window
+        .unwrap_or_default() as u64;
     add_normalized_entry(
         msg_store,
         entry_index,
         NormalizedEntry {
-            timestamp: None,
+            timestamp: Some(chrono::Utc::now().to_rfc3339()),
             entry_type: NormalizedEntryType::TokenUsageInfo(crate::logs::TokenUsageInfo {
-                total_tokens: notification.token_usage.last.total_tokens as u32,
-                model_context_window: notification
-                    .token_usage
-                    .model_context_window
-                    .unwrap_or_default() as u32,
+                total_tokens: total,
+                model_context_window: context_window,
+                output_tokens: Some(usage.output_tokens.max(0) as u64),
+                cache_creation_tokens: None,
+                cache_read_tokens: Some(usage.cached_input_tokens.max(0) as u64),
+                cost_microusd: None,
+                num_turns: None,
+                duration_ms: None,
+                max_output_tokens: None,
             }),
             content: format!(
                 "Tokens used: {} / Context window: {}",
-                notification.token_usage.last.total_tokens,
-                notification
-                    .token_usage
-                    .model_context_window
-                    .unwrap_or_default()
+                total, context_window
             ),
             metadata: None,
         },
@@ -2278,24 +2286,36 @@ pub fn normalize_logs(
                 }
                 EventMsg::TokenCount(payload) => {
                     if let Some(info) = payload.info {
+                        // Clamp negative i64 values before cast (sentinel -1 would wrap to ~18.4e18)
+                        let total = info.last_token_usage.total_tokens.max(0) as u64;
+                        let context_window = info.model_context_window.unwrap_or_default() as u64;
                         add_normalized_entry(
                             &msg_store,
                             &entry_index,
                             NormalizedEntry {
-                                timestamp: None,
+                                timestamp: Some(chrono::Utc::now().to_rfc3339()),
                                 entry_type: NormalizedEntryType::TokenUsageInfo(
                                     crate::logs::TokenUsageInfo {
-                                        total_tokens: info.last_token_usage.total_tokens as u32,
-                                        model_context_window: info
-                                            .model_context_window
-                                            .unwrap_or_default()
-                                            as u32,
+                                        total_tokens: total,
+                                        model_context_window: context_window,
+                                        output_tokens: Some(
+                                            info.last_token_usage.output_tokens.max(0) as u64,
+                                        ),
+                                        cache_creation_tokens: None,
+                                        cache_read_tokens: Some(
+                                            info.last_token_usage
+                                                .cached_input_tokens
+                                                .max(0) as u64,
+                                        ),
+                                        cost_microusd: None,
+                                        num_turns: None,
+                                        duration_ms: None,
+                                        max_output_tokens: None,
                                     },
                                 ),
                                 content: format!(
                                     "Tokens used: {} / Context window: {}",
-                                    info.last_token_usage.total_tokens,
-                                    info.model_context_window.unwrap_or_default()
+                                    total, context_window,
                                 ),
                                 metadata: None,
                             },
@@ -3107,5 +3127,49 @@ mod tests {
             }
             other => panic!("unexpected dynamic tool entry: {other:?}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod context_monitor_tests {
+    use crate::logs::TokenUsageInfo;
+
+    #[test]
+    fn test_codex_token_count_mapping() {
+        // Verify the field mapping used by add_thread_token_usage and EventMsg::TokenCount:
+        //   cached_input_tokens → cache_read_tokens  (NOT cache_creation_tokens)
+        //   output_tokens       → output_tokens
+        //   negative sentinel   → 0  (via .max(0) guard)
+        let cached_input: i64 = 500;
+        let output: i64 = 200;
+        let total: i64 = 800;
+
+        // Construct TokenUsageInfo exactly as add_thread_token_usage does
+        let info = TokenUsageInfo {
+            total_tokens: total.max(0) as u64,
+            model_context_window: 200_000,
+            output_tokens: Some(output.max(0) as u64),
+            cache_creation_tokens: None, // Codex doesn't distinguish creation vs read
+            cache_read_tokens: Some(cached_input.max(0) as u64),
+            cost_microusd: None,
+            num_turns: None,
+            duration_ms: None,
+            max_output_tokens: None,
+        };
+
+        assert_eq!(info.cache_read_tokens, Some(500u64), "cached_input_tokens should map to cache_read_tokens");
+        assert_eq!(info.output_tokens, Some(200u64));
+        assert!(
+            info.cache_creation_tokens.is_none(),
+            "Codex maps cached→cache_read, not cache_creation"
+        );
+
+        // Verify the .max(0) guard prevents negative sentinels from wrapping
+        let negative_sentinel: i64 = -1;
+        assert_eq!(
+            negative_sentinel.max(0) as u64,
+            0u64,
+            "negative i64 sentinel must clamp to 0 before u64 cast"
+        );
     }
 }

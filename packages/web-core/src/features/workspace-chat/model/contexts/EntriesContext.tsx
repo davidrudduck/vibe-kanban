@@ -2,6 +2,10 @@ import { useContext, useState, useMemo, useCallback, ReactNode } from 'react';
 import { createHmrContext } from '@/shared/lib/hmrContext';
 import type { PatchTypeWithKey } from '@/shared/hooks/useConversationHistory/types';
 import type { TokenUsageInfo } from 'shared/types';
+import {
+  aggregateSessionSummary,
+  type SessionSummary,
+} from '../sessionSummary';
 
 // ---------------------------------------------------------------------------
 // Entries context — changes on every streaming update
@@ -44,6 +48,25 @@ const TokenUsageContext = createHmrContext<TokenUsageContextType | null>(
 );
 
 // ---------------------------------------------------------------------------
+// Per-process token usage map — for aggregated SESSION panel
+// ---------------------------------------------------------------------------
+
+// SessionSummary type and aggregateSessionSummary function are imported from
+// ../sessionSummary (kept separate so they can be unit-tested without HMR context)
+export type { SessionSummary } from '../sessionSummary';
+export { aggregateSessionSummary } from '../sessionSummary';
+
+interface TokenUsageMapContextType {
+  tokenUsageByProcess: Map<string, TokenUsageInfo>;
+  setTokenUsageByProcess: (map: Map<string, TokenUsageInfo>) => void;
+}
+
+const TokenUsageMapContext = createHmrContext<TokenUsageMapContextType | null>(
+  'TokenUsageMapContext',
+  null
+);
+
+// ---------------------------------------------------------------------------
 // Provider — nested contexts, single component
 // ---------------------------------------------------------------------------
 
@@ -55,6 +78,9 @@ export const EntriesProvider = ({ children }: EntriesProviderProps) => {
   const [entries, setEntriesState] = useState<PatchTypeWithKey[]>([]);
   const [tokenUsageInfo, setTokenUsageInfoState] =
     useState<TokenUsageInfo | null>(null);
+  const [tokenUsageByProcess, setTokenUsageByProcessState] = useState<
+    Map<string, TokenUsageInfo>
+  >(new Map());
 
   const setEntries = useCallback((newEntries: PatchTypeWithKey[]) => {
     setEntriesState(newEntries);
@@ -64,9 +90,17 @@ export const EntriesProvider = ({ children }: EntriesProviderProps) => {
     setTokenUsageInfoState(info);
   }, []);
 
+  const setTokenUsageByProcess = useCallback(
+    (map: Map<string, TokenUsageInfo>) => {
+      setTokenUsageByProcessState(map);
+    },
+    []
+  );
+
   const reset = useCallback(() => {
     setEntriesState([]);
     setTokenUsageInfoState(null);
+    setTokenUsageByProcessState(new Map());
   }, []);
 
   const entriesValue = useMemo(
@@ -84,11 +118,18 @@ export const EntriesProvider = ({ children }: EntriesProviderProps) => {
     [tokenUsageInfo, setTokenUsageInfo]
   );
 
+  const tokenUsageMapValue = useMemo(
+    () => ({ tokenUsageByProcess, setTokenUsageByProcess }),
+    [tokenUsageByProcess, setTokenUsageByProcess]
+  );
+
   return (
     <EntriesActionsContext.Provider value={entriesActionsValue}>
       <EntriesContext.Provider value={entriesValue}>
         <TokenUsageContext.Provider value={tokenUsageValue}>
-          {children}
+          <TokenUsageMapContext.Provider value={tokenUsageMapValue}>
+            {children}
+          </TokenUsageMapContext.Provider>
         </TokenUsageContext.Provider>
       </EntriesContext.Provider>
     </EntriesActionsContext.Provider>
@@ -142,4 +183,35 @@ export const useSetTokenUsageInfo = (): ((
     );
   }
   return context.setTokenUsageInfo;
+};
+
+/**
+ * Returns the per-process token usage map.
+ * Safe to call outside EntriesProvider (returns empty Map, so SESSION MONITOR
+ * renders its "Telemetry not available" state rather than crashing).
+ */
+export const useTokenUsageByProcess = (): Map<string, TokenUsageInfo> => {
+  const context = useContext(TokenUsageMapContext);
+  return context?.tokenUsageByProcess ?? new Map();
+};
+
+const _noop = (_map: Map<string, TokenUsageInfo>) => {};
+
+/**
+ * Returns the setter for the per-process token usage map.
+ * Safe to call outside EntriesProvider (returns a no-op).
+ */
+export const useSetTokenUsageByProcess = (): ((
+  map: Map<string, TokenUsageInfo>
+) => void) => {
+  const context = useContext(TokenUsageMapContext);
+  return context?.setTokenUsageByProcess ?? _noop;
+};
+
+export const useSessionSummary = (): SessionSummary => {
+  const byProcess = useTokenUsageByProcess();
+  return useMemo(() => {
+    const entries = Array.from(byProcess.values());
+    return aggregateSessionSummary(entries);
+  }, [byProcess]);
 };

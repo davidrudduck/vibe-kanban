@@ -752,7 +752,7 @@ pub enum HistoryStrategy {
 }
 
 /// Default context window for models (used until we get actual value from result)
-const DEFAULT_CLAUDE_CONTEXT_WINDOW: u32 = 200_000;
+const DEFAULT_CLAUDE_CONTEXT_WINDOW: u64 = 200_000;
 
 /// Handles log processing and interpretation for Claude executor
 pub struct ClaudeLogProcessor {
@@ -766,8 +766,15 @@ pub struct ClaudeLogProcessor {
     last_assistant_message: Option<String>,
     // Main model name (excluding subagents). Only used internally for context window tracking.
     main_model_name: Option<String>,
-    main_model_context_window: u32,
-    context_tokens_used: u32,
+    main_model_context_window: u64,
+    context_tokens_used: u64,
+    context_output_tokens: Option<u64>,
+    context_cache_creation: Option<u64>,
+    context_cache_read: Option<u64>,
+    context_num_turns: Option<u32>,
+    context_duration_ms: Option<u64>,
+    context_cost_microusd: Option<u64>,
+    context_max_output_tokens: Option<u64>,
 }
 
 impl ClaudeLogProcessor {
@@ -787,6 +794,13 @@ impl ClaudeLogProcessor {
             last_assistant_message: None,
             main_model_context_window: DEFAULT_CLAUDE_CONTEXT_WINDOW,
             context_tokens_used: 0,
+            context_output_tokens: None,
+            context_cache_creation: None,
+            context_cache_read: None,
+            context_num_turns: None,
+            context_duration_ms: None,
+            context_cost_microusd: None,
+            context_max_output_tokens: None,
         }
     }
 
@@ -1806,12 +1820,17 @@ impl ClaudeLogProcessor {
                     if parent_tool_use_id.is_none()
                         && let Some(usage) = usage
                     {
-                        let input_tokens = usage.input_tokens.unwrap_or(0)
+                        // Preserve per-field Option<u64> so the UI can distinguish
+                        // "not reported by this event" from "reported as zero".
+                        // Only the running total uses unwrap_or(0).
+                        let total_tokens = usage.input_tokens.unwrap_or(0)
                             + usage.cache_creation_input_tokens.unwrap_or(0)
-                            + usage.cache_read_input_tokens.unwrap_or(0);
-                        let output_tokens = usage.output_tokens.unwrap_or(0);
-                        let total_tokens = input_tokens + output_tokens;
-                        self.context_tokens_used = total_tokens as u32;
+                            + usage.cache_read_input_tokens.unwrap_or(0)
+                            + usage.output_tokens.unwrap_or(0);
+                        self.context_tokens_used = total_tokens;
+                        self.context_output_tokens = usage.output_tokens;
+                        self.context_cache_creation = usage.cache_creation_input_tokens;
+                        self.context_cache_read = usage.cache_read_input_tokens;
 
                         patches.push(self.add_token_usage_entry(entry_index_provider));
                     }
@@ -1829,6 +1848,10 @@ impl ClaudeLogProcessor {
                 subtype,
                 result,
                 permission_denials,
+                num_turns,
+                duration_ms,
+                usage,
+                total_cost_usd,
                 ..
             } => {
                 // get the real model context window and correct the context usage entry
@@ -1839,8 +1862,38 @@ impl ClaudeLogProcessor {
                         .and_then(|usage| usage.context_window)
                 }) {
                     self.main_model_context_window = context_window;
-                    patches.push(self.add_token_usage_entry(entry_index_provider));
                 }
+                // NEW: capture max_output_tokens
+                if let Some(max_out) = model_usage.as_ref().and_then(|mu| {
+                    self.main_model_name
+                        .as_ref()
+                        .and_then(|name| mu.get(name))
+                        .and_then(|u| u.max_output_tokens)
+                }) {
+                    self.context_max_output_tokens = Some(max_out);
+                }
+                // NEW: capture usage fields from Result (may be more precise than streaming).
+                // Preserve per-field Option<u64>; only the running total uses unwrap_or(0).
+                if let Some(u) = usage.as_ref() {
+                    self.context_tokens_used = u.input_tokens.unwrap_or(0)
+                        + u.cache_creation_input_tokens.unwrap_or(0)
+                        + u.cache_read_input_tokens.unwrap_or(0)
+                        + u.output_tokens.unwrap_or(0);
+                    self.context_output_tokens = u.output_tokens;
+                    self.context_cache_creation = u.cache_creation_input_tokens;
+                    self.context_cache_read = u.cache_read_input_tokens;
+                }
+                // NEW: capture terminal-only fields
+                self.context_num_turns = *num_turns;
+                self.context_duration_ms = *duration_ms;
+                self.context_cost_microusd = total_cost_usd.and_then(|c| {
+                    if c >= 0.0 {
+                        Some((c * 1_000_000.0).round() as u64)
+                    } else {
+                        None
+                    }
+                });
+                patches.push(self.add_token_usage_entry(entry_index_provider));
 
                 if matches!(self.strategy, HistoryStrategy::AmpResume) && is_error.unwrap_or(false)
                 {
@@ -2117,10 +2170,17 @@ impl ClaudeLogProcessor {
         entry_index_provider: &EntryIndexProvider,
     ) -> json_patch::Patch {
         let entry = NormalizedEntry {
-            timestamp: None,
+            timestamp: Some(chrono::Utc::now().to_rfc3339()),
             entry_type: NormalizedEntryType::TokenUsageInfo(crate::logs::TokenUsageInfo {
                 total_tokens: self.context_tokens_used,
                 model_context_window: self.main_model_context_window,
+                output_tokens: self.context_output_tokens,
+                cache_creation_tokens: self.context_cache_creation,
+                cache_read_tokens: self.context_cache_read,
+                cost_microusd: self.context_cost_microusd,
+                num_turns: self.context_num_turns,
+                duration_ms: self.context_duration_ms,
+                max_output_tokens: self.context_max_output_tokens,
             }),
             content: format!(
                 "Tokens used: {} / Context window: {}",
@@ -2401,6 +2461,8 @@ pub enum ClaudeJson {
         usage: Option<ClaudeUsage>,
         #[serde(default, alias = "permissionDenials")]
         permission_denials: Option<Vec<serde_json::Value>>,
+        #[serde(default, alias = "totalCostUsd")]
+        total_cost_usd: Option<f64>,
     },
     ApprovalRequested {
         tool_call_id: String,
@@ -2575,7 +2637,9 @@ pub struct ClaudeUsage {
 #[serde(rename_all = "camelCase")]
 pub struct ClaudeModelUsage {
     #[serde(default)]
-    pub context_window: Option<u32>,
+    pub context_window: Option<u64>,
+    #[serde(default)]
+    pub max_output_tokens: Option<u64>,
 }
 
 /// Structured tool data for Claude tools based on real samples
@@ -2885,12 +2949,13 @@ mod tests {
         let parsed: ClaudeJson = serde_json::from_str(result_json).unwrap();
 
         let entries = normalize(&parsed, "");
-        assert_eq!(entries.len(), 1);
-        assert!(matches!(
-            entries[0].entry_type,
-            NormalizedEntryType::AssistantMessage
-        ));
-        assert_eq!(entries[0].content, "Final result");
+        // Result now always emits a TokenUsageInfo entry in addition to AssistantMessage
+        assert_eq!(entries.len(), 2);
+        let assistant_entry = entries
+            .iter()
+            .find(|e| matches!(e.entry_type, NormalizedEntryType::AssistantMessage));
+        assert!(assistant_entry.is_some());
+        assert_eq!(assistant_entry.unwrap().content, "Final result");
     }
 
     #[test]
@@ -3371,5 +3436,95 @@ mod tests {
         let control_request_json = r#"{"type":"control_request","request_id":"f559d907-b139-475b-addd-79c05591eb99","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"./gradlew :web:testApi","timeout":300000,"description":"Run API tests"},"permission_suggestions":[{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"./gradlew :web:testApi:"}],"behavior":"allow","destination":"localSettings"}],"tool_use_id":"toolu_014PR3WXsJfiftSCbjcjEbeM"}}"#;
         let parsed: ClaudeJson = serde_json::from_str(control_request_json).unwrap();
         assert!(matches!(parsed, ClaudeJson::ControlRequest { .. }));
+    }
+}
+
+#[cfg(test)]
+mod context_monitor_tests {
+    use super::*;
+
+    const RESULT_EVENT_JSON: &str = r#"{
+        "type": "result",
+        "subtype": "success",
+        "total_cost_usd": 1.0483108499999998,
+        "num_turns": 25,
+        "duration_ms": 240334,
+        "usage": {
+            "input_tokens": 72,
+            "cache_creation_input_tokens": 92799,
+            "cache_read_input_tokens": 2062762,
+            "output_tokens": 5418
+        },
+        "modelUsage": {
+            "claude-sonnet-4-6": {
+                "contextWindow": 400000,
+                "maxOutputTokens": 32000
+            }
+        }
+    }"#;
+
+    #[test]
+    fn test_result_event_cost_parsing() {
+        let parsed: ClaudeJson = serde_json::from_str(RESULT_EVENT_JSON).unwrap();
+        if let ClaudeJson::Result { total_cost_usd, .. } = parsed {
+            let cost_f = total_cost_usd.unwrap();
+            let cost_microusd = (cost_f * 1_000_000.0).round() as u64;
+            assert_eq!(cost_microusd, 1_048_311);
+        } else {
+            panic!("Expected ClaudeJson::Result");
+        }
+    }
+
+    #[test]
+    fn test_result_event_all_fields() {
+        let parsed: ClaudeJson = serde_json::from_str(RESULT_EVENT_JSON).unwrap();
+        if let ClaudeJson::Result {
+            num_turns,
+            duration_ms,
+            usage,
+            ..
+        } = parsed
+        {
+            assert_eq!(num_turns, Some(25));
+            assert_eq!(duration_ms, Some(240334));
+            let u = usage.unwrap();
+            assert_eq!(u.output_tokens, Some(5418));
+            assert_eq!(u.cache_creation_input_tokens, Some(92799));
+            assert_eq!(u.cache_read_input_tokens, Some(2062762));
+        } else {
+            panic!("Expected ClaudeJson::Result");
+        }
+    }
+
+    #[test]
+    fn test_streaming_fields_only() {
+        // The correct wire format for ClaudeJson::StreamEvent is:
+        //   {"type":"stream_event","event":{"type":"message_delta",...}}
+        // NOT bare {"type":"message_delta",...} which parses as ClaudeJson::Unknown.
+        let delta_json = r#"{
+            "type": "stream_event",
+            "event": {
+                "type": "message_delta",
+                "usage": {
+                    "input_tokens": 100,
+                    "output_tokens": 50,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 200
+                }
+            }
+        }"#;
+        let parsed: ClaudeJson = serde_json::from_str(delta_json).unwrap();
+        match parsed {
+            ClaudeJson::StreamEvent {
+                event: ClaudeStreamEvent::MessageDelta { usage, .. },
+                ..
+            } => {
+                let u = usage.unwrap();
+                assert!(u.input_tokens.is_some());
+                assert!(u.output_tokens.is_some());
+                // Terminal-only fields are absent from streaming MessageDelta events
+            }
+            other => panic!("Expected ClaudeJson::StreamEvent/MessageDelta, got {other:?}"),
+        }
     }
 }

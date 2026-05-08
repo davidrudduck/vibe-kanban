@@ -319,7 +319,10 @@ export function MaintenancePanel() {
                     onClick={() =>
                       // Route exists in local-web; cast avoids remote-web router type mismatch
                       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      (navigate as any)({ to: '/workspaces/$workspaceId', params: { workspaceId: item.id } })
+                      (navigate as any)({
+                        to: '/workspaces/$workspaceId',
+                        params: { workspaceId: item.id },
+                      })
                     }
                   >
                     {item.name ?? 'Unnamed workspace'}
@@ -454,7 +457,10 @@ export function MaintenancePanel() {
                     // Route exists in local-web; cast avoids remote-web router type mismatch
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    (navigate as any)({ to: '/workspaces/$workspaceId', params: { workspaceId: item.workspace_id } })
+                    (navigate as any)({
+                      to: '/workspaces/$workspaceId',
+                      params: { workspaceId: item.workspace_id },
+                    })
                   }
                 >
                   {item.workspace_name ?? 'Unnamed workspace'}

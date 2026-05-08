@@ -256,6 +256,8 @@ export const PERSIST_KEYS = {
   terminalSection: 'terminal-section',
   // Notes panel section
   notesSection: 'notes-section',
+  // Session monitor panel section
+  sessionMonitorSection: 'session-monitor-section',
   // GitHub comments toggle
   showGitHubComments: 'show-github-comments',
   // Panel sizes
@@ -295,6 +297,7 @@ export type PersistKey =
   | typeof PERSIST_KEYS.kanbanIssueSubIssues
   | typeof PERSIST_KEYS.kanbanIssueRelationships
   | typeof PERSIST_KEYS.kanbanIssueAttachments
+  | typeof PERSIST_KEYS.sessionMonitorSection
   | `repo-card-${string}`
   | `diff:${string}`
   | `edit:${string}`

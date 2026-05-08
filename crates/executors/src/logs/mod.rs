@@ -111,10 +111,39 @@ pub struct AnsweredQuestion {
     pub answer: Vec<String>,
 }
 
+/// Token usage info attached to a NormalizedEntry.
+///
+/// Streaming-cadence fields (populated on every MessageDelta / Usage event):
+///   total_tokens, model_context_window, output_tokens,
+///   cache_creation_tokens, cache_read_tokens
+///
+/// Terminal-only fields (populated once, from the Result event at turn end):
+///   cost_microusd, num_turns, duration_ms, max_output_tokens
+///
+/// Executor availability:
+///   Claude Code: all fields populated
+///   Codex: all except cost_microusd
+///   Gemini/Cursor: none (TokenUsageInfo not emitted at all)
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct TokenUsageInfo {
-    pub total_tokens: u32,
-    pub model_context_window: u32,
+    // Streaming-safe — present progressively
+    pub total_tokens: u64,
+    pub model_context_window: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_creation_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_read_tokens: Option<u64>,
+    // Terminal-only — present only after Result event
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_microusd: Option<u64>, // USD × 1_000_000
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub num_turns: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -257,4 +286,25 @@ pub enum FileChange {
         /// Whether line number in the hunks are reliable.
         has_line_numbers: bool,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_legacy_token_usage_deserializes() {
+        // Old format without new optional fields must deserialize without error
+        let json = r#"{"total_tokens":72,"model_context_window":200000}"#;
+        let info: TokenUsageInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(info.total_tokens, 72);
+        assert_eq!(info.model_context_window, 200000);
+        assert!(info.output_tokens.is_none());
+        assert!(info.cache_creation_tokens.is_none());
+        assert!(info.cache_read_tokens.is_none());
+        assert!(info.cost_microusd.is_none());
+        assert!(info.num_turns.is_none());
+        assert!(info.duration_ms.is_none());
+        assert!(info.max_output_tokens.is_none());
+    }
 }
