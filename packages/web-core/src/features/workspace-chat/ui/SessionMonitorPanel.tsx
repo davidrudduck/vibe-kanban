@@ -18,28 +18,37 @@ export function SessionMonitorPanel() {
     );
   }
 
-  const contextPct =
-    summary.contextWindow > 0
-      ? Math.round((summary.contextTokens / summary.contextWindow) * 100)
-      : 0;
+  const contextWindowKnown = summary.contextWindow > 0;
+  const contextPct = contextWindowKnown
+    ? Math.min(100, Math.round((summary.contextTokens / summary.contextWindow) * 100))
+    : null;
 
   return (
     <div className="flex flex-col gap-3 p-3 text-xs">
       {/* Context */}
       <div>
         <p className="font-medium text-foreground mb-1.5">Context</p>
-        <div className="flex items-center gap-2">
-          <div className="flex-1 bg-muted rounded-full h-1.5 overflow-hidden">
-            <div
-              className="bg-primary h-full rounded-full transition-all duration-300"
-              style={{ width: `${Math.min(contextPct, 100)}%` }}
-            />
+        {contextWindowKnown ? (
+          <div className="flex items-center gap-2">
+            <div className="flex-1 bg-muted rounded-full h-1.5 overflow-hidden">
+              <div
+                className="bg-primary h-full rounded-full transition-all duration-300"
+                style={{ width: `${contextPct}%` }}
+              />
+            </div>
+            <span className="text-muted-foreground whitespace-nowrap tabular-nums">
+              {contextPct}% · {formatTokens(summary.contextTokens)}/
+              {formatTokens(summary.contextWindow)}
+            </span>
           </div>
-          <span className="text-muted-foreground whitespace-nowrap tabular-nums">
-            {contextPct}% · {formatTokens(summary.contextTokens)}/
-            {formatTokens(summary.contextWindow)}
-          </span>
-        </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <div className="flex-1 bg-muted rounded-full h-1.5" />
+            <span className="text-muted-foreground whitespace-nowrap tabular-nums">
+              {formatTokens(summary.contextTokens)} used · window unknown
+            </span>
+          </div>
+        )}
         {summary.maxOutputTokens !== null && (
           <p className="text-muted-foreground mt-1">
             Max output: {formatTokens(summary.maxOutputTokens)}

@@ -753,7 +753,9 @@ fn add_thread_token_usage(
     entry_index: &EntryIndexProvider,
 ) {
     let usage = &notification.token_usage.last;
-    let total = usage.total_tokens as u64;
+    // Clamp negative values to 0 before casting — Codex protocol fields are i64
+    // and a negative count (e.g. -1 sentinel) would otherwise wrap to ~18.4e18.
+    let total = usage.total_tokens.max(0) as u64;
     let context_window = notification
         .token_usage
         .model_context_window
@@ -766,9 +768,9 @@ fn add_thread_token_usage(
             entry_type: NormalizedEntryType::TokenUsageInfo(crate::logs::TokenUsageInfo {
                 total_tokens: total,
                 model_context_window: context_window,
-                output_tokens: Some(usage.output_tokens as u64),
+                output_tokens: Some(usage.output_tokens.max(0) as u64),
                 cache_creation_tokens: None,
-                cache_read_tokens: Some(usage.cached_input_tokens as u64),
+                cache_read_tokens: Some(usage.cached_input_tokens.max(0) as u64),
                 cost_microusd: None,
                 num_turns: None,
                 duration_ms: None,
@@ -2284,7 +2286,8 @@ pub fn normalize_logs(
                 }
                 EventMsg::TokenCount(payload) => {
                     if let Some(info) = payload.info {
-                        let total = info.last_token_usage.total_tokens as u64;
+                        // Clamp negative i64 values before cast (sentinel -1 would wrap to ~18.4e18)
+                        let total = info.last_token_usage.total_tokens.max(0) as u64;
                         let context_window = info.model_context_window.unwrap_or_default() as u64;
                         add_normalized_entry(
                             &msg_store,
@@ -2296,11 +2299,13 @@ pub fn normalize_logs(
                                         total_tokens: total,
                                         model_context_window: context_window,
                                         output_tokens: Some(
-                                            info.last_token_usage.output_tokens as u64,
+                                            info.last_token_usage.output_tokens.max(0) as u64,
                                         ),
                                         cache_creation_tokens: None,
                                         cache_read_tokens: Some(
-                                            info.last_token_usage.cached_input_tokens as u64,
+                                            info.last_token_usage
+                                                .cached_input_tokens
+                                                .max(0) as u64,
                                         ),
                                         cost_microusd: None,
                                         num_turns: None,

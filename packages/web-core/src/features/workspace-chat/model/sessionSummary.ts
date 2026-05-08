@@ -71,12 +71,11 @@ export function aggregateSessionSummary(
   const maxOutputTokens =
     latest.max_output_tokens != null ? Number(latest.max_output_tokens) : null;
 
-  // Cumulative sums across all processes
+  // Cumulative sums across all processes (additive quantities only)
   let outputTokens: number | null = null;
   let cacheCreationTokens: number | null = null;
   let cacheReadTokens: number | null = null;
   let costMicroUSD: bigint | null = null;
-  let numTurns: number | null = null;
   let durationMs: number | null = null;
 
   for (const info of entries) {
@@ -93,9 +92,6 @@ export function aggregateSessionSummary(
     if (info.cost_microusd != null) {
       costMicroUSD = (costMicroUSD ?? 0n) + info.cost_microusd;
     }
-    if (info.num_turns != null) {
-      numTurns = (numTurns ?? 0) + info.num_turns;
-    }
     if (info.duration_ms != null) {
       durationMs = (durationMs ?? 0) + Number(info.duration_ms);
     }
@@ -104,21 +100,36 @@ export function aggregateSessionSummary(
   const costUSD =
     costMicroUSD != null ? Number(costMicroUSD) / 1_000_000 : null;
 
-  // Cache hit rate: cacheRead / (freshInput + cacheCreation + cacheRead)
-  // freshInput = total - output - cacheCreation - cacheRead
-  // Guard: return null when denominator is 0
+  // num_turns: use LATEST process only.
+  // Claude's num_turns in the Result event already counts all turns in the
+  // conversation (including resumed turns), so summing across processes
+  // would double-count. Latest process wins.
+  const numTurns = latest.num_turns ?? null;
+
+  // Cache hit rate: computed from LATEST process snapshot only.
+  // Mixing latest-process contextTokens with cumulative cache sums produces
+  // a dimensionally inconsistent denominator in multi-process sessions.
+  // Using only the latest entry's own fields keeps the calculation coherent.
   let cacheHitRate: number | null = null;
+  const latestOutput =
+    latest.output_tokens != null ? Number(latest.output_tokens) : null;
+  const latestCacheCreation =
+    latest.cache_creation_tokens != null
+      ? Number(latest.cache_creation_tokens)
+      : null;
+  const latestCacheRead =
+    latest.cache_read_tokens != null ? Number(latest.cache_read_tokens) : null;
   if (
-    cacheReadTokens !== null &&
-    cacheCreationTokens !== null &&
-    outputTokens !== null
+    latestCacheRead !== null &&
+    latestCacheCreation !== null &&
+    latestOutput !== null
   ) {
     const freshInput =
-      contextTokens - outputTokens - cacheCreationTokens - cacheReadTokens;
+      contextTokens - latestOutput - latestCacheCreation - latestCacheRead;
     const denominator =
-      Math.max(0, freshInput) + cacheCreationTokens + cacheReadTokens;
+      Math.max(0, freshInput) + latestCacheCreation + latestCacheRead;
     if (denominator > 0) {
-      cacheHitRate = Math.round((cacheReadTokens / denominator) * 100);
+      cacheHitRate = Math.round((latestCacheRead / denominator) * 100);
     }
   }
 

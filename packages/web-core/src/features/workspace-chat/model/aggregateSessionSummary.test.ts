@@ -11,7 +11,7 @@ describe('aggregateSessionSummary', () => {
     expect(summary.cacheHitRate).toBeNull();
   });
 
-  it('sums cost and turns across multiple processes', () => {
+  it('sums cost/duration across processes; uses latest for turns and context', () => {
     const process1: TokenUsageInfo = {
       total_tokens: 1000n,
       model_context_window: 200000n,
@@ -27,7 +27,9 @@ describe('aggregateSessionSummary', () => {
       total_tokens: 2000n,
       model_context_window: 200000n,
       cost_microusd: 300000n, // $0.30
-      num_turns: 5,
+      // Claude's num_turns already counts all turns in the conversation,
+      // including resumed turns — latest value wins (not a sum).
+      num_turns: 15,
       duration_ms: 30000n,
       output_tokens: 100n,
       cache_creation_tokens: null,
@@ -35,13 +37,15 @@ describe('aggregateSessionSummary', () => {
       max_output_tokens: null,
     };
     const summary = aggregateSessionSummary([process1, process2]);
+    // Cost and duration are summed (additive across processes)
     expect(summary.costUSD).toBeCloseTo(0.8);
-    expect(summary.numTurns).toBe(15);
     expect(summary.durationMs).toBe(90000);
+    // num_turns uses latest process only (not cumulative sum)
+    expect(summary.numTurns).toBe(15);
     // context fields come from latest process
     expect(summary.contextTokens).toBe(2000);
     expect(summary.contextWindow).toBe(200000);
-    // summed output
+    // output tokens are summed
     expect(summary.outputTokens).toBe(300);
   });
 

@@ -185,24 +185,27 @@ export const useSetTokenUsageInfo = (): ((
   return context.setTokenUsageInfo;
 };
 
+/**
+ * Returns the per-process token usage map.
+ * Safe to call outside EntriesProvider (returns empty Map, so SESSION MONITOR
+ * renders its "Telemetry not available" state rather than crashing).
+ */
 export const useTokenUsageByProcess = (): Map<string, TokenUsageInfo> => {
   const context = useContext(TokenUsageMapContext);
-  if (!context)
-    throw new Error(
-      'useTokenUsageByProcess must be used within an EntriesProvider'
-    );
-  return context.tokenUsageByProcess;
+  return context?.tokenUsageByProcess ?? new Map();
 };
 
+const _noop = (_map: Map<string, TokenUsageInfo>) => {};
+
+/**
+ * Returns the setter for the per-process token usage map.
+ * Safe to call outside EntriesProvider (returns a no-op).
+ */
 export const useSetTokenUsageByProcess = (): ((
   map: Map<string, TokenUsageInfo>
 ) => void) => {
   const context = useContext(TokenUsageMapContext);
-  if (!context)
-    throw new Error(
-      'useSetTokenUsageByProcess must be used within an EntriesProvider'
-    );
-  return context.setTokenUsageByProcess;
+  return context?.setTokenUsageByProcess ?? _noop;
 };
 
 export const useSessionSummary = (): SessionSummary => {
