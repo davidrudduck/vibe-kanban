@@ -15,7 +15,7 @@ use crate::{
 /// ACP client that handles agent-client protocol communication
 #[derive(Clone)]
 pub struct AcpClient {
-    event_tx: mpsc::UnboundedSender<AcpEvent>,
+    event_tx: mpsc::Sender<AcpEvent>,
     approvals: Option<Arc<dyn ExecutorApprovalService>>,
     feedback_queue: Arc<Mutex<Vec<String>>>,
     cancel: CancellationToken,
@@ -24,7 +24,7 @@ pub struct AcpClient {
 impl AcpClient {
     /// Create a new ACP client
     pub fn new(
-        event_tx: mpsc::UnboundedSender<AcpEvent>,
+        event_tx: mpsc::Sender<AcpEvent>,
         approvals: Option<Arc<dyn ExecutorApprovalService>>,
         cancel: CancellationToken,
     ) -> Self {
@@ -37,13 +37,36 @@ impl AcpClient {
     }
 
     pub fn record_user_prompt_event(&self, prompt: &str) {
-        self.send_event(AcpEvent::User(prompt.to_string()));
+        // User prompts are transcript-class and high-volume; dropping under
+        // sustained backpressure is acceptable.
+        self.send_transcript_event(AcpEvent::User(prompt.to_string()));
     }
 
-    /// Send an event to the event channel
-    fn send_event(&self, event: AcpEvent) {
-        if let Err(e) = self.event_tx.send(event) {
-            warn!("Failed to send ACP event: {}", e);
+    /// Send a transcript-class event (e.g. model text chunks, tool updates).
+    /// Uses `try_send` so producers are never blocked by a slow forwarder;
+    /// the event is dropped with a `warn!` if the channel is full.
+    fn send_transcript_event(&self, event: AcpEvent) {
+        match self.event_tx.try_send(event) {
+            Ok(()) => {}
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                warn!("ACP event channel full; dropping transcript event");
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                // Receiver dropped — happens during shutdown. Quiet.
+            }
+        }
+    }
+
+    /// Send a control-class event (approval signals, session start/done,
+    /// errors). These drive cancellation, completion, and approval flow; a
+    /// dropped control event leaves the session in a stuck/wrong state. Uses
+    /// `send().await` to apply backpressure rather than dropping on full.
+    async fn send_control_event(&self, event: AcpEvent) {
+        if let Err(e) = self.event_tx.send(event).await {
+            warn!(
+                "Failed to send ACP control event (receiver closed): {}",
+                e
+            );
         }
     }
 
@@ -69,7 +92,8 @@ impl acp::Client for AcpClient {
         &self,
         args: acp::RequestPermissionRequest,
     ) -> Result<acp::RequestPermissionResponse, acp::Error> {
-        self.send_event(AcpEvent::RequestPermission(args.clone()));
+        self.send_control_event(AcpEvent::RequestPermission(args.clone()))
+            .await;
 
         if self.approvals.is_none() {
             // Auto-approve with best available option when no approval service is configured
@@ -107,20 +131,21 @@ impl acp::Client for AcpClient {
 
         let approval_id = match approval_service.create_tool_approval(tool_name).await {
             Ok(id) => id,
-            Err(err) => return self.handle_approval_error(err, &tool_call_id),
+            Err(err) => return self.handle_approval_error(err, &tool_call_id).await,
         };
 
-        self.send_event(AcpEvent::ApprovalRequested {
+        self.send_control_event(AcpEvent::ApprovalRequested {
             tool_call_id: tool_call_id.clone(),
             approval_id: approval_id.clone(),
-        });
+        })
+        .await;
 
         let status = match approval_service
             .wait_tool_approval(&approval_id, self.cancel.clone())
             .await
         {
             Ok(s) => s,
-            Err(err) => return self.handle_approval_error(err, &tool_call_id),
+            Err(err) => return self.handle_approval_error(err, &tool_call_id).await,
         };
 
         // Map our ApprovalStatus to ACP outcome
@@ -168,10 +193,11 @@ impl acp::Client for AcpClient {
             }
         };
 
-        self.send_event(AcpEvent::ApprovalResponse(ApprovalResponse {
+        self.send_control_event(AcpEvent::ApprovalResponse(ApprovalResponse {
             tool_call_id: tool_call_id.clone(),
             status: status.clone(),
-        }));
+        }))
+        .await;
 
         Ok(acp::RequestPermissionResponse::new(outcome))
     }
@@ -188,7 +214,8 @@ impl acp::Client for AcpClient {
         };
 
         if let Some(event) = event {
-            self.send_event(event);
+            // All variants emitted here are transcript-class chunks.
+            self.send_transcript_event(event);
         }
 
         Ok(())
@@ -256,7 +283,7 @@ impl acp::Client for AcpClient {
 }
 
 impl AcpClient {
-    fn handle_approval_error(
+    async fn handle_approval_error(
         &self,
         err: ExecutorApprovalError,
         tool_call_id: &str,
@@ -271,11 +298,76 @@ impl AcpClient {
                 "ACP approval wait failed for tool_call_id={}: {err}",
                 tool_call_id
             );
-            self.send_event(AcpEvent::ApprovalResponse(ApprovalResponse {
+            self.send_control_event(AcpEvent::ApprovalResponse(ApprovalResponse {
                 tool_call_id: tool_call_id.to_string(),
                 status: ApprovalStatus::TimedOut,
-            }));
+            }))
+            .await;
             Err(acp::Error::internal_error())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn transcript_event_drops_when_channel_full_instead_of_blocking() {
+        // Build a bounded event channel with capacity 2. Transcript events
+        // (User in this case) must drop on full without blocking the producer.
+        let (tx, mut rx) = mpsc::channel::<AcpEvent>(2);
+        let client = AcpClient::new(tx, None, CancellationToken::new());
+
+        client.record_user_prompt_event("a");
+        client.record_user_prompt_event("b");
+        // No recv yet; channel is full. Third call must not deadlock the test.
+        client.record_user_prompt_event("c");
+
+        let mut count = 0;
+        while rx.try_recv().is_ok() {
+            count += 1;
+        }
+        assert_eq!(count, 2, "exactly two transcript events should reach the receiver");
+    }
+
+    #[tokio::test]
+    async fn control_event_waits_for_capacity_instead_of_dropping() {
+        // Capacity 1. Fill it with a transcript event so the channel is full.
+        // A control event sent into the full channel must NOT silently drop —
+        // it must wait for the receiver to drain.
+        let (tx, mut rx) = mpsc::channel::<AcpEvent>(1);
+        let client = AcpClient::new(tx, None, CancellationToken::new());
+        client.record_user_prompt_event("first");
+
+        // The send_control_event call should not complete within a short
+        // window — it's parked waiting for capacity. A bug (try_send-style
+        // drop) would make this complete immediately.
+        let timed_out = tokio::time::timeout(
+            Duration::from_millis(50),
+            client.send_control_event(AcpEvent::Done("ok".to_string())),
+        )
+        .await
+        .is_err();
+        assert!(timed_out, "send_control_event must block when channel is full");
+
+        // When the timeout fired, the in-flight `send` future inside
+        // `send_control_event` was dropped, which cancels the pending send —
+        // the Done event never made it into the channel. Drain the User event
+        // we put there at the start of the test.
+        match rx.try_recv() {
+            Ok(AcpEvent::User(s)) => assert_eq!(s, "first"),
+            other => panic!("expected User, got {other:?}"),
+        }
+        // Issue a fresh `send_control_event` on the now-empty channel; this is
+        // a new send (not a resumption of the cancelled one) and should
+        // complete immediately.
+        client.send_control_event(AcpEvent::Done("ok".to_string())).await;
+        match rx.try_recv() {
+            Ok(AcpEvent::Done(s)) => assert_eq!(s, "ok"),
+            other => panic!("expected Done, got {other:?}"),
         }
     }
 }

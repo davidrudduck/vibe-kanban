@@ -2303,9 +2303,7 @@ pub fn normalize_logs(
                                         ),
                                         cache_creation_tokens: None,
                                         cache_read_tokens: Some(
-                                            info.last_token_usage
-                                                .cached_input_tokens
-                                                .max(0) as u64,
+                                            info.last_token_usage.cached_input_tokens.max(0) as u64,
                                         ),
                                         cost_microusd: None,
                                         num_turns: None,
@@ -3157,7 +3155,11 @@ mod context_monitor_tests {
             max_output_tokens: None,
         };
 
-        assert_eq!(info.cache_read_tokens, Some(500u64), "cached_input_tokens should map to cache_read_tokens");
+        assert_eq!(
+            info.cache_read_tokens,
+            Some(500u64),
+            "cached_input_tokens should map to cache_read_tokens"
+        );
         assert_eq!(info.output_tokens, Some(200u64));
         assert!(
             info.cache_creation_tokens.is_none(),

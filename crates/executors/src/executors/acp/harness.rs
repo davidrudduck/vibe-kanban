@@ -28,6 +28,53 @@ use crate::{
     executors::{ExecutorError, ExecutorExitResult, SpawnedChild, acp::AcpEvent},
 };
 
+/// Capacity of the bounded log-forwarding channel used by the ACP harness.
+///
+/// Picked so that bursts of model output rarely back-pressure, but a stuck
+/// stdout writer can't grow the queue without bound.
+const ACP_LOG_CHANNEL_CAPACITY: usize = 2048;
+
+/// Capacity of the bounded ACP event channel that carries typed protocol events
+/// from the ACP client to the event-forwarder task in the harness.
+const ACP_EVENT_CHANNEL_CAPACITY: usize = 2048;
+
+/// Outcome of an attempt to enqueue a log line on the harness log channel.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum LogSendOutcome {
+    Sent,
+    DroppedFull,
+    DroppedClosed,
+}
+
+/// Sender side of the harness log channel.
+///
+/// Wraps a bounded `mpsc::Sender<String>` with `try_send` semantics: if the
+/// channel is full we drop the line and emit a `warn!` rather than blocking
+/// the producer (which would couple model-output throughput to log-writer
+/// throughput).
+#[derive(Clone)]
+pub(crate) struct LogSender {
+    tx: mpsc::Sender<String>,
+}
+
+impl LogSender {
+    pub(crate) fn new(capacity: usize) -> (Self, mpsc::Receiver<String>) {
+        let (tx, rx) = mpsc::channel(capacity);
+        (Self { tx }, rx)
+    }
+
+    pub(crate) fn send(&self, line: String) -> LogSendOutcome {
+        match self.tx.try_send(line) {
+            Ok(()) => LogSendOutcome::Sent,
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                tracing::warn!("ACP log channel full; dropping log line");
+                LogSendOutcome::DroppedFull
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => LogSendOutcome::DroppedClosed,
+        }
+    }
+}
+
 /// Reusable harness for ACP-based conns (Gemini, Qwen, etc.)
 pub struct AcpAgentHarness {
     session_namespace: String,
@@ -219,7 +266,7 @@ impl AcpAgentHarness {
         // Create a fresh stdout pipe for logs
         let writer = crate::stdout_dup::create_stdout_pipe_writer(child)?;
         let shared_writer = Arc::new(tokio::sync::Mutex::new(writer));
-        let (log_tx, mut log_rx) = mpsc::unbounded_channel::<String>();
+        let (log_tx, mut log_rx) = LogSender::new(ACP_LOG_CHANNEL_CAPACITY);
 
         // Spawn log -> stdout writer task
         tokio::spawn(async move {
@@ -302,8 +349,11 @@ impl AcpAgentHarness {
                     .run_until(async move {
                         // Create event and raw channels
                         // Typed events available for future use; raw lines forwarded and persisted
-                        let (event_tx, mut event_rx) =
-                            mpsc::unbounded_channel::<crate::executors::acp::AcpEvent>();
+                        let (event_tx, mut event_rx) = mpsc::channel::<
+                            crate::executors::acp::AcpEvent,
+                        >(
+                            ACP_EVENT_CHANNEL_CAPACITY
+                        );
 
                         // Create session manager
                         let session_manager = match SessionManager::new(session_namespace) {
@@ -545,5 +595,36 @@ impl AcpAgentHarness {
         });
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn log_sender_delivers_lines_under_capacity() {
+        let (tx, mut rx) = LogSender::new(4);
+        assert_eq!(tx.send("a".into()), LogSendOutcome::Sent);
+        assert_eq!(tx.send("b".into()), LogSendOutcome::Sent);
+        assert_eq!(rx.recv().await.as_deref(), Some("a"));
+        assert_eq!(rx.recv().await.as_deref(), Some("b"));
+    }
+
+    #[tokio::test]
+    async fn log_sender_drops_when_full_instead_of_blocking() {
+        let (tx, _rx) = LogSender::new(2);
+        assert_eq!(tx.send("a".into()), LogSendOutcome::Sent);
+        assert_eq!(tx.send("b".into()), LogSendOutcome::Sent);
+        // Receiver never recv()s; channel is full. Producer must not block.
+        assert_eq!(tx.send("c".into()), LogSendOutcome::DroppedFull);
+        assert_eq!(tx.send("d".into()), LogSendOutcome::DroppedFull);
+    }
+
+    #[tokio::test]
+    async fn log_sender_reports_closed_when_receiver_dropped() {
+        let (tx, rx) = LogSender::new(8);
+        drop(rx);
+        assert_eq!(tx.send("a".into()), LogSendOutcome::DroppedClosed);
     }
 }
