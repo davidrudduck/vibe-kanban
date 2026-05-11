@@ -383,6 +383,7 @@ fn generate_mock_logs(prompt: &str) -> Vec<String> {
             model_usage: None,
             usage: None,
             permission_denials: None,
+            total_cost_usd: None,
         },
     ];
 

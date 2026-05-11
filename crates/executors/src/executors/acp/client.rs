@@ -15,7 +15,7 @@ use crate::{
 /// ACP client that handles agent-client protocol communication
 #[derive(Clone)]
 pub struct AcpClient {
-    event_tx: mpsc::UnboundedSender<AcpEvent>,
+    event_tx: mpsc::Sender<AcpEvent>,
     approvals: Option<Arc<dyn ExecutorApprovalService>>,
     feedback_queue: Arc<Mutex<Vec<String>>>,
     cancel: CancellationToken,
@@ -24,7 +24,7 @@ pub struct AcpClient {
 impl AcpClient {
     /// Create a new ACP client
     pub fn new(
-        event_tx: mpsc::UnboundedSender<AcpEvent>,
+        event_tx: mpsc::Sender<AcpEvent>,
         approvals: Option<Arc<dyn ExecutorApprovalService>>,
         cancel: CancellationToken,
     ) -> Self {
@@ -40,10 +40,18 @@ impl AcpClient {
         self.send_event(AcpEvent::User(prompt.to_string()));
     }
 
-    /// Send an event to the event channel
+    /// Send an event to the bounded event channel. If the channel is full,
+    /// drop the event and emit a `warn!` rather than blocking the producer
+    /// (which would couple ACP protocol callbacks to event-consumer throughput).
     fn send_event(&self, event: AcpEvent) {
-        if let Err(e) = self.event_tx.send(event) {
-            warn!("Failed to send ACP event: {}", e);
+        match self.event_tx.try_send(event) {
+            Ok(()) => {}
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                warn!("ACP event channel full; dropping event");
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                // Receiver dropped — this happens during shutdown. Quiet.
+            }
         }
     }
 
@@ -277,5 +285,31 @@ impl AcpClient {
             }));
             Err(acp::Error::internal_error())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn send_event_drops_when_channel_full_instead_of_blocking() {
+        // Build a bounded event channel with capacity 2. With the previous
+        // unbounded implementation this signature did not compile; with the
+        // bounded implementation, the third send must return without blocking
+        // and the receiver must only observe 2 events.
+        let (tx, mut rx) = mpsc::channel::<AcpEvent>(2);
+        let client = AcpClient::new(tx, None, CancellationToken::new());
+
+        client.record_user_prompt_event("a");
+        client.record_user_prompt_event("b");
+        // No recv yet; channel is full. Third call must not deadlock the test.
+        client.record_user_prompt_event("c");
+
+        let mut count = 0;
+        while rx.try_recv().is_ok() {
+            count += 1;
+        }
+        assert_eq!(count, 2, "exactly two events should reach the receiver");
     }
 }

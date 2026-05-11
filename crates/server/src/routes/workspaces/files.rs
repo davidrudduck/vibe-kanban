@@ -785,10 +785,7 @@ mod tests {
         // Absolute symlink: safe_link -> <workspace>/.git/config
         symlink(inner.join(".git/config"), inner.join("safe_link.md")).unwrap();
         let result = read_file_fs(&inner, "safe_link.md");
-        assert!(
-            result.is_err(),
-            "symlink to .git internal must be blocked"
-        );
+        assert!(result.is_err(), "symlink to .git internal must be blocked");
         let msg = format!("{:?}", result.unwrap_err());
         assert!(
             msg.contains("Git internals") || msg.contains("git"),

@@ -20,7 +20,10 @@ export function SessionMonitorPanel() {
 
   const contextWindowKnown = summary.contextWindow > 0;
   const contextPct = contextWindowKnown
-    ? Math.min(100, Math.round((summary.contextTokens / summary.contextWindow) * 100))
+    ? Math.min(
+        100,
+        Math.round((summary.contextTokens / summary.contextWindow) * 100)
+      )
     : null;
 
   return (

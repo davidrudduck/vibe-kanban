@@ -217,15 +217,14 @@ impl WebRtcClient {
 
         // Wait for ICE gathering to complete so candidates are in the SDP.
         let (gather_done_tx, gather_done_rx) = oneshot::channel::<()>();
-        let gather_done_tx = Arc::new(std::sync::Mutex::new(Some(gather_done_tx)));
+        let gather_done_tx = Arc::new(parking_lot::Mutex::new(Some(gather_done_tx)));
         peer_connection.on_ice_gathering_state_change(Box::new(move |state| {
             let tx = gather_done_tx.clone();
             Box::pin(async move {
-                if state == RTCIceGathererState::Complete {
-                    let maybe_sender = tx.lock().ok().and_then(|mut guard| guard.take());
-                    if let Some(sender) = maybe_sender {
-                        let _ = sender.send(());
-                    }
+                if state == RTCIceGathererState::Complete
+                    && let Some(sender) = tx.lock().take()
+                {
+                    let _ = sender.send(());
                 }
             })
         }));
@@ -313,14 +312,14 @@ impl WebRtcClient {
 
         // Incoming message handler: defragment → dispatch.
         let (incoming_tx, mut incoming_rx) = mpsc::channel::<Vec<u8>>(64);
-        let defrag = Arc::new(std::sync::Mutex::new(fragment::Defragmenter::new()));
+        let defrag = Arc::new(parking_lot::Mutex::new(fragment::Defragmenter::new()));
 
         data_channel.on_message(Box::new(move |msg: RtcDcMessage| {
             let tx = incoming_tx.clone();
             let defrag = defrag.clone();
             Box::pin(async move {
                 let complete = {
-                    let mut d = defrag.lock().unwrap();
+                    let mut d = defrag.lock();
                     d.process(&msg.data)
                 };
                 if let Some(bytes) = complete {

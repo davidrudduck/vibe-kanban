@@ -64,12 +64,12 @@ pub async fn accept_offer(
     // Wait for ICE gathering to complete before returning the answer so
     // that candidates are embedded in the SDP.
     let (gather_done_tx, gather_done_rx) = tokio::sync::oneshot::channel::<()>();
-    let gather_done_tx = Arc::new(std::sync::Mutex::new(Some(gather_done_tx)));
+    let gather_done_tx = Arc::new(parking_lot::Mutex::new(Some(gather_done_tx)));
     peer_connection.on_ice_gathering_state_change(Box::new(move |state| {
         let tx = gather_done_tx.clone();
         Box::pin(async move {
             if state == RTCIceGathererState::Complete
-                && let Some(sender) = tx.lock().unwrap().take()
+                && let Some(sender) = tx.lock().take()
             {
                 let _ = sender.send(());
             }
@@ -114,7 +114,7 @@ pub async fn run_peer(
 
     // Signal when the data channel opens so the writer task can start.
     let (dc_ready_tx, dc_ready_rx) = tokio::sync::oneshot::channel::<Arc<RTCDataChannel>>();
-    let dc_ready_tx = Arc::new(std::sync::Mutex::new(Some(dc_ready_tx)));
+    let dc_ready_tx = Arc::new(parking_lot::Mutex::new(Some(dc_ready_tx)));
 
     // Active WebSocket connections: conn_id → sender for frames from the client.
     let ws_connections: Arc<Mutex<HashMap<Uuid, mpsc::Sender<WsFrame>>>> =
@@ -153,20 +153,20 @@ pub async fn run_peer(
             tracing::debug!(label = dc.label(), "[server-peer] data channel opened");
 
             // Signal the writer task that the DC is ready.
-            if let Some(tx) = dc_ready_tx.lock().unwrap().take() {
+            if let Some(tx) = dc_ready_tx.lock().take() {
                 let _ = tx.send(dc.clone());
             }
 
             // Incoming message handler.
             let (incoming_tx, mut incoming_rx) = mpsc::channel::<Vec<u8>>(64);
-            let defrag = Arc::new(std::sync::Mutex::new(fragment::Defragmenter::new()));
+            let defrag = Arc::new(parking_lot::Mutex::new(fragment::Defragmenter::new()));
 
             dc.on_message(Box::new(move |msg: RtcDcMessage| {
                 let tx = incoming_tx.clone();
                 let defrag = defrag.clone();
                 Box::pin(async move {
                     let complete = {
-                        let mut d = defrag.lock().unwrap();
+                        let mut d = defrag.lock();
                         d.process(&msg.data)
                     };
                     if let Some(bytes) = complete {
