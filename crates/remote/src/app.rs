@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::{Context, bail};
 use secrecy::ExposeSecret;
@@ -22,7 +22,29 @@ use crate::{
     routes,
 };
 
+pub(crate) const REMOTE_HTTP_TIMEOUT: Duration = Duration::from_secs(30);
+
+pub(crate) fn build_remote_http_client() -> reqwest::Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .user_agent("VibeKanbanRemote/1.0")
+        .timeout(REMOTE_HTTP_TIMEOUT)
+        .build()
+}
+
 pub struct Server;
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::{REMOTE_HTTP_TIMEOUT, build_remote_http_client};
+
+    #[test]
+    fn remote_http_client_has_request_timeout() {
+        assert_eq!(REMOTE_HTTP_TIMEOUT, Duration::from_secs(30));
+        build_remote_http_client().expect("remote HTTP client should build");
+    }
+}
 
 impl Server {
     #[instrument(
@@ -133,10 +155,7 @@ impl Server {
             );
         }
 
-        let http_client = reqwest::Client::builder()
-            .user_agent("VibeKanbanRemote/1.0")
-            .build()
-            .context("failed to create HTTP client")?;
+        let http_client = build_remote_http_client().context("failed to create HTTP client")?;
 
         let github_app = match &config.github_app {
             Some(github_config) => {

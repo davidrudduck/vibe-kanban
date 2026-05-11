@@ -12,6 +12,16 @@ pub enum BlobError {
 
 pub struct BlobRepository;
 
+#[cfg(test)]
+mod tests {
+    use super::BlobRepository;
+
+    #[test]
+    fn blob_repository_exposes_guarded_delete() {
+        let _ = BlobRepository::delete_if_unreferenced;
+    }
+}
+
 impl BlobRepository {
     pub async fn find_by_id<'e, E>(executor: E, id: Uuid) -> Result<Option<Blob>, BlobError>
     where
@@ -142,6 +152,42 @@ impl BlobRepository {
             r#"
             DELETE FROM blobs
             WHERE id = $1
+            RETURNING
+                id                  AS "id!: Uuid",
+                project_id          AS "project_id!: Uuid",
+                blob_path           AS "blob_path!",
+                thumbnail_blob_path AS "thumbnail_blob_path?",
+                original_name       AS "original_name!",
+                mime_type           AS "mime_type?",
+                size_bytes          AS "size_bytes!",
+                hash                AS "hash!",
+                width               AS "width?",
+                height              AS "height?",
+                created_at          AS "created_at!: DateTime<Utc>",
+                updated_at          AS "updated_at!: DateTime<Utc>"
+            "#,
+            id
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        Ok(record)
+    }
+
+    pub async fn delete_if_unreferenced(
+        pool: &PgPool,
+        id: Uuid,
+    ) -> Result<Option<Blob>, BlobError> {
+        let record = sqlx::query_as!(
+            Blob,
+            r#"
+            DELETE FROM blobs
+            WHERE id = $1
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM attachments
+                  WHERE blob_id = $1
+              )
             RETURNING
                 id                  AS "id!: Uuid",
                 project_id          AS "project_id!: Uuid",

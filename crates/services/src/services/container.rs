@@ -924,53 +924,69 @@ pub trait ContainerService {
             // Spawn normalizer on populated store and collect JoinHandles
             let handles = match executor_action.typ() {
                 ExecutorActionType::CodingAgentInitialRequest(request) => {
+                    let effective_dir = match request.effective_dir(&current_dir) {
+                        Ok(effective_dir) => effective_dir,
+                        Err(error) => {
+                            tracing::error!(%error, "Invalid working directory for log normalization");
+                            return None;
+                        }
+                    };
                     #[cfg(feature = "qa-mode")]
                     {
                         let executor = QaMockExecutor;
-                        executor.normalize_logs(
-                            temp_store.clone(),
-                            &request.effective_dir(&current_dir),
-                        )
+                        executor.normalize_logs(temp_store.clone(), &effective_dir)
                     }
                     #[cfg(not(feature = "qa-mode"))]
                     {
                         let executor = ExecutorConfigs::get_cached()
                             .get_coding_agent_or_default(&request.executor_config.profile_id());
-                        executor.normalize_logs(
-                            temp_store.clone(),
-                            &request.effective_dir(&current_dir),
-                        )
+                        executor.normalize_logs(temp_store.clone(), &effective_dir)
                     }
                 }
                 ExecutorActionType::CodingAgentFollowUpRequest(request) => {
+                    let effective_dir = match request.effective_dir(&current_dir) {
+                        Ok(effective_dir) => effective_dir,
+                        Err(error) => {
+                            tracing::error!(%error, "Invalid working directory for log normalization");
+                            return None;
+                        }
+                    };
                     #[cfg(feature = "qa-mode")]
                     {
                         let executor = QaMockExecutor;
-                        executor.normalize_logs(
-                            temp_store.clone(),
-                            &request.effective_dir(&current_dir),
-                        )
+                        executor.normalize_logs(temp_store.clone(), &effective_dir)
                     }
                     #[cfg(not(feature = "qa-mode"))]
                     {
                         let executor = ExecutorConfigs::get_cached()
                             .get_coding_agent_or_default(&request.executor_config.profile_id());
-                        executor.normalize_logs(
-                            temp_store.clone(),
-                            &request.effective_dir(&current_dir),
-                        )
+                        executor.normalize_logs(temp_store.clone(), &effective_dir)
                     }
                 }
                 #[cfg(feature = "qa-mode")]
-                ExecutorActionType::ReviewRequest(_request) => {
+                ExecutorActionType::ReviewRequest(request) => {
+                    let effective_dir = match request.effective_dir(&current_dir) {
+                        Ok(effective_dir) => effective_dir,
+                        Err(error) => {
+                            tracing::error!(%error, "Invalid working directory for log normalization");
+                            return None;
+                        }
+                    };
                     let executor = QaMockExecutor;
-                    executor.normalize_logs(temp_store.clone(), &current_dir)
+                    executor.normalize_logs(temp_store.clone(), &effective_dir)
                 }
                 #[cfg(not(feature = "qa-mode"))]
                 ExecutorActionType::ReviewRequest(request) => {
+                    let effective_dir = match request.effective_dir(&current_dir) {
+                        Ok(effective_dir) => effective_dir,
+                        Err(error) => {
+                            tracing::error!(%error, "Invalid working directory for log normalization");
+                            return None;
+                        }
+                    };
                     let executor = ExecutorConfigs::get_cached()
                         .get_coding_agent_or_default(&request.executor_config.profile_id());
-                    executor.normalize_logs(temp_store.clone(), &current_dir)
+                    executor.normalize_logs(temp_store.clone(), &effective_dir)
                 }
                 _ => {
                     tracing::debug!(
@@ -1311,15 +1327,15 @@ pub trait ContainerService {
         if let Some((executor_profile_id, working_dir)) = match executor_action.typ() {
             ExecutorActionType::CodingAgentInitialRequest(request) => Some((
                 request.executor_config.profile_id(),
-                request.effective_dir(&workspace_root),
+                request.effective_dir(&workspace_root)?,
             )),
             ExecutorActionType::CodingAgentFollowUpRequest(request) => Some((
                 request.executor_config.profile_id(),
-                request.effective_dir(&workspace_root),
+                request.effective_dir(&workspace_root)?,
             )),
             ExecutorActionType::ReviewRequest(request) => Some((
                 request.executor_config.profile_id(),
-                request.effective_dir(&workspace_root),
+                request.effective_dir(&workspace_root)?,
             )),
             _ => None,
         } {

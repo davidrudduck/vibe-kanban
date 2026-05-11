@@ -178,7 +178,7 @@ jobs:
         run: |
           npx concurrently \
             --kill-others-on-fail \
-            --names "local:lint,local:fmt,local:build,remote:fmt,remote:build,ui:check,ui:lint,ui:fmt,core:check,core:fmt,i18n,i18n:unused,legacy" \
+            --names "local:lint,local:fmt,local:build,remote:fmt,remote:build,ui:check,ui:test,ui:lint,ui:fmt,core:check,core:test,core:fmt,i18n,i18n:unused,legacy" \
             --timings \
             "cd packages/local-web && npm run lint" \
             "cd packages/local-web && npm run format:check" \
@@ -186,9 +186,11 @@ jobs:
             "cd packages/remote-web && npm run format:check" \
             "cd packages/remote-web && npm run build" \
             "cd packages/ui && npm run check" \
+            "cd packages/ui && npm run test" \
             "cd packages/ui && npm run lint" \
             "cd packages/ui && npm run format:check" \
             "cd packages/web-core && npm run check" \
+            "cd packages/web-core && npm run test" \
             "cd packages/web-core && npm run format:check" \
             "GITHUB_BASE_REF=${{ github.base_ref || 'main' }} ./scripts/check-i18n.sh" \
             "node scripts/check-unused-i18n-keys.mjs" \

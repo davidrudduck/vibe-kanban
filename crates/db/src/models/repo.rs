@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -18,6 +18,38 @@ pub struct SearchResult {
     pub score: i64,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::validate_default_working_dir;
+
+    #[test]
+    fn default_working_dir_rejects_absolute_paths() {
+        let result = validate_default_working_dir(Some("/tmp"));
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn default_working_dir_rejects_parent_traversal() {
+        let result = validate_default_working_dir(Some("../outside"));
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn default_working_dir_allows_relative_subdirs() {
+        let result = validate_default_working_dir(Some("packages/local-web"));
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn default_working_dir_allows_empty_and_none() {
+        assert!(validate_default_working_dir(Some("")).is_ok());
+        assert!(validate_default_working_dir(None).is_ok());
+    }
+}
+
 #[derive(Debug, Clone, Serialize, TS)]
 pub enum SearchMatchType {
     FileName,
@@ -31,6 +63,43 @@ pub enum RepoError {
     Database(#[from] sqlx::Error),
     #[error("Repository not found")]
     NotFound,
+    #[error("Invalid default working directory: {0}")]
+    InvalidDefaultWorkingDir(String),
+}
+
+pub fn validate_default_working_dir(default_working_dir: Option<&str>) -> Result<(), RepoError> {
+    let Some(default_working_dir) = default_working_dir else {
+        return Ok(());
+    };
+
+    if default_working_dir.is_empty() {
+        return Ok(());
+    }
+
+    let path = Path::new(default_working_dir);
+    if path.is_absolute() {
+        return Err(RepoError::InvalidDefaultWorkingDir(
+            "absolute paths are not allowed".to_string(),
+        ));
+    }
+
+    for component in path.components() {
+        match component {
+            Component::ParentDir => {
+                return Err(RepoError::InvalidDefaultWorkingDir(
+                    "parent directory traversal is not allowed".to_string(),
+                ));
+            }
+            Component::Prefix(_) | Component::RootDir => {
+                return Err(RepoError::InvalidDefaultWorkingDir(
+                    "rooted paths are not allowed".to_string(),
+                ));
+            }
+            Component::CurDir | Component::Normal(_) => {}
+        }
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
@@ -387,7 +456,10 @@ impl Repo {
         };
         let default_working_dir = match &payload.default_working_dir {
             None => existing.default_working_dir,
-            Some(v) => v.clone(),
+            Some(v) => {
+                validate_default_working_dir(v.as_deref())?;
+                v.clone()
+            }
         };
 
         sqlx::query_as!(
