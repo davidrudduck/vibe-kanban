@@ -446,6 +446,21 @@ mod tests {
         assert!(matches!(result, Err(ref msg) if msg.contains("owned-string panic")));
     }
 
+    #[tokio::test]
+    async fn supervised_run_catches_non_string_panic_with_fallback_marker() {
+        // panic_any with a non-string payload exercises the fallback branch
+        // that records "<non-string panic>" since neither &str nor String
+        // downcasts succeed.
+        let result = supervised_run("test", async {
+            std::panic::panic_any(123_u32);
+        })
+        .await;
+        assert!(
+            matches!(result, Err(ref msg) if msg.contains("<non-string panic>")),
+            "non-string panic payload should yield the fallback marker, got {result:?}"
+        );
+    }
+
     #[test]
     fn test_truncate_success_requires_log_eq_checkpointed() {
         // blocked != 0 → blocked by readers; not a success

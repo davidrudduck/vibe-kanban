@@ -37,7 +37,21 @@ try {
   process.exit(2);
 }
 
-const advisories = report.advisories ?? {};
+// Security gate: fail closed if the audit JSON does not have the expected
+// `advisories` field. Otherwise a future schema change would let this gate
+// pass with zero offenders simply because the parser couldn't find them.
+if (
+  !('advisories' in report) ||
+  typeof report.advisories !== 'object' ||
+  report.advisories === null
+) {
+  console.error(
+    'Unsupported pnpm audit JSON schema: missing or non-object `advisories`.',
+  );
+  process.exit(2);
+}
+
+const advisories = report.advisories;
 const offenders = [];
 
 for (const adv of Object.values(advisories)) {
