@@ -3,43 +3,20 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REMOTE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+RELAY_TUNNEL_DIR="$(cd "$REMOTE_DIR/../../crates/relay-tunnel" && pwd)"
 
-# Parse arguments
-BILLING_MANIFEST_PATH=""
 CHECK_MODE=""
-
 for arg in "$@"; do
   case "$arg" in
     --check) CHECK_MODE="--check" ;;
-    *) BILLING_MANIFEST_PATH="$arg" ;;
   esac
 done
 
-# Convert relative paths to absolute (relative to repo root, since pnpm runs from there)
-BILLING_DIR=""
-if [ -n "$BILLING_MANIFEST_PATH" ]; then
-  if [[ "$BILLING_MANIFEST_PATH" != /* ]]; then
-    REPO_ROOT="$(cd "$REMOTE_DIR/../.." && pwd)"
-    BILLING_MANIFEST_PATH="$REPO_ROOT/$BILLING_MANIFEST_PATH"
-  fi
-
-  if [ -f "$BILLING_MANIFEST_PATH" ]; then
-    BILLING_DIR="$(cd "$(dirname "$BILLING_MANIFEST_PATH")" && pwd)"
-  else
-    echo "⚠️  Billing manifest not found: $BILLING_MANIFEST_PATH (skipping billing)" >&2
-  fi
-fi
-
-# For --check mode, run offline without database (just verify .sqlx cache)
+# Check mode runs offline against the existing .sqlx cache.
 if [ "$CHECK_MODE" = "--check" ]; then
-  if [ -n "$BILLING_DIR" ]; then
-    echo "➤ Checking SQLx data for billing (offline mode)..."
-    (cd "$BILLING_DIR" && SQLX_OFFLINE=true cargo sqlx prepare --check)
-  fi
   echo "➤ Checking SQLx data for remote (offline mode)..."
   SQLX_OFFLINE=true cargo sqlx prepare --check
 
-  RELAY_TUNNEL_DIR="$(cd "$REMOTE_DIR/../../crates/relay-tunnel" && pwd)"
   echo "➤ Checking SQLx data for relay-tunnel (offline mode)..."
   (cd "$RELAY_TUNNEL_DIR" && SQLX_OFFLINE=true cargo sqlx prepare --check)
 
@@ -47,51 +24,63 @@ if [ "$CHECK_MODE" = "--check" ]; then
   exit 0
 fi
 
-# For prepare mode, need a running PostgreSQL instance
-DATA_DIR="$(mktemp -d /tmp/sqlxpg.XXXXXX)"
-PORT=54329
+# Prepare mode needs a running PostgreSQL.
+# Override REMOTE_PREPARE_DATABASE_URL to point at an existing instance,
+# otherwise we spin up a disposable Postgres container via Docker.
+if [ -n "${REMOTE_PREPARE_DATABASE_URL:-}" ]; then
+  export DATABASE_URL="$REMOTE_PREPARE_DATABASE_URL"
+  echo "➤ Using existing database: $DATABASE_URL"
+  echo "➤ Running migrations..."
+  sqlx migrate run
+else
+  command -v docker >/dev/null 2>&1 || {
+    echo "❌ docker not found. Install Docker or set REMOTE_PREPARE_DATABASE_URL." >&2
+    exit 1
+  }
 
-echo "Killing existing Postgres instance on port $PORT"
-pids=$(lsof -t -i :"$PORT" 2>/dev/null || true)
-[ -n "$pids" ] && kill $pids 2>/dev/null || true
-sleep 1
+  PORT=54329
+  CONTAINER_NAME="vibe-kanban-sqlx-prepare-$$"
+  PG_PASSWORD="sqlxprepare"
 
-echo "➤ Initializing temporary Postgres cluster..."
-initdb -D "$DATA_DIR" > /dev/null
+  cleanup() {
+    docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+  }
+  trap cleanup EXIT
 
-echo "➤ Starting Postgres on port $PORT..."
-pg_ctl -D "$DATA_DIR" -o "-p $PORT" -w start > /dev/null
+  echo "➤ Killing any container holding port $PORT..."
+  existing=$(docker ps -q --filter "publish=$PORT" 2>/dev/null || true)
+  [ -n "$existing" ] && docker rm -f $existing >/dev/null 2>&1 || true
 
-echo "➤ Creating 'remote' database..."
-createdb -p $PORT remote
+  echo "➤ Starting disposable Postgres 17 in Docker on port $PORT..."
+  docker run -d --rm \
+    --name "$CONTAINER_NAME" \
+    -e POSTGRES_PASSWORD="$PG_PASSWORD" \
+    -e POSTGRES_DB=remote \
+    -p "$PORT:5432" \
+    postgres:17-alpine >/dev/null
 
-# Connection string
-export DATABASE_URL="postgres://localhost:$PORT/remote"
+  echo "➤ Waiting for Postgres to accept connections..."
+  for i in $(seq 1 30); do
+    if docker exec "$CONTAINER_NAME" pg_isready -U postgres -d remote >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+    if [ "$i" = "30" ]; then
+      echo "❌ Postgres did not become ready in 30s" >&2
+      exit 1
+    fi
+  done
 
-echo "➤ Running migrations..."
-sqlx migrate run
+  export DATABASE_URL="postgres://postgres:$PG_PASSWORD@localhost:$PORT/remote"
 
-if [ -n "$BILLING_DIR" ]; then
-  echo "➤ Preparing SQLx data for billing..."
-  (cd "$BILLING_DIR" && cargo sqlx prepare)
+  echo "➤ Running migrations..."
+  sqlx migrate run
 fi
 
 echo "➤ Preparing SQLx data for remote..."
 cargo sqlx prepare
 
-RELAY_TUNNEL_DIR="$(cd "$REMOTE_DIR/../../crates/relay-tunnel" && pwd)"
 echo "➤ Preparing SQLx data for relay-tunnel..."
 (cd "$RELAY_TUNNEL_DIR" && cargo sqlx prepare)
-
-echo "➤ Stopping Postgres..."
-pg_ctl -D "$DATA_DIR" -m fast -w stop > /dev/null
-
-echo "➤ Cleaning up..."
-rm -rf "$DATA_DIR"
-
-echo "Killing existing Postgres instance on port $PORT"
-pids=$(lsof -t -i :"$PORT" 2>/dev/null || true)
-[ -n "$pids" ] && kill $pids 2>/dev/null || true
-sleep 1
 
 echo "✅ sqlx prepare complete"

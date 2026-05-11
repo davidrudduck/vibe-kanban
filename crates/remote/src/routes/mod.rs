@@ -11,9 +11,6 @@ use tracing::{Level, Span, field};
 
 use crate::{AppState, auth::require_session};
 
-#[cfg(feature = "vk-billing")]
-mod billing;
-#[cfg(not(feature = "vk-billing"))]
 mod billing {
     use axum::Router;
 
