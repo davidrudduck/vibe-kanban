@@ -33,19 +33,6 @@ pub(crate) fn build_remote_http_client() -> reqwest::Result<reqwest::Client> {
 
 pub struct Server;
 
-#[cfg(test)]
-mod tests {
-    use std::time::Duration;
-
-    use super::{REMOTE_HTTP_TIMEOUT, build_remote_http_client};
-
-    #[test]
-    fn remote_http_client_has_request_timeout() {
-        assert_eq!(REMOTE_HTTP_TIMEOUT, Duration::from_secs(30));
-        build_remote_http_client().expect("remote HTTP client should build");
-    }
-}
-
 impl Server {
     #[instrument(
         name = "remote_server",
@@ -254,5 +241,18 @@ impl Server {
             .context("shared sync server failure")?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::{REMOTE_HTTP_TIMEOUT, build_remote_http_client};
+
+    #[test]
+    fn remote_http_client_has_request_timeout() {
+        assert_eq!(REMOTE_HTTP_TIMEOUT, Duration::from_secs(30));
+        build_remote_http_client().expect("remote HTTP client should build");
     }
 }

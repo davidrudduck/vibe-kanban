@@ -12,16 +12,6 @@ pub enum BlobError {
 
 pub struct BlobRepository;
 
-#[cfg(test)]
-mod tests {
-    use super::BlobRepository;
-
-    #[test]
-    fn blob_repository_exposes_guarded_delete() {
-        let _ = BlobRepository::delete_if_unreferenced;
-    }
-}
-
 impl BlobRepository {
     pub async fn find_by_id<'e, E>(executor: E, id: Uuid) -> Result<Option<Blob>, BlobError>
     where
@@ -225,5 +215,15 @@ impl BlobRepository {
         .await?;
 
         Ok(record)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BlobRepository;
+
+    #[test]
+    fn blob_repository_exposes_guarded_delete() {
+        let _ = BlobRepository::delete_if_unreferenced;
     }
 }
