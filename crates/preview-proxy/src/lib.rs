@@ -7,7 +7,7 @@
 //! Host header subdomain. A request to `{port}.localhost:{proxy_port}/path`
 //! is forwarded to `localhost:{port}/path`.
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, time::Duration};
 
 use axum::{
     body::Body,
@@ -32,6 +32,8 @@ pub struct PreviewProxyService {
     http_client: Client,
 }
 
+pub(crate) const PREVIEW_PROXY_HTTP_TIMEOUT: Duration = Duration::from_secs(120);
+
 impl Default for PreviewProxyService {
     fn default() -> Self {
         Self::new()
@@ -42,6 +44,7 @@ impl PreviewProxyService {
     pub fn new() -> Self {
         let http_client = Client::builder()
             .redirect(reqwest::redirect::Policy::none())
+            .timeout(PREVIEW_PROXY_HTTP_TIMEOUT)
             .build()
             .expect("failed to build preview proxy HTTP client");
         Self { http_client }
@@ -837,6 +840,12 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
+
+    #[test]
+    fn preview_proxy_http_client_has_request_timeout() {
+        assert_eq!(PREVIEW_PROXY_HTTP_TIMEOUT, Duration::from_secs(120));
+        PreviewProxyService::new();
+    }
 
     #[test]
     fn collect_response_headers_preserves_multiple_set_cookie_values() {

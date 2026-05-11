@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration as StdDuration};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -11,10 +11,18 @@ use tracing::info;
 use url::Url;
 
 const USER_AGENT: &str = "VibeKanbanRemote/1.0";
+pub(super) const OAUTH_HTTP_TIMEOUT: StdDuration = StdDuration::from_secs(30);
 
 const TOKEN_EXPIRATION_LEEWAY_SECONDS: i64 = 20;
 pub(super) const VALIDATE_TOKEN_MAX_RETRIES: u32 = 3;
 const RETRY_INTERVAL_SECONDS: u64 = 2;
+
+fn build_oauth_http_client() -> reqwest::Result<Client> {
+    Client::builder()
+        .user_agent(USER_AGENT)
+        .timeout(OAUTH_HTTP_TIMEOUT)
+        .build()
+}
 
 #[derive(Debug, Clone)]
 pub struct AuthorizationGrant {
@@ -114,7 +122,7 @@ pub(crate) struct GitHubOAuthProvider {
 
 impl GitHubOAuthProvider {
     pub(crate) fn new(client_id: String, client_secret: SecretString) -> Result<Self> {
-        let client = Client::builder().user_agent(USER_AGENT).build()?;
+        let client = build_oauth_http_client()?;
         Ok(Self {
             client,
             client_id,
@@ -374,7 +382,7 @@ pub(crate) struct GoogleOAuthProvider {
 
 impl GoogleOAuthProvider {
     pub(crate) fn new(client_id: String, client_secret: SecretString) -> Result<Self> {
-        let client = Client::builder().user_agent(USER_AGENT).build()?;
+        let client = build_oauth_http_client()?;
         Ok(Self {
             client,
             client_id,
@@ -697,5 +705,18 @@ impl AuthorizationProvider for GoogleOAuthProvider {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::{OAUTH_HTTP_TIMEOUT, build_oauth_http_client};
+
+    #[test]
+    fn oauth_http_client_has_request_timeout() {
+        assert_eq!(OAUTH_HTTP_TIMEOUT, Duration::from_secs(30));
+        build_oauth_http_client().expect("OAuth HTTP client should build");
     }
 }

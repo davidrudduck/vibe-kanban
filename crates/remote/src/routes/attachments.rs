@@ -10,6 +10,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tracing::instrument;
 use ts_rs::TS;
 use uuid::Uuid;
@@ -116,6 +117,8 @@ pub enum RouteError {
     AccessDenied,
     #[error("file too large (max 20MB)")]
     FileTooLarge,
+    #[error("invalid upload")]
+    InvalidUpload,
     #[error("upload not found or expired")]
     UploadNotFound,
     #[error("pending upload error: {0}")]
@@ -149,6 +152,7 @@ impl IntoResponse for RouteError {
             RouteError::FileTooLarge => {
                 (StatusCode::PAYLOAD_TOO_LARGE, "File too large (max 20MB)")
             }
+            RouteError::InvalidUpload => (StatusCode::BAD_REQUEST, "Invalid upload"),
             RouteError::UploadNotFound => (StatusCode::NOT_FOUND, "Upload not found or expired"),
             RouteError::PendingUpload(e) => {
                 tracing::error!(error = %e, "Pending upload error");
@@ -170,6 +174,54 @@ impl IntoResponse for RouteError {
 
 const MAX_FILE_SIZE: i64 = 20 * 1024 * 1024;
 
+fn validate_client_upload_size(size_bytes: i64) -> Result<(), RouteError> {
+    if size_bytes < 0 {
+        return Err(RouteError::InvalidUpload);
+    }
+    if size_bytes > MAX_FILE_SIZE {
+        return Err(RouteError::FileTooLarge);
+    }
+    Ok(())
+}
+
+fn sha256_hex(data: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hex::encode(hasher.finalize())
+}
+
+fn validate_confirm_upload(
+    payload: &ConfirmUploadRequest,
+    pending: &crate::db::pending_uploads::PendingUpload,
+    content_length: i64,
+    blob_data: &[u8],
+    now: DateTime<Utc>,
+) -> Result<i64, RouteError> {
+    validate_client_upload_size(payload.size_bytes)?;
+
+    if pending.project_id != payload.project_id || pending.expires_at <= now {
+        return Err(RouteError::UploadNotFound);
+    }
+
+    if pending.hash != payload.hash {
+        return Err(RouteError::InvalidUpload);
+    }
+
+    if content_length < 0 {
+        return Err(RouteError::InvalidUpload);
+    }
+    if content_length > MAX_FILE_SIZE {
+        return Err(RouteError::FileTooLarge);
+    }
+
+    let server_hash = sha256_hex(blob_data);
+    if server_hash != pending.hash {
+        return Err(RouteError::InvalidUpload);
+    }
+
+    Ok(content_length)
+}
+
 #[instrument(name = "attachments.init_upload", skip(state, ctx, payload), fields(project_id = %payload.project_id, user_id = %ctx.user.id))]
 async fn init_upload(
     State(state): State<AppState>,
@@ -180,9 +232,7 @@ async fn init_upload(
         .await
         .map_err(|_| RouteError::AccessDenied)?;
 
-    if payload.size_bytes > MAX_FILE_SIZE {
-        return Err(RouteError::FileTooLarge);
-    }
+    validate_client_upload_size(payload.size_bytes)?;
 
     if let Some(existing) =
         BlobRepository::find_by_hash(state.pool(), payload.project_id, &payload.hash).await?
@@ -247,6 +297,7 @@ async fn confirm_upload(
             .await
             .map_err(|_| RouteError::AccessDenied)?;
     }
+    validate_client_upload_size(payload.size_bytes)?;
 
     let azure = state.azure_blob().ok_or(RouteError::NotConfigured)?;
 
@@ -262,12 +313,30 @@ async fn confirm_upload(
         let blob_path = &pending.blob_path;
 
         let props = azure.get_blob_properties(blob_path).await?;
+        if props.content_length < 0 {
+            return Err(RouteError::InvalidUpload);
+        }
         if props.content_length > MAX_FILE_SIZE {
             let _ = azure.delete_blob(blob_path).await;
             return Err(RouteError::FileTooLarge);
         }
 
         let blob_data = azure.download_blob(blob_path).await?;
+        let actual_size_bytes = match validate_confirm_upload(
+            &payload,
+            &pending,
+            props.content_length,
+            &blob_data,
+            Utc::now(),
+        ) {
+            Ok(size_bytes) => size_bytes,
+            Err(err @ RouteError::FileTooLarge) => {
+                let _ = azure.delete_blob(blob_path).await;
+                return Err(err);
+            }
+            Err(err) => return Err(err),
+        };
+
         let thumbnail_result =
             ThumbnailService::generate(&blob_data, payload.content_type.as_deref())
                 .map_err(|e| RouteError::ThumbnailError(e.to_string()))?;
@@ -297,8 +366,8 @@ async fn confirm_upload(
             thumbnail_blob_path,
             payload.filename.clone(),
             payload.content_type.clone(),
-            payload.size_bytes,
-            payload.hash.clone(),
+            actual_size_bytes,
+            pending.hash.clone(),
             width,
             height,
         )
@@ -464,10 +533,7 @@ async fn delete_attachment(
     let blob_id = attachment.blob_id;
     AttachmentRepository::delete(state.pool(), id).await?;
 
-    let remaining = AttachmentRepository::count_by_blob_id(state.pool(), blob_id).await?;
-    if remaining == 0
-        && let Some(blob) = BlobRepository::delete(state.pool(), blob_id).await?
-    {
+    if let Some(blob) = BlobRepository::delete_if_unreferenced(state.pool(), blob_id).await? {
         let azure = state.azure_blob().ok_or(RouteError::NotConfigured)?;
         if let Err(e) = azure.delete_blob(&blob.blob_path).await {
             tracing::warn!(error = %e, blob_path = %blob.blob_path, "Failed to delete blob");
@@ -519,4 +585,135 @@ fn sanitize_filename(filename: &str) -> String {
         })
         .take(100)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{Duration, Utc};
+
+    use super::{ConfirmUploadRequest, MAX_FILE_SIZE, RouteError, validate_confirm_upload};
+    use crate::db::pending_uploads::PendingUpload;
+
+    fn pending_upload(project_id: uuid::Uuid, hash: String) -> PendingUpload {
+        PendingUpload {
+            id: uuid::Uuid::new_v4(),
+            project_id,
+            blob_path: "attachments/blob".to_string(),
+            hash,
+            created_at: Utc::now(),
+            expires_at: Utc::now() + Duration::minutes(5),
+        }
+    }
+
+    fn confirm_request(
+        project_id: uuid::Uuid,
+        upload_id: uuid::Uuid,
+        hash: String,
+        size_bytes: i64,
+    ) -> ConfirmUploadRequest {
+        ConfirmUploadRequest {
+            project_id,
+            upload_id,
+            filename: "file.txt".to_string(),
+            content_type: Some("text/plain".to_string()),
+            size_bytes,
+            hash,
+            issue_id: None,
+            comment_id: None,
+        }
+    }
+
+    #[test]
+    fn confirm_upload_rejects_project_mismatch() {
+        let project_id = uuid::Uuid::new_v4();
+        let other_project_id = uuid::Uuid::new_v4();
+        let data = b"hello";
+        let hash = super::sha256_hex(data);
+        let pending = pending_upload(project_id, hash.clone());
+        let payload = confirm_request(other_project_id, pending.id, hash, data.len() as i64);
+
+        let result =
+            validate_confirm_upload(&payload, &pending, data.len() as i64, data, Utc::now());
+
+        assert!(matches!(result, Err(RouteError::UploadNotFound)));
+    }
+
+    #[test]
+    fn confirm_upload_rejects_expired_uploads() {
+        let project_id = uuid::Uuid::new_v4();
+        let data = b"hello";
+        let hash = super::sha256_hex(data);
+        let mut pending = pending_upload(project_id, hash.clone());
+        pending.expires_at = Utc::now() - Duration::seconds(1);
+        let payload = confirm_request(project_id, pending.id, hash, data.len() as i64);
+
+        let result =
+            validate_confirm_upload(&payload, &pending, data.len() as i64, data, Utc::now());
+
+        assert!(matches!(result, Err(RouteError::UploadNotFound)));
+    }
+
+    #[test]
+    fn confirm_upload_rejects_client_hash_mismatch() {
+        let project_id = uuid::Uuid::new_v4();
+        let data = b"hello";
+        let pending = pending_upload(project_id, super::sha256_hex(data));
+        let payload = confirm_request(
+            project_id,
+            pending.id,
+            "wrong".to_string(),
+            data.len() as i64,
+        );
+
+        let result =
+            validate_confirm_upload(&payload, &pending, data.len() as i64, data, Utc::now());
+
+        assert!(matches!(result, Err(RouteError::InvalidUpload)));
+    }
+
+    #[test]
+    fn confirm_upload_rejects_server_hash_mismatch() {
+        let project_id = uuid::Uuid::new_v4();
+        let hash = super::sha256_hex(b"expected");
+        let pending = pending_upload(project_id, hash.clone());
+        let payload = confirm_request(project_id, pending.id, hash, 5);
+
+        let result = validate_confirm_upload(&payload, &pending, 5, b"wrong", Utc::now());
+
+        assert!(matches!(result, Err(RouteError::InvalidUpload)));
+    }
+
+    #[test]
+    fn confirm_upload_rejects_negative_and_oversized_client_sizes() {
+        let project_id = uuid::Uuid::new_v4();
+        let data = b"hello";
+        let hash = super::sha256_hex(data);
+        let pending = pending_upload(project_id, hash.clone());
+        let negative = confirm_request(project_id, pending.id, hash.clone(), -1);
+        let oversized = confirm_request(project_id, pending.id, hash, MAX_FILE_SIZE + 1);
+
+        assert!(matches!(
+            validate_confirm_upload(&negative, &pending, data.len() as i64, data, Utc::now()),
+            Err(RouteError::InvalidUpload)
+        ));
+        assert!(matches!(
+            validate_confirm_upload(&oversized, &pending, data.len() as i64, data, Utc::now()),
+            Err(RouteError::FileTooLarge)
+        ));
+    }
+
+    #[test]
+    fn confirm_upload_returns_actual_blob_size() {
+        let project_id = uuid::Uuid::new_v4();
+        let data = b"hello";
+        let hash = super::sha256_hex(data);
+        let pending = pending_upload(project_id, hash.clone());
+        let payload = confirm_request(project_id, pending.id, hash, 1);
+
+        let actual_size =
+            validate_confirm_upload(&payload, &pending, data.len() as i64, data, Utc::now())
+                .expect("valid upload should return actual blob size");
+
+        assert_eq!(actual_size, data.len() as i64);
+    }
 }

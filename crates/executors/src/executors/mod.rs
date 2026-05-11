@@ -96,6 +96,8 @@ pub enum ExecutorError {
     SetupHelperNotSupported,
     #[error("Auth required: {0}")]
     AuthRequired(String),
+    #[error("Invalid working directory: {0}")]
+    InvalidWorkingDir(String),
 }
 
 #[enum_dispatch]
