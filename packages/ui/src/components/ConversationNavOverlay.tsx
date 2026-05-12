@@ -21,7 +21,7 @@ export interface ConversationNavOverlayProps {
    * On narrow viewports the vertical 4-button stack is omitted; the parent
    * shell is expected to provide its own affordance (or none).
    */
-  isMobile?: boolean;
+  isNarrow?: boolean;
   className?: string;
 }
 
@@ -54,12 +54,12 @@ export function ConversationNavOverlay({
   onScrollToPreviousMessage,
   onScrollToNextMessage,
   onScrollToBottom,
-  isMobile,
+  isNarrow,
   className,
 }: ConversationNavOverlayProps) {
   const { t } = useTranslation('common');
 
-  if (isMobile) return null;
+  if (isNarrow) return null;
   if (isAtTop && isAtBottom) return null;
 
   return (

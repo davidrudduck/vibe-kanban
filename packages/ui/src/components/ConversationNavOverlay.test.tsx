@@ -88,9 +88,9 @@ describe('ConversationNavOverlay', () => {
     ).toBeNull();
   });
 
-  it('renders nothing on mobile', () => {
+  it('renders nothing on narrow viewports', () => {
     const { container } = renderWithI18n(
-      <ConversationNavOverlay {...baseProps} isMobile />
+      <ConversationNavOverlay {...baseProps} isNarrow />
     );
     expect(container).toBeEmptyDOMElement();
   });

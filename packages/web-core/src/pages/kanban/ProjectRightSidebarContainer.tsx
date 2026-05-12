@@ -290,7 +290,7 @@ function WorkspaceSessionPanel({
                   onScrollToPreviousMessage={nav.onScrollToPreviousMessage}
                   onScrollToNextMessage={nav.onScrollToNextMessage}
                   onScrollToBottom={nav.onScrollToBottom}
-                  isMobile={isNarrow}
+                  isNarrow={isNarrow}
                 />
               )}
 

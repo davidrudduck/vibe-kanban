@@ -245,7 +245,7 @@ export const WorkspacesMainContainer = forwardRef<
             onScrollToTop={nav.onScrollToTop}
             onScrollToPreviousMessage={nav.onScrollToPreviousMessage}
             onScrollToNextMessage={nav.onScrollToNextMessage}
-            isMobile={isNarrow}
+            isNarrow={isNarrow}
           />
         </MessageEditProvider>
       </EntriesProvider>
