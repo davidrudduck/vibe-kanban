@@ -140,4 +140,32 @@ describe('SessionMonitorPanel', () => {
     expect(screen.queryByText(/Cost/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Session/)).not.toBeInTheDocument();
   });
+
+  it('renders populated panel when hasEntries=true even if contextTokens=0 (regression test)', () => {
+    // This test pins the Cycle 2 fix: empty state detection should use hasEntries flag,
+    // not infer from token values. A first turn with zero tokens should still show
+    // the populated panel (not waiting), because entries have been emitted.
+    mockUseSessionSummary.mockReturnValue({
+      contextTokens: 0,
+      contextWindow: 0,
+      maxOutputTokens: null,
+      outputTokens: null,
+      cacheCreationTokens: null,
+      cacheReadTokens: null,
+      costUSD: null,
+      numTurns: null,
+      durationMs: null,
+      cacheHitRate: null,
+      hasEntries: true, // Entries exist, so NOT empty state
+      executorSupportsTokens: true,
+      executorName: 'CLAUDE_CODE',
+    });
+
+    render(<SessionMonitorPanel />);
+
+    // Should render populated panel, not waiting state
+    expect(screen.getByTestId('session-monitor-populated')).toBeInTheDocument();
+    expect(screen.queryByTestId('session-monitor-waiting')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('session-monitor-not-supported')).not.toBeInTheDocument();
+  });
 });
