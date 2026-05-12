@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { SpinnerIcon, WarningIcon } from '@phosphor-icons/react';
 import { cn } from '@/shared/lib/utils';
 
@@ -27,6 +28,39 @@ export function OrphanIssueModal({
   onRemove,
 }: OrphanIssueModalProps) {
   const isBusy = isRetrying;
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Focus trap: prevent Tab from leaving the modal (WCAG 2.1.2)
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+
+    const focusableSelector =
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]):not([disabled])';
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+
+      const focusableElements = Array.from(
+        dialog.querySelectorAll<HTMLElement>(focusableSelector)
+      );
+      if (focusableElements.length === 0) return;
+
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
+
+      if (e.shiftKey && document.activeElement === firstElement) {
+        e.preventDefault();
+        lastElement?.focus();
+      } else if (!e.shiftKey && document.activeElement === lastElement) {
+        e.preventDefault();
+        firstElement?.focus();
+      }
+    };
+
+    dialog.addEventListener('keydown', handleKeyDown);
+    return () => dialog.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   return (
     <div
@@ -42,6 +76,7 @@ export function OrphanIssueModal({
       }}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="orphan-modal-title"

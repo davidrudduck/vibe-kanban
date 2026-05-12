@@ -70,6 +70,13 @@ export function CreateWorkspaceShell({
 
   const { createWorkspace, createDraftWorkspace } = useCreateWorkspace();
   const isSubmitting = useRef(false);
+  // Track mount state to prevent setState on unmounted component.
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // ── Project context (nullable — only available inside kanban layout) ────────
   const projectContext = useContext(ProjectContext);
@@ -388,6 +395,7 @@ export function CreateWorkspaceShell({
           });
 
           const createdIssue = await persisted;
+          if (!isMountedRef.current) return;
           freshlyCreatedIssue = {
             id: createdIssue.id,
             title: createdIssue.title,
@@ -400,9 +408,11 @@ export function CreateWorkspaceShell({
             title: freshlyCreatedIssue.title,
             remoteProjectId: freshlyCreatedIssue.remoteProjectId,
           };
-        } catch {
+        } catch (error) {
           // Issue creation failed — abort. No orphan risk since workspace was
-          // never started. Surface the error instead of silently swallowing it.
+          // never started. Log the error for debugging.
+          console.error('Failed to create kanban card:', error);
+          if (!isMountedRef.current) return;
           setIssueCreateError(
             'Failed to create kanban card. Please try again.'
           );
@@ -437,7 +447,10 @@ export function CreateWorkspaceShell({
       let result;
       try {
         result = await createWorkspace.mutateAsync({ data, linkToIssue });
-      } catch {
+        if (!isMountedRef.current) return;
+      } catch (error) {
+        console.error('Workspace creation failed:', error);
+        if (!isMountedRef.current) return;
         // Workspace failed. If we just created a fresh issue, surface the
         // orphan modal so the user can retry or remove the dangling card.
         if (freshlyCreatedIssue) {
@@ -520,6 +533,7 @@ export function CreateWorkspaceShell({
       };
 
       const result = await createWorkspace.mutateAsync({ data, linkToIssue });
+      if (!isMountedRef.current) return;
       if (result.workspace) {
         setOrphanedIssue(null);
         const linkedForSave: LinkedIssue = {
@@ -534,7 +548,8 @@ export function CreateWorkspaceShell({
           linkedForSave
         );
       }
-    } catch {
+    } catch (error) {
+      console.error('Retry workspace creation failed:', error);
       // Retry failed — orphan modal stays visible for another attempt.
     } finally {
       isSubmitting.current = false;

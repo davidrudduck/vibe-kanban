@@ -22,7 +22,7 @@ export function LinkTaskRow({
   onIssueSelect,
   disabled = false,
 }: LinkTaskRowProps) {
-  const { setMessage } = useCreateMode();
+  const { message, setMessage } = useCreateMode();
   const projectContext = useContext(ProjectContext);
   const [search, setSearch] = useState('');
 
@@ -59,12 +59,16 @@ export function LinkTaskRow({
 
       onIssueSelect(linked);
 
-      const prompt = buildWorkspaceCreatePrompt(
-        issue.title,
-        issue.description ?? undefined
-      );
-      if (prompt) {
-        setMessage(prompt);
+      // Only auto-fill the prompt if the user hasn't typed anything yet.
+      // Preserve user-entered text to avoid silently destroying their work.
+      if (!message.trim()) {
+        const prompt = buildWorkspaceCreatePrompt(
+          issue.title,
+          issue.description ?? undefined
+        );
+        if (prompt) {
+          setMessage(prompt);
+        }
       }
     },
     [selectedIssue, projectId, onIssueSelect, setMessage]
