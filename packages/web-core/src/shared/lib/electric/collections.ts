@@ -329,17 +329,16 @@ export function evictSource(sourceKey: string, force = false): void {
   // Idempotency guard: already evicting or reconnecting
   if (runtime.mode === 'evicting' || runtime.mode === 'reconnecting') return;
 
-  // At this point, mode must be 'fallback'
-  // Set mode immediately to lock out concurrent calls (acts as mutex)
-  runtime.mode = 'evicting';
-
   // Rate limit: max one eviction per 5s per sourceKey (skip if force=true)
+  // Check BEFORE mutating mode to avoid transient state observation
   const now = Date.now();
   if (!force && now - runtime.lastEvictionAt < 5000) {
-    // Failed rate limit check, revert mode and return
-    runtime.mode = 'fallback';
     return;
   }
+
+  // At this point, mode must be 'fallback' and rate-limit passed
+  // Set mode immediately to lock out concurrent calls (acts as mutex)
+  runtime.mode = 'evicting';
 
   // Step 1: Iterate collectionCache and clean up matching collections BEFORE notifying
   const collectionIds = sourceKeyToCollectionIds.get(sourceKey);

@@ -161,6 +161,7 @@ export function useShape<
     if (!enabled) return;
     const sourceKey = buildSourceKey(shape.table, stableParams);
     return registerEvictionListener(sourceKey, () => {
+      setError(null); // Clear stale error from sibling hooks
       setRetryKey((k) => k + 1);
     });
   }, [enabled, shape.table, stableParams]);
