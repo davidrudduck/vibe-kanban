@@ -1,6 +1,14 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useLiveQuery } from '@tanstack/react-db';
-import { createShapeCollection } from '@/shared/lib/electric/collections';
+import {
+  buildCollectionId,
+  buildSourceKey,
+  createShapeCollection,
+  evictCollection,
+  evictSource,
+  isSourceFallbackLocked,
+  registerEvictionListener,
+} from '@/shared/lib/electric/collections';
 import { useSyncErrorContext } from '@/shared/hooks/useSyncErrorContext';
 import type { MutationDefinition, ShapeDefinition } from 'shared/remote-types';
 import type { SyncError } from '@/shared/lib/electric/types';
@@ -106,16 +114,30 @@ export function useShape<
 
   const handleError = useCallback((err: SyncError) => setError(err), []);
 
-  const retry = useCallback(() => {
-    setError(null);
-    setRetryKey((k) => k + 1);
-  }, []);
-
   const paramsKey = JSON.stringify(params);
   const stableParams = useMemo(
     () => JSON.parse(paramsKey) as Record<string, string>,
     [paramsKey]
   );
+
+  const retry = useCallback(() => {
+    setError(null);
+    const sourceKey = buildSourceKey(shape.table, stableParams);
+    const collectionId = buildCollectionId(
+      shape.table,
+      stableParams,
+      Boolean(mutation)
+    );
+
+    // Check if source is locked to fallback - if so, need full eviction to unlock
+    if (isSourceFallbackLocked(sourceKey)) {
+      evictSource(sourceKey, true); // force=true bypasses rate-limit for manual retry
+    } else {
+      // Only recreate this collection by evicting from cache
+      evictCollection(collectionId);
+      setRetryKey((k) => k + 1);
+    }
+  }, [shape.table, stableParams, mutation]);
 
   const streamId = useMemo(
     () => `${shape.table}:${paramsKey}`,
@@ -133,6 +155,16 @@ export function useShape<
       clearErrorFn?.(streamId);
     };
   }, [error, streamId, shape.table, retry, registerErrorFn, clearErrorFn]);
+
+  // Register eviction listener
+  useEffect(() => {
+    if (!enabled) return;
+    const sourceKey = buildSourceKey(shape.table, stableParams);
+    return registerEvictionListener(sourceKey, () => {
+      setError(null); // Clear stale error from sibling hooks
+      setRetryKey((k) => k + 1);
+    });
+  }, [enabled, shape.table, stableParams]);
 
   const collection = useMemo(() => {
     if (!enabled) return null;
@@ -257,26 +289,21 @@ export function useShape<
     [typedCollection]
   );
 
-  const base: UseShapeResult<T> = {
-    data: items,
-    isLoading,
-    error,
-    retry,
-  };
+  const base = useMemo<UseShapeResult<T>>(
+    () => ({ data: items, isLoading, error, retry }),
+    [items, isLoading, error, retry]
+  );
 
-  if (mutation) {
-    return {
-      ...base,
-      insert,
-      update,
-      updateMany,
-      remove,
-    } as M extends MutationDefinition<unknown, unknown, unknown>
-      ? UseShapeMutationResult<T, MutationCreateType<M>, MutationUpdateType<M>>
-      : UseShapeResult<T>;
-  }
+  const withMutations = useMemo(
+    () => (mutation ? { ...base, insert, update, updateMany, remove } : base),
+    [base, mutation, insert, update, updateMany, remove]
+  );
 
-  return base as M extends MutationDefinition<unknown, unknown, unknown>
+  return withMutations as M extends MutationDefinition<
+    unknown,
+    unknown,
+    unknown
+  >
     ? UseShapeMutationResult<T, MutationCreateType<M>, MutationUpdateType<M>>
     : UseShapeResult<T>;
 }

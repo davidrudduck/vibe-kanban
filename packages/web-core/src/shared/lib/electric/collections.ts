@@ -12,10 +12,14 @@ type ElectricRow = Record<string, unknown> & { [key: string]: unknown };
 type SourceMode = 'electric' | 'fallback';
 
 type SourceRuntime = {
-  mode: SourceMode;
+  mode: SourceMode | 'evicting' | 'reconnecting';
   fallbackLocked: boolean;
   refreshers: Set<() => Promise<void>>;
   fallbackSwitchers: Set<() => void>;
+  evictionListeners: Set<() => void>;
+  activeCleanups: Map<string, () => void>;
+  evictionEpoch: number;
+  lastEvictionAt: number;
 };
 
 type MutationFnParams = {
@@ -70,12 +74,20 @@ type SyncConfigLike = {
 };
 
 const DEFAULT_GC_TIME_MS = 5 * 60 * 1000;
-const ELECTRIC_READY_TIMEOUT_MS = 3000;
+// 15s covers mobile snapshot downloads on 3G/4G (200-400ms RTT, ~50-200KB initial
+// snapshot). Genuine outages surface via onError (<1s) regardless of this timeout —
+// the timeout only fires when TCP connected but no data arrives (genuine hang).
+// Single constant — no adaptive multiplier. navigator.connection is unavailable on
+// iOS Safari (primary mobile target). See M1 in plan v2.
+// Baseline measurement (mobile-perf-baseline.md step 4) records the % of Fast-3G
+// cold loads triggering this timer pre-PR1; expect ≥30% in current production.
+const ELECTRIC_READY_TIMEOUT_MS = 15_000;
 const FALLBACK_REFRESH_INTERVAL_MS = 30 * 1000;
 
 const collectionCache = new Map<string, ReturnType<typeof createCollection>>();
 const sourceRuntimes = new Map<string, SourceRuntime>();
 const fallbackSnapshotCache = new Map<string, ElectricRow[]>();
+const sourceKeyToCollectionIds = new Map<string, Set<string>>();
 
 class ErrorHandler {
   private lastErrorTime = 0;
@@ -134,7 +146,7 @@ function buildFallbackRequestPath(
   return queryString ? `${path}?${queryString}` : path;
 }
 
-function buildCollectionId(
+export function buildCollectionId(
   table: string,
   params: Record<string, string>,
   hasMutations: boolean
@@ -148,7 +160,47 @@ function buildCollectionId(
   return hasMutations ? `${base}-mut` : base;
 }
 
-function buildSourceKey(table: string, params: Record<string, string>): string {
+/**
+ * Evict a single collection from the cache by its ID.
+ * Used by retry to force recreation of a failed collection.
+ * Calls cleanup to prevent ghost subscriptions.
+ */
+export function evictCollection(collectionId: string): void {
+  // Find which sourceKey owns this collection
+  let owningSourceKey: string | undefined;
+  for (const [sourceKey, collectionIds] of sourceKeyToCollectionIds) {
+    if (collectionIds.has(collectionId)) {
+      owningSourceKey = sourceKey;
+      break;
+    }
+  }
+
+  if (owningSourceKey) {
+    const runtime = sourceRuntimes.get(owningSourceKey);
+    if (runtime) {
+      // Call cleanup to stop Electric subscription and timers
+      const cleanup = runtime.activeCleanups.get(collectionId);
+      if (cleanup) {
+        cleanup();
+        runtime.activeCleanups.delete(collectionId);
+      }
+    }
+
+    // Remove from tracking map
+    const collectionIds = sourceKeyToCollectionIds.get(owningSourceKey);
+    if (collectionIds) {
+      collectionIds.delete(collectionId);
+    }
+  }
+
+  // Delete from cache
+  collectionCache.delete(collectionId);
+}
+
+export function buildSourceKey(
+  table: string,
+  params: Record<string, string>
+): string {
   const sortedEntries = Object.entries(params).sort(([a], [b]) =>
     a.localeCompare(b)
   );
@@ -193,6 +245,10 @@ function getOrCreateSourceRuntime(sourceKey: string): SourceRuntime {
     fallbackLocked: false,
     refreshers: new Set(),
     fallbackSwitchers: new Set(),
+    evictionListeners: new Set(),
+    activeCleanups: new Map(),
+    evictionEpoch: 0,
+    lastEvictionAt: 0,
   };
   sourceRuntimes.set(sourceKey, created);
   return created;
@@ -247,6 +303,112 @@ function refreshFallbackSource(sourceKey: string): void {
   for (const refresher of runtime.refreshers) {
     void refresher();
   }
+}
+
+export function registerEvictionListener(
+  sourceKey: string,
+  listener: () => void
+): () => void {
+  const runtime = getOrCreateSourceRuntime(sourceKey);
+  runtime.evictionListeners.add(listener);
+  return () => {
+    runtime.evictionListeners.delete(listener);
+  };
+}
+
+const EVICTION_ENABLED = true;
+
+export function evictSource(sourceKey: string, force = false): void {
+  if (!EVICTION_ENABLED) return;
+
+  const runtime = getOrCreateSourceRuntime(sourceKey);
+
+  // Entry guard: eviction only when in fallback
+  if (runtime.mode === 'electric') return;
+
+  // Idempotency guard: already evicting or reconnecting
+  if (runtime.mode === 'evicting' || runtime.mode === 'reconnecting') return;
+
+  // Rate limit: max one eviction per 5s per sourceKey (skip if force=true)
+  // Check BEFORE mutating mode to avoid transient state observation
+  const now = Date.now();
+  if (!force && now - runtime.lastEvictionAt < 5000) {
+    return;
+  }
+
+  // At this point, mode must be 'fallback' and rate-limit passed
+  // Set mode immediately to lock out concurrent calls (acts as mutex)
+  runtime.mode = 'evicting';
+
+  // Step 1: Iterate collectionCache and clean up matching collections BEFORE notifying
+  const collectionIds = sourceKeyToCollectionIds.get(sourceKey);
+  if (collectionIds) {
+    for (const collectionId of collectionIds) {
+      const cleanup = runtime.activeCleanups.get(collectionId);
+      if (cleanup) {
+        cleanup();
+        runtime.activeCleanups.delete(collectionId);
+      }
+      collectionCache.delete(collectionId);
+    }
+    collectionIds.clear();
+  }
+
+  // Clear fallback snapshot cache
+  fallbackSnapshotCache.delete(sourceKey);
+
+  // Step 2: Reset runtime to electric mode BEFORE notifying listeners
+  runtime.mode = 'electric';
+  runtime.fallbackLocked = false;
+  runtime.refreshers.clear();
+  runtime.fallbackSwitchers.clear();
+  runtime.activeCleanups.clear();
+  runtime.evictionEpoch++;
+  runtime.lastEvictionAt = now;
+
+  // Step 3: Notify listeners AFTER state reset (React batches correctly)
+  for (const listener of runtime.evictionListeners) {
+    listener();
+  }
+}
+
+// Module-level visibility listener
+let hasInstalledVisibilityListener = false;
+
+function installVisibilityListener(): void {
+  if (hasInstalledVisibilityListener) return;
+  hasInstalledVisibilityListener = true;
+
+  if (typeof document === 'undefined') return;
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+
+    const now = Date.now();
+    const sourcesToEvict: string[] = [];
+
+    // Collect sources that need eviction
+    for (const [sourceKey, runtime] of sourceRuntimes) {
+      if (
+        runtime.mode === 'fallback' &&
+        now - runtime.lastEvictionAt >= 60_000
+      ) {
+        sourcesToEvict.push(sourceKey);
+      }
+    }
+
+    // Stagger evictions to prevent mass reconnect storm
+    // First eviction fires immediately, subsequent ones stagger by 500ms
+    sourcesToEvict.forEach((sourceKey, index) => {
+      if (index === 0) {
+        evictSource(sourceKey);
+      } else {
+        setTimeout(() => {
+          evictSource(sourceKey);
+        }, index * 500);
+      }
+    });
+  });
 }
 
 function isAbortError(error: unknown): boolean {
@@ -334,7 +496,7 @@ function createElectricShapeOptions(args: {
   const authRuntime = getAuthRuntime();
   let isPaused = false;
 
-  authRuntime.registerShape({
+  const unregisterShape = authRuntime.registerShape({
     pause: () => {
       isPaused = true;
     },
@@ -386,6 +548,7 @@ function createElectricShapeOptions(args: {
         args.onElectricUnavailable();
       }
     },
+    unregisterShape, // Return cleanup function
   };
 }
 
@@ -441,6 +604,7 @@ function createFallbackSync(args: {
   shape: ShapeDefinition<unknown>;
   params: Record<string, string>;
   reportError: (error: SyncError) => void;
+  unregisterShape?: () => void;
 }) {
   return (syncParams: SyncParams): SyncResult => {
     const runtime = getOrCreateSourceRuntime(args.sourceKey);
@@ -516,6 +680,7 @@ function createFallbackSync(args: {
         isCleanedUp = true;
         globalThis.clearInterval(intervalId);
         unregisterRefresher();
+        args.unregisterShape?.();
       },
       loadSubset: () => true,
     };
@@ -524,21 +689,25 @@ function createFallbackSync(args: {
 
 function createHybridSync(args: {
   sourceKey: string;
+  collectionId: string;
   shape: ShapeDefinition<unknown>;
   params: Record<string, string>;
   reportError: (error: SyncError) => void;
   electricSync: SyncConfigLike['sync'];
+  unregisterShape: () => void;
 }) {
   const fallbackSync = createFallbackSync({
     sourceKey: args.sourceKey,
     shape: args.shape,
     params: args.params,
     reportError: args.reportError,
+    unregisterShape: args.unregisterShape,
   });
 
   return (syncParams: SyncParams): SyncResult => {
     const runtime = getOrCreateSourceRuntime(args.sourceKey);
     if (runtime.fallbackLocked) {
+      // Short-circuit to fallback (unregisterShape already in fallback cleanup)
       return fallbackSync(syncParams);
     }
 
@@ -591,15 +760,22 @@ function createHybridSync(args: {
       }
     });
 
+    const cleanup = () => {
+      isCleanedUp = true;
+      if (timeoutId) {
+        globalThis.clearTimeout(timeoutId);
+      }
+      unregisterSwitcher();
+      activeSync.cleanup?.();
+      args.unregisterShape(); // Unregister from auth runtime
+      runtime.activeCleanups.delete(args.collectionId);
+    };
+
+    // Register cleanup in runtime
+    runtime.activeCleanups.set(args.collectionId, cleanup);
+
     return {
-      cleanup: () => {
-        isCleanedUp = true;
-        if (timeoutId) {
-          globalThis.clearTimeout(timeoutId);
-        }
-        unregisterSwitcher();
-        activeSync.cleanup?.();
-      },
+      cleanup,
       loadSubset: (options: unknown) =>
         activeSync.loadSubset ? activeSync.loadSubset(options) : true,
       unloadSubset: (options: unknown) => {
@@ -609,7 +785,7 @@ function createHybridSync(args: {
   };
 }
 
-function isSourceFallbackLocked(sourceKey: string): boolean {
+export function isSourceFallbackLocked(sourceKey: string): boolean {
   const runtime = getOrCreateSourceRuntime(sourceKey);
   return runtime.fallbackLocked;
 }
@@ -786,13 +962,16 @@ export function createShapeCollection<TRow extends ElectricRow>(
     onElectricUnavailable,
   });
 
+  // Extract cleanup function before passing to electricCollectionOptions
+  const { unregisterShape, ...shapeOptionsWithoutCleanup } = shapeOptions;
+
   const mutationHandlers = mutation
     ? buildMutationHandlers(mutation, sourceKey)
     : {};
 
   const electricOptions = electricCollectionOptions({
     id: collectionId,
-    shapeOptions: shapeOptions as never,
+    shapeOptions: shapeOptionsWithoutCleanup as never,
     getKey: (item: ElectricRow) => getRowKey(item),
     gcTime: DEFAULT_GC_TIME_MS,
     ...mutationHandlers,
@@ -806,10 +985,12 @@ export function createShapeCollection<TRow extends ElectricRow>(
       ...electricSyncConfig,
       sync: createHybridSync({
         sourceKey,
+        collectionId,
         shape,
         params,
         reportError,
         electricSync: electricSyncConfig.sync,
+        unregisterShape,
       }),
     },
   };
@@ -819,5 +1000,15 @@ export function createShapeCollection<TRow extends ElectricRow>(
   ) as unknown as ReturnType<typeof createCollection> & { __rowType?: TRow };
 
   collectionCache.set(collectionId, collection);
+
+  // Track collectionId for this sourceKey
+  if (!sourceKeyToCollectionIds.has(sourceKey)) {
+    sourceKeyToCollectionIds.set(sourceKey, new Set());
+  }
+  sourceKeyToCollectionIds.get(sourceKey)!.add(collectionId);
+
+  // Install visibility listener (idempotent)
+  installVisibilityListener();
+
   return collection;
 }

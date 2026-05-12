@@ -14,11 +14,13 @@ import { LoginRequiredPrompt } from '@/shared/dialogs/shared/LoginRequiredPrompt
 import {
   PERSIST_KEYS,
   usePaneSize,
+  useUiPreferencesStore,
 } from '@/shared/stores/useUiPreferencesStore';
 import { useUserOrganizations } from '@/shared/hooks/useUserOrganizations';
 import { useOrganizationProjects } from '@/shared/hooks/useOrganizationProjects';
 import { useOrganizationStore } from '@/shared/stores/useOrganizationStore';
 import { useAuth } from '@/shared/hooks/auth/useAuth';
+import { useValidatedSelectedOrg } from '@/shared/hooks/useValidatedSelectedOrg';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useCurrentKanbanRouteState } from '@/shared/hooks/useCurrentKanbanRouteState';
 import {
@@ -212,16 +214,29 @@ function ProjectKanbanInner({ projectId }: { projectId: string }) {
 }
 
 /**
- * Hook to find a project by ID, using orgId from Zustand store
+ * Hook to find a project by ID, using validated org from useValidatedSelectedOrg.
+ *
+ * With enableEarlyKanbanMount, this hook returns isLoading based on org validation,
+ * not project loading. The projects shape will load in parallel with the kanban mount.
  */
 function useFindProjectById(projectId: string | undefined) {
-  const { isLoaded: authLoaded } = useAuth();
-  const { data: orgsData, isLoading: orgsLoading } = useUserOrganizations();
+  const enableEarlyKanbanMount = useUiPreferencesStore(
+    (s) => s.enableEarlyKanbanMount
+  );
+  const orgValidation = useValidatedSelectedOrg();
+
+  // When early mount is disabled, fall back to the old behavior
+  const { data: orgsData } = useUserOrganizations();
   const selectedOrgId = useOrganizationStore((s) => s.selectedOrgId);
   const organizations = orgsData?.organizations ?? [];
+  const legacyOrgId = selectedOrgId ?? organizations[0]?.id ?? null;
 
-  // Use stored org ID, or fall back to first org
-  const orgIdToUse = selectedOrgId ?? organizations[0]?.id ?? null;
+  // With early mount enabled, only use validated org to prevent 403s from stale cache
+  const orgIdToUse = enableEarlyKanbanMount
+    ? orgValidation.status === 'ready'
+      ? orgValidation.orgId
+      : null // Don't subscribe with stale org while validation pending
+    : legacyOrgId;
 
   const { data: projects = [], isLoading: projectsLoading } =
     useOrganizationProjects(orgIdToUse);
@@ -233,9 +248,11 @@ function useFindProjectById(projectId: string | undefined) {
 
   return {
     project,
-    organizationId: project?.organization_id ?? selectedOrgId,
-    // Include auth loading state - we can't determine project access until auth loads
-    isLoading: !authLoaded || orgsLoading || projectsLoading,
+    organizationId: project?.organization_id ?? orgIdToUse,
+    // When early mount enabled, isLoading gates only on validation, not projects
+    isLoading: enableEarlyKanbanMount
+      ? orgValidation.status === 'pending'
+      : projectsLoading || orgValidation.status === 'pending',
   };
 }
 
