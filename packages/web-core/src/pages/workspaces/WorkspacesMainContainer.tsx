@@ -14,7 +14,6 @@ import {
 } from '@/features/workspace-chat/ui/ConversationListContainer';
 import { SessionChatBoxContainer } from '@/features/workspace-chat/ui/SessionChatBoxContainer';
 import { ContextBarContainer } from './ContextBarContainer';
-import { EntriesProvider } from '@/features/workspace-chat/model/contexts/EntriesContext';
 import { MessageEditProvider } from '@/features/workspace-chat/model/contexts/MessageEditContext';
 import { RetryUiProvider } from '@/features/workspace-chat/model/contexts/RetryUiContext';
 import { ApprovalFeedbackProvider } from '@/features/workspace-chat/model/contexts/ApprovalFeedbackContext';
@@ -170,10 +169,6 @@ export const WorkspacesMainContainer = forwardRef<
     };
   }, [workspaceWithSession?.id, session?.id, nav.isAtBottomRef]);
 
-  const entriesProviderKey = workspaceWithSession
-    ? `${workspaceWithSession.id}-${selectedSessionId ?? 'new'}`
-    : 'empty';
-
   const conversationContent = workspaceWithSession ? (
     <div
       className="flex-1 min-h-0 overflow-hidden flex justify-center"
@@ -182,7 +177,6 @@ export const WorkspacesMainContainer = forwardRef<
       <div className="w-chat max-w-full h-full">
         <RetryUiProvider workspaceId={workspaceWithSession.id}>
           <ConversationList
-            key={entriesProviderKey}
             ref={conversationListRef}
             attempt={workspaceWithSession}
             repos={repos}
@@ -226,9 +220,8 @@ export const WorkspacesMainContainer = forwardRef<
 
   return (
     <ApprovalFeedbackProvider>
-      <EntriesProvider key={entriesProviderKey}>
-        <MessageEditProvider>
-          <WorkspacesMain
+      <MessageEditProvider>
+        <WorkspacesMain
             workspaceWithSession={
               workspaceWithSession ? { id: workspaceWithSession.id } : undefined
             }
@@ -248,7 +241,6 @@ export const WorkspacesMainContainer = forwardRef<
             isNarrow={isNarrow}
           />
         </MessageEditProvider>
-      </EntriesProvider>
     </ApprovalFeedbackProvider>
   );
 });

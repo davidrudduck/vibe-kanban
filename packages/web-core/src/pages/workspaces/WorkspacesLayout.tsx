@@ -21,6 +21,7 @@ import {
 } from '@/features/create-mode/model/createModeSeedStore';
 import { ReviewProvider } from '@/shared/hooks/ReviewProvider';
 import { ChangesViewProvider } from '@/shared/hooks/ChangesViewProvider';
+import { EntriesProvider } from '@/features/workspace-chat/model/contexts/EntriesContext';
 import { WorkspacesSidebarContainer } from './WorkspacesSidebarContainer';
 import { LogsContentContainer } from './LogsContentContainer';
 import {
@@ -346,10 +347,16 @@ export function WorkspacesLayout() {
     );
   }
 
+  // EntriesProvider key for resetting state on workspace/session change
+  const entriesProviderKey = selectedWorkspace
+    ? `${selectedWorkspace.id}-${selectedSessionId ?? 'new'}`
+    : 'empty';
+
   const mainContent = (
     <ReviewProvider workspaceId={selectedWorkspace?.id}>
       <ChangesViewProvider>
-        <div className="flex h-full">
+        <EntriesProvider key={entriesProviderKey}>
+          <div className="flex h-full">
           <Group
             orientation="horizontal"
             className="flex-1 min-w-0 h-full"
@@ -434,7 +441,8 @@ export function WorkspacesLayout() {
               />
             </div>
           )}
-        </div>
+          </div>
+        </EntriesProvider>
       </ChangesViewProvider>
     </ReviewProvider>
   );

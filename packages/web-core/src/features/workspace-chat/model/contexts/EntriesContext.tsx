@@ -58,6 +58,9 @@ const TokenUsageContext = createHmrContext<TokenUsageContextType | null>(
 export type { SessionSummary } from '../sessionSummary';
 export { aggregateSessionSummary } from '../sessionSummary';
 
+// Empty map constant for memoization stability when provider is unavailable
+const EMPTY_TOKEN_MAP: ReadonlyMap<string, TokenUsageInfo> = new Map();
+
 interface TokenUsageMapContextType {
   tokenUsageByProcess: Map<string, TokenUsageInfo>;
   setTokenUsageByProcess: (map: Map<string, TokenUsageInfo>) => void;
@@ -189,12 +192,14 @@ export const useSetTokenUsageInfo = (): ((
 
 /**
  * Returns the per-process token usage map.
- * Safe to call outside EntriesProvider (returns empty Map, so SESSION MONITOR
- * renders its "Telemetry not available" state rather than crashing).
+ * Safe to call outside EntriesProvider (returns stable empty Map for memoization).
  */
-export const useTokenUsageByProcess = (): Map<string, TokenUsageInfo> => {
+export const useTokenUsageByProcess = (): ReadonlyMap<
+  string,
+  TokenUsageInfo
+> => {
   const context = useContext(TokenUsageMapContext);
-  return context?.tokenUsageByProcess ?? new Map();
+  return context?.tokenUsageByProcess ?? EMPTY_TOKEN_MAP;
 };
 
 const _noop = (_map: Map<string, TokenUsageInfo>) => {};

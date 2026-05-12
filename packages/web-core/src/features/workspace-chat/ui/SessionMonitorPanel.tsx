@@ -7,12 +7,9 @@ import {
 export function SessionMonitorPanel() {
   const summary = useSessionSummary();
 
-  // Check if we have any data yet (empty state detection)
-  const hasNoData =
-    summary.contextTokens === 0 &&
-    summary.contextWindow === 0 &&
-    summary.outputTokens === null &&
-    summary.numTurns === null;
+  // Empty state detection: use hasEntries flag instead of inferring from values
+  // This prevents flicker when entries have been emitted but values are still zero
+  const hasNoData = !summary.hasEntries;
 
   // Branch 1: Empty state - waiting for first turn (executor supports but no data yet)
   if (hasNoData && summary.executorSupportsTokens) {

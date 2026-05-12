@@ -2,13 +2,14 @@
  * Pure aggregation logic for session token summary.
  * Extracted to a separate module so it can be unit-tested without HMR context dependencies.
  */
-import type { TokenUsageInfo, BaseCodingAgent } from 'shared/types';
+import type { TokenUsageInfo } from 'shared/types';
+import { BaseCodingAgent } from 'shared/types';
 
 /**
  * Executors known to emit TokenUsageInfo today. Source of truth:
- *   - CLAUDE_CODE: crates/executors/src/executors/claude.rs:1896
- *   - CODEX:       crates/executors/src/executors/codex/normalize_logs.rs:768, 2297
- *   - OPENCODE:    crates/executors/src/executors/opencode/normalize_logs.rs:94
+ *   - CLAUDE_CODE: crates/executors/src/executors/claude.rs
+ *   - CODEX:       crates/executors/src/executors/codex/normalize_logs.rs
+ *   - OPENCODE:    crates/executors/src/executors/opencode/normalize_logs.rs
  * Other executors (AMP, GEMINI, CURSOR_AGENT, QWEN_CODE, COPILOT, DROID) do not
  * emit telemetry as of this revision. If they begin to, the panel will infer
  * support from observed entries automatically (entries.length > 0).
@@ -17,10 +18,10 @@ import type { TokenUsageInfo, BaseCodingAgent } from 'shared/types';
  * to a Rust-sourced BaseAgentCapability::TOKEN_USAGE flag.
  */
 export const KNOWN_TOKEN_EMITTERS: ReadonlySet<BaseCodingAgent> = new Set([
-  'CLAUDE_CODE',
-  'CODEX',
-  'OPENCODE',
-] as BaseCodingAgent[]);
+  BaseCodingAgent.CLAUDE_CODE,
+  BaseCodingAgent.CODEX,
+  BaseCodingAgent.OPENCODE,
+]);
 
 // ---------------------------------------------------------------------------
 // Display helpers — shared by SessionMonitorPanel and DisplayConversationEntry
@@ -57,6 +58,7 @@ export type SessionSummary = {
   // Derived
   cacheHitRate: number | null; // null if denominator is 0
   // Meta
+  hasEntries: boolean; // true if any token entries have been emitted
   executorSupportsTokens: boolean;
   executorName: string | null;
 };
@@ -80,6 +82,7 @@ export function aggregateSessionSummary(
       numTurns: null,
       durationMs: null,
       cacheHitRate: null,
+      hasEntries: false,
       executorSupportsTokens,
       executorName: executor,
     };
@@ -168,6 +171,7 @@ export function aggregateSessionSummary(
     numTurns,
     durationMs,
     cacheHitRate,
+    hasEntries: true,
     executorSupportsTokens,
     executorName: executor,
   };

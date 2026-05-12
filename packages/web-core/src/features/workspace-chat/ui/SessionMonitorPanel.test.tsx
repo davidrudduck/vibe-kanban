@@ -23,6 +23,7 @@ describe('SessionMonitorPanel', () => {
     numTurns: null,
     durationMs: null,
     cacheHitRate: null,
+    hasEntries: false,
     executorSupportsTokens: false,
     executorName: null,
   };
@@ -38,6 +39,7 @@ describe('SessionMonitorPanel', () => {
     numTurns: 3,
     durationMs: 45000,
     cacheHitRate: 65,
+    hasEntries: true,
     executorSupportsTokens: true,
     executorName: 'CLAUDE_CODE',
   };
@@ -119,6 +121,7 @@ describe('SessionMonitorPanel', () => {
       numTurns: null,
       durationMs: null,
       cacheHitRate: null,
+      hasEntries: true,
       executorSupportsTokens: true,
       executorName: 'CLAUDE_CODE',
     });
