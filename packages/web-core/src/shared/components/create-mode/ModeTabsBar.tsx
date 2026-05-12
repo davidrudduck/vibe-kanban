@@ -23,17 +23,21 @@ interface ModeTabsBarProps {
 
 export function ModeTabsBar({ mode, onChange, disabled }: ModeTabsBarProps) {
   return (
-    <div className="flex items-center gap-px rounded-sm border border-border/60 bg-secondary p-quarter">
+    <div
+      role="tablist"
+      aria-label="Workspace creation mode"
+      className="flex items-center gap-px rounded-sm border border-border/60 bg-secondary p-quarter"
+    >
       {TABS.map(({ mode: tabMode, label, Icon }) => {
         const isActive = mode === tabMode;
         return (
           <button
             key={tabMode}
             type="button"
+            role="tab"
             onClick={() => onChange(tabMode)}
             disabled={disabled}
-            aria-pressed={isActive}
-            aria-label={label}
+            aria-selected={isActive}
             className={cn(
               'flex flex-1 items-center justify-center gap-1.5 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors',
               'disabled:cursor-not-allowed disabled:opacity-50',

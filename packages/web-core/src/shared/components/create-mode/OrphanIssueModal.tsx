@@ -34,10 +34,19 @@ export function OrphanIssueModal({
       onKeyDown={(e) => {
         // Prevent any parent Escape handlers from dismissing this modal.
         // The user must choose Retry or Remove — there is no silent dismiss.
-        if (e.key === 'Escape') e.stopPropagation();
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          e.nativeEvent.stopImmediatePropagation();
+        }
       }}
     >
-      <div className="mx-base flex w-full max-w-md flex-col gap-base rounded-sm border border-border/60 bg-panel p-base shadow-lg">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="orphan-modal-title"
+        className="mx-base flex w-full max-w-md flex-col gap-base rounded-sm border border-border/60 bg-panel p-base shadow-lg"
+      >
         {/* Header */}
         <div className="flex items-start gap-half">
           <WarningIcon
@@ -45,7 +54,10 @@ export function OrphanIssueModal({
             weight="fill"
           />
           <div className="flex flex-col gap-quarter">
-            <h2 className="text-sm font-semibold text-high">
+            <h2
+              id="orphan-modal-title"
+              className="text-sm font-semibold text-high"
+            >
               Workspace failed to start
             </h2>
             <p className="text-sm text-normal">
@@ -66,6 +78,8 @@ export function OrphanIssueModal({
         {/* Actions */}
         <div className="flex flex-col gap-half">
           <button
+            // eslint-disable-next-line jsx-a11y/no-autofocus
+            autoFocus
             type="button"
             onClick={onRetry}
             disabled={isBusy}

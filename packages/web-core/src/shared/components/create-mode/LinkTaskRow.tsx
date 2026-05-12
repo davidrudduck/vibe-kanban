@@ -10,6 +10,7 @@ import type { Issue, ProjectStatus } from 'shared/remote-types';
 interface LinkTaskRowProps {
   selectedIssue: LinkedIssue | null;
   onIssueSelect: (issue: LinkedIssue | null) => void;
+  disabled?: boolean;
 }
 
 function getStatusName(statusId: string, statuses: ProjectStatus[]): string {
@@ -19,6 +20,7 @@ function getStatusName(statusId: string, statuses: ProjectStatus[]): string {
 export function LinkTaskRow({
   selectedIssue,
   onIssueSelect,
+  disabled = false,
 }: LinkTaskRowProps) {
   const { setMessage } = useCreateMode();
   const projectContext = useContext(ProjectContext);
@@ -101,8 +103,9 @@ export function LinkTaskRow({
           <button
             type="button"
             onClick={handleClearSelected}
+            disabled={disabled}
             aria-label="Remove linked task"
-            className="shrink-0 text-low hover:text-error"
+            className="shrink-0 text-low hover:text-error disabled:opacity-50"
           >
             <XIcon className="size-icon-2xs" weight="bold" />
           </button>
@@ -112,15 +115,21 @@ export function LinkTaskRow({
       {/* Search input */}
       <div className="relative">
         <MagnifyingGlassIcon className="absolute left-half top-1/2 size-icon-xs -translate-y-1/2 text-low" />
+        <label htmlFor="link-task-search" className="sr-only">
+          Search tasks
+        </label>
         <input
+          id="link-task-search"
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          disabled={disabled}
           placeholder="Search tasks…"
           className={cn(
             'w-full rounded-sm border border-border/60 bg-secondary py-half pl-[28px] pr-half',
             'text-sm text-normal placeholder:text-low',
-            'focus:outline-none focus:ring-1 focus:ring-brand/50'
+            'focus:outline-none focus:ring-1 focus:ring-brand/50',
+            'disabled:cursor-not-allowed disabled:opacity-50'
           )}
         />
       </div>
@@ -143,11 +152,12 @@ export function LinkTaskRow({
                 key={issue.id}
                 type="button"
                 onClick={() => handleSelect(issue)}
+                disabled={disabled}
                 aria-pressed={isActive}
                 className={cn(
                   'flex w-full min-w-0 items-center gap-half px-base py-half text-left text-sm',
                   'border-b border-border/40 last:border-b-0',
-                  'transition-colors',
+                  'transition-colors disabled:cursor-not-allowed disabled:opacity-50',
                   isActive
                     ? 'bg-brand/10 text-high'
                     : 'hover:bg-panel text-normal'

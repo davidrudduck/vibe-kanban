@@ -82,6 +82,12 @@ export function CreateWorkspaceShell({
   const [orphanedIssue, setOrphanedIssue] = useState<OrphanIssueState | null>(
     null
   );
+  // True while insertIssue().persisted is in-flight — keeps UI locked during
+  // the window between issue creation and workspace start.
+  const [isCreatingIssue, setIsCreatingIssue] = useState(false);
+  // Holds an error message if issue creation itself failed (separate from
+  // createWorkspace.error which only covers the workspace mutation).
+  const [issueCreateError, setIssueCreateError] = useState<string | null>(null);
 
   // mode is UI state — NOT persisted in CreateModeProvider draft.
   // Initialise from linkedIssue presence (set by kanban "create workspace from issue" flow).
@@ -94,10 +100,19 @@ export function CreateWorkspaceShell({
   const [manualLinkedIssue, setManualLinkedIssue] =
     useState<LinkedIssue | null>(() => linkedIssue ?? null);
 
-  // When linkedIssue is set externally after mount (e.g. draft re-seed), sync mode.
-  // Safe: setting mode/manualLinkedIssue does not affect linkedIssue.
+  // Tracks whether linkedIssue has already been applied to local mode state.
+  // Prevents the effect below from stomping a user's mode choice when
+  // CreateModeProvider re-emits the same linkedIssue reference.
+  const linkedIssueAppliedRef = useRef(linkedIssue != null);
+
+  // Sync mode only when linkedIssue first becomes non-null after mount
+  // (e.g. draft re-seed). Does NOT re-trigger once mode has been seeded
+  // so user mode changes are preserved. The ref is reset at the call site
+  // (handleModeChange) when linkedIssue is cleared, not here in the effect,
+  // to avoid batching gaps.
   useEffect(() => {
-    if (linkedIssue) {
+    if (linkedIssue && !linkedIssueAppliedRef.current) {
+      linkedIssueAppliedRef.current = true;
       setMode('link_task');
       setManualLinkedIssue(linkedIssue);
     }
@@ -108,18 +123,26 @@ export function CreateWorkspaceShell({
   const handleModeChange = useCallback(
     (newMode: CreateWorkspaceMode) => {
       if (createWorkspace.isPending) return;
+      // Clear any orphan state when switching modes — the context has changed.
+      if (orphanedIssue) setOrphanedIssue(null);
       if (newMode !== 'link_task') {
         if (linkedIssue) clearLinkedIssue();
         setManualLinkedIssue(null);
+        // Reset the ref when we clear linkedIssue so a future seed can apply.
+        // Doing this here (at the call site) instead of in the effect prevents
+        // a synchronous-batching gap where rapid clear+set drops the new seed.
+        linkedIssueAppliedRef.current = false;
       }
       setMode(newMode);
     },
-    [createWorkspace.isPending, linkedIssue, clearLinkedIssue]
+    [createWorkspace.isPending, orphanedIssue, linkedIssue, clearLinkedIssue]
   );
 
   const handleIssueSelect = useCallback((issue: LinkedIssue | null) => {
     setManualLinkedIssue(issue);
-    if (!issue) setMode('new_task');
+    // Intentionally NOT switching back to new_task on deselect — the user
+    // remains in link_task mode so they can search for a different issue
+    // without losing the context of what they were trying to link.
   }, []);
 
   // ── Effective linked issue for submission ───────────────────────────────────
@@ -284,7 +307,6 @@ export function CreateWorkspaceShell({
       repoInputs: Array<{ repo_id: string; target_branch: string }>,
       linkedIssueForSave: LinkedIssue | null
     ) => {
-      onWorkspaceCreated(workspaceId);
       if (linkedIssueForSave?.remoteProjectId) {
         saveProjectRepoDefaults(
           linkedIssueForSave.remoteProjectId,
@@ -294,7 +316,10 @@ export function CreateWorkspaceShell({
         );
       }
       clearAttachments();
+      // Clear draft BEFORE navigating — onWorkspaceCreated may unmount this
+      // component immediately, leaving clearDraft unresolved if called after.
       await clearDraft();
+      onWorkspaceCreated(workspaceId);
     },
     [onWorkspaceCreated, clearAttachments, clearDraft]
   );
@@ -303,8 +328,13 @@ export function CreateWorkspaceShell({
 
   const handleSubmit = useCallback(async () => {
     if (isSubmitting.current) return;
+    // Cmd+Enter must not start a new submission while the orphan modal is open.
+    if (orphanedIssue) return;
     isSubmitting.current = true;
     setHasAttemptedSubmit(true);
+    // Clear any stale errors from previous attempts.
+    setIssueCreateError(null);
+    createWorkspace.reset();
 
     if (!canSubmit || !executorConfig) {
       isSubmitting.current = false;
@@ -325,16 +355,23 @@ export function CreateWorkspaceShell({
       let freshlyCreatedIssue: OrphanIssueState | null = null;
 
       if (mode === 'new_task' && projectContext && firstNonHiddenStatusId) {
-        const issueTitle = workspaceName.trim() || autoTitle || 'New workspace';
-        const issuesInStatus = projectContext.issues.filter(
-          (i) => i.status_id === firstNonHiddenStatusId
-        );
-        const minSortOrder =
-          issuesInStatus.length > 0
-            ? Math.min(...issuesInStatus.map((i) => i.sort_order))
-            : 1000;
-
+        setIsCreatingIssue(true);
         try {
+          const issueTitle =
+            workspaceName.trim() || autoTitle || 'New workspace';
+          const issuesInStatus = projectContext.issues.filter(
+            (i) => i.status_id === firstNonHiddenStatusId
+          );
+          // Use reduce instead of Math.min(...array) to avoid call-stack
+          // overflow on status columns with very large issue counts.
+          const minSortOrder =
+            issuesInStatus.length > 0
+              ? issuesInStatus.reduce(
+                  (min, i) => Math.min(min, i.sort_order),
+                  Infinity
+                )
+              : 1000;
+
           const { persisted } = projectContext.insertIssue({
             project_id: projectContext.projectId,
             status_id: firstNonHiddenStatusId,
@@ -365,8 +402,13 @@ export function CreateWorkspaceShell({
           };
         } catch {
           // Issue creation failed — abort. No orphan risk since workspace was
-          // never started. The createWorkspace.error state surfaces the error.
+          // never started. Surface the error instead of silently swallowing it.
+          setIssueCreateError(
+            'Failed to create kanban card. Please try again.'
+          );
           return;
+        } finally {
+          setIsCreatingIssue(false);
         }
       }
 
@@ -436,6 +478,7 @@ export function CreateWorkspaceShell({
     targetBranches,
     effectiveLinkedIssue,
     mode,
+    orphanedIssue,
     projectContext,
     firstNonHiddenStatusId,
     createWorkspace,
@@ -448,7 +491,11 @@ export function CreateWorkspaceShell({
 
   const handleRetryWorkspace = useCallback(async () => {
     if (!orphanedIssue || isSubmitting.current) return;
+    // Cannot build a valid retry payload without executor config.
+    if (!executorConfig) return;
     isSubmitting.current = true;
+    // Clear any stale error from a prior failed retry attempt.
+    createWorkspace.reset();
 
     try {
       const { title: autoTitle } = splitMessageToTitleDescription(message);
@@ -457,7 +504,7 @@ export function CreateWorkspaceShell({
         target_branch: targetBranches[r.id]!,
       }));
       const data = {
-        executor_config: executorConfig!,
+        executor_config: executorConfig,
         name: workspaceName.trim() || autoTitle,
         prompt: message,
         repos: repoInputs,
@@ -553,17 +600,19 @@ export function CreateWorkspaceShell({
       ? 'Add at least one repository to create a workspace'
       : hasAttemptedSubmit && !hasSelectedBranchesForAllRepos
         ? 'Select a branch for every repository before creating a workspace'
-        : createWorkspace.error
-          ? createWorkspace.error instanceof Error
-            ? createWorkspace.error.message
-            : 'Failed to create workspace'
-          : null;
+        : issueCreateError
+          ? issueCreateError
+          : createWorkspace.error
+            ? createWorkspace.error instanceof Error
+              ? createWorkspace.error.message
+              : 'Failed to create workspace'
+            : null;
 
   // ── Guard: wait for draft initialisation ────────────────────────────────────
 
   if (!hasInitialValue) return null;
 
-  const isBusy = createWorkspace.isPending;
+  const isBusy = createWorkspace.isPending || isCreatingIssue;
 
   return (
     <div className="relative flex h-full flex-1 flex-col bg-primary overflow-y-auto">
@@ -605,6 +654,7 @@ export function CreateWorkspaceShell({
             <LinkTaskRow
               selectedIssue={manualLinkedIssue}
               onIssueSelect={handleIssueSelect}
+              disabled={isBusy}
             />
           )}
           {mode === 'quick_run' && <QuickRunRow />}

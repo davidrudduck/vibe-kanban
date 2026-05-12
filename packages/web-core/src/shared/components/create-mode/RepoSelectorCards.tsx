@@ -224,18 +224,30 @@ export function RepoSelectorCards({ disabled }: RepoSelectorCardsProps) {
           const branch = targetBranches[repo.id];
           const isPending = pendingRepoId === repo.id;
           const displayName = getRepoDisplayName(repo);
+          // HTML spec forbids interactive elements inside <button>.
+          // Use a div[role="button"] so inner Remove/Branch buttons are valid.
+          const isCardDisabled =
+            disabled || (pendingRepoId !== null && !isPending);
 
           return (
-            <button
+            <div
               key={repo.id}
-              type="button"
-              onClick={() => handleCardClick(repo)}
-              disabled={disabled || (pendingRepoId !== null && !isPending)}
+              role="button"
+              tabIndex={isCardDisabled ? -1 : 0}
               aria-pressed={isSelected}
+              aria-disabled={isCardDisabled}
               title={`${displayName} — ${repo.path}`}
+              onClick={() => handleCardClick(repo)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  handleCardClick(repo);
+                }
+              }}
               className={cn(
                 'relative flex min-w-[140px] max-w-[200px] flex-col gap-quarter rounded-sm border p-half text-left',
-                'transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                'cursor-pointer transition-colors',
+                isCardDisabled && 'cursor-not-allowed opacity-50',
                 isSelected
                   ? 'border-brand/60 bg-brand/5 text-high ring-1 ring-brand/30'
                   : 'border-border/60 bg-secondary text-normal hover:border-border hover:text-high'
@@ -255,16 +267,16 @@ export function RepoSelectorCards({ disabled }: RepoSelectorCardsProps) {
                   <button
                     type="button"
                     onClick={(e) => handleRemoveRepo(e, repo.id)}
-                    disabled={disabled}
+                    disabled={disabled || pendingRepoId !== null}
                     aria-label={`Remove ${displayName}`}
-                    className="shrink-0 text-low hover:text-error"
+                    className="shrink-0 text-low hover:text-error disabled:opacity-50"
                   >
                     <XIcon className="size-icon-2xs" weight="bold" />
                   </button>
                 )}
               </div>
 
-              <span className="truncate text-xs text-low font-mono">
+              <span className="truncate font-mono text-xs text-low">
                 {truncatePath(repo.path)}
               </span>
 
@@ -285,7 +297,7 @@ export function RepoSelectorCards({ disabled }: RepoSelectorCardsProps) {
                   </span>
                 </button>
               )}
-            </button>
+            </div>
           );
         })}
 
