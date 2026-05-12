@@ -1,7 +1,6 @@
 import type { ReactNode, RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { SpinnerIcon } from '@phosphor-icons/react';
-import { cn } from '../lib/cn';
 import { ConversationNavOverlay } from './ConversationNavOverlay';
 
 export interface WorkspacesMainWorkspace {
@@ -51,10 +50,7 @@ export function WorkspacesMain({
   return (
     <main
       ref={containerRef}
-      className={cn(
-        'relative flex flex-1 flex-col bg-primary',
-        isMobile ? 'min-h-0' : 'h-full'
-      )}
+      className="relative flex flex-1 flex-col bg-primary h-full min-h-0"
     >
       {/* Conversation content - conditional based on loading/workspace state */}
       {isLoading ? (
