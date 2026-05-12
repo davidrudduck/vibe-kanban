@@ -6,6 +6,8 @@ import {
   aggregateSessionSummary,
   type SessionSummary,
 } from '../sessionSummary';
+import { useExecutionProcessesContext } from '@/shared/hooks/useExecutionProcessesContext';
+import { getLatestConfigFromProcesses } from '@/shared/lib/executor';
 
 // ---------------------------------------------------------------------------
 // Entries context — changes on every streaming update
@@ -210,8 +212,13 @@ export const useSetTokenUsageByProcess = (): ((
 
 export const useSessionSummary = (): SessionSummary => {
   const byProcess = useTokenUsageByProcess();
+  const { executionProcessesAll: processes } = useExecutionProcessesContext();
+  const executor = useMemo(
+    () => getLatestConfigFromProcesses(processes)?.executor ?? null,
+    [processes]
+  );
   return useMemo(() => {
     const entries = Array.from(byProcess.values());
-    return aggregateSessionSummary(entries);
-  }, [byProcess]);
+    return aggregateSessionSummary(entries, executor);
+  }, [byProcess, executor]);
 };

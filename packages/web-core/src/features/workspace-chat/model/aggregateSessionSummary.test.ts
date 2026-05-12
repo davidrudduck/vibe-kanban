@@ -94,4 +94,71 @@ describe('aggregateSessionSummary', () => {
     const summary = aggregateSessionSummary([process]);
     expect(summary.executorSupportsTokens).toBe(true);
   });
+
+  // US-003: Inference-based capability tests
+  it('empty entries + CLAUDE_CODE executor → executorSupportsTokens true', () => {
+    const summary = aggregateSessionSummary([], 'CLAUDE_CODE');
+    expect(summary.executorSupportsTokens).toBe(true);
+    expect(summary.executorName).toBe('CLAUDE_CODE');
+    expect(summary.contextTokens).toBe(0);
+    expect(summary.contextWindow).toBe(0);
+    expect(summary.outputTokens).toBeNull();
+    expect(summary.numTurns).toBeNull();
+  });
+
+  it('empty entries + GEMINI executor → executorSupportsTokens false', () => {
+    const summary = aggregateSessionSummary([], 'GEMINI');
+    expect(summary.executorSupportsTokens).toBe(false);
+    expect(summary.executorName).toBe('GEMINI');
+  });
+
+  it('empty entries + null executor → executorSupportsTokens false', () => {
+    const summary = aggregateSessionSummary([], null);
+    expect(summary.executorSupportsTokens).toBe(false);
+    expect(summary.executorName).toBeNull();
+  });
+
+  it('non-empty entries + GEMINI executor → executorSupportsTokens true (observed emission wins)', () => {
+    const validInfo: TokenUsageInfo = {
+      total_tokens: 1000n,
+      model_context_window: 200000n,
+      output_tokens: 100n,
+      cache_creation_tokens: null,
+      cache_read_tokens: null,
+      cost_microusd: null,
+      num_turns: null,
+      duration_ms: null,
+      max_output_tokens: null,
+    };
+    const summary = aggregateSessionSummary([validInfo], 'GEMINI');
+    expect(summary.executorSupportsTokens).toBe(true);
+    expect(summary.executorName).toBe('GEMINI');
+    expect(summary.contextTokens).toBe(1000);
+  });
+
+  // Legacy session test (H3 graceful degradation)
+  it('legacy session with only total_tokens + model_context_window → graceful degradation', () => {
+    const legacy: TokenUsageInfo = {
+      total_tokens: 12_345n,
+      model_context_window: 200_000n,
+      output_tokens: null,
+      cache_creation_tokens: null,
+      cache_read_tokens: null,
+      cost_microusd: null,
+      num_turns: null,
+      duration_ms: null,
+      max_output_tokens: null,
+    };
+    const summary = aggregateSessionSummary([legacy], 'CLAUDE_CODE');
+    expect(summary.contextTokens).toBe(12345);
+    expect(summary.contextWindow).toBe(200000);
+    expect(summary.costUSD).toBeNull();
+    expect(summary.numTurns).toBeNull();
+    expect(summary.durationMs).toBeNull();
+    expect(summary.cacheHitRate).toBeNull();
+    expect(summary.executorSupportsTokens).toBe(true);
+    // Verify no NaN in any numeric field
+    expect(Number.isNaN(summary.contextTokens)).toBe(false);
+    expect(Number.isNaN(summary.contextWindow)).toBe(false);
+  });
 });

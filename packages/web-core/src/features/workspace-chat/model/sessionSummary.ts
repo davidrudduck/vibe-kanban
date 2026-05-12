@@ -2,7 +2,25 @@
  * Pure aggregation logic for session token summary.
  * Extracted to a separate module so it can be unit-tested without HMR context dependencies.
  */
-import type { TokenUsageInfo } from 'shared/types';
+import type { TokenUsageInfo, BaseCodingAgent } from 'shared/types';
+
+/**
+ * Executors known to emit TokenUsageInfo today. Source of truth:
+ *   - CLAUDE_CODE: crates/executors/src/executors/claude.rs:1896
+ *   - CODEX:       crates/executors/src/executors/codex/normalize_logs.rs:768, 2297
+ *   - OPENCODE:    crates/executors/src/executors/opencode/normalize_logs.rs:94
+ * Other executors (AMP, GEMINI, CURSOR_AGENT, QWEN_CODE, COPILOT, DROID) do not
+ * emit telemetry as of this revision. If they begin to, the panel will infer
+ * support from observed entries automatically (entries.length > 0).
+ *
+ * See ADR: docs/adr/0001-rust-token-capability-flag.md for the planned migration
+ * to a Rust-sourced BaseAgentCapability::TOKEN_USAGE flag.
+ */
+export const KNOWN_TOKEN_EMITTERS: ReadonlySet<BaseCodingAgent> = new Set([
+  'CLAUDE_CODE',
+  'CODEX',
+  'OPENCODE',
+] as BaseCodingAgent[]);
 
 // ---------------------------------------------------------------------------
 // Display helpers — shared by SessionMonitorPanel and DisplayConversationEntry
@@ -45,9 +63,12 @@ export type SessionSummary = {
 
 /** Compute aggregated session summary from per-process token usage entries. */
 export function aggregateSessionSummary(
-  entries: TokenUsageInfo[]
+  entries: TokenUsageInfo[],
+  executor: BaseCodingAgent | null = null
 ): SessionSummary {
   if (entries.length === 0) {
+    const executorSupportsTokens =
+      executor !== null && KNOWN_TOKEN_EMITTERS.has(executor);
     return {
       contextTokens: 0,
       contextWindow: 0,
@@ -59,8 +80,8 @@ export function aggregateSessionSummary(
       numTurns: null,
       durationMs: null,
       cacheHitRate: null,
-      executorSupportsTokens: false,
-      executorName: null,
+      executorSupportsTokens,
+      executorName: executor,
     };
   }
 
@@ -133,6 +154,9 @@ export function aggregateSessionSummary(
     }
   }
 
+  // Populated branch: observed emission proves support
+  const executorSupportsTokens = true;
+
   return {
     contextTokens,
     contextWindow,
@@ -144,7 +168,7 @@ export function aggregateSessionSummary(
     numTurns,
     durationMs,
     cacheHitRate,
-    executorSupportsTokens: true,
-    executorName: null,
+    executorSupportsTokens,
+    executorName: executor,
   };
 }
