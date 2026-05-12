@@ -360,6 +360,9 @@ type State = {
   selectedProjectId: string | null;
   createDraftWorkspaceByDefault: boolean;
 
+  // Performance feature flags
+  enableEarlyKanbanMount: boolean;
+
   // UI preferences actions
   setRepoAction: (repoId: string, action: RepoAction) => void;
   setExpanded: (key: string, value: boolean) => void;
@@ -491,6 +494,9 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
   selectedOrgId: null,
   selectedProjectId: null,
   createDraftWorkspaceByDefault: DEFAULT_CREATE_DRAFT_WORKSPACE_BY_DEFAULT,
+
+  // Performance feature flags
+  enableEarlyKanbanMount: true,
 
   // UI preferences actions
   setRepoAction: (repoId, action) =>

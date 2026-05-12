@@ -1,6 +1,10 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useLiveQuery } from '@tanstack/react-db';
-import { createShapeCollection } from '@/shared/lib/electric/collections';
+import {
+  buildSourceKey,
+  createShapeCollection,
+  registerEvictionListener,
+} from '@/shared/lib/electric/collections';
 import { useSyncErrorContext } from '@/shared/hooks/useSyncErrorContext';
 import type { MutationDefinition, ShapeDefinition } from 'shared/remote-types';
 import type { SyncError } from '@/shared/lib/electric/types';
@@ -106,16 +110,17 @@ export function useShape<
 
   const handleError = useCallback((err: SyncError) => setError(err), []);
 
-  const retry = useCallback(() => {
-    setError(null);
-    setRetryKey((k) => k + 1);
-  }, []);
-
   const paramsKey = JSON.stringify(params);
   const stableParams = useMemo(
     () => JSON.parse(paramsKey) as Record<string, string>,
     [paramsKey]
   );
+
+  const retry = useCallback(() => {
+    setError(null);
+    // Only recreate this collection, not the entire source family
+    setRetryKey((k) => k + 1);
+  }, []);
 
   const streamId = useMemo(
     () => `${shape.table}:${paramsKey}`,
@@ -133,6 +138,15 @@ export function useShape<
       clearErrorFn?.(streamId);
     };
   }, [error, streamId, shape.table, retry, registerErrorFn, clearErrorFn]);
+
+  // Register eviction listener
+  useEffect(() => {
+    if (!enabled) return;
+    const sourceKey = buildSourceKey(shape.table, stableParams);
+    return registerEvictionListener(sourceKey, () => {
+      setRetryKey((k) => k + 1);
+    });
+  }, [enabled, shape.table, stableParams]);
 
   const collection = useMemo(() => {
     if (!enabled) return null;
@@ -257,26 +271,21 @@ export function useShape<
     [typedCollection]
   );
 
-  const base: UseShapeResult<T> = {
-    data: items,
-    isLoading,
-    error,
-    retry,
-  };
+  const base = useMemo<UseShapeResult<T>>(
+    () => ({ data: items, isLoading, error, retry }),
+    [items, isLoading, error, retry]
+  );
 
-  if (mutation) {
-    return {
-      ...base,
-      insert,
-      update,
-      updateMany,
-      remove,
-    } as M extends MutationDefinition<unknown, unknown, unknown>
-      ? UseShapeMutationResult<T, MutationCreateType<M>, MutationUpdateType<M>>
-      : UseShapeResult<T>;
-  }
+  const withMutations = useMemo(
+    () => (mutation ? { ...base, insert, update, updateMany, remove } : base),
+    [base, mutation, insert, update, updateMany, remove]
+  );
 
-  return base as M extends MutationDefinition<unknown, unknown, unknown>
+  return withMutations as M extends MutationDefinition<
+    unknown,
+    unknown,
+    unknown
+  >
     ? UseShapeMutationResult<T, MutationCreateType<M>, MutationUpdateType<M>>
     : UseShapeResult<T>;
 }

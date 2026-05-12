@@ -110,16 +110,16 @@ export function ProjectProvider({ projectId, children }: ProjectProviderProps) {
     pullRequestIssuesResult.retry();
     workspacesResult.retry();
   }, [
-    issuesResult,
-    statusesResult,
-    tagsResult,
-    issueAssigneesResult,
-    issueFollowersResult,
-    issueTagsResult,
-    issueRelationshipsResult,
-    pullRequestsResult,
-    pullRequestIssuesResult,
-    workspacesResult,
+    issuesResult.retry,
+    statusesResult.retry,
+    tagsResult.retry,
+    issueAssigneesResult.retry,
+    issueFollowersResult.retry,
+    issueTagsResult.retry,
+    issueRelationshipsResult.retry,
+    pullRequestsResult.retry,
+    pullRequestIssuesResult.retry,
+    workspacesResult.retry,
   ]);
 
   // Computed Maps for O(1) lookup
@@ -300,16 +300,46 @@ export function ProjectProvider({ projectId, children }: ProjectProviderProps) {
     }),
     [
       projectId,
-      issuesResult,
-      statusesResult,
-      tagsResult,
-      issueAssigneesResult,
-      issueFollowersResult,
-      issueTagsResult,
-      issueRelationshipsResult,
-      pullRequestsResult,
-      pullRequestIssuesResult,
-      workspacesResult,
+      // Per-field deps for issues
+      issuesResult.data,
+      issuesResult.insert,
+      issuesResult.update,
+      issuesResult.remove,
+      // Per-field deps for statuses
+      statusesResult.data,
+      statusesResult.insert,
+      statusesResult.update,
+      statusesResult.remove,
+      // Per-field deps for tags
+      tagsResult.data,
+      tagsResult.insert,
+      tagsResult.update,
+      tagsResult.remove,
+      // Per-field deps for issueAssignees
+      issueAssigneesResult.data,
+      issueAssigneesResult.insert,
+      issueAssigneesResult.remove,
+      // Per-field deps for issueFollowers
+      issueFollowersResult.data,
+      issueFollowersResult.insert,
+      issueFollowersResult.remove,
+      // Per-field deps for issueTags
+      issueTagsResult.data,
+      issueTagsResult.insert,
+      issueTagsResult.remove,
+      // Per-field deps for issueRelationships
+      issueRelationshipsResult.data,
+      issueRelationshipsResult.insert,
+      issueRelationshipsResult.remove,
+      // Per-field deps for pullRequests
+      pullRequestsResult.data,
+      // Per-field deps for pullRequestIssues
+      pullRequestIssuesResult.data,
+      pullRequestIssuesResult.insert,
+      pullRequestIssuesResult.remove,
+      // Per-field deps for workspaces
+      workspacesResult.data,
+      // Other deps
       isLoading,
       error,
       retry,
