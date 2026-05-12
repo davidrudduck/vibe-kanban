@@ -60,10 +60,14 @@ describe('sessionSummary display helpers', () => {
     });
 
     it('uses display name map for known executors', () => {
-      expect(formatExecutorName(BaseCodingAgent.CLAUDE_CODE)).toBe('Claude Code');
+      expect(formatExecutorName(BaseCodingAgent.CLAUDE_CODE)).toBe(
+        'Claude Code'
+      );
       expect(formatExecutorName(BaseCodingAgent.CODEX)).toBe('Codex');
       expect(formatExecutorName(BaseCodingAgent.OPENCODE)).toBe('OpenCode');
-      expect(formatExecutorName(BaseCodingAgent.CURSOR_AGENT)).toBe('Cursor Agent');
+      expect(formatExecutorName(BaseCodingAgent.CURSOR_AGENT)).toBe(
+        'Cursor Agent'
+      );
       expect(formatExecutorName(BaseCodingAgent.QWEN_CODE)).toBe('Qwen Code');
       expect(formatExecutorName(BaseCodingAgent.GEMINI)).toBe('Gemini');
       expect(formatExecutorName(BaseCodingAgent.AMP)).toBe('Amp');
@@ -118,7 +122,10 @@ describe('sessionSummary display helpers', () => {
         },
       ];
 
-      const summary = aggregateSessionSummary(entries, BaseCodingAgent.CLAUDE_CODE);
+      const summary = aggregateSessionSummary(
+        entries,
+        BaseCodingAgent.CLAUDE_CODE
+      );
 
       // Cost should be summed correctly: 0.05 + 0.075 = 0.125
       expect(summary.costUSD).toBe(0.125);

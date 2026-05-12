@@ -222,25 +222,25 @@ export const WorkspacesMainContainer = forwardRef<
     <ApprovalFeedbackProvider>
       <MessageEditProvider>
         <WorkspacesMain
-            workspaceWithSession={
-              workspaceWithSession ? { id: workspaceWithSession.id } : undefined
-            }
-            isLoading={isLoading}
-            containerRef={containerRef}
-            conversationContent={conversationContent}
-            chatBoxContent={chatBoxContent}
-            contextBarContent={contextBarContent}
-            isAtBottom={nav.isAtBottom}
-            isAtTop={nav.isAtTop}
-            hasPreviousUserMessage={nav.hasPreviousUserMessage}
-            hasNextUserMessage={nav.hasNextUserMessage}
-            onScrollToBottom={nav.onScrollToBottom}
-            onScrollToTop={nav.onScrollToTop}
-            onScrollToPreviousMessage={nav.onScrollToPreviousMessage}
-            onScrollToNextMessage={nav.onScrollToNextMessage}
-            isNarrow={isNarrow}
-          />
-        </MessageEditProvider>
+          workspaceWithSession={
+            workspaceWithSession ? { id: workspaceWithSession.id } : undefined
+          }
+          isLoading={isLoading}
+          containerRef={containerRef}
+          conversationContent={conversationContent}
+          chatBoxContent={chatBoxContent}
+          contextBarContent={contextBarContent}
+          isAtBottom={nav.isAtBottom}
+          isAtTop={nav.isAtTop}
+          hasPreviousUserMessage={nav.hasPreviousUserMessage}
+          hasNextUserMessage={nav.hasNextUserMessage}
+          onScrollToBottom={nav.onScrollToBottom}
+          onScrollToTop={nav.onScrollToTop}
+          onScrollToPreviousMessage={nav.onScrollToPreviousMessage}
+          onScrollToNextMessage={nav.onScrollToNextMessage}
+          isNarrow={isNarrow}
+        />
+      </MessageEditProvider>
     </ApprovalFeedbackProvider>
   );
 });

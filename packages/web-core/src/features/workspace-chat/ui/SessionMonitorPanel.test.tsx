@@ -165,7 +165,11 @@ describe('SessionMonitorPanel', () => {
 
     // Should render populated panel, not waiting state
     expect(screen.getByTestId('session-monitor-populated')).toBeInTheDocument();
-    expect(screen.queryByTestId('session-monitor-waiting')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('session-monitor-not-supported')).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('session-monitor-waiting')
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('session-monitor-not-supported')
+    ).not.toBeInTheDocument();
   });
 });

@@ -34,7 +34,10 @@ export function SessionMonitorPanel() {
         className="p-3 text-xs text-muted-foreground space-y-1"
         data-testid="session-monitor-not-supported"
       >
-        <p>Telemetry not available for {formatExecutorName(summary.executorName)}.</p>
+        <p>
+          Telemetry not available for {formatExecutorName(summary.executorName)}
+          .
+        </p>
         <p className="opacity-60">Context window monitoring only.</p>
       </div>
     );
