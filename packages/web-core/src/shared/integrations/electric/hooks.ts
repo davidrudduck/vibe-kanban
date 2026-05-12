@@ -1,8 +1,12 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useLiveQuery } from '@tanstack/react-db';
 import {
+  buildCollectionId,
   buildSourceKey,
   createShapeCollection,
+  evictCollection,
+  evictSource,
+  isSourceFallbackLocked,
   registerEvictionListener,
 } from '@/shared/lib/electric/collections';
 import { useSyncErrorContext } from '@/shared/hooks/useSyncErrorContext';
@@ -118,9 +122,22 @@ export function useShape<
 
   const retry = useCallback(() => {
     setError(null);
-    // Only recreate this collection, not the entire source family
-    setRetryKey((k) => k + 1);
-  }, []);
+    const sourceKey = buildSourceKey(shape.table, stableParams);
+    const collectionId = buildCollectionId(
+      shape.table,
+      stableParams,
+      Boolean(mutation)
+    );
+
+    // Check if source is locked to fallback - if so, need full eviction to unlock
+    if (isSourceFallbackLocked(sourceKey)) {
+      evictSource(sourceKey, true); // force=true bypasses rate-limit for manual retry
+    } else {
+      // Only recreate this collection by evicting from cache
+      evictCollection(collectionId);
+      setRetryKey((k) => k + 1);
+    }
+  }, [shape.table, stableParams, mutation]);
 
   const streamId = useMemo(
     () => `${shape.table}:${paramsKey}`,

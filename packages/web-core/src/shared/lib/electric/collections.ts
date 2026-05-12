@@ -146,7 +146,7 @@ function buildFallbackRequestPath(
   return queryString ? `${path}?${queryString}` : path;
 }
 
-function buildCollectionId(
+export function buildCollectionId(
   table: string,
   params: Record<string, string>,
   hasMutations: boolean
@@ -158,6 +158,43 @@ function buildCollectionId(
 
   const base = sortedParams ? `${table}-${sortedParams}` : table;
   return hasMutations ? `${base}-mut` : base;
+}
+
+/**
+ * Evict a single collection from the cache by its ID.
+ * Used by retry to force recreation of a failed collection.
+ * Calls cleanup to prevent ghost subscriptions.
+ */
+export function evictCollection(collectionId: string): void {
+  // Find which sourceKey owns this collection
+  let owningSourceKey: string | undefined;
+  for (const [sourceKey, collectionIds] of sourceKeyToCollectionIds) {
+    if (collectionIds.has(collectionId)) {
+      owningSourceKey = sourceKey;
+      break;
+    }
+  }
+
+  if (owningSourceKey) {
+    const runtime = sourceRuntimes.get(owningSourceKey);
+    if (runtime) {
+      // Call cleanup to stop Electric subscription and timers
+      const cleanup = runtime.activeCleanups.get(collectionId);
+      if (cleanup) {
+        cleanup();
+        runtime.activeCleanups.delete(collectionId);
+      }
+    }
+
+    // Remove from tracking map
+    const collectionIds = sourceKeyToCollectionIds.get(owningSourceKey);
+    if (collectionIds) {
+      collectionIds.delete(collectionId);
+    }
+  }
+
+  // Delete from cache
+  collectionCache.delete(collectionId);
 }
 
 export function buildSourceKey(
@@ -281,7 +318,7 @@ export function registerEvictionListener(
 
 const EVICTION_ENABLED = true;
 
-export function evictSource(sourceKey: string): void {
+export function evictSource(sourceKey: string, force = false): void {
   if (!EVICTION_ENABLED) return;
 
   const runtime = getOrCreateSourceRuntime(sourceKey);
@@ -296,9 +333,9 @@ export function evictSource(sourceKey: string): void {
   // Set mode immediately to lock out concurrent calls (acts as mutex)
   runtime.mode = 'evicting';
 
-  // Rate limit: max one eviction per 5s per sourceKey
+  // Rate limit: max one eviction per 5s per sourceKey (skip if force=true)
   const now = Date.now();
-  if (now - runtime.lastEvictionAt < 5000) {
+  if (!force && now - runtime.lastEvictionAt < 5000) {
     // Failed rate limit check, revert mode and return
     runtime.mode = 'fallback';
     return;
@@ -349,14 +386,29 @@ function installVisibilityListener(): void {
     if (document.visibilityState !== 'visible') return;
 
     const now = Date.now();
+    const sourcesToEvict: string[] = [];
+
+    // Collect sources that need eviction
     for (const [sourceKey, runtime] of sourceRuntimes) {
       if (
         runtime.mode === 'fallback' &&
         now - runtime.lastEvictionAt >= 60_000
       ) {
-        evictSource(sourceKey);
+        sourcesToEvict.push(sourceKey);
       }
     }
+
+    // Stagger evictions to prevent mass reconnect storm
+    // First eviction fires immediately, subsequent ones stagger by 500ms
+    sourcesToEvict.forEach((sourceKey, index) => {
+      if (index === 0) {
+        evictSource(sourceKey);
+      } else {
+        setTimeout(() => {
+          evictSource(sourceKey);
+        }, index * 500);
+      }
+    });
   });
 }
 
@@ -734,7 +786,7 @@ function createHybridSync(args: {
   };
 }
 
-function isSourceFallbackLocked(sourceKey: string): boolean {
+export function isSourceFallbackLocked(sourceKey: string): boolean {
   const runtime = getOrCreateSourceRuntime(sourceKey);
   return runtime.fallbackLocked;
 }
