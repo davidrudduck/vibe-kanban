@@ -334,7 +334,9 @@ export function CreateWorkspaceShell({
   // ── Submit ───────────────────────────────────────────────────────────────────
 
   const handleSubmit = useCallback(async () => {
-    if (isSubmitting.current) return;
+    // Use React Query's isPending as source of truth instead of a ref to prevent
+    // race conditions where the ref is reset before the async mutation completes.
+    if (createWorkspace.isPending) return;
     // Cmd+Enter must not start a new submission while the orphan modal is open.
     if (orphanedIssue) return;
     isSubmitting.current = true;
@@ -503,7 +505,9 @@ export function CreateWorkspaceShell({
   // ── Orphan handlers ──────────────────────────────────────────────────────────
 
   const handleRetryWorkspace = useCallback(async () => {
-    if (!orphanedIssue || isSubmitting.current) return;
+    if (!orphanedIssue) return;
+    // Use React Query's isPending to prevent double-click race conditions.
+    if (createWorkspace.isPending) return;
     // Cannot build a valid retry payload without executor config.
     if (!executorConfig) return;
     isSubmitting.current = true;
