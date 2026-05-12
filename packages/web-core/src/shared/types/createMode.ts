@@ -1,5 +1,7 @@
 import type { ExecutorConfig } from 'shared/types';
 
+export type CreateWorkspaceMode = 'new_task' | 'link_task' | 'quick_run';
+
 export interface LinkedIssue {
   issueId: string;
   simpleId?: string;

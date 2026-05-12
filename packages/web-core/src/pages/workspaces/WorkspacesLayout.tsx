@@ -29,7 +29,7 @@ import {
 } from './WorkspacesMainContainer';
 import { RightSidebar } from './RightSidebar';
 import { ChangesPanelContainer } from './ChangesPanelContainer';
-import { CreateChatBoxContainer } from '@/shared/components/CreateChatBoxContainer';
+import { CreateWorkspaceShell } from '@/shared/components/create-mode/CreateWorkspaceShell';
 import { PreviewBrowserContainer } from './PreviewBrowserContainer';
 import { FileBrowserContainer } from './FileBrowserContainer';
 import { WorkspacesGuideDialog } from '@/shared/dialogs/shared/WorkspacesGuideDialog';
@@ -233,7 +233,7 @@ export function WorkspacesLayout() {
               )}
             >
               {isCreateMode ? (
-                <CreateChatBoxContainer
+                <CreateWorkspaceShell
                   onWorkspaceCreated={handleWorkspaceCreated}
                 />
               ) : (
@@ -363,7 +363,7 @@ export function WorkspacesLayout() {
                 className="min-w-0 h-full overflow-hidden"
               >
                 {isCreateMode ? (
-                  <CreateChatBoxContainer
+                  <CreateWorkspaceShell
                     onWorkspaceCreated={handleWorkspaceCreated}
                   />
                 ) : (
