@@ -59,7 +59,12 @@ export function RepoSelectorCards({ disabled }: RepoSelectorCardsProps) {
   const [isBrowsing, setIsBrowsing] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
 
-  const { data: allRepos = [], isLoading: isReposLoading } = useQuery({
+  const {
+    data: allRepos,
+    isLoading: isReposLoading,
+    isError,
+    error,
+  } = useQuery({
     queryKey: ['repos'],
     queryFn: () => repoApi.list(),
   });
@@ -70,11 +75,12 @@ export function RepoSelectorCards({ disabled }: RepoSelectorCardsProps) {
   );
 
   const visibleRepos = useMemo(() => {
+    if (!allRepos) return [];
     if (showAll || allRepos.length <= VISIBLE_CARD_COUNT) return allRepos;
     return allRepos.slice(0, VISIBLE_CARD_COUNT);
   }, [allRepos, showAll]);
 
-  const hiddenCount = Math.max(0, allRepos.length - VISIBLE_CARD_COUNT);
+  const hiddenCount = Math.max(0, (allRepos?.length ?? 0) - VISIBLE_CARD_COUNT);
 
   const pickBranchForRepo = useCallback(async (repo: Repo) => {
     const branches = await repoApi.getBranches(repo.id);
@@ -188,7 +194,31 @@ export function RepoSelectorCards({ disabled }: RepoSelectorCardsProps) {
     );
   }
 
-  if (allRepos.length === 0) {
+  if (isError) {
+    return (
+      <div className="flex flex-col gap-half">
+        <p className="text-sm text-error">
+          Failed to load repositories:{' '}
+          {error instanceof Error ? error.message : 'Unknown error'}
+        </p>
+        <button
+          type="button"
+          onClick={handleBrowse}
+          disabled={isBrowsing}
+          className="flex w-fit items-center gap-1 text-sm text-low hover:text-normal disabled:opacity-50"
+        >
+          {isBrowsing ? (
+            <SpinnerIcon className="size-icon-xs animate-spin" />
+          ) : (
+            <FolderOpenIcon className="size-icon-xs" weight="bold" />
+          )}
+          <span>Browse for a folder</span>
+        </button>
+      </div>
+    );
+  }
+
+  if (!allRepos || allRepos.length === 0) {
     return (
       <div className="flex flex-col gap-half">
         <p className="text-sm text-low">No repositories configured yet.</p>

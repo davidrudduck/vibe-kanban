@@ -511,6 +511,9 @@ export function CreateWorkspaceShell({
     if (isSubmitting.current || createWorkspace.isPending) return;
     // Cannot build a valid retry payload without executor config.
     if (!executorConfig) return;
+    // Defensive: ensure repos and branches are still valid before retrying.
+    // (UI is locked via isBusy, but this guards against edge cases)
+    if (!hasSelectedRepos || !hasSelectedBranchesForAllRepos) return;
     isSubmitting.current = true;
     // Clear any stale error from a prior failed retry attempt.
     createWorkspace.reset();
@@ -565,6 +568,8 @@ export function CreateWorkspaceShell({
     repos,
     targetBranches,
     executorConfig,
+    hasSelectedRepos,
+    hasSelectedBranchesForAllRepos,
     workspaceName,
     createWorkspace,
     getAttachmentIds,
