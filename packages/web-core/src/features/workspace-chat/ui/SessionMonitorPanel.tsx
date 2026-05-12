@@ -2,6 +2,7 @@ import { useSessionSummary } from '../model/contexts/EntriesContext';
 import {
   formatTokenCount as formatTokens,
   formatMsDuration as formatDuration,
+  formatExecutorName,
 } from '../model/sessionSummary';
 
 export function SessionMonitorPanel() {
@@ -33,9 +34,7 @@ export function SessionMonitorPanel() {
         className="p-3 text-xs text-muted-foreground space-y-1"
         data-testid="session-monitor-not-supported"
       >
-        <p>
-          Telemetry not available for {summary.executorName ?? 'this executor'}.
-        </p>
+        <p>Telemetry not available for {formatExecutorName(summary.executorName)}.</p>
         <p className="opacity-60">Context window monitoring only.</p>
       </div>
     );

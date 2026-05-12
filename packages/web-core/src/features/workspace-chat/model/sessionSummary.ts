@@ -43,6 +43,15 @@ export function formatMsDuration(ms: number | null): string {
   return m > 0 ? `${m}:${String(s % 60).padStart(2, '0')}` : `${s}s`;
 }
 
+/** Format executor name for display (SHOUTY_SNAKE_CASE → Title Case). Null → 'this executor'. */
+export function formatExecutorName(executor: string | null): string {
+  if (executor === null) return 'this executor';
+  return executor
+    .split('_')
+    .map((word) => word.charAt(0) + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
 export type SessionSummary = {
   // Snapshot from latest process
   contextTokens: number;
