@@ -47,7 +47,7 @@ pub struct CursorAgent {
     pub force: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
-        description = "auto, opus-4.6, sonnet-4.6, gpt-5.4, gpt-5.4-fast, gpt-5.3-codex, gpt-5.3-codex-fast, gpt-5.3-codex-spark-preview, gpt-5.2, gpt-5.2-codex, gpt-5.2-codex-fast, gpt-5.1, gpt-5.1-codex-max, gpt-5.1-codex-mini, grok, kimi-k2.5, gemini-3.1-pro, gemini-3-pro, gemini-3-flash, opus-4.5, sonnet-4.5, composer-1.5, composer-1, composer-2, composer-2-fast"
+        description = "auto, claude-4-sonnet-thinking, claude-4-opus-thinking, o3, gpt-5.4, gpt-5.4-mini, gpt-5.4-fast, gpt-5.3-codex, gpt-5.3-codex-fast, gpt-5.3-codex-spark-preview, gpt-5.2, gpt-5.2-codex, gpt-5.2-codex-fast, gpt-5.1, gpt-5.1-codex-max, gpt-5.1-codex-mini, grok, kimi-k2.5, gemini-2.5-pro, gemini-2.5-flash, gemini-3.1-pro, gemini-3-pro, gemini-3-flash, opus-4.6, sonnet-4.6, opus-4.5, sonnet-4.5, composer-1.5, composer-1, composer-2, composer-2-fast"
     )]
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -648,8 +648,14 @@ impl StandardCodingAgentExecutor for CursorAgent {
     ) -> Result<futures::stream::BoxStream<'static, json_patch::Patch>, ExecutorError> {
         let models: Vec<ModelInfo> = [
             ("auto", "Auto"),
+            ("claude-4-sonnet-thinking", "Claude 4 Sonnet Thinking"),
+            ("claude-4-opus-thinking", "Claude 4 Opus Thinking"),
+            ("o3", "OpenAI o3"),
             ("gpt-5.4", "GPT-5.4"),
+            ("gpt-5.4-mini", "GPT-5.4 Mini"),
             ("gpt-5.4-fast", "GPT-5.4 Fast"),
+            ("gemini-2.5-pro", "Gemini 2.5 Pro"),
+            ("gemini-2.5-flash", "Gemini 2.5 Flash"),
             ("gemini-3.1-pro", "Gemini 3.1 Pro"),
             ("opus-4.6", "Claude 4.6 Opus"),
             ("sonnet-4.6", "Claude 4.6 Sonnet"),
@@ -1486,6 +1492,33 @@ mod tests {
                 assert_eq!(unknown_tool["result"]["status"], "success");
             }
             _ => panic!("Expected Unknown variant"),
+        }
+    }
+
+    #[tokio::test]
+    async fn discover_options_list_includes_current_cursor_models() {
+        let executor = CursorAgent {
+            append_prompt: AppendPrompt::default(),
+            force: None,
+            model: None,
+            reasoning: None,
+            cmd: Default::default(),
+        };
+
+        let stream = executor.discover_options(None, None).await.unwrap();
+        let patches: Vec<_> = stream.collect().await;
+        let patch_value = serde_json::to_value(&patches[0]).unwrap();
+        let patch_text = patch_value.to_string();
+
+        for model in [
+            "claude-4-sonnet-thinking",
+            "claude-4-opus-thinking",
+            "o3",
+            "gpt-5.4-mini",
+            "gemini-2.5-pro",
+            "gemini-2.5-flash",
+        ] {
+            assert!(patch_text.contains(model), "missing {model}");
         }
     }
 }

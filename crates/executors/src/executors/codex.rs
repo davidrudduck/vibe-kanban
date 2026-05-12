@@ -361,8 +361,20 @@ impl StandardCodingAgentExecutor for Codex {
             model_selector: ModelSelectorConfig {
                 models: vec![
                     ModelInfo {
+                        id: "gpt-5.5".to_string(),
+                        name: "GPT-5.5".to_string(),
+                        provider_id: None,
+                        reasoning_options: xhigh_reasoning_options.clone(),
+                    },
+                    ModelInfo {
                         id: "gpt-5.4".to_string(),
                         name: "GPT-5.4".to_string(),
+                        provider_id: None,
+                        reasoning_options: xhigh_reasoning_options.clone(),
+                    },
+                    ModelInfo {
+                        id: "gpt-5.4-mini".to_string(),
+                        name: "GPT-5.4 Mini".to_string(),
                         provider_id: None,
                         reasoning_options: xhigh_reasoning_options.clone(),
                     },
@@ -526,7 +538,7 @@ impl Codex {
 
         let (model, is_fast) = resolve_model(self.model.as_deref());
         let service_tier = if is_fast {
-            Some(Some(ServiceTier::Fast))
+            Some(Some(ServiceTier::Fast.request_value().to_string()))
         } else {
             None
         };
@@ -852,6 +864,8 @@ impl Codex {
 
 #[cfg(test)]
 mod tests {
+    use futures::StreamExt;
+
     use super::*;
     use crate::executors::ExecutorError;
 
@@ -904,5 +918,36 @@ mod tests {
         assert!(guidance.contains("This workspace or host appears to block them."));
         assert!(guidance.contains("Change the Codex profile to `danger-full-access`"));
         assert!(guidance.contains("enable unprivileged user namespaces"));
+    }
+
+    #[tokio::test]
+    async fn discover_options_includes_latest_openai_models() {
+        let executor = Codex {
+            append_prompt: AppendPrompt::default(),
+            sandbox: None,
+            ask_for_approval: None,
+            oss: None,
+            model: None,
+            model_reasoning_effort: None,
+            model_reasoning_summary: None,
+            model_reasoning_summary_format: None,
+            profile: None,
+            base_instructions: None,
+            include_apply_patch_tool: None,
+            model_provider: None,
+            compact_prompt: None,
+            developer_instructions: None,
+            plan: false,
+            cmd: Default::default(),
+            approvals: None,
+        };
+
+        let stream = executor.discover_options(None, None).await.unwrap();
+        let patches: Vec<_> = stream.collect().await;
+        let patch_value = serde_json::to_value(&patches[0]).unwrap();
+        let patch_text = patch_value.to_string();
+
+        assert!(patch_text.contains("gpt-5.5"));
+        assert!(patch_text.contains("gpt-5.4-mini"));
     }
 }

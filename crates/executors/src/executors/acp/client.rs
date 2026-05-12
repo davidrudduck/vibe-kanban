@@ -63,10 +63,7 @@ impl AcpClient {
     /// `send().await` to apply backpressure rather than dropping on full.
     async fn send_control_event(&self, event: AcpEvent) {
         if let Err(e) = self.event_tx.send(event).await {
-            warn!(
-                "Failed to send ACP control event (receiver closed): {}",
-                e
-            );
+            warn!("Failed to send ACP control event (receiver closed): {}", e);
         }
     }
 
@@ -330,7 +327,10 @@ mod tests {
         while rx.try_recv().is_ok() {
             count += 1;
         }
-        assert_eq!(count, 2, "exactly two transcript events should reach the receiver");
+        assert_eq!(
+            count, 2,
+            "exactly two transcript events should reach the receiver"
+        );
     }
 
     #[tokio::test]
@@ -351,7 +351,10 @@ mod tests {
         )
         .await
         .is_err();
-        assert!(timed_out, "send_control_event must block when channel is full");
+        assert!(
+            timed_out,
+            "send_control_event must block when channel is full"
+        );
 
         // When the timeout fired, the in-flight `send` future inside
         // `send_control_event` was dropped, which cancels the pending send —
@@ -364,7 +367,9 @@ mod tests {
         // Issue a fresh `send_control_event` on the now-empty channel; this is
         // a new send (not a resumption of the cancelled one) and should
         // complete immediately.
-        client.send_control_event(AcpEvent::Done("ok".to_string())).await;
+        client
+            .send_control_event(AcpEvent::Done("ok".to_string()))
+            .await;
         match rx.try_recv() {
             Ok(AcpEvent::Done(s)) => assert_eq!(s, "ok"),
             other => panic!("expected Done, got {other:?}"),

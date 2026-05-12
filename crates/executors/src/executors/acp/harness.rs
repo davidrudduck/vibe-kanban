@@ -349,11 +349,10 @@ impl AcpAgentHarness {
                     .run_until(async move {
                         // Create event and raw channels
                         // Typed events available for future use; raw lines forwarded and persisted
-                        let (event_tx, mut event_rx) = mpsc::channel::<
-                            crate::executors::acp::AcpEvent,
-                        >(
-                            ACP_EVENT_CHANNEL_CAPACITY
-                        );
+                        let (event_tx, mut event_rx) =
+                            mpsc::channel::<crate::executors::acp::AcpEvent>(
+                                ACP_EVENT_CHANNEL_CAPACITY,
+                            );
 
                         // Create session manager
                         let session_manager = match SessionManager::new(session_namespace) {

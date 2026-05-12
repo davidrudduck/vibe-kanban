@@ -69,7 +69,7 @@ pub struct Droid {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         title = "Model",
-        description = "Model to use (e.g., gpt-5-codex, claude-sonnet-4-5-20250929, gpt-5-2025-08-07, claude-opus-4-1-20250805, claude-haiku-4-5-20251001, glm-4.6)"
+        description = "Model to use (e.g., claude-opus-4-7, claude-sonnet-4-6, gpt-5.3-codex, gpt-5.2-codex, claude-haiku-4-5-20251001, glm-5)"
     )]
     pub model: Option<String>,
 
@@ -238,6 +238,7 @@ impl StandardCodingAgentExecutor for Droid {
         let options = ExecutorDiscoveredOptions {
             model_selector: ModelSelectorConfig {
                 models: [
+                    ("claude-opus-4-7", "Claude Opus 4.7"),
                     ("claude-opus-4-6", "Claude Opus 4.6"),
                     ("claude-opus-4-6-fast", "Claude Opus 4.6 Fast Mode"),
                     ("gemini-3.1-pro-preview", "Gemini 3.1 Pro"),

@@ -297,7 +297,7 @@ fn default_discovered_options() -> crate::executor_discovery::ExecutorDiscovered
                 },
             })
             .collect(),
-            default_model: Some("opus".to_string()),
+            default_model: Some("sonnet".to_string()),
             agents: vec![],
             permissions: vec![
                 PermissionPolicy::Auto,

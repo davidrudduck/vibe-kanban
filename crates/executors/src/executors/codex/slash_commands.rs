@@ -190,7 +190,7 @@ impl Codex {
                             .await
                             .ok()
                             .and_then(|r| r.config.service_tier)
-                            .map(|t| matches!(t, ServiceTier::Fast))
+                            .map(|t| t == ServiceTier::Fast.request_value())
                             .unwrap_or(false);
                         let want_fast = match enable {
                             Some(v) => v,
@@ -212,7 +212,7 @@ impl Codex {
                         // Fork current session with new tier if one is active
                         if let Some(old_thread_id) = session_id {
                             let service_tier = if want_fast {
-                                Some(Some(ServiceTier::Fast))
+                                Some(Some(ServiceTier::Fast.request_value().to_string()))
                             } else {
                                 Some(None)
                             };
@@ -388,7 +388,7 @@ async fn fetch_status_message(
     let global_fast = config_resp
         .as_ref()
         .and_then(|r| r.config.service_tier.as_ref())
-        .map(|t| matches!(t, ServiceTier::Fast))
+        .map(|t| t == ServiceTier::Fast.request_value())
         .unwrap_or(false);
     if global_fast || session_fast {
         lines.push("- **Service Tier**: `fast ⚡`".to_string());

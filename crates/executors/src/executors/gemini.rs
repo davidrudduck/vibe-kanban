@@ -46,7 +46,7 @@ pub struct Gemini {
 
 impl Gemini {
     fn build_command_builder(&self) -> Result<CommandBuilder, CommandBuildError> {
-        let mut builder = CommandBuilder::new("npx -y @google/gemini-cli@0.29.3");
+        let mut builder = CommandBuilder::new("npx -y @google/gemini-cli@0.41.2");
 
         if let Some(model) = &self.model {
             builder = builder.extend_params(["--model", model.as_str()]);
@@ -205,6 +205,18 @@ impl StandardCodingAgentExecutor for Gemini {
             model_selector: ModelSelectorConfig {
                 models: vec![
                     ModelInfo {
+                        id: "gemini-2.5-pro".to_string(),
+                        name: "Gemini 2.5 Pro".to_string(),
+                        provider_id: None,
+                        reasoning_options: vec![],
+                    },
+                    ModelInfo {
+                        id: "gemini-2.5-flash".to_string(),
+                        name: "Gemini 2.5 Flash".to_string(),
+                        provider_id: None,
+                        reasoning_options: vec![],
+                    },
+                    ModelInfo {
                         id: "gemini-3.1-pro-preview".to_string(),
                         name: "Gemini 3.1 Pro Preview".to_string(),
                         provider_id: None,
@@ -212,18 +224,18 @@ impl StandardCodingAgentExecutor for Gemini {
                     },
                     ModelInfo {
                         id: "gemini-3-pro-preview".to_string(),
-                        name: "Gemini 3 Pro".to_string(),
+                        name: "Gemini 3 Pro Preview".to_string(),
                         provider_id: None,
                         reasoning_options: vec![],
                     },
                     ModelInfo {
                         id: "gemini-3-flash-preview".to_string(),
-                        name: "Gemini 3 Flash".to_string(),
+                        name: "Gemini 3 Flash Preview".to_string(),
                         provider_id: None,
                         reasoning_options: vec![],
                     },
                 ],
-                default_model: Some("gemini-3-pro-preview".to_string()),
+                default_model: Some("gemini-2.5-pro".to_string()),
                 permissions: vec![PermissionPolicy::Auto, PermissionPolicy::Supervised],
                 ..Default::default()
             },
