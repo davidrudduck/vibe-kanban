@@ -135,7 +135,7 @@ Click the **Default** badge next to a configuration to make it the default for t
 
 <Tab title="GEMINI">
   <ParamField path="model" type="string">
-  Choose model variant: `"default"` or `"flash"`
+  Choose a Gemini model such as `"gemini-2.5-pro"` or `"gemini-2.5-flash"`
   </ParamField>
 
   <ParamField path="yolo" type="boolean">
@@ -155,22 +155,22 @@ Click the **Default** badge next to a configuration to make it the default for t
 
 <Tab title="CODEX">
   <ParamField path="sandbox" type="string">
-  Execution environment: `"read-only"`, `"workspace-write"`, or `"danger-full-access"`
+  Execution environment: `"auto"`, `"read-only"`, `"workspace-write"`, or `"danger-full-access"`
   </ParamField>
 
-  <ParamField path="approval" type="string">
-  Approval level: `"untrusted"`, `"on-failure"`, `"on-request"`, or `"never"`
+  <ParamField path="ask_for_approval" type="string">
+  Approval level: `"unless-trusted"`, `"on-failure"`, `"on-request"`, or `"never"`
   </ParamField>
 
   <ParamField path="model_reasoning_effort" type="string">
-  Reasoning depth: `"low"`, `"medium"`, or `"high"`
+  Reasoning depth: `"low"`, `"medium"`, `"high"`, or `"xhigh"`
   </ParamField>
 
   <ParamField path="model_reasoning_summary" type="string">
   Summary style: `"auto"`, `"concise"`, `"detailed"`, or `"none"`
   </ParamField>
 
-  [View full documentation →](https://github.com/openai/codex)
+  [View full documentation →](https://developers.openai.com/api/docs/models)
 </Tab>
 
 <Tab title="CURSOR">

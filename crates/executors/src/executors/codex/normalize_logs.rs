@@ -25,14 +25,14 @@ use codex_protocol::{
     openai_models::ReasoningEffort,
     plan_tool::{StepStatus, UpdatePlanArgs},
     protocol::{
-        AgentMessageDeltaEvent, AgentMessageEvent, AgentReasoningDeltaEvent, AgentReasoningEvent,
-        AgentReasoningSectionBreakEvent, ApplyPatchApprovalRequestEvent, BackgroundEventEvent,
-        ErrorEvent, EventMsg, ExecApprovalRequestEvent, ExecCommandBeginEvent, ExecCommandEndEvent,
-        ExecCommandOutputDeltaEvent, ExecOutputStream, ExitedReviewModeEvent,
-        FileChange as CodexProtoFileChange, ItemCompletedEvent, ItemStartedEvent, McpInvocation,
-        McpToolCallBeginEvent, McpToolCallEndEvent, ModelRerouteEvent, PatchApplyBeginEvent,
-        PatchApplyEndEvent, PlanDeltaEvent, RequestUserInputEvent, StreamErrorEvent,
-        ViewImageToolCallEvent, WarningEvent, WebSearchBeginEvent, WebSearchEndEvent,
+        AgentMessageEvent, AgentReasoningEvent, AgentReasoningSectionBreakEvent,
+        ApplyPatchApprovalRequestEvent, ErrorEvent, EventMsg, ExecApprovalRequestEvent,
+        ExecCommandBeginEvent, ExecCommandEndEvent, ExecCommandOutputDeltaEvent, ExecOutputStream,
+        ExitedReviewModeEvent, FileChange as CodexProtoFileChange, ItemCompletedEvent,
+        ItemStartedEvent, McpInvocation, McpToolCallBeginEvent, McpToolCallEndEvent,
+        ModelRerouteEvent, PatchApplyBeginEvent, PatchApplyEndEvent, PlanDeltaEvent,
+        RequestUserInputEvent, StreamErrorEvent, ViewImageToolCallEvent, WarningEvent,
+        WebSearchBeginEvent, WebSearchEndEvent,
     },
 };
 use futures::StreamExt;
@@ -1136,10 +1136,12 @@ fn handle_direct_item_completed(
                             ),
                         });
                     } else {
+                        let structured_content = result.structured_content;
+                        let content = result.content;
                         mcp_tool_state.result = Some(ToolResult {
                             r#type: ToolResultValueType::Json,
-                            value: result.structured_content.unwrap_or_else(|| {
-                                serde_json::to_value(result.content).unwrap_or_default()
+                            value: structured_content.unwrap_or_else(|| {
+                                serde_json::to_value(content).unwrap_or_default()
                             }),
                         });
                     }
@@ -1655,16 +1657,6 @@ pub fn normalize_logs(
                         &mut state.model_params,
                     );
                 }
-                EventMsg::AgentMessageDelta(AgentMessageDeltaEvent { delta }) => {
-                    state.thinking = None;
-                    let (entry, index, is_new) = state.assistant_message_append(delta);
-                    upsert_normalized_entry(&msg_store, index, entry, is_new);
-                }
-                EventMsg::AgentReasoningDelta(AgentReasoningDeltaEvent { delta }) => {
-                    state.assistant = None;
-                    let (entry, index, is_new) = state.thinking_append(delta);
-                    upsert_normalized_entry(&msg_store, index, entry, is_new);
-                }
                 EventMsg::AgentMessage(AgentMessageEvent { message, .. }) => {
                     state.thinking = None;
                     let (entry, index, is_new) = state.assistant_message(message);
@@ -1802,6 +1794,7 @@ pub fn normalize_logs(
                     source: _,
                     interaction_input: _,
                     process_id: _,
+                    ..
                 }) => {
                     state.assistant = None;
                     state.thinking = None;
@@ -1893,18 +1886,6 @@ pub fn normalize_logs(
                         );
                     }
                 }
-                EventMsg::BackgroundEvent(BackgroundEventEvent { message }) => {
-                    add_normalized_entry(
-                        &msg_store,
-                        &entry_index,
-                        NormalizedEntry {
-                            timestamp: None,
-                            entry_type: NormalizedEntryType::SystemMessage,
-                            content: format!("Background event: {message}"),
-                            metadata: None,
-                        },
-                    );
-                }
                 EventMsg::StreamError(StreamErrorEvent {
                     message,
                     codex_error_info,
@@ -1926,6 +1907,7 @@ pub fn normalize_logs(
                 EventMsg::McpToolCallBegin(McpToolCallBeginEvent {
                     call_id,
                     invocation,
+                    ..
                 }) => {
                     state.assistant = None;
                     state.thinking = None;
@@ -1977,10 +1959,12 @@ pub fn normalize_logs(
                                         ),
                                     });
                                 } else {
+                                    let structured_content = value.structured_content;
+                                    let content = value.content;
                                     mcp_tool_state.result = Some(ToolResult {
                                         r#type: ToolResultValueType::Json,
-                                        value: value.structured_content.unwrap_or_else(|| {
-                                            serde_json::to_value(value.content).unwrap_or_default()
+                                        value: structured_content.unwrap_or_else(|| {
+                                            serde_json::to_value(content).unwrap_or_default()
                                         }),
                                     });
                                 }
@@ -2433,25 +2417,23 @@ pub fn normalize_logs(
                     }
                 }
                 EventMsg::AgentReasoningRawContent(..)
-                | EventMsg::AgentReasoningRawContentDelta(..)
                 | EventMsg::ThreadRolledBack(..)
                 | EventMsg::TurnStarted(..)
                 | EventMsg::UserMessage(..)
                 | EventMsg::TurnDiff(..)
-                | EventMsg::GetHistoryEntryResponse(..)
-                | EventMsg::McpListToolsResponse(..)
+                | EventMsg::GuardianWarning(..)
+                | EventMsg::ModelVerification(..)
+                | EventMsg::ThreadGoalUpdated(..)
                 | EventMsg::McpStartupComplete(..)
                 | EventMsg::McpStartupUpdate(..)
                 | EventMsg::DeprecationNotice(..)
-                | EventMsg::UndoCompleted(..)
-                | EventMsg::UndoStarted(..)
+                | EventMsg::PatchApplyUpdated(..)
                 | EventMsg::RawResponseItem(..)
                 | EventMsg::ItemStarted(..)
                 | EventMsg::ItemCompleted(..)
                 | EventMsg::AgentMessageContentDelta(..)
                 | EventMsg::ReasoningContentDelta(..)
                 | EventMsg::ReasoningRawContentDelta(..)
-                | EventMsg::ListSkillsResponse(..)
                 | EventMsg::SkillsUpdateAvailable
                 | EventMsg::TurnAborted(..)
                 | EventMsg::ShutdownComplete
@@ -2468,7 +2450,6 @@ pub fn normalize_logs(
                 | EventMsg::CollabCloseEnd(..)
                 | EventMsg::CollabResumeBegin(..)
                 | EventMsg::CollabResumeEnd(..)
-                | EventMsg::ThreadNameUpdated(..)
                 | EventMsg::RealtimeConversationStarted(..)
                 | EventMsg::RealtimeConversationSdp(..)
                 | EventMsg::RealtimeConversationRealtime(..)
@@ -3078,23 +3059,24 @@ mod tests {
             .to_string(),
             json!({
                 "jsonrpc": "2.0",
-                "method": "item/completed",
+                "method": "codex/event",
                 "params": {
-                    "threadId": "thread-1",
-                    "turnId": "turn-1",
-                    "item": {
-                        "type": "dynamicToolCall",
-                        "id": call_id,
-                        "tool": tool_name,
-                        "arguments": {"id": "ABC-123"},
-                        "status": "completed",
-                        "contentItems": [{
-                            "type": "inputText",
-                            "text": "Ticket ABC-123 is open."
-                        }],
-                        "success": true,
-                        "durationMs": 1
-                    }
+                    "msg": EventMsg::DynamicToolCallResponse(
+                        codex_protocol::protocol::DynamicToolCallResponseEvent {
+                            call_id: call_id.to_string(),
+                            turn_id: "turn-1".to_string(),
+                            completed_at_ms: 1,
+                            namespace: None,
+                            tool: tool_name.to_string(),
+                            arguments: json!({ "id": "ABC-123" }),
+                            content_items: vec![CoreDynamicToolCallOutputContentItem::InputText {
+                                text: "Ticket ABC-123 is open.".to_string(),
+                            }],
+                            success: true,
+                            error: None,
+                            duration: Duration::from_millis(1),
+                        }
+                    )
                 }
             })
             .to_string(),

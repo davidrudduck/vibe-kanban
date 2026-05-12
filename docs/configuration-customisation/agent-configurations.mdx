@@ -48,8 +48,8 @@ The profiles configuration uses a JSON structure with an `executors` object cont
       "ROUTER":  { "CLAUDE_CODE": { "claude_code_router": true, "dangerously_skip_permissions": true } }
     },
     "GEMINI": {
-      "DEFAULT": { "GEMINI": { "model": "default", "yolo": true } },
-      "FLASH":   { "GEMINI": { "model": "flash",   "yolo": true } }
+      "DEFAULT": { "GEMINI": { "model": "gemini-2.5-pro", "yolo": true } },
+      "FLASH":   { "GEMINI": { "model": "gemini-2.5-flash", "yolo": true } }
     },
     "CODEX": {
       "DEFAULT": { "CODEX": { "sandbox": "danger-full-access" } },
@@ -95,7 +95,7 @@ The profiles configuration uses a JSON structure with an `executors` object cont
 
 <Tab title="GEMINI">
   <ParamField path="model" type="string">
-  Choose model variant: `"default"` or `"flash"`
+  Choose a Gemini model such as `"gemini-2.5-pro"` or `"gemini-2.5-flash"`
   </ParamField>
 
   <ParamField path="yolo" type="boolean">
@@ -115,22 +115,22 @@ The profiles configuration uses a JSON structure with an `executors` object cont
 
 <Tab title="CODEX">
   <ParamField path="sandbox" type="string">
-  Execution environment: `"read-only"`, `"workspace-write"`, or `"danger-full-access"`
+  Execution environment: `"auto"`, `"read-only"`, `"workspace-write"`, or `"danger-full-access"`
   </ParamField>
 
-  <ParamField path="approval" type="string">
-  Approval level: `"untrusted"`, `"on-failure"`, `"on-request"`, or `"never"`
+  <ParamField path="ask_for_approval" type="string">
+  Approval level: `"unless-trusted"`, `"on-failure"`, `"on-request"`, or `"never"`
   </ParamField>
 
   <ParamField path="model_reasoning_effort" type="string">
-  Reasoning depth: `"low"`, `"medium"`, or `"high"`
+  Reasoning depth: `"low"`, `"medium"`, `"high"`, or `"xhigh"`
   </ParamField>
 
   <ParamField path="model_reasoning_summary" type="string">
   Summary style: `"auto"`, `"concise"`, `"detailed"`, or `"none"`
   </ParamField>
 
-  [View full documentation →](https://github.com/openai/codex)
+  [View full documentation →](https://developers.openai.com/api/docs/models)
 </Tab>
 
 <Tab title="CURSOR">
