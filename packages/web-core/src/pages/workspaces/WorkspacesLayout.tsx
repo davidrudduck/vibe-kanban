@@ -22,6 +22,7 @@ import {
 import { ReviewProvider } from '@/shared/hooks/ReviewProvider';
 import { ChangesViewProvider } from '@/shared/hooks/ChangesViewProvider';
 import { EntriesProvider } from '@/features/workspace-chat/model/contexts/EntriesContext';
+import { ExecutionProcessesProvider } from '@/shared/providers/ExecutionProcessesProvider';
 import { WorkspacesSidebarContainer } from './WorkspacesSidebarContainer';
 import { LogsContentContainer } from './LogsContentContainer';
 import {
@@ -355,8 +356,12 @@ export function WorkspacesLayout() {
   const mainContent = (
     <ReviewProvider workspaceId={selectedWorkspace?.id}>
       <ChangesViewProvider>
-        <EntriesProvider key={entriesProviderKey}>
-          <div className="flex h-full">
+        <ExecutionProcessesProvider
+          key={entriesProviderKey}
+          sessionId={selectedSessionId}
+        >
+          <EntriesProvider key={entriesProviderKey}>
+            <div className="flex h-full">
           <Group
             orientation="horizontal"
             className="flex-1 min-w-0 h-full"
@@ -442,7 +447,8 @@ export function WorkspacesLayout() {
             </div>
           )}
           </div>
-        </EntriesProvider>
+          </EntriesProvider>
+        </ExecutionProcessesProvider>
       </ChangesViewProvider>
     </ReviewProvider>
   );

@@ -43,9 +43,26 @@ export function formatMsDuration(ms: number | null): string {
   return m > 0 ? `${m}:${String(s % 60).padStart(2, '0')}` : `${s}s`;
 }
 
-/** Format executor name for display (SHOUTY_SNAKE_CASE → Title Case). Null → 'this executor'. */
+/** Display names for executors. Maps enum values to human-readable brand names. */
+const EXECUTOR_DISPLAY_NAMES: Record<BaseCodingAgent, string> = {
+  [BaseCodingAgent.CLAUDE_CODE]: 'Claude Code',
+  [BaseCodingAgent.CODEX]: 'Codex',
+  [BaseCodingAgent.OPENCODE]: 'OpenCode',
+  [BaseCodingAgent.CURSOR_AGENT]: 'Cursor Agent',
+  [BaseCodingAgent.QWEN_CODE]: 'Qwen Code',
+  [BaseCodingAgent.GEMINI]: 'Gemini',
+  [BaseCodingAgent.AMP]: 'Amp',
+  [BaseCodingAgent.COPILOT]: 'Copilot',
+  [BaseCodingAgent.DROID]: 'Droid',
+};
+
+/** Format executor name for display. Null → 'this executor'. */
 export function formatExecutorName(executor: string | null): string {
   if (executor === null) return 'this executor';
+  // Use display name map if available, otherwise fall back to title case
+  const mapped = EXECUTOR_DISPLAY_NAMES[executor as BaseCodingAgent];
+  if (mapped) return mapped;
+  // Fallback for new executors not yet in the map
   return executor
     .split('_')
     .map((word) => word.charAt(0) + word.slice(1).toLowerCase())
@@ -108,7 +125,7 @@ export function aggregateSessionSummary(
   let outputTokens: number | null = null;
   let cacheCreationTokens: number | null = null;
   let cacheReadTokens: number | null = null;
-  let costMicroUSD: bigint | null = null;
+  let costUSD: number | null = null;
   let durationMs: number | null = null;
 
   for (const info of entries) {
@@ -123,15 +140,12 @@ export function aggregateSessionSummary(
       cacheReadTokens = (cacheReadTokens ?? 0) + Number(info.cache_read_tokens);
     }
     if (info.cost_microusd != null) {
-      costMicroUSD = (costMicroUSD ?? 0n) + info.cost_microusd;
+      costUSD = (costUSD ?? 0) + Number(info.cost_microusd) / 1_000_000;
     }
     if (info.duration_ms != null) {
       durationMs = (durationMs ?? 0) + Number(info.duration_ms);
     }
   }
-
-  const costUSD =
-    costMicroUSD != null ? Number(costMicroUSD) / 1_000_000 : null;
 
   // num_turns: use LATEST process only.
   // Claude's num_turns in the Result event already counts all turns in the
