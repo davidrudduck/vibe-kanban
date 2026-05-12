@@ -215,7 +215,7 @@ export function VSCodeWorkspacePage() {
                     onScrollToPreviousMessage={nav.onScrollToPreviousMessage}
                     onScrollToNextMessage={nav.onScrollToNextMessage}
                     onScrollToBottom={nav.onScrollToBottom}
-                    isMobile={isNarrow}
+                    isNarrow={isNarrow}
                   />
                 )}
                 <div

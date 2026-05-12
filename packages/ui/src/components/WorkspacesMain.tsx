@@ -23,7 +23,7 @@ interface WorkspacesMainProps {
   onScrollToTop?: () => void;
   onScrollToPreviousMessage?: () => void;
   onScrollToNextMessage?: () => void;
-  isMobile?: boolean;
+  isNarrow?: boolean;
 }
 
 export function WorkspacesMain({
@@ -42,7 +42,7 @@ export function WorkspacesMain({
   onScrollToTop,
   onScrollToPreviousMessage,
   onScrollToNextMessage,
-  isMobile,
+  isNarrow,
 }: WorkspacesMainProps) {
   const { t } = useTranslation(['tasks', 'common']);
 
@@ -50,7 +50,7 @@ export function WorkspacesMain({
   return (
     <main
       ref={containerRef}
-      className="relative flex flex-1 flex-col bg-primary h-full min-h-0"
+      className="relative flex flex-col bg-primary h-full min-h-0"
     >
       {/* Conversation content - conditional based on loading/workspace state */}
       {isLoading ? (
@@ -86,7 +86,7 @@ export function WorkspacesMain({
             onScrollToPreviousMessage={onScrollToPreviousMessage}
             onScrollToNextMessage={onScrollToNextMessage}
             onScrollToBottom={onScrollToBottom}
-            isMobile={isMobile}
+            isNarrow={isNarrow}
           />
         )}
       {/* Chat box - always rendered to prevent flash during workspace switch */}
