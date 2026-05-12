@@ -6,6 +6,8 @@ import {
   aggregateSessionSummary,
   type SessionSummary,
 } from '../sessionSummary';
+import { useExecutionProcessesContext } from '@/shared/hooks/useExecutionProcessesContext';
+import { getLatestConfigFromProcesses } from '@/shared/lib/executor';
 
 // ---------------------------------------------------------------------------
 // Entries context — changes on every streaming update
@@ -55,6 +57,9 @@ const TokenUsageContext = createHmrContext<TokenUsageContextType | null>(
 // ../sessionSummary (kept separate so they can be unit-tested without HMR context)
 export type { SessionSummary } from '../sessionSummary';
 export { aggregateSessionSummary } from '../sessionSummary';
+
+// Empty map constant for memoization stability when provider is unavailable
+const EMPTY_TOKEN_MAP: ReadonlyMap<string, TokenUsageInfo> = new Map();
 
 interface TokenUsageMapContextType {
   tokenUsageByProcess: Map<string, TokenUsageInfo>;
@@ -187,12 +192,14 @@ export const useSetTokenUsageInfo = (): ((
 
 /**
  * Returns the per-process token usage map.
- * Safe to call outside EntriesProvider (returns empty Map, so SESSION MONITOR
- * renders its "Telemetry not available" state rather than crashing).
+ * Safe to call outside EntriesProvider (returns stable empty Map for memoization).
  */
-export const useTokenUsageByProcess = (): Map<string, TokenUsageInfo> => {
+export const useTokenUsageByProcess = (): ReadonlyMap<
+  string,
+  TokenUsageInfo
+> => {
   const context = useContext(TokenUsageMapContext);
-  return context?.tokenUsageByProcess ?? new Map();
+  return context?.tokenUsageByProcess ?? EMPTY_TOKEN_MAP;
 };
 
 const _noop = (_map: Map<string, TokenUsageInfo>) => {};
@@ -210,8 +217,13 @@ export const useSetTokenUsageByProcess = (): ((
 
 export const useSessionSummary = (): SessionSummary => {
   const byProcess = useTokenUsageByProcess();
+  const { executionProcessesAll: processes } = useExecutionProcessesContext();
+  const executor = useMemo(
+    () => getLatestConfigFromProcesses(processes)?.executor ?? null,
+    [processes]
+  );
   return useMemo(() => {
     const entries = Array.from(byProcess.values());
-    return aggregateSessionSummary(entries);
-  }, [byProcess]);
+    return aggregateSessionSummary(entries, executor);
+  }, [byProcess, executor]);
 };

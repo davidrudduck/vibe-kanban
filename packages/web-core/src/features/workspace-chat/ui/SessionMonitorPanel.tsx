@@ -2,22 +2,48 @@ import { useSessionSummary } from '../model/contexts/EntriesContext';
 import {
   formatTokenCount as formatTokens,
   formatMsDuration as formatDuration,
+  formatExecutorName,
 } from '../model/sessionSummary';
 
 export function SessionMonitorPanel() {
   const summary = useSessionSummary();
 
-  if (!summary.executorSupportsTokens) {
+  // Empty state detection: use hasEntries flag instead of inferring from values
+  // This prevents flicker when entries have been emitted but values are still zero
+  const hasNoData = !summary.hasEntries;
+
+  // Branch 1: Empty state - waiting for first turn (executor supports but no data yet)
+  if (hasNoData && summary.executorSupportsTokens) {
     return (
-      <div className="p-3 text-xs text-muted-foreground space-y-1">
+      <div
+        className="p-3 text-xs text-muted-foreground space-y-1"
+        data-testid="session-monitor-waiting"
+      >
+        <p>Waiting for first turn…</p>
+        <p className="opacity-60">
+          Token usage will appear after the first response.
+        </p>
+      </div>
+    );
+  }
+
+  // Branch 2: Empty state - telemetry not supported (executor doesn't emit tokens)
+  if (hasNoData && !summary.executorSupportsTokens) {
+    return (
+      <div
+        className="p-3 text-xs text-muted-foreground space-y-1"
+        data-testid="session-monitor-not-supported"
+      >
         <p>
-          Telemetry not available for {summary.executorName ?? 'this executor'}.
+          Telemetry not available for {formatExecutorName(summary.executorName)}
+          .
         </p>
         <p className="opacity-60">Context window monitoring only.</p>
       </div>
     );
   }
 
+  // Branch 3: Populated state - we have token usage data
   const contextWindowKnown = summary.contextWindow > 0;
   const contextPct = contextWindowKnown
     ? Math.min(
@@ -27,7 +53,10 @@ export function SessionMonitorPanel() {
     : null;
 
   return (
-    <div className="flex flex-col gap-3 p-3 text-xs">
+    <div
+      className="flex flex-col gap-3 p-3 text-xs"
+      data-testid="session-monitor-populated"
+    >
       {/* Context */}
       <div>
         <p className="font-medium text-foreground mb-1.5">Context</p>
