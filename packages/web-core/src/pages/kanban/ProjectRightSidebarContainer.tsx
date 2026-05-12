@@ -22,7 +22,7 @@ import { CreateModeProvider } from '@/features/create-mode/model/CreateModeProvi
 import { useWorkspaceSessions } from '@/shared/hooks/useWorkspaceSessions';
 import { useWorkspaceRecord } from '@/shared/hooks/useWorkspaceRecord';
 import { SessionChatBoxContainer } from '@/features/workspace-chat/ui/SessionChatBoxContainer';
-import { CreateChatBoxContainer } from '@/shared/components/CreateChatBoxContainer';
+import { CreateWorkspaceShell } from '@/shared/components/create-mode/CreateWorkspaceShell';
 import { KanbanIssuePanelContainer } from './KanbanIssuePanelContainer';
 import {
   ConversationList,
@@ -524,7 +524,7 @@ export function ProjectRightSidebarContainer() {
           key={rightPanelState.draftId}
           draftId={rightPanelState.draftId}
         >
-          <CreateChatBoxContainer onWorkspaceCreated={handleWorkspaceCreated} />
+          <CreateWorkspaceShell onWorkspaceCreated={handleWorkspaceCreated} />
         </CreateModeProvider>
       </WorkspaceCreatePanel>
     );

@@ -502,10 +502,6 @@
     }
   },
   "createMode": {
-    "headings": {
-      "repoStep": "Which repositories would you like to work on?",
-      "chatStep": "What would you like to work on?"
-    },
     "repoPicker": {
       "actions": {
         "recent": "Recent",
