@@ -27,9 +27,6 @@ export function NewTaskRow({
           'disabled:cursor-not-allowed disabled:opacity-50'
         )}
       />
-      <p className="text-xs text-low">
-        Kanban card creation coming soon — workspace will start immediately.
-      </p>
     </div>
   );
 }

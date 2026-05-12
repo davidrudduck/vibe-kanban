@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropzone } from 'react-dropzone';
 import { useCreateMode } from '@/features/create-mode/model/useCreateMode';
@@ -9,6 +16,7 @@ import { useCreateWorkspace } from '@/shared/hooks/useCreateWorkspace';
 import { useCreateAttachments } from '@/shared/hooks/useCreateAttachments';
 import { useExecutorConfig } from '@/shared/hooks/useExecutorConfig';
 import { saveProjectRepoDefaults } from '@/shared/hooks/useProjectRepoDefaults';
+import { ProjectContext } from '@/shared/hooks/useProjectContext';
 import { getSortedExecutorVariantKeys } from '@/shared/lib/executor';
 import {
   toPrettyCase,
@@ -28,6 +36,7 @@ import { RepoSelectorCards } from './RepoSelectorCards';
 import { NewTaskRow } from './NewTaskRow';
 import { LinkTaskRow } from './LinkTaskRow';
 import { QuickRunRow } from './QuickRunRow';
+import { OrphanIssueModal, type OrphanIssueState } from './OrphanIssueModal';
 
 // Stable no-op for required callbacks that have no action in the shell layout.
 // eslint-disable-next-line @typescript-eslint/no-empty-function
@@ -62,10 +71,17 @@ export function CreateWorkspaceShell({
   const { createWorkspace, createDraftWorkspace } = useCreateWorkspace();
   const isSubmitting = useRef(false);
 
+  // ── Project context (nullable — only available inside kanban layout) ────────
+  const projectContext = useContext(ProjectContext);
+
   // ── Local UI state ──────────────────────────────────────────────────────────
 
   const [workspaceName, setWorkspaceName] = useState('');
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
+  // Phase 2: orphan state when workspace creation fails after issue was created
+  const [orphanedIssue, setOrphanedIssue] = useState<OrphanIssueState | null>(
+    null
+  );
 
   // mode is UI state — NOT persisted in CreateModeProvider draft.
   // Initialise from linkedIssue presence (set by kanban "create workspace from issue" flow).
@@ -166,6 +182,15 @@ export function CreateWorkspaceShell({
 
   // ── Derived state ────────────────────────────────────────────────────────────
 
+  // First visible (non-hidden) status column — used as target for New Task creation.
+  const firstNonHiddenStatusId = useMemo(() => {
+    const statuses = projectContext?.statuses ?? [];
+    const visible = statuses
+      .filter((s) => !s.hidden)
+      .sort((a, b) => a.sort_order - b.sort_order);
+    return visible[0]?.id ?? null;
+  }, [projectContext?.statuses]);
+
   const hasSelectedRepos = repos.length > 0;
   const repoId = repos.length === 1 ? repos[0]?.id : undefined;
 
@@ -250,6 +275,30 @@ export function CreateWorkspaceShell({
     [profiles, setDraftConfig, config?.executor_profile]
   );
 
+  // ── Submit helpers ───────────────────────────────────────────────────────────
+
+  /** Shared post-success cleanup: saves repo defaults, clears draft, navigates. */
+  const handleWorkspaceSuccess = useCallback(
+    async (
+      workspaceId: string,
+      repoInputs: Array<{ repo_id: string; target_branch: string }>,
+      linkedIssueForSave: LinkedIssue | null
+    ) => {
+      onWorkspaceCreated(workspaceId);
+      if (linkedIssueForSave?.remoteProjectId) {
+        saveProjectRepoDefaults(
+          linkedIssueForSave.remoteProjectId,
+          repoInputs
+        ).catch((err) =>
+          console.warn('Failed to save project repo defaults:', err)
+        );
+      }
+      clearAttachments();
+      await clearDraft();
+    },
+    [onWorkspaceCreated, clearAttachments, clearDraft]
+  );
+
   // ── Submit ───────────────────────────────────────────────────────────────────
 
   const handleSubmit = useCallback(async () => {
@@ -264,31 +313,96 @@ export function CreateWorkspaceShell({
 
     try {
       const { title: autoTitle } = splitMessageToTitleDescription(message);
+      const repoInputs = repos.map((r) => ({
+        repo_id: r.id,
+        target_branch: targetBranches[r.id]!,
+      }));
+
+      // ── Phase 2: Issue-first creation for New Task mode ─────────────────────
+      // When project context is available, create the kanban issue before the
+      // workspace so the two are linked from the start.
+      let workspaceLinkedIssue: LinkedIssue | null = effectiveLinkedIssue;
+      let freshlyCreatedIssue: OrphanIssueState | null = null;
+
+      if (mode === 'new_task' && projectContext && firstNonHiddenStatusId) {
+        const issueTitle = workspaceName.trim() || autoTitle || 'New workspace';
+        const issuesInStatus = projectContext.issues.filter(
+          (i) => i.status_id === firstNonHiddenStatusId
+        );
+        const minSortOrder =
+          issuesInStatus.length > 0
+            ? Math.min(...issuesInStatus.map((i) => i.sort_order))
+            : 1000;
+
+        try {
+          const { persisted } = projectContext.insertIssue({
+            project_id: projectContext.projectId,
+            status_id: firstNonHiddenStatusId,
+            title: issueTitle,
+            description: message.trim() || null,
+            priority: null,
+            sort_order: minSortOrder - 1,
+            start_date: null,
+            target_date: null,
+            completed_at: null,
+            parent_issue_id: null,
+            parent_issue_sort_order: null,
+            extension_metadata: null,
+          });
+
+          const createdIssue = await persisted;
+          freshlyCreatedIssue = {
+            id: createdIssue.id,
+            title: createdIssue.title,
+            simpleId: createdIssue.simple_id,
+            remoteProjectId: projectContext.projectId,
+          };
+          workspaceLinkedIssue = {
+            issueId: freshlyCreatedIssue.id,
+            simpleId: freshlyCreatedIssue.simpleId,
+            title: freshlyCreatedIssue.title,
+            remoteProjectId: freshlyCreatedIssue.remoteProjectId,
+          };
+        } catch {
+          // Issue creation failed — abort. No orphan risk since workspace was
+          // never started. The createWorkspace.error state surfaces the error.
+          return;
+        }
+      }
+
+      // ── Workspace creation ─────────────────────────────────────────────────
       const data = {
         executor_config: executorConfig,
         name: workspaceName.trim() || autoTitle,
         prompt: message,
-        repos: repos.map((r) => ({
-          repo_id: r.id,
-          target_branch: targetBranches[r.id]!,
-        })),
-        linked_issue: effectiveLinkedIssue
+        repos: repoInputs,
+        linked_issue: workspaceLinkedIssue
           ? {
-              remote_project_id: effectiveLinkedIssue.remoteProjectId,
-              issue_id: effectiveLinkedIssue.issueId,
+              remote_project_id: workspaceLinkedIssue.remoteProjectId,
+              issue_id: workspaceLinkedIssue.issueId,
             }
           : null,
         attachment_ids: getAttachmentIds(),
       };
 
-      const linkToIssue = effectiveLinkedIssue
+      const linkToIssue = workspaceLinkedIssue
         ? {
-            remoteProjectId: effectiveLinkedIssue.remoteProjectId,
-            issueId: effectiveLinkedIssue.issueId,
+            remoteProjectId: workspaceLinkedIssue.remoteProjectId,
+            issueId: workspaceLinkedIssue.issueId,
           }
         : undefined;
 
-      const result = await createWorkspace.mutateAsync({ data, linkToIssue });
+      let result;
+      try {
+        result = await createWorkspace.mutateAsync({ data, linkToIssue });
+      } catch {
+        // Workspace failed. If we just created a fresh issue, surface the
+        // orphan modal so the user can retry or remove the dangling card.
+        if (freshlyCreatedIssue) {
+          setOrphanedIssue(freshlyCreatedIssue);
+        }
+        return;
+      }
 
       if (result.linkErrorMessage) {
         await ConfirmDialog.show({
@@ -304,20 +418,12 @@ export function CreateWorkspaceShell({
       }
 
       if (result.workspace) {
-        onWorkspaceCreated(result.workspace.id);
-      }
-
-      if (effectiveLinkedIssue?.remoteProjectId) {
-        saveProjectRepoDefaults(
-          effectiveLinkedIssue.remoteProjectId,
-          data.repos
-        ).catch((err) =>
-          console.warn('Failed to save project repo defaults:', err)
+        await handleWorkspaceSuccess(
+          result.workspace.id,
+          repoInputs,
+          workspaceLinkedIssue
         );
       }
-
-      clearAttachments();
-      await clearDraft();
     } finally {
       isSubmitting.current = false;
     }
@@ -329,13 +435,80 @@ export function CreateWorkspaceShell({
     repos,
     targetBranches,
     effectiveLinkedIssue,
+    mode,
+    projectContext,
+    firstNonHiddenStatusId,
     createWorkspace,
-    onWorkspaceCreated,
     getAttachmentIds,
-    clearAttachments,
-    clearDraft,
+    handleWorkspaceSuccess,
     t,
   ]);
+
+  // ── Orphan handlers ──────────────────────────────────────────────────────────
+
+  const handleRetryWorkspace = useCallback(async () => {
+    if (!orphanedIssue || isSubmitting.current) return;
+    isSubmitting.current = true;
+
+    try {
+      const { title: autoTitle } = splitMessageToTitleDescription(message);
+      const repoInputs = repos.map((r) => ({
+        repo_id: r.id,
+        target_branch: targetBranches[r.id]!,
+      }));
+      const data = {
+        executor_config: executorConfig!,
+        name: workspaceName.trim() || autoTitle,
+        prompt: message,
+        repos: repoInputs,
+        linked_issue: {
+          remote_project_id: orphanedIssue.remoteProjectId,
+          issue_id: orphanedIssue.id,
+        },
+        attachment_ids: getAttachmentIds(),
+      };
+      const linkToIssue = {
+        remoteProjectId: orphanedIssue.remoteProjectId,
+        issueId: orphanedIssue.id,
+      };
+
+      const result = await createWorkspace.mutateAsync({ data, linkToIssue });
+      if (result.workspace) {
+        setOrphanedIssue(null);
+        const linkedForSave: LinkedIssue = {
+          issueId: orphanedIssue.id,
+          simpleId: orphanedIssue.simpleId,
+          title: orphanedIssue.title,
+          remoteProjectId: orphanedIssue.remoteProjectId,
+        };
+        await handleWorkspaceSuccess(
+          result.workspace.id,
+          repoInputs,
+          linkedForSave
+        );
+      }
+    } catch {
+      // Retry failed — orphan modal stays visible for another attempt.
+    } finally {
+      isSubmitting.current = false;
+    }
+  }, [
+    orphanedIssue,
+    message,
+    repos,
+    targetBranches,
+    executorConfig,
+    workspaceName,
+    createWorkspace,
+    getAttachmentIds,
+    handleWorkspaceSuccess,
+  ]);
+
+  const handleRemoveOrphanIssue = useCallback(() => {
+    if (!orphanedIssue || !projectContext) return;
+    projectContext.removeIssue(orphanedIssue.id);
+    setOrphanedIssue(null);
+  }, [orphanedIssue, projectContext]);
 
   // ── Save draft ───────────────────────────────────────────────────────────────
 
@@ -394,6 +567,15 @@ export function CreateWorkspaceShell({
 
   return (
     <div className="relative flex h-full flex-1 flex-col bg-primary overflow-y-auto">
+      {/* Orphan modal: shown when workspace creation failed after issue was created */}
+      {orphanedIssue && (
+        <OrphanIssueModal
+          orphan={orphanedIssue}
+          isRetrying={createWorkspace.isPending}
+          onRetry={handleRetryWorkspace}
+          onRemove={handleRemoveOrphanIssue}
+        />
+      )}
       <div className="flex flex-1 flex-col px-base py-base">
         <div className="mx-auto flex w-chat max-w-full flex-col gap-base">
           {/* Mode tabs */}
