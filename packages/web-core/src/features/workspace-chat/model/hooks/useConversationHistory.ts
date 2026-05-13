@@ -25,6 +25,7 @@ import {
   MIN_INITIAL_ENTRIES,
   REMAINING_BATCH_SIZE,
 } from '@/shared/hooks/useConversationHistory/constants';
+import { getRunningAppendOnlyConversationResult } from '../utils/appendOnlyConversation';
 
 export const useConversationHistory = ({
   onTimelineUpdated,
@@ -41,6 +42,9 @@ export const useConversationHistory = ({
   const emittedEmptyInitialRef = useRef(false);
   const streamingProcessIdsRef = useRef<Set<string>>(new Set());
   const settledStreamProcessIdsRef = useRef<Set<string>>(new Set());
+  const runningSnapshotEntriesRef = useRef<Record<string, PatchTypeWithKey[]>>(
+    {}
+  );
   const onTimelineUpdatedRef = useRef<
     UseConversationHistoryParams['onTimelineUpdated'] | null
   >(null);
@@ -215,13 +219,29 @@ export const useConversationHistory = ({
         }
         const controller = streamJsonPatchEntries<PatchType>(url, {
           onEntries(entries) {
-            const patchesWithKey = entries.map((entry, index) =>
+            const snapshotEntries = entries.map((entry, index) =>
               patchWithKey(entry, executionProcess.id, index)
             );
+            const previousAcceptedEntries =
+              displayedExecutionProcesses.current[executionProcess.id]
+                ?.entries ?? [];
+            const previousSnapshotEntries =
+              runningSnapshotEntriesRef.current[executionProcess.id] ?? [];
+            const runningResult = getRunningAppendOnlyConversationResult(
+              previousAcceptedEntries,
+              snapshotEntries,
+              previousSnapshotEntries
+            );
+
+            if (runningResult.acceptedSnapshot) {
+              runningSnapshotEntriesRef.current[executionProcess.id] =
+                snapshotEntries;
+            }
+
             mergeIntoDisplayed((state) => {
               state[executionProcess.id] = {
                 executionProcess,
-                entries: patchesWithKey,
+                entries: runningResult.items,
               };
             });
             emitEntries(displayedExecutionProcesses.current, 'running', false);
@@ -420,6 +440,7 @@ export const useConversationHistory = ({
     emittedEmptyInitialRef.current = false;
     streamingProcessIdsRef.current.clear();
     settledStreamProcessIdsRef.current.clear();
+    runningSnapshotEntriesRef.current = {};
     emitEntries(displayedExecutionProcesses.current, 'initial', true);
   }, [scopeKey, emitEntries]);
 
