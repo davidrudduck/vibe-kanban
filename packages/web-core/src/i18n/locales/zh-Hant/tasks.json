@@ -107,7 +107,8 @@
     "loadingDetails": "載入程序詳情中...",
     "errorLoadingDetails": "載入程序詳情失敗。請重試。",
     "copyLogs": "複製日誌",
-    "logsCopied": "已複製！"
+    "logsCopied": "已複製！",
+    "copyFailed": "無法將日誌複製到剪貼簿。"
   },
   "followUp": {
     "queuedMessage": "訊息已加入佇列 - 會在目前執行完成後處理"

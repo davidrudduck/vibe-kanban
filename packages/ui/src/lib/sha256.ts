@@ -17,9 +17,7 @@
 
 function hasCryptoSubtle(): boolean {
   try {
-    return (
-      typeof globalThis.crypto?.subtle?.digest === 'function'
-    );
+    return typeof globalThis.crypto?.subtle?.digest === 'function';
   } catch {
     return false;
   }
@@ -48,8 +46,8 @@ const K = new Uint32Array([
 // Initial hash values: first 32 bits of the fractional parts of the square
 // roots of the first 8 primes.
 const H0 = new Uint32Array([
-  0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
-  0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+  0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c,
+  0x1f83d9ab, 0x5be0cd19,
 ]);
 
 function rotr32(x: number, n: number): number {
@@ -86,12 +84,23 @@ function sha256Js(buffer: ArrayBuffer): string {
       w[i] = dv.getUint32(offset + i * 4, false);
     }
     for (let i = 16; i < 64; i++) {
-      const s0 = rotr32(w[i - 15], 7) ^ rotr32(w[i - 15], 18) ^ (w[i - 15] >>> 3);
-      const s1 = rotr32(w[i - 2], 17) ^ rotr32(w[i - 2], 19) ^ (w[i - 2] >>> 10);
+      const s0 =
+        rotr32(w[i - 15], 7) ^ rotr32(w[i - 15], 18) ^ (w[i - 15] >>> 3);
+      const s1 =
+        rotr32(w[i - 2], 17) ^ rotr32(w[i - 2], 19) ^ (w[i - 2] >>> 10);
       w[i] = (w[i - 16] + s0 + w[i - 7] + s1) >>> 0;
     }
 
-    let [a, b, c, d, e, f, g, hh] = [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7]];
+    let [a, b, c, d, e, f, g, hh] = [
+      h[0],
+      h[1],
+      h[2],
+      h[3],
+      h[4],
+      h[5],
+      h[6],
+      h[7],
+    ];
 
     for (let i = 0; i < 64; i++) {
       const S1 = rotr32(e, 6) ^ rotr32(e, 11) ^ rotr32(e, 25);

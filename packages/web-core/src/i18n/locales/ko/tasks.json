@@ -261,7 +261,8 @@
     "selectAttempt": "Select an attempt to view execution processes.",
     "started": "Started: {{date}}",
     "copyLogs": "로그 복사",
-    "logsCopied": "복사됨!"
+    "logsCopied": "복사됨!",
+    "copyFailed": "로그를 클립보드에 복사하지 못했습니다."
   },
   "rebase": {
     "common": {

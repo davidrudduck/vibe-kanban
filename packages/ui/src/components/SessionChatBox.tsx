@@ -350,7 +350,11 @@ export function SessionChatBox<TExecutor extends string = string>({
       feedbackMode?.onSubmitFeedback();
     } else if (isInEditMode && canSend) {
       editMode?.onSubmitEdit();
-    } else if ((status === 'running' || status === 'idle') && canSend && !isSending) {
+    } else if (
+      (status === 'running' || status === 'idle') &&
+      canSend &&
+      !isSending
+    ) {
       actions.onSend();
     }
   };
@@ -737,7 +741,9 @@ export function SessionChatBox<TExecutor extends string = string>({
                   >
                     {workspaceTitle}
                   </span>
-                  <span className="text-low text-sm shrink-0 select-none">·</span>
+                  <span className="text-low text-sm shrink-0 select-none">
+                    ·
+                  </span>
                 </>
               )}
               {isRunning && inProgressTodo ? (

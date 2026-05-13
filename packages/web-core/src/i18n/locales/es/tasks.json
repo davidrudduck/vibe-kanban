@@ -261,7 +261,8 @@
     "selectAttempt": "Select an attempt to view execution processes.",
     "started": "Started: {{date}}",
     "copyLogs": "Copiar registros",
-    "logsCopied": "¡Copiado!"
+    "logsCopied": "¡Copiado!",
+    "copyFailed": "No se pudieron copiar los registros al portapapeles."
   },
   "rebase": {
     "common": {
