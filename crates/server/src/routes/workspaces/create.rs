@@ -2,15 +2,17 @@ use std::collections::HashMap;
 
 use axum::{Json, extract::State, response::Json as ResponseJson};
 use db::models::{
+    execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
     requests::{
         CreateAndStartWorkspaceRequest, CreateAndStartWorkspaceResponse, CreateWorkspaceApiRequest,
     },
-    workspace::{CreateWorkspace, Workspace},
+    workspace::{CreateWorkspace, Workspace, WorkspaceError},
 };
 use deployment::Deployment;
 use services::services::container::ContainerService;
 use utils::response::ApiResponse;
 use uuid::Uuid;
+use workspace_manager::WorkspaceManager;
 
 use crate::{
     DeploymentImpl,
@@ -26,7 +28,15 @@ pub(crate) async fn create_workspace_record(
     name: Option<String>,
     is_draft: bool,
 ) -> Result<Workspace, ApiError> {
-    let workspace_id = Uuid::new_v4();
+    create_workspace_record_with_id(deployment, name, is_draft, Uuid::new_v4()).await
+}
+
+pub(crate) async fn create_workspace_record_with_id(
+    deployment: &DeploymentImpl,
+    name: Option<String>,
+    is_draft: bool,
+    workspace_id: Uuid,
+) -> Result<Workspace, ApiError> {
     let branch_label = name
         .as_deref()
         .filter(|branch_label| !branch_label.is_empty())
@@ -45,9 +55,125 @@ pub(crate) async fn create_workspace_record(
         },
         workspace_id,
     )
-    .await?;
+    .await
+    .map_err(|error| match error {
+        WorkspaceError::Database(sqlx::Error::Database(db_error))
+            if db_error.is_unique_violation() =>
+        {
+            ApiError::Conflict("Workspace create request is already in progress.".to_string())
+        }
+        other => ApiError::from(other),
+    })?;
 
     Ok(workspace)
+}
+
+async fn cleanup_workspace_after_failed_create(deployment: &DeploymentImpl, workspace: Workspace) {
+    let workspace_id = workspace.id;
+    let managed_workspace = match deployment
+        .workspace_manager()
+        .load_managed_workspace(workspace)
+        .await
+    {
+        Ok(managed_workspace) => managed_workspace,
+        Err(error) => {
+            tracing::warn!(
+                workspace_id = %workspace_id,
+                "Failed to load workspace for create failure cleanup: {error}"
+            );
+            if let Err(delete_error) = Workspace::delete(&deployment.db().pool, workspace_id).await
+            {
+                tracing::warn!(
+                    workspace_id = %workspace_id,
+                    "Failed to delete workspace record after create failure: {delete_error}"
+                );
+            }
+            return;
+        }
+    };
+
+    let deletion_context = match managed_workspace.prepare_deletion_context().await {
+        Ok(deletion_context) => deletion_context,
+        Err(error) => {
+            tracing::warn!(
+                workspace_id = %workspace_id,
+                "Failed to prepare workspace create failure cleanup: {error}"
+            );
+            if let Err(delete_error) = managed_workspace.delete_record().await {
+                tracing::warn!(
+                    workspace_id = %workspace_id,
+                    "Failed to delete workspace record after cleanup prep failure: {delete_error}"
+                );
+            }
+            return;
+        }
+    };
+
+    match managed_workspace.delete_record().await {
+        Ok(0) => tracing::warn!(
+            workspace_id = %workspace_id,
+            "Workspace record was already gone during create failure cleanup"
+        ),
+        Ok(_) => {
+            let workspace_manager::WorkspaceDeletionContext {
+                workspace_id,
+                branch_name,
+                workspace_dir,
+                repositories,
+                repo_paths,
+                session_ids,
+            } = deletion_context;
+
+            for session_id in session_ids {
+                let log_dir = utils::execution_logs::process_logs_session_dir(session_id);
+                if let Err(error) = tokio::fs::remove_dir_all(&log_dir).await
+                    && error.kind() != std::io::ErrorKind::NotFound
+                {
+                    tracing::warn!(
+                        "Failed to remove process logs for session {} after create failure: {}",
+                        session_id,
+                        error
+                    );
+                }
+            }
+
+            if let Some(workspace_dir) = workspace_dir
+                && let Err(error) =
+                    WorkspaceManager::cleanup_workspace(&workspace_dir, &repositories).await
+            {
+                tracing::warn!(
+                    workspace_id = %workspace_id,
+                    "Failed to clean workspace files after create failure: {error}"
+                );
+            }
+
+            for repo_path in repo_paths {
+                if let Err(error) = deployment.git().delete_branch(&repo_path, &branch_name) {
+                    tracing::warn!(
+                        "Failed to delete branch '{}' from repo {:?} after create failure: {}",
+                        branch_name,
+                        repo_path,
+                        error
+                    );
+                }
+            }
+        }
+        Err(error) => tracing::warn!(
+            workspace_id = %workspace_id,
+            "Failed to delete workspace record after create failure: {error}"
+        ),
+    }
+}
+
+fn can_reuse_create_workspace_process(execution_process: &ExecutionProcess) -> bool {
+    can_reuse_create_workspace_process_status(&execution_process.status)
+}
+
+fn can_reuse_create_workspace_process_status(status: &ExecutionProcessStatus) -> bool {
+    matches!(
+        status,
+        ExecutionProcessStatus::Running | ExecutionProcessStatus::Completed
+    )
 }
 
 pub async fn create_workspace(
@@ -256,6 +382,7 @@ pub async fn create_and_start_workspace(
         executor_config,
         prompt,
         attachment_ids,
+        client_workspace_id,
     } = payload;
 
     let mut workspace_prompt = normalize_prompt(&prompt).ok_or_else(|| {
@@ -270,10 +397,56 @@ pub async fn create_and_start_workspace(
         ));
     }
 
-    let mut managed_workspace = deployment
+    if let Some(workspace_id) = client_workspace_id
+        && let Some(existing_workspace) =
+            Workspace::find_by_id(&deployment.db().pool, workspace_id).await?
+    {
+        if let Some(execution_process) = ExecutionProcess::find_latest_by_workspace_and_run_reason(
+            &deployment.db().pool,
+            workspace_id,
+            &ExecutionProcessRunReason::CodingAgent,
+        )
+        .await?
+        {
+            if can_reuse_create_workspace_process(&execution_process) {
+                return Ok(ResponseJson(ApiResponse::success(
+                    CreateAndStartWorkspaceResponse {
+                        workspace: existing_workspace,
+                        execution_process,
+                        link_warning: None,
+                    },
+                )));
+            }
+        }
+
+        if ExecutionProcess::has_running_non_dev_server_processes_for_workspace(
+            &deployment.db().pool,
+            workspace_id,
+        )
+        .await?
+        {
+            return Err(ApiError::Conflict(
+                "Workspace create request is already in progress.".to_string(),
+            ));
+        }
+
+        cleanup_workspace_after_failed_create(&deployment, existing_workspace).await;
+    }
+
+    let workspace_id = client_workspace_id.unwrap_or_else(Uuid::new_v4);
+    let workspace_record =
+        create_workspace_record_with_id(&deployment, name, false, workspace_id).await?;
+    let mut managed_workspace = match deployment
         .workspace_manager()
-        .load_managed_workspace(create_workspace_record(&deployment, name, false).await?)
-        .await?;
+        .load_managed_workspace(workspace_record.clone())
+        .await
+    {
+        Ok(managed_workspace) => managed_workspace,
+        Err(error) => {
+            cleanup_workspace_after_failed_create(&deployment, workspace_record).await;
+            return Err(ApiError::from(error));
+        }
+    };
     let remote_client = match linked_issue.as_ref() {
         Some(_) => match deployment.remote_client() {
             Ok(client) => Some(client),
@@ -289,14 +462,22 @@ pub async fn create_and_start_workspace(
     };
 
     for repo in &repos {
-        managed_workspace
+        if let Err(error) = managed_workspace
             .add_repository(repo, deployment.git())
             .await
-            .map_err(ApiError::from)?;
+        {
+            cleanup_workspace_after_failed_create(&deployment, managed_workspace.workspace.clone())
+                .await;
+            return Err(ApiError::from(error));
+        }
     }
 
     if let Some(ids) = &attachment_ids {
-        managed_workspace.associate_attachments(ids).await?;
+        if let Err(error) = managed_workspace.associate_attachments(ids).await {
+            cleanup_workspace_after_failed_create(&deployment, managed_workspace.workspace.clone())
+                .await;
+            return Err(ApiError::from(error));
+        }
     }
 
     if let (Some(linked_issue), Some(client)) = (linked_issue.as_ref(), remote_client.as_ref()) {
@@ -374,10 +555,36 @@ pub async fn create_and_start_workspace(
         None
     };
 
-    let execution_process = deployment
+    let execution_process = match deployment
         .container()
         .start_workspace(&workspace, executor_config.clone(), workspace_prompt)
-        .await?;
+        .await
+    {
+        Ok(execution_process) => execution_process,
+        Err(error) => {
+            let has_reusable_coding_agent_process =
+                ExecutionProcess::find_latest_by_workspace_and_run_reason(
+                    &deployment.db().pool,
+                    workspace.id,
+                    &ExecutionProcessRunReason::CodingAgent,
+                )
+                .await?
+                .is_some_and(|process| can_reuse_create_workspace_process(&process));
+
+            let has_running_processes =
+                ExecutionProcess::has_running_non_dev_server_processes_for_workspace(
+                    &deployment.db().pool,
+                    workspace.id,
+                )
+                .await?;
+
+            if !has_reusable_coding_agent_process && !has_running_processes {
+                cleanup_workspace_after_failed_create(&deployment, workspace.clone()).await;
+            }
+
+            return Err(ApiError::from(error));
+        }
+    };
 
     deployment
         .track_if_analytics_allowed(
@@ -402,10 +609,13 @@ pub async fn create_and_start_workspace(
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
-    use db::models::file::File;
+    use db::models::{execution_process::ExecutionProcessStatus, file::File};
     use uuid::Uuid;
 
-    use super::{ImportedIssueAttachment, rewrite_imported_issue_attachments_markdown};
+    use super::{
+        ImportedIssueAttachment, can_reuse_create_workspace_process_status,
+        rewrite_imported_issue_attachments_markdown,
+    };
 
     fn imported_file(
         attachment_id: Uuid,
@@ -426,6 +636,22 @@ mod tests {
                 updated_at: Utc::now(),
             },
         }
+    }
+
+    #[test]
+    fn reuses_only_active_or_completed_create_workspace_processes() {
+        assert!(can_reuse_create_workspace_process_status(
+            &ExecutionProcessStatus::Running
+        ));
+        assert!(can_reuse_create_workspace_process_status(
+            &ExecutionProcessStatus::Completed
+        ));
+        assert!(!can_reuse_create_workspace_process_status(
+            &ExecutionProcessStatus::Failed
+        ));
+        assert!(!can_reuse_create_workspace_process_status(
+            &ExecutionProcessStatus::Killed
+        ));
     }
 
     #[test]

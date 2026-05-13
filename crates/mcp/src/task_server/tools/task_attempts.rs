@@ -190,6 +190,7 @@ impl McpServer {
             },
             prompt: workspace_prompt,
             attachment_ids: None,
+            client_workspace_id: None,
         };
 
         let create_and_start_url = self.url("/api/workspaces/start");
