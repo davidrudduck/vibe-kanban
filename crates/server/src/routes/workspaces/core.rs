@@ -8,7 +8,6 @@ use db::models::{
     coding_agent_turn::CodingAgentTurn,
     execution_process::{ExecutionProcess, ExecutionProcessStatus},
     workspace::{Workspace, WorkspaceError},
-    workspace_repo::WorkspaceRepo,
 };
 use deployment::Deployment;
 use serde::Deserialize;
@@ -80,32 +79,6 @@ fn ensure_workspace_worktrees_clean(
     Ok(())
 }
 
-async fn cleanup_workspace_worktrees(
-    pool: &sqlx::SqlitePool,
-    workspace: &Workspace,
-) -> Result<(), ApiError> {
-    let Some(container_ref) = &workspace.container_ref else {
-        return Ok(());
-    };
-    if workspace.worktree_deleted {
-        return Ok(());
-    }
-
-    let workspace_dir = std::path::PathBuf::from(container_ref);
-    let repositories = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-
-    if repositories.is_empty() {
-        if workspace_dir.exists() {
-            tokio::fs::remove_dir_all(&workspace_dir).await?;
-        }
-    } else {
-        WorkspaceManager::cleanup_workspace(&workspace_dir, &repositories).await?;
-    }
-
-    Workspace::mark_worktree_deleted(pool, workspace.id).await?;
-    Ok(())
-}
-
 #[derive(Debug, Deserialize)]
 pub struct DeleteWorkspaceQuery {
     #[serde(default)]
@@ -164,10 +137,18 @@ pub async fn update_workspace(
         )?;
     }
 
+    let pre_archive_stats = if is_archiving && request.archived.is_some() {
+        Some(diff_stream::compute_diff_stats(pool, deployment.git(), &workspace).await)
+    } else {
+        None
+    };
+
+    let archived_update = if is_archiving { None } else { request.archived };
+
     Workspace::update(
         pool,
         workspace.id,
-        request.archived,
+        archived_update,
         request.pinned,
         request.name.as_deref(),
     )
@@ -176,14 +157,31 @@ pub async fn update_workspace(
         .await?
         .ok_or(WorkspaceError::WorkspaceNotFound)?;
 
+    if is_archiving {
+        deployment
+            .container()
+            .archive_workspace(workspace.id)
+            .await?;
+    }
+
+    let response = if is_archiving {
+        Workspace::find_by_id(pool, workspace.id)
+            .await?
+            .ok_or(WorkspaceError::WorkspaceNotFound)?
+    } else {
+        updated
+    };
+
     if (request.archived.is_some() || request.name.is_some())
         && let Ok(client) = deployment.remote_client()
     {
-        let ws = updated.clone();
+        let ws = response.clone();
         let name = request.name.clone();
         let archived = request.archived;
-        let stats =
-            diff_stream::compute_diff_stats(&deployment.db().pool, deployment.git(), &ws).await;
+        let stats = match pre_archive_stats {
+            Some(stats) => stats,
+            None => diff_stream::compute_diff_stats(pool, deployment.git(), &ws).await,
+        };
         tokio::spawn(async move {
             remote_sync::sync_workspace_to_remote(
                 &client,
@@ -196,14 +194,7 @@ pub async fn update_workspace(
         });
     }
 
-    if is_archiving {
-        if let Err(e) = deployment.container().archive_workspace(workspace.id).await {
-            tracing::error!("Failed to archive workspace {}: {}", workspace.id, e);
-        }
-        cleanup_workspace_worktrees(pool, &updated).await?;
-    }
-
-    Ok(ResponseJson(ApiResponse::success(updated)))
+    Ok(ResponseJson(ApiResponse::success(response)))
 }
 
 pub async fn get_first_user_message(

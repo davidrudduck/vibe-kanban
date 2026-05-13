@@ -69,6 +69,16 @@ pub struct PushWorkspaceRequest {
     pub repo_id: Uuid,
 }
 
+#[derive(Debug, Deserialize, Serialize, TS)]
+pub struct CommitWorkspaceRequest {
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, TS)]
+pub struct CommitWorkspaceResponse {
+    pub committed_repo_ids: Vec<Uuid>,
+}
+
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[ts(tag = "type", rename_all = "snake_case")]
@@ -142,6 +152,7 @@ pub fn router() -> Router<DeploymentImpl> {
         .route("/status", get(get_workspace_branch_status))
         .route("/diff/ws", get(stream_diff_ws))
         .route("/merge", post(merge_workspace))
+        .route("/commit", post(commit_workspace_changes))
         .route("/push", post(push_workspace_branch))
         .route("/push/force", post(force_push_workspace_branch))
         .route("/rebase", post(rebase_workspace))
@@ -166,6 +177,45 @@ async fn resolve_vibe_kanban_identifier(
         return issue_id.to_string();
     }
     local_workspace_id.to_string()
+}
+
+#[axum::debug_handler]
+pub async fn commit_workspace_changes(
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+    Json(request): Json<CommitWorkspaceRequest>,
+) -> Result<ResponseJson<ApiResponse<CommitWorkspaceResponse>>, ApiError> {
+    let message = request.message.trim();
+    if message.is_empty() {
+        return Err(ApiError::BadRequest(
+            "Commit message cannot be empty".to_string(),
+        ));
+    }
+
+    let pool = &deployment.db().pool;
+    let repositories = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
+
+    let container_ref = deployment
+        .container()
+        .ensure_container_exists(&workspace)
+        .await?;
+    let workspace_path = Path::new(&container_ref);
+
+    let mut committed_repo_ids = Vec::new();
+    for repo in repositories {
+        let worktree_path = workspace_path.join(&repo.name);
+        if !worktree_path.exists() {
+            continue;
+        }
+
+        if deployment.git().commit(&worktree_path, message)? {
+            committed_repo_ids.push(repo.id);
+        }
+    }
+
+    Ok(ResponseJson(ApiResponse::success(
+        CommitWorkspaceResponse { committed_repo_ids },
+    )))
 }
 
 #[axum::debug_handler]

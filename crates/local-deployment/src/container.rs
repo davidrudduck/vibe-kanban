@@ -250,38 +250,47 @@ impl LocalContainerService {
     }
 
     async fn cleanup_workspace(&self, workspace: &Workspace) {
+        if let Err(e) = self.cleanup_workspace_worktree(workspace).await {
+            tracing::warn!(
+                "Failed to clean up workspace for workspace {}: {}",
+                workspace.id,
+                e
+            );
+        }
+    }
+
+    async fn cleanup_workspace_worktree(
+        &self,
+        workspace: &Workspace,
+    ) -> Result<(), ContainerError> {
         let Some(container_ref) = &workspace.container_ref else {
-            return;
+            return Ok(());
         };
+        if workspace.worktree_deleted {
+            return Ok(());
+        }
+
         let workspace_dir = PathBuf::from(container_ref);
 
-        let repositories = WorkspaceRepo::find_repos_for_workspace(&self.db.pool, workspace.id)
-            .await
-            .unwrap_or_default();
+        let repositories =
+            WorkspaceRepo::find_repos_for_workspace(&self.db.pool, workspace.id).await?;
 
         if repositories.is_empty() {
             tracing::warn!(
                 "No repositories found for workspace {}, cleaning up workspace directory only",
                 workspace.id
             );
-            if workspace_dir.exists()
-                && let Err(e) = tokio::fs::remove_dir_all(&workspace_dir).await
-            {
-                tracing::warn!("Failed to remove workspace directory: {}", e);
+            if workspace_dir.exists() {
+                tokio::fs::remove_dir_all(&workspace_dir).await?;
             }
         } else {
             WorkspaceManager::cleanup_workspace(&workspace_dir, &repositories)
                 .await
-                .unwrap_or_else(|e| {
-                    tracing::warn!(
-                        "Failed to clean up workspace for workspace {}: {}",
-                        workspace.id,
-                        e
-                    );
-                });
+                .map_err(Self::map_workspace_manager_error)?;
         }
 
-        let _ = Workspace::mark_worktree_deleted(&self.db.pool, workspace.id).await;
+        Workspace::mark_worktree_deleted(&self.db.pool, workspace.id).await?;
+        Ok(())
     }
 
     async fn cleanup_expired_workspaces(&self) -> Result<(), DeploymentError> {
@@ -868,6 +877,19 @@ impl LocalContainerService {
                         .await;
                     });
                 }
+
+                if matches!(
+                    ctx.execution_process.run_reason,
+                    ExecutionProcessRunReason::ArchiveScript
+                ) && matches!(status, ExecutionProcessStatus::Completed)
+                    && let Err(e) = container.cleanup_workspace_worktree(&ctx.workspace).await
+                {
+                    tracing::error!(
+                        "Failed to clean up worktree after archive script for workspace {}: {}",
+                        ctx.workspace.id,
+                        e
+                    );
+                }
             }
 
             // Now that commit/next-action/finalization steps for this process are complete,
@@ -1349,6 +1371,13 @@ impl ContainerService for LocalContainerService {
         self.try_stop(workspace, true).await;
         self.cleanup_workspace(workspace).await;
         Ok(())
+    }
+
+    async fn cleanup_workspace_worktree(
+        &self,
+        workspace: &Workspace,
+    ) -> Result<(), ContainerError> {
+        LocalContainerService::cleanup_workspace_worktree(self, workspace).await
     }
 
     async fn ensure_container_exists(

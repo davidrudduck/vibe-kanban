@@ -7,6 +7,7 @@ import { workspaceSummaryKeys } from '@/shared/hooks/workspaceSummaryKeys';
 import { ConfirmDialog } from '@vibe/ui/components/ConfirmDialog';
 import { DeleteWorkspaceDialog } from '@vibe/ui/components/DeleteWorkspaceDialog';
 import type { WorkspaceWithStats } from '@vibe/ui/components/IssueWorkspaceCard';
+import { handleDirtyWorkspaceAction } from '@/shared/lib/dirtyWorkspaceActions';
 
 interface LocalWorkspace {
   branch: string;
@@ -84,19 +85,18 @@ export function useWorkspaceActions({
           !isCurrentlyArchived &&
           (error as { status?: number }).status === 409
         ) {
-          const result = await ConfirmDialog.show({
-            title: 'Uncommitted Changes Detected',
-            message:
-              'This workspace has uncommitted changes. Archiving will remove its worktree from disk. Archive anyway?',
-            confirmText: 'Archive Anyway',
-            variant: 'destructive',
+          await handleDirtyWorkspaceAction({
+            workspaceId: localWorkspaceId,
+            operation: 'archive',
+            branchName: localWorkspacesById.get(localWorkspaceId)?.branch,
+            queryClient,
+            retry: async (force) => {
+              await workspacesApi.update(localWorkspaceId, {
+                archived: true,
+                force_archive: force,
+              });
+            },
           });
-          if (result === 'confirmed') {
-            await workspacesApi.update(localWorkspaceId, {
-              archived: true,
-              force_archive: true,
-            });
-          }
           return;
         }
         ConfirmDialog.show({
@@ -119,7 +119,7 @@ export function useWorkspaceActions({
         });
       }
     },
-    [findWorkspace, queryClient, t]
+    [findWorkspace, localWorkspacesById, queryClient, t]
   );
 
   const deleteWorkspace = useCallback(
@@ -154,31 +154,32 @@ export function useWorkspaceActions({
       }
 
       try {
-        if (result.unlinkFromIssue) {
-          await workspacesApi.unlinkFromIssue(localWorkspaceId);
-        }
+        const deleteAfterUnlink = async (force: boolean) => {
+          await workspacesApi.delete(
+            localWorkspaceId,
+            result.deleteBranches,
+            force
+          );
+          if (result.unlinkFromIssue) {
+            await workspacesApi.unlinkFromIssue(localWorkspaceId);
+          }
+        };
+
         try {
-          await workspacesApi.delete(localWorkspaceId, result.deleteBranches);
+          await deleteAfterUnlink(false);
         } catch (error) {
           if ((error as { status?: number }).status !== 409) {
             throw error;
           }
 
-          const forceResult = await ConfirmDialog.show({
-            title: 'Uncommitted Changes Detected',
-            message:
-              'This workspace has uncommitted changes. Deleting will remove its worktree from disk. Delete anyway?',
-            confirmText: 'Delete Anyway',
-            variant: 'destructive',
+          await handleDirtyWorkspaceAction({
+            workspaceId: localWorkspaceId,
+            operation: 'delete',
+            branchName: localWorkspace.branch,
+            issueIdentifier: linkedIssueSimpleId ?? undefined,
+            queryClient,
+            retry: deleteAfterUnlink,
           });
-          if (forceResult !== 'confirmed') {
-            return;
-          }
-          await workspacesApi.delete(
-            localWorkspaceId,
-            result.deleteBranches,
-            true
-          );
         }
       } catch (error) {
         ConfirmDialog.show({
