@@ -511,11 +511,11 @@ export function ProjectRightSidebarContainer() {
     const linkedIssueId = rightPanelState.issueId;
     const linkedIssue = linkedIssueId ? getIssue(linkedIssueId) : null;
     const lockedLinkedIssue =
-      linkedIssue && projectId
+      linkedIssueId && projectId
         ? {
-            issueId: linkedIssue.id,
-            simpleId: linkedIssue.simple_id,
-            title: linkedIssue.title,
+            issueId: linkedIssueId,
+            simpleId: linkedIssue?.simple_id,
+            title: linkedIssue?.title,
             remoteProjectId: projectId,
           }
         : null;

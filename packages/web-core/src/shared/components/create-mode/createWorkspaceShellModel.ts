@@ -18,6 +18,38 @@ export function getCreateWorkspaceModeState({
   };
 }
 
+export function getSourceLinkedIssue({
+  lockedLinkedIssue,
+  draftLinkedIssue,
+}: {
+  lockedLinkedIssue: LinkedIssue | null;
+  draftLinkedIssue: LinkedIssue | null;
+}): LinkedIssue | null {
+  return lockedLinkedIssue ?? draftLinkedIssue;
+}
+
+export function getEffectiveLinkedIssue({
+  lockedToLinkedIssue,
+  mode,
+  sourceLinkedIssue,
+  manualLinkedIssue,
+}: {
+  lockedToLinkedIssue: boolean;
+  mode: CreateWorkspaceMode;
+  sourceLinkedIssue: LinkedIssue | null;
+  manualLinkedIssue: LinkedIssue | null;
+}): LinkedIssue | null {
+  if (lockedToLinkedIssue) {
+    return sourceLinkedIssue;
+  }
+
+  if (mode !== 'link_task') {
+    return null;
+  }
+
+  return manualLinkedIssue ?? sourceLinkedIssue;
+}
+
 export function getWorkspaceNameForSubmit({
   workspaceName,
   linkedIssueTitle,

@@ -36,6 +36,8 @@ import { OrphanIssueModal, type OrphanIssueState } from './OrphanIssueModal';
 import {
   canSaveWorkspaceDraft,
   getCreateWorkspaceModeState,
+  getEffectiveLinkedIssue,
+  getSourceLinkedIssue,
   getWorkspaceNameForSubmit,
 } from './createWorkspaceShellModel';
 
@@ -70,7 +72,10 @@ export function CreateWorkspaceShell({
     attachments: draftAttachments,
     setAttachments: setDraftAttachments,
   } = useCreateMode();
-  const sourceLinkedIssue = linkedIssue ?? lockedLinkedIssue;
+  const sourceLinkedIssue = getSourceLinkedIssue({
+    lockedLinkedIssue,
+    draftLinkedIssue: linkedIssue,
+  });
 
   const { createWorkspace, createDraftWorkspace } = useCreateWorkspace();
   const isSubmitting = useRef(false);
@@ -170,8 +175,12 @@ export function CreateWorkspaceShell({
 
   // ── Effective linked issue for submission ───────────────────────────────────
 
-  const effectiveLinkedIssue =
-    mode === 'link_task' ? (manualLinkedIssue ?? sourceLinkedIssue) : null;
+  const effectiveLinkedIssue = getEffectiveLinkedIssue({
+    lockedToLinkedIssue,
+    mode,
+    sourceLinkedIssue,
+    manualLinkedIssue,
+  });
 
   // ── Attachments ─────────────────────────────────────────────────────────────
 
