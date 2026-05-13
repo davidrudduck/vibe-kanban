@@ -283,6 +283,16 @@ export enum ExecutionProcessStatus { running = "running", completed = "completed
 
 export type ExecutionProcessRunReason = "setupscript" | "cleanupscript" | "archivescript" | "codingagent" | "devserver";
 
+export type ExecutionLogEvent = { id: bigint, execution_id: string, source: string, source_event_id: string | null, event_type: ExecutionLogEventType, payload_json: JsonValue, created_at: string, };
+
+export type CreateExecutionLogEvent = { execution_id: string, source: string, source_event_id: string | null, event_type: ExecutionLogEventType, payload_json: JsonValue, };
+
+export type ExecutionLogEventType = "execution_started" | "execution_finished" | "user_message" | "assistant_message_delta" | "assistant_message_final" | "tool_started" | "tool_delta" | "tool_finished" | "system_status" | "raw_stdout" | "raw_stderr" | "json_patch" | "reset_ignored" | "refresh_required";
+
+export type Direction = "forward" | "backward";
+
+export type PaginatedExecutionLogEvents = { entries: Array<ExecutionLogEvent>, next_cursor: bigint | null, has_more: boolean, };
+
 export type ExecutionProcessRepoState = { id: string, execution_process_id: string, repo_id: string, before_head_commit: string | null, after_head_commit: string | null, merge_commit: string | null, created_at: Date, updated_at: Date, };
 
 export type Merge = { "type": "direct" } & DirectMerge | { "type": "pr" } & PrMerge;

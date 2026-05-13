@@ -1,4 +1,5 @@
 import {
+  ExecutionLogEvent,
   ExecutionProcess,
   ExecutionProcessStatus,
   PatchType,
@@ -6,6 +7,7 @@ import {
 import { useExecutionProcessesContext } from '@/shared/hooks/useExecutionProcessesContext';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { streamJsonPatchEntries } from '@/shared/lib/streamJsonPatchEntries';
+import { openLocalApiWebSocket } from '@/shared/lib/localApiTransport';
 import type {
   AddEntryType,
   ConversationTimelineSource,
@@ -25,6 +27,46 @@ import {
   MIN_INITIAL_ENTRIES,
   REMAINING_BATCH_SIZE,
 } from '@/shared/hooks/useConversationHistory/constants';
+import { fetchExecutionLogEvents } from '../api/execution-log-events';
+import { getRunningAppendOnlyConversationResult } from '../utils/appendOnlyConversation';
+import { projectExecutionEventsToConversation } from '../utils/executionEventProjection';
+
+type ExecutionEventWsReadyMsg = { Ready: true };
+type ExecutionEventWsFinishedMsg = { finished: true };
+type ExecutionEventWsEventMsg = { Event: ExecutionLogEvent };
+type ExecutionEventWsMsg =
+  | ExecutionEventWsReadyMsg
+  | ExecutionEventWsFinishedMsg
+  | ExecutionEventWsEventMsg;
+
+const USE_EXECUTION_EVENT_STREAMS =
+  import.meta.env.VITE_EXECUTION_EVENT_STREAMS === '1';
+
+const eventIdNumber = (event: ExecutionLogEvent): number =>
+  Number(event.id as unknown as number | bigint);
+
+const cursorNumber = (cursor: bigint | number | null | undefined) =>
+  cursor == null ? undefined : Number(cursor);
+
+const fetchAllExecutionEvents = async (
+  executionProcessId: string
+): Promise<ExecutionLogEvent[]> => {
+  const events: ExecutionLogEvent[] = [];
+  let afterId: number | undefined;
+
+  for (;;) {
+    const page = await fetchExecutionLogEvents(executionProcessId, {
+      afterId,
+      limit: 500,
+    });
+    events.push(...page.entries);
+    if (!page.has_more) break;
+    afterId = cursorNumber(page.next_cursor);
+    if (afterId == null) break;
+  }
+
+  return events;
+};
 
 export const useConversationHistory = ({
   onTimelineUpdated,
@@ -41,6 +83,9 @@ export const useConversationHistory = ({
   const emittedEmptyInitialRef = useRef(false);
   const streamingProcessIdsRef = useRef<Set<string>>(new Set());
   const settledStreamProcessIdsRef = useRef<Set<string>>(new Set());
+  const runningSnapshotEntriesRef = useRef<Record<string, PatchTypeWithKey[]>>(
+    {}
+  );
   const onTimelineUpdatedRef = useRef<
     UseConversationHistoryParams['onTimelineUpdated'] | null
   >(null);
@@ -92,7 +137,12 @@ export const useConversationHistory = ({
   }, [executionProcessesRaw]);
 
   const loadEntriesForHistoricExecutionProcess = useCallback(
-    (executionProcess: ExecutionProcess) => {
+    async (executionProcess: ExecutionProcess) => {
+      if (USE_EXECUTION_EVENT_STREAMS) {
+        const events = await fetchAllExecutionEvents(executionProcess.id);
+        return projectExecutionEventsToConversation(events).entries;
+      }
+
       let url = '';
       if (executionProcess.executor_action.typ.type === 'ScriptRequest') {
         url = `/api/execution-processes/${executionProcess.id}/raw-logs/ws`;
@@ -100,11 +150,15 @@ export const useConversationHistory = ({
         url = `/api/execution-processes/${executionProcess.id}/normalized-logs/ws`;
       }
 
-      return new Promise<PatchType[]>((resolve) => {
+      return new Promise<PatchTypeWithKey[]>((resolve) => {
         const controller = streamJsonPatchEntries<PatchType>(url, {
           onFinished: (allEntries) => {
             controller.close();
-            resolve(allEntries);
+            resolve(
+              allEntries.map((entry, index) =>
+                patchWithKey(entry, executionProcess.id, index)
+              )
+            );
           },
           onError: (err) => {
             console.warn(
@@ -204,8 +258,117 @@ export const useConversationHistory = ({
   );
 
   // This emits its own events as they are streamed
+  const loadRunningEventStreamAndEmit = useCallback(
+    (executionProcess: ExecutionProcess): Promise<void> => {
+      return new Promise((resolve, reject) => {
+        let cancelled = false;
+        let ws: WebSocket | null = null;
+        const eventsById = new Map<number, ExecutionLogEvent>();
+
+        const emitProjectedEvents = () => {
+          const projected = projectExecutionEventsToConversation([
+            ...eventsById.values(),
+          ]);
+          const previousAcceptedEntries =
+            displayedExecutionProcesses.current[executionProcess.id]?.entries ??
+            [];
+          const previousSnapshotEntries =
+            runningSnapshotEntriesRef.current[executionProcess.id] ?? [];
+          const runningResult = getRunningAppendOnlyConversationResult(
+            previousAcceptedEntries,
+            projected.entries,
+            previousSnapshotEntries
+          );
+
+          if (runningResult.acceptedSnapshot) {
+            runningSnapshotEntriesRef.current[executionProcess.id] =
+              projected.entries;
+          }
+
+          mergeIntoDisplayed((state) => {
+            state[executionProcess.id] = {
+              executionProcess,
+              entries: runningResult.items,
+            };
+          });
+          emitEntries(displayedExecutionProcesses.current, 'running', false);
+        };
+
+        void (async () => {
+          try {
+            const initialEvents = await fetchAllExecutionEvents(
+              executionProcess.id
+            );
+            initialEvents.forEach((event) => {
+              eventsById.set(eventIdNumber(event), event);
+            });
+            if (cancelled) return;
+            emitProjectedEvents();
+
+            const afterId =
+              [...eventsById.keys()].sort((a, b) => a - b).at(-1) ?? 0;
+            ws = await openLocalApiWebSocket(
+              `/api/execution-processes/${executionProcess.id}/events/live/ws?after_id=${afterId}`
+            );
+            if (cancelled) {
+              ws.close();
+              return;
+            }
+
+            ws.onmessage = (event) => {
+              const msg: ExecutionEventWsMsg = JSON.parse(event.data);
+              if ('Ready' in msg) return;
+              if ('finished' in msg) {
+                settledStreamProcessIdsRef.current.add(executionProcess.id);
+                emitEntries(
+                  displayedExecutionProcesses.current,
+                  'running',
+                  false
+                );
+                ws?.close(1000, 'finished');
+                resolve();
+                return;
+              }
+              if ('Event' in msg) {
+                eventsById.set(eventIdNumber(msg.Event), msg.Event);
+                emitProjectedEvents();
+              }
+            };
+
+            ws.onerror = () => {
+              reject();
+            };
+
+            ws.onclose = (event) => {
+              if (
+                cancelled ||
+                (event.code === 1000 && event.wasClean) ||
+                settledStreamProcessIdsRef.current.has(executionProcess.id)
+              ) {
+                return;
+              }
+              reject();
+            };
+          } catch {
+            if (!cancelled) reject();
+          }
+        })();
+
+        return () => {
+          cancelled = true;
+          ws?.close();
+        };
+      });
+    },
+    [emitEntries]
+  );
+
   const loadRunningAndEmit = useCallback(
     (executionProcess: ExecutionProcess): Promise<void> => {
+      if (USE_EXECUTION_EVENT_STREAMS) {
+        return loadRunningEventStreamAndEmit(executionProcess);
+      }
+
       return new Promise((resolve, reject) => {
         let url = '';
         if (executionProcess.executor_action.typ.type === 'ScriptRequest') {
@@ -215,13 +378,29 @@ export const useConversationHistory = ({
         }
         const controller = streamJsonPatchEntries<PatchType>(url, {
           onEntries(entries) {
-            const patchesWithKey = entries.map((entry, index) =>
+            const snapshotEntries = entries.map((entry, index) =>
               patchWithKey(entry, executionProcess.id, index)
             );
+            const previousAcceptedEntries =
+              displayedExecutionProcesses.current[executionProcess.id]
+                ?.entries ?? [];
+            const previousSnapshotEntries =
+              runningSnapshotEntriesRef.current[executionProcess.id] ?? [];
+            const runningResult = getRunningAppendOnlyConversationResult(
+              previousAcceptedEntries,
+              snapshotEntries,
+              previousSnapshotEntries
+            );
+
+            if (runningResult.acceptedSnapshot) {
+              runningSnapshotEntriesRef.current[executionProcess.id] =
+                snapshotEntries;
+            }
+
             mergeIntoDisplayed((state) => {
               state[executionProcess.id] = {
                 executionProcess,
-                entries: patchesWithKey,
+                entries: runningResult.items,
               };
             });
             emitEntries(displayedExecutionProcesses.current, 'running', false);
@@ -239,7 +418,7 @@ export const useConversationHistory = ({
         });
       });
     },
-    [emitEntries]
+    [emitEntries, loadRunningEventStreamAndEmit]
   );
 
   // Sometimes it can take a few seconds for the stream to start, wrap the loadRunningAndEmit method
@@ -268,14 +447,11 @@ export const useConversationHistory = ({
         currentProcess &&
         currentProcess.status !== ExecutionProcessStatus.running
       ) {
-        const entries =
+        const entriesWithKey =
           await loadEntriesForHistoricExecutionProcess(currentProcess);
         if (settledStreamProcessIdsRef.current.has(executionProcess.id)) {
           return; // late-arriving onFinished settled the stream during the fetch
         }
-        const entriesWithKey = entries.map((e, idx) =>
-          patchWithKey(e, currentProcess.id, idx)
-        );
         // Only overwrite if we actually got entries back; an empty response
         // likely means a network error and we should not clobber partial data.
         if (entriesWithKey.length > 0) {
@@ -306,13 +482,10 @@ export const useConversationHistory = ({
 
         const entries =
           await loadEntriesForHistoricExecutionProcess(executionProcess);
-        const entriesWithKey = entries.map((e, idx) =>
-          patchWithKey(e, executionProcess.id, idx)
-        );
 
         localDisplayedExecutionProcesses[executionProcess.id] = {
           executionProcess,
-          entries: entriesWithKey,
+          entries,
         };
 
         if (
@@ -345,14 +518,11 @@ export const useConversationHistory = ({
 
         const entries =
           await loadEntriesForHistoricExecutionProcess(executionProcess);
-        const entriesWithKey = entries.map((e, idx) =>
-          patchWithKey(e, executionProcess.id, idx)
-        );
 
         mergeIntoDisplayed((state) => {
           state[executionProcess.id] = {
             executionProcess,
-            entries: entriesWithKey,
+            entries,
           };
         });
 
@@ -420,6 +590,7 @@ export const useConversationHistory = ({
     emittedEmptyInitialRef.current = false;
     streamingProcessIdsRef.current.clear();
     settledStreamProcessIdsRef.current.clear();
+    runningSnapshotEntriesRef.current = {};
     emitEntries(displayedExecutionProcesses.current, 'initial', true);
   }, [scopeKey, emitEntries]);
 

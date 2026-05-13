@@ -43,6 +43,7 @@ export const useJsonPatchWsStream = <T extends object>(
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const dataRef = useRef<T | undefined>(undefined);
+  const activeEndpointRef = useRef<string | undefined>(undefined);
   const retryTimerRef = useRef<number | null>(null);
   const retryAttemptsRef = useRef<number>(0);
   const [retryNonce, setRetryNonce] = useState(0);
@@ -98,7 +99,16 @@ export const useJsonPatchWsStream = <T extends object>(
       setIsInitialized(false);
       setError(null);
       dataRef.current = undefined;
+      activeEndpointRef.current = undefined;
       return;
+    }
+
+    if (activeEndpointRef.current !== endpoint) {
+      activeEndpointRef.current = endpoint;
+      initializedForEndpointRef.current = undefined;
+      dataRef.current = undefined;
+      setData(undefined);
+      setIsInitialized(false);
     }
 
     // Initialize data
@@ -280,9 +290,6 @@ export const useJsonPatchWsStream = <T extends object>(
         watchdogIntervalRef.current = null;
       }
       finishedRef.current = false;
-      dataRef.current = undefined;
-      setData(undefined);
-      setIsInitialized(false);
     };
   }, [
     endpoint,

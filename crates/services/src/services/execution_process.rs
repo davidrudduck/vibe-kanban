@@ -8,10 +8,13 @@ use anyhow::{Context, Result};
 use db::{
     DBService,
     models::{
-        coding_agent_turn::CodingAgentTurn, execution_process::ExecutionProcess,
+        coding_agent_turn::CodingAgentTurn,
+        execution_log_event::{CreateExecutionLogEvent, ExecutionLogEvent, ExecutionLogEventType},
+        execution_process::ExecutionProcess,
         execution_process_logs::ExecutionProcessLogs,
     },
 };
+use executors::logs::canonical_event::{CanonicalLogEvent, CanonicalLogEventType};
 use futures::{StreamExt, TryStreamExt};
 use indicatif::{ProgressBar, ProgressStyle};
 use sqlx::SqlitePool;
@@ -280,8 +283,21 @@ pub fn spawn_stream_raw_logs_to_storage(
 
         if let Some(store) = store {
             let mut stream = store.history_plus_stream();
+            let mut sequence = 0_u64;
 
             while let Some(Ok(msg)) = stream.next().await {
+                if let Err(e) =
+                    persist_canonical_log_msg(&db.pool, execution_id, "executor", sequence, &msg)
+                        .await
+                {
+                    tracing::error!(
+                        "Failed to persist canonical event for execution {}: {}",
+                        execution_id,
+                        e
+                    );
+                }
+                sequence = sequence.saturating_add(1);
+
                 match &msg {
                     LogMsg::Stdout(_) | LogMsg::Stderr(_) => match serde_json::to_string(&msg) {
                         Ok(jsonl_line) => {
@@ -348,6 +364,56 @@ pub fn spawn_stream_raw_logs_to_storage(
     })
 }
 
+pub async fn persist_canonical_log_msg(
+    pool: &SqlitePool,
+    execution_id: Uuid,
+    source: &str,
+    sequence: u64,
+    msg: &LogMsg,
+) -> Result<Option<ExecutionLogEvent>, sqlx::Error> {
+    let Some(event) = CanonicalLogEvent::from_log_msg(execution_id, source, None, sequence, msg)
+    else {
+        return Ok(None);
+    };
+
+    let created = ExecutionLogEvent::create(
+        pool,
+        &CreateExecutionLogEvent {
+            execution_id: event.execution_id,
+            source: event.source,
+            source_event_id: event.source_event_id,
+            event_type: map_canonical_event_type(event.event_type),
+            payload_json: event.payload_json,
+        },
+    )
+    .await?;
+
+    Ok(Some(created))
+}
+
+fn map_canonical_event_type(event_type: CanonicalLogEventType) -> ExecutionLogEventType {
+    match event_type {
+        CanonicalLogEventType::ExecutionStarted => ExecutionLogEventType::ExecutionStarted,
+        CanonicalLogEventType::ExecutionFinished => ExecutionLogEventType::ExecutionFinished,
+        CanonicalLogEventType::UserMessage => ExecutionLogEventType::UserMessage,
+        CanonicalLogEventType::AssistantMessageDelta => {
+            ExecutionLogEventType::AssistantMessageDelta
+        }
+        CanonicalLogEventType::AssistantMessageFinal => {
+            ExecutionLogEventType::AssistantMessageFinal
+        }
+        CanonicalLogEventType::ToolStarted => ExecutionLogEventType::ToolStarted,
+        CanonicalLogEventType::ToolDelta => ExecutionLogEventType::ToolDelta,
+        CanonicalLogEventType::ToolFinished => ExecutionLogEventType::ToolFinished,
+        CanonicalLogEventType::SystemStatus => ExecutionLogEventType::SystemStatus,
+        CanonicalLogEventType::RawStdout => ExecutionLogEventType::RawStdout,
+        CanonicalLogEventType::RawStderr => ExecutionLogEventType::RawStderr,
+        CanonicalLogEventType::JsonPatch => ExecutionLogEventType::JsonPatch,
+        CanonicalLogEventType::ResetIgnored => ExecutionLogEventType::ResetIgnored,
+        CanonicalLogEventType::RefreshRequired => ExecutionLogEventType::RefreshRequired,
+    }
+}
+
 async fn read_execution_logs_for_execution(
     pool: &SqlitePool,
     execution_id: Uuid,
@@ -390,6 +456,147 @@ async fn read_execution_logs_for_execution(
                 path.display()
             )
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use db::models::execution_log_event::{ExecutionLogEvent, ExecutionLogEventType};
+    use json_patch::Patch;
+    use serde_json::json;
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+
+    use super::*;
+
+    async fn setup_event_pool() -> SqlitePool {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .unwrap();
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE execution_processes (id BLOB PRIMARY KEY)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            r#"
+            CREATE TABLE execution_log_events (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                execution_id    BLOB NOT NULL,
+                source          TEXT NOT NULL,
+                source_event_id TEXT,
+                event_type      TEXT NOT NULL CHECK (
+                    event_type IN (
+                        'execution_started',
+                        'execution_finished',
+                        'user_message',
+                        'assistant_message_delta',
+                        'assistant_message_final',
+                        'tool_started',
+                        'tool_delta',
+                        'tool_finished',
+                        'system_status',
+                        'raw_stdout',
+                        'raw_stderr',
+                        'json_patch',
+                        'reset_ignored',
+                        'refresh_required'
+                    )
+                ),
+                payload_json    TEXT NOT NULL,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+                FOREIGN KEY (execution_id) REFERENCES execution_processes(id) ON DELETE CASCADE,
+                UNIQUE(execution_id, source, source_event_id)
+            );
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool
+    }
+
+    async fn create_execution(pool: &SqlitePool, execution_id: Uuid) {
+        sqlx::query("INSERT INTO execution_processes (id) VALUES (?)")
+            .bind(execution_id)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn persist_canonical_log_msg_writes_rows_for_all_rendered_messages() {
+        let pool = setup_event_pool().await;
+        let execution_id = Uuid::new_v4();
+        create_execution(&pool, execution_id).await;
+        let patch: Patch = serde_json::from_value(json!([
+            {"op":"add","path":"/entries/0","value":{"type":"STDOUT","content":"hello"}}
+        ]))
+        .unwrap();
+
+        persist_canonical_log_msg(
+            &pool,
+            execution_id,
+            "test",
+            0,
+            &LogMsg::Stdout("hello".into()),
+        )
+        .await
+        .unwrap();
+        persist_canonical_log_msg(&pool, execution_id, "test", 1, &LogMsg::JsonPatch(patch))
+            .await
+            .unwrap();
+        persist_canonical_log_msg(&pool, execution_id, "test", 2, &LogMsg::Finished)
+            .await
+            .unwrap();
+
+        let events = ExecutionLogEvent::find_after_id(&pool, execution_id, None, 10)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| event.event_type)
+                .collect::<Vec<_>>(),
+            vec![
+                ExecutionLogEventType::RawStdout,
+                ExecutionLogEventType::JsonPatch,
+                ExecutionLogEventType::ExecutionFinished,
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn persist_canonical_log_msg_is_idempotent_for_replayed_history() {
+        let pool = setup_event_pool().await;
+        let execution_id = Uuid::new_v4();
+        create_execution(&pool, execution_id).await;
+        let msg = LogMsg::Stdout("same".into());
+
+        let first = persist_canonical_log_msg(&pool, execution_id, "test", 4, &msg)
+            .await
+            .unwrap()
+            .unwrap();
+        let second = persist_canonical_log_msg(&pool, execution_id, "test", 4, &msg)
+            .await
+            .unwrap()
+            .unwrap();
+        let events = ExecutionLogEvent::find_after_id(&pool, execution_id, None, 10)
+            .await
+            .unwrap();
+
+        assert_eq!(first.id, second.id);
+        assert_eq!(events.len(), 1);
     }
 }
 

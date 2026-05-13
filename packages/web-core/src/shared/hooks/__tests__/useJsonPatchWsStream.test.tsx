@@ -32,6 +32,15 @@ class MockWebSocket {
     MockWebSocket.instances.push(this);
   }
 
+  open() {
+    this.readyState = 1; // OPEN
+    this.onopen?.({} as Event);
+  }
+
+  emit(data: unknown) {
+    this.onmessage?.({ data: JSON.stringify(data) } as MessageEvent);
+  }
+
   close(code = 1000) {
     this.closed = true;
     this.readyState = 3; // CLOSED
@@ -48,6 +57,7 @@ class MockWebSocket {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   MockWebSocket.instances = [];
   setLocalApiTransport(defaultTransport);
 });
@@ -101,5 +111,54 @@ describe('useJsonPatchWsStream', () => {
     });
 
     expect(MockWebSocket.aliveUrls).toHaveLength(1);
+  });
+
+  it('preserves received data across reconnect attempts', async () => {
+    vi.useFakeTimers();
+    setLocalApiTransport({
+      ...defaultTransport,
+      openWebSocket: async (path) =>
+        new MockWebSocket(path) as unknown as WebSocket,
+    });
+
+    const { result } = renderHook(() =>
+      useJsonPatchWsStream('/api/test-endpoint', true, () => ({
+        execution_processes: {},
+      }))
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const firstSocket = MockWebSocket.instances[0];
+    firstSocket.open();
+
+    await act(async () => {
+      firstSocket.emit({
+        JsonPatch: [
+          {
+            op: 'add',
+            path: '/execution_processes/proc-1',
+            value: { id: 'proc-1', status: 'running' },
+          },
+        ],
+      });
+      firstSocket.close(4000);
+    });
+
+    expect(result.current.data?.execution_processes['proc-1'].status).toBe(
+      'running'
+    );
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+      await Promise.resolve();
+    });
+
+    expect(MockWebSocket.instances).toHaveLength(2);
+    expect(result.current.data?.execution_processes['proc-1'].status).toBe(
+      'running'
+    );
   });
 });
