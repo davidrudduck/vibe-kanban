@@ -12,6 +12,7 @@ use deployment::Deployment;
 use services::services::container::ContainerService;
 use utils::response::ApiResponse;
 use uuid::Uuid;
+use workspace_manager::WorkspaceManager;
 
 use crate::{
     DeploymentImpl,
@@ -65,6 +66,54 @@ pub(crate) async fn create_workspace_record_with_id(
     })?;
 
     Ok(workspace)
+}
+
+async fn cleanup_workspace_after_failed_create(deployment: &DeploymentImpl, workspace: Workspace) {
+    let workspace_id = workspace.id;
+    let managed_workspace = match deployment
+        .workspace_manager()
+        .load_managed_workspace(workspace)
+        .await
+    {
+        Ok(managed_workspace) => managed_workspace,
+        Err(error) => {
+            tracing::warn!(
+                workspace_id = %workspace_id,
+                "Failed to load workspace for create failure cleanup: {error}"
+            );
+            if let Err(delete_error) = Workspace::delete(&deployment.db().pool, workspace_id).await
+            {
+                tracing::warn!(
+                    workspace_id = %workspace_id,
+                    "Failed to delete workspace record after create failure: {delete_error}"
+                );
+            }
+            return;
+        }
+    };
+
+    let deletion_context = match managed_workspace.prepare_deletion_context().await {
+        Ok(deletion_context) => deletion_context,
+        Err(error) => {
+            tracing::warn!(
+                workspace_id = %workspace_id,
+                "Failed to prepare workspace create failure cleanup: {error}"
+            );
+            return;
+        }
+    };
+
+    match managed_workspace.delete_record().await {
+        Ok(0) => tracing::warn!(
+            workspace_id = %workspace_id,
+            "Workspace record was already gone during create failure cleanup"
+        ),
+        Ok(_) => WorkspaceManager::spawn_workspace_deletion_cleanup(deletion_context, true),
+        Err(error) => tracing::warn!(
+            workspace_id = %workspace_id,
+            "Failed to delete workspace record after create failure: {error}"
+        ),
+    }
 }
 
 pub async fn create_workspace(
@@ -314,12 +363,19 @@ pub async fn create_and_start_workspace(
     }
 
     let workspace_id = client_workspace_id.unwrap_or_else(Uuid::new_v4);
-    let mut managed_workspace = deployment
+    let workspace_record =
+        create_workspace_record_with_id(&deployment, name, false, workspace_id).await?;
+    let mut managed_workspace = match deployment
         .workspace_manager()
-        .load_managed_workspace(
-            create_workspace_record_with_id(&deployment, name, false, workspace_id).await?,
-        )
-        .await?;
+        .load_managed_workspace(workspace_record.clone())
+        .await
+    {
+        Ok(managed_workspace) => managed_workspace,
+        Err(error) => {
+            cleanup_workspace_after_failed_create(&deployment, workspace_record).await;
+            return Err(ApiError::from(error));
+        }
+    };
     let remote_client = match linked_issue.as_ref() {
         Some(_) => match deployment.remote_client() {
             Ok(client) => Some(client),
@@ -335,14 +391,22 @@ pub async fn create_and_start_workspace(
     };
 
     for repo in &repos {
-        managed_workspace
+        if let Err(error) = managed_workspace
             .add_repository(repo, deployment.git())
             .await
-            .map_err(ApiError::from)?;
+        {
+            cleanup_workspace_after_failed_create(&deployment, managed_workspace.workspace.clone())
+                .await;
+            return Err(ApiError::from(error));
+        }
     }
 
     if let Some(ids) = &attachment_ids {
-        managed_workspace.associate_attachments(ids).await?;
+        if let Err(error) = managed_workspace.associate_attachments(ids).await {
+            cleanup_workspace_after_failed_create(&deployment, managed_workspace.workspace.clone())
+                .await;
+            return Err(ApiError::from(error));
+        }
     }
 
     if let (Some(linked_issue), Some(client)) = (linked_issue.as_ref(), remote_client.as_ref()) {
@@ -420,10 +484,36 @@ pub async fn create_and_start_workspace(
         None
     };
 
-    let execution_process = deployment
+    let execution_process = match deployment
         .container()
         .start_workspace(&workspace, executor_config.clone(), workspace_prompt)
-        .await?;
+        .await
+    {
+        Ok(execution_process) => execution_process,
+        Err(error) => {
+            let has_coding_agent_process =
+                ExecutionProcess::find_latest_by_workspace_and_run_reason(
+                    &deployment.db().pool,
+                    workspace.id,
+                    &ExecutionProcessRunReason::CodingAgent,
+                )
+                .await?
+                .is_some();
+
+            let has_running_processes =
+                ExecutionProcess::has_running_non_dev_server_processes_for_workspace(
+                    &deployment.db().pool,
+                    workspace.id,
+                )
+                .await?;
+
+            if !has_coding_agent_process && !has_running_processes {
+                cleanup_workspace_after_failed_create(&deployment, workspace.clone()).await;
+            }
+
+            return Err(ApiError::from(error));
+        }
+    };
 
     deployment
         .track_if_analytics_allowed(
