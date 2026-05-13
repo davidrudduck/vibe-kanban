@@ -14,6 +14,18 @@ vi.mock('@/shared/lib/hmrContext', () => ({
     createContext<T>(defaultValue),
 }));
 
+function setHidden(hidden: boolean) {
+  Object.defineProperty(document, 'visibilityState', {
+    configurable: true,
+    get: () => (hidden ? 'hidden' : 'visible'),
+  });
+  Object.defineProperty(document, 'hidden', {
+    configurable: true,
+    get: () => hidden,
+  });
+  document.dispatchEvent(new Event('visibilitychange'));
+}
+
 // Minimal WebSocket mock that tracks all constructed sockets and their state.
 // With the source-level fix (await Promise.resolve() inside openWebSocket), React
 // StrictMode constructs TWO sockets: mount-1's socket is cancelled after construction,
@@ -60,6 +72,17 @@ afterEach(() => {
   vi.useRealTimers();
   MockWebSocket.instances = [];
   setLocalApiTransport(defaultTransport);
+  // Reset visibility state in case a test left it hidden
+  if (typeof document !== 'undefined' && document.hidden) {
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => 'visible',
+    });
+    Object.defineProperty(document, 'hidden', {
+      configurable: true,
+      get: () => false,
+    });
+  }
 });
 
 describe('useJsonPatchWsStream', () => {
@@ -160,5 +183,59 @@ describe('useJsonPatchWsStream', () => {
     expect(result.current.data?.execution_processes['proc-1'].status).toBe(
       'running'
     );
+  });
+
+  it('closes the WebSocket when document is hidden past the grace period', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    setLocalApiTransport({
+      ...defaultTransport,
+      openWebSocket: async (path) => new MockWebSocket(path) as unknown as WebSocket,
+    });
+
+    renderHook(() =>
+      useJsonPatchWsStream('/api/test-endpoint', true, () => ({}) as object)
+    );
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(MockWebSocket.aliveUrls).toHaveLength(1);
+
+    act(() => {
+      setHidden(true);
+      vi.advanceTimersByTime(30_001);
+    });
+
+    expect(MockWebSocket.aliveUrls).toHaveLength(0);
+  });
+
+  it('reopens the WebSocket when document becomes visible again', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    setLocalApiTransport({
+      ...defaultTransport,
+      openWebSocket: async (path) => new MockWebSocket(path) as unknown as WebSocket,
+    });
+
+    renderHook(() =>
+      useJsonPatchWsStream('/api/test-endpoint', true, () => ({}) as object)
+    );
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
+    act(() => {
+      setHidden(true);
+      vi.advanceTimersByTime(30_001);
+    });
+    expect(MockWebSocket.aliveUrls).toHaveLength(0);
+
+    act(() => {
+      setHidden(false);
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
+    expect(MockWebSocket.aliveUrls).toHaveLength(1);
   });
 });
