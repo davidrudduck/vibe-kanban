@@ -107,7 +107,8 @@
     "loadingDetails": "加载进程详情中...",
     "errorLoadingDetails": "加载进程详情失败。请重试。",
     "copyLogs": "复制日志",
-    "logsCopied": "已复制！"
+    "logsCopied": "已复制！",
+    "copyFailed": "无法将日志复制到剪贴板。"
   },
   "followUp": {
     "queuedMessage": "消息已排队 - 将在当前运行完成时执行"

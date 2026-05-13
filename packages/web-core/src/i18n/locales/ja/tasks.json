@@ -261,7 +261,8 @@
     "selectAttempt": "Select an attempt to view execution processes.",
     "started": "Started: {{date}}",
     "copyLogs": "ログをコピー",
-    "logsCopied": "コピーしました！"
+    "logsCopied": "コピーしました！",
+    "copyFailed": "ログをクリップボードにコピーできませんでした。"
   },
   "rebase": {
     "common": {

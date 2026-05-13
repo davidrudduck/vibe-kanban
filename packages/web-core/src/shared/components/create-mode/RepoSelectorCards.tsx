@@ -65,8 +65,8 @@ export function RepoSelectorCards({ disabled }: RepoSelectorCardsProps) {
     isError,
     error,
   } = useQuery({
-    queryKey: ['repos'],
-    queryFn: () => repoApi.list(),
+    queryKey: ['repos', 'recent'],
+    queryFn: () => repoApi.listRecent(),
   });
 
   const selectedRepoIds = useMemo(
@@ -166,6 +166,7 @@ export function RepoSelectorCards({ disabled }: RepoSelectorCardsProps) {
       if (!selectedPath) return;
       const repo = await repoApi.register({ path: selectedPath });
       queryClient.invalidateQueries({ queryKey: ['repos'] });
+      queryClient.invalidateQueries({ queryKey: ['repos', 'recent'] });
       const branch = await pickBranchForRepo(repo);
       if (!branch) return;
       addRepo(repo);

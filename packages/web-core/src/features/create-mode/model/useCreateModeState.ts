@@ -495,8 +495,8 @@ export function useCreateModeState({
   // ============================================================================
   // Persistence to scratch (debounced)
   // ============================================================================
-  const { debounced: debouncedSave } = useDebouncedCallback(
-    async (data: DraftWorkspaceData) => {
+  const { debounced: debouncedSave, cancel: cancelDebouncedSave } =
+    useDebouncedCallback(async (data: DraftWorkspaceData) => {
       const isEmpty =
         !data.message.trim() &&
         data.repos.length === 0 &&
@@ -512,9 +512,7 @@ export function useCreateModeState({
       } catch (e) {
         console.error('[useCreateModeState] Failed to save:', e);
       }
-    },
-    500
-  );
+    }, 500);
 
   useEffect(() => {
     if (state.phase !== 'ready') return;
@@ -616,12 +614,13 @@ export function useCreateModeState({
 
   const clearDraft = useCallback(async () => {
     try {
+      cancelDebouncedSave();
       await deleteScratch();
       dispatch({ type: 'CLEAR' });
     } catch (e) {
       console.error('[useCreateModeState] Failed to clear:', e);
     }
-  }, [deleteScratch]);
+  }, [cancelDebouncedSave, deleteScratch]);
 
   const clearLinkedIssue = useCallback(() => {
     dispatch({ type: 'CLEAR_LINKED_ISSUE' });

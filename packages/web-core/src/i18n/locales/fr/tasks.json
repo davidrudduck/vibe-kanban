@@ -104,7 +104,8 @@
     "loadingDetails": "Chargement des détails du processus...",
     "errorLoadingDetails": "Échec du chargement des détails du processus. Veuillez réessayer.",
     "copyLogs": "Copier les logs",
-    "logsCopied": "Copié !"
+    "logsCopied": "Copié !",
+    "copyFailed": "Impossible de copier les logs dans le presse-papiers."
   },
   "followUp": {
     "queuedMessage": "Message en file d'attente - s'exécutera lorsque l'exécution actuelle sera terminée"

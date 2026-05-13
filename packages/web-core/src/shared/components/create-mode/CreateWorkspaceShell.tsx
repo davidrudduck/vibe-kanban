@@ -18,10 +18,7 @@ import { useExecutorConfig } from '@/shared/hooks/useExecutorConfig';
 import { saveProjectRepoDefaults } from '@/shared/hooks/useProjectRepoDefaults';
 import { ProjectContext } from '@/shared/hooks/useProjectContext';
 import { getSortedExecutorVariantKeys } from '@/shared/lib/executor';
-import {
-  toPrettyCase,
-  splitMessageToTitleDescription,
-} from '@/shared/lib/string';
+import { toPrettyCase } from '@/shared/lib/string';
 import type { BaseCodingAgent } from 'shared/types';
 import type {
   LinkedIssue,
@@ -33,10 +30,16 @@ import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
 import { ModelSelectorContainer } from '@/shared/components/ModelSelectorContainer';
 import { ModeTabsBar } from './ModeTabsBar';
 import { RepoSelectorCards } from './RepoSelectorCards';
-import { NewTaskRow } from './NewTaskRow';
 import { LinkTaskRow } from './LinkTaskRow';
 import { QuickRunRow } from './QuickRunRow';
 import { OrphanIssueModal, type OrphanIssueState } from './OrphanIssueModal';
+import {
+  canSaveWorkspaceDraft,
+  getCreateWorkspaceModeState,
+  getEffectiveLinkedIssue,
+  getSourceLinkedIssue,
+  getWorkspaceNameForSubmit,
+} from './createWorkspaceShellModel';
 
 // Stable no-op for required callbacks that have no action in the shell layout.
 // eslint-disable-next-line @typescript-eslint/no-empty-function
@@ -44,10 +47,12 @@ const noop = () => {};
 
 interface CreateWorkspaceShellProps {
   onWorkspaceCreated: (workspaceId: string) => void;
+  lockedLinkedIssue?: LinkedIssue | null;
 }
 
 export function CreateWorkspaceShell({
   onWorkspaceCreated,
+  lockedLinkedIssue = null,
 }: CreateWorkspaceShellProps) {
   const { t } = useTranslation('common');
   const { profiles, config } = useUserSystem();
@@ -67,6 +72,10 @@ export function CreateWorkspaceShell({
     attachments: draftAttachments,
     setAttachments: setDraftAttachments,
   } = useCreateMode();
+  const sourceLinkedIssue = getSourceLinkedIssue({
+    lockedLinkedIssue,
+    draftLinkedIssue: linkedIssue,
+  });
 
   const { createWorkspace, createDraftWorkspace } = useCreateWorkspace();
   const isSubmitting = useRef(false);
@@ -98,19 +107,24 @@ export function CreateWorkspaceShell({
 
   // mode is UI state — NOT persisted in CreateModeProvider draft.
   // Initialise from linkedIssue presence (set by kanban "create workspace from issue" flow).
-  const [mode, setMode] = useState<CreateWorkspaceMode>(() =>
-    linkedIssue != null ? 'link_task' : 'new_task'
+  const [mode, setMode] = useState<CreateWorkspaceMode>(
+    () =>
+      getCreateWorkspaceModeState({ linkedIssue: sourceLinkedIssue })
+        .initialMode
   );
+  const lockedToLinkedIssue = getCreateWorkspaceModeState({
+    linkedIssue: lockedLinkedIssue,
+  }).lockedToLinkedIssue;
 
   // manualLinkedIssue: issue the user selects in LinkTaskRow.
   // Separate from the context-level linkedIssue (set by kanban entry point).
   const [manualLinkedIssue, setManualLinkedIssue] =
-    useState<LinkedIssue | null>(() => linkedIssue ?? null);
+    useState<LinkedIssue | null>(() => sourceLinkedIssue ?? null);
 
   // Tracks whether linkedIssue has already been applied to local mode state.
   // Prevents the effect below from stomping a user's mode choice when
   // CreateModeProvider re-emits the same linkedIssue reference.
-  const linkedIssueAppliedRef = useRef(linkedIssue != null);
+  const linkedIssueAppliedRef = useRef(sourceLinkedIssue != null);
 
   // Sync mode only when linkedIssue first becomes non-null after mount
   // (e.g. draft re-seed). Does NOT re-trigger once mode has been seeded
@@ -118,17 +132,18 @@ export function CreateWorkspaceShell({
   // (handleModeChange) when linkedIssue is cleared, not here in the effect,
   // to avoid batching gaps.
   useEffect(() => {
-    if (linkedIssue && !linkedIssueAppliedRef.current) {
+    if (sourceLinkedIssue && !linkedIssueAppliedRef.current) {
       linkedIssueAppliedRef.current = true;
       setMode('link_task');
-      setManualLinkedIssue(linkedIssue);
+      setManualLinkedIssue(sourceLinkedIssue);
     }
-  }, [linkedIssue]);
+  }, [sourceLinkedIssue]);
 
   // ── Mode switching ──────────────────────────────────────────────────────────
 
   const handleModeChange = useCallback(
     (newMode: CreateWorkspaceMode) => {
+      if (lockedToLinkedIssue) return;
       if (createWorkspace.isPending) return;
       // Clear any orphan state when switching modes — the context has changed.
       if (orphanedIssue) setOrphanedIssue(null);
@@ -142,7 +157,13 @@ export function CreateWorkspaceShell({
       }
       setMode(newMode);
     },
-    [createWorkspace.isPending, orphanedIssue, linkedIssue, clearLinkedIssue]
+    [
+      lockedToLinkedIssue,
+      createWorkspace.isPending,
+      orphanedIssue,
+      linkedIssue,
+      clearLinkedIssue,
+    ]
   );
 
   const handleIssueSelect = useCallback((issue: LinkedIssue | null) => {
@@ -154,8 +175,12 @@ export function CreateWorkspaceShell({
 
   // ── Effective linked issue for submission ───────────────────────────────────
 
-  const effectiveLinkedIssue =
-    mode === 'link_task' ? (manualLinkedIssue ?? linkedIssue) : null;
+  const effectiveLinkedIssue = getEffectiveLinkedIssue({
+    lockedToLinkedIssue,
+    mode,
+    sourceLinkedIssue,
+    manualLinkedIssue,
+  });
 
   // ── Attachments ─────────────────────────────────────────────────────────────
 
@@ -352,7 +377,6 @@ export function CreateWorkspaceShell({
     }
 
     try {
-      const { title: autoTitle } = splitMessageToTitleDescription(message);
       const repoInputs = repos.map((r) => ({
         repo_id: r.id,
         target_branch: targetBranches[r.id]!,
@@ -368,7 +392,11 @@ export function CreateWorkspaceShell({
         setIsCreatingIssue(true);
         try {
           const issueTitle =
-            workspaceName.trim() || autoTitle || 'New workspace';
+            getWorkspaceNameForSubmit({
+              workspaceName,
+              message,
+              fallback: 'New workspace',
+            }) ?? 'New workspace';
           const issuesInStatus = projectContext.issues.filter(
             (i) => i.status_id === firstNonHiddenStatusId
           );
@@ -425,10 +453,16 @@ export function CreateWorkspaceShell({
         }
       }
 
+      const workspaceNameForSubmit = getWorkspaceNameForSubmit({
+        workspaceName,
+        linkedIssueTitle: workspaceLinkedIssue?.title,
+        message,
+      });
+
       // ── Workspace creation ─────────────────────────────────────────────────
       const data = {
         executor_config: executorConfig,
-        name: workspaceName.trim() || autoTitle,
+        name: workspaceNameForSubmit,
         prompt: message,
         repos: repoInputs,
         linked_issue: workspaceLinkedIssue
@@ -440,16 +474,9 @@ export function CreateWorkspaceShell({
         attachment_ids: getAttachmentIds(),
       };
 
-      const linkToIssue = workspaceLinkedIssue
-        ? {
-            remoteProjectId: workspaceLinkedIssue.remoteProjectId,
-            issueId: workspaceLinkedIssue.issueId,
-          }
-        : undefined;
-
       let result;
       try {
-        result = await createWorkspace.mutateAsync({ data, linkToIssue });
+        result = await createWorkspace.mutateAsync({ data });
         if (!isMountedRef.current) return;
       } catch (error) {
         console.error('Workspace creation failed:', error);
@@ -519,14 +546,18 @@ export function CreateWorkspaceShell({
     createWorkspace.reset();
 
     try {
-      const { title: autoTitle } = splitMessageToTitleDescription(message);
+      const workspaceNameForSubmit = getWorkspaceNameForSubmit({
+        workspaceName,
+        linkedIssueTitle: orphanedIssue.title,
+        message,
+      });
       const repoInputs = repos.map((r) => ({
         repo_id: r.id,
         target_branch: targetBranches[r.id]!,
       }));
       const data = {
         executor_config: executorConfig,
-        name: workspaceName.trim() || autoTitle,
+        name: workspaceNameForSubmit,
         prompt: message,
         repos: repoInputs,
         linked_issue: {
@@ -535,12 +566,7 @@ export function CreateWorkspaceShell({
         },
         attachment_ids: getAttachmentIds(),
       };
-      const linkToIssue = {
-        remoteProjectId: orphanedIssue.remoteProjectId,
-        issueId: orphanedIssue.id,
-      };
-
-      const result = await createWorkspace.mutateAsync({ data, linkToIssue });
+      const result = await createWorkspace.mutateAsync({ data });
       if (!isMountedRef.current) return;
       if (result.workspace) {
         setOrphanedIssue(null);
@@ -589,8 +615,22 @@ export function CreateWorkspaceShell({
       setHasAttemptedSubmit(true);
       return;
     }
-    const { title: autoTitle } = splitMessageToTitleDescription(message);
-    const name = workspaceName.trim() || autoTitle || null;
+    const name = getWorkspaceNameForSubmit({
+      workspaceName,
+      linkedIssueTitle: effectiveLinkedIssue?.title,
+      message,
+    });
+    if (
+      !canSaveWorkspaceDraft({
+        workspaceName,
+        linkedIssueTitle: effectiveLinkedIssue?.title,
+        message,
+      })
+    ) {
+      setHasAttemptedSubmit(true);
+      setIssueCreateError('Add a title or prompt before saving a draft');
+      return;
+    }
     try {
       const workspace = await createDraftWorkspace.mutateAsync({
         name,
@@ -611,6 +651,7 @@ export function CreateWorkspaceShell({
     hasSelectedBranchesForAllRepos,
     message,
     workspaceName,
+    effectiveLinkedIssue,
     repos,
     targetBranches,
     createDraftWorkspace,
@@ -652,12 +693,13 @@ export function CreateWorkspaceShell({
       )}
       <div className="flex flex-1 flex-col px-base py-base">
         <div className="mx-auto flex w-chat max-w-full flex-col gap-base">
-          {/* Mode tabs */}
-          <ModeTabsBar
-            mode={mode}
-            onChange={handleModeChange}
-            disabled={isBusy}
-          />
+          {!lockedToLinkedIssue && (
+            <ModeTabsBar
+              mode={mode}
+              onChange={handleModeChange}
+              disabled={isBusy}
+            />
+          )}
 
           {/* Repository section */}
           <div className="flex flex-col gap-half">
@@ -668,14 +710,7 @@ export function CreateWorkspaceShell({
           </div>
 
           {/* Mode-specific row */}
-          {mode === 'new_task' && (
-            <NewTaskRow
-              title={workspaceName}
-              onTitleChange={setWorkspaceName}
-              disabled={isBusy}
-            />
-          )}
-          {mode === 'link_task' && (
+          {mode === 'link_task' && !lockedToLinkedIssue && (
             <LinkTaskRow
               selectedIssue={manualLinkedIssue}
               onIssueSelect={handleIssueSelect}
@@ -719,7 +754,18 @@ export function CreateWorkspaceShell({
               agentIcon={
                 <AgentIcon agent={effectiveExecutor} className="size-icon-xl" />
               }
-              title={{ value: workspaceName, onChange: setWorkspaceName }}
+              title={
+                lockedToLinkedIssue
+                  ? undefined
+                  : {
+                      value: workspaceName,
+                      onChange: setWorkspaceName,
+                      placeholder:
+                        mode === 'new_task'
+                          ? 'Task title (optional)'
+                          : 'Workspace title (optional)',
+                    }
+              }
               onSend={handleSubmit}
               isSending={isBusy}
               onSaveDraft={handleSaveDraft}
@@ -753,6 +799,19 @@ export function CreateWorkspaceShell({
               localAttachments={localAttachments}
               repoSummaryLabel={repoSummaryLabel}
               repoSummaryTitle={repoSummaryTitle}
+              linkedIssue={
+                effectiveLinkedIssue?.simpleId
+                  ? {
+                      simpleId: effectiveLinkedIssue.simpleId,
+                      title: effectiveLinkedIssue.title ?? '',
+                      onRemove: () => {
+                        if (!lockedToLinkedIssue) {
+                          handleIssueSelect(null);
+                        }
+                      },
+                    }
+                  : null
+              }
               onEditRepos={noop}
               dropzone={{ getRootProps, getInputProps, isDragActive }}
             />

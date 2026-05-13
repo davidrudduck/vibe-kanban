@@ -509,9 +509,17 @@ export function ProjectRightSidebarContainer() {
 
   if (rightPanelState.kind === 'workspace-create') {
     const linkedIssueId = rightPanelState.issueId;
-    const linkedIssueSimpleId = linkedIssueId
-      ? (getIssue(linkedIssueId)?.simple_id ?? null)
-      : null;
+    const linkedIssue = linkedIssueId ? getIssue(linkedIssueId) : null;
+    const lockedLinkedIssue =
+      linkedIssueId && projectId
+        ? {
+            issueId: linkedIssueId,
+            simpleId: linkedIssue?.simple_id,
+            title: linkedIssue?.title,
+            remoteProjectId: projectId,
+          }
+        : null;
+    const linkedIssueSimpleId = linkedIssue?.simple_id ?? null;
 
     return (
       <WorkspaceCreatePanel
@@ -524,7 +532,10 @@ export function ProjectRightSidebarContainer() {
           key={rightPanelState.draftId}
           draftId={rightPanelState.draftId}
         >
-          <CreateWorkspaceShell onWorkspaceCreated={handleWorkspaceCreated} />
+          <CreateWorkspaceShell
+            onWorkspaceCreated={handleWorkspaceCreated}
+            lockedLinkedIssue={lockedLinkedIssue}
+          />
         </CreateModeProvider>
       </WorkspaceCreatePanel>
     );

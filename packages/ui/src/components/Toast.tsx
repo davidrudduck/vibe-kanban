@@ -142,20 +142,22 @@ function ToastItem({ toast, onDismiss }: ToastItemProps) {
         'border shadow-md text-sm font-medium',
         // Transition — respects prefers-reduced-motion via Tailwind motion-safe:
         'transition-all duration-200 motion-reduce:transition-none',
-        visible
-          ? 'opacity-100 translate-y-0'
-          : 'opacity-0 translate-y-2',
+        visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2',
         // Variants
         toast.variant === 'success' && 'bg-panel border-border text-success',
         toast.variant === 'error' && 'bg-panel border-border text-error',
-        toast.variant === 'default' && 'bg-panel border-border text-high',
+        toast.variant === 'default' && 'bg-panel border-border text-high'
       )}
     >
       {toast.variant === 'success' && (
-        <span aria-hidden className="shrink-0 text-success">✓</span>
+        <span aria-hidden className="shrink-0 text-success">
+          ✓
+        </span>
       )}
       {toast.variant === 'error' && (
-        <span aria-hidden className="shrink-0 text-error">✕</span>
+        <span aria-hidden className="shrink-0 text-error">
+          ✕
+        </span>
       )}
       {toast.message}
     </div>
