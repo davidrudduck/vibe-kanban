@@ -4,6 +4,7 @@ import { useJsonPatchWsStream } from '@/shared/hooks/useJsonPatchWsStream';
 import { workspaceSummaryKeys } from '@/shared/hooks/workspaceSummaryKeys';
 import { makeLocalApiRequest } from '@/shared/lib/localApiTransport';
 import { useHostId } from '@/shared/providers/HostIdProvider';
+import { useWorkspacesArchiveExpanded } from '@/shared/stores/useUiPreferencesStore';
 import type {
   WorkspaceWithStatus,
   WorkspaceSummary,
@@ -133,6 +134,7 @@ async function fetchWorkspaceSummariesByArchived(
 
 export function useWorkspaces(): UseWorkspacesResult {
   const hostId = useHostId();
+  const archiveExpanded = useWorkspacesArchiveExpanded();
 
   // Two separate WebSocket connections: one for active, one for archived
   // No limit param - we fetch all and slice on frontend so backfill works when archiving
@@ -152,6 +154,8 @@ export function useWorkspaces(): UseWorkspacesResult {
     error: activeError,
   } = useJsonPatchWsStream<WorkspacesState>(activeEndpoint, true, initialData);
 
+  // Archived list streams only while the sidebar accordion is expanded —
+  // the data is invisible everywhere else, so it would just burn bandwidth.
   const {
     data: archivedData,
     isConnected: archivedIsConnected,
@@ -159,12 +163,11 @@ export function useWorkspaces(): UseWorkspacesResult {
     error: archivedError,
   } = useJsonPatchWsStream<WorkspacesState>(
     archivedEndpoint,
-    true,
+    archiveExpanded,
     initialData
   );
 
-  // Wait for both streams to be initialized before fetching summaries
-  // Fetch summaries for active workspaces
+  // Fetch summaries for active workspaces (gated on the active stream's snapshot)
   const { data: activeSummaries = new Map<string, WorkspaceSummary>() } =
     useQuery({
       queryKey: workspaceSummaryKeys.byArchived(false, hostId),
@@ -182,7 +185,7 @@ export function useWorkspaces(): UseWorkspacesResult {
     useQuery({
       queryKey: workspaceSummaryKeys.byArchived(true, hostId),
       queryFn: () => fetchWorkspaceSummariesByArchived(true, hostId),
-      enabled: archivedIsInitialized,
+      enabled: archiveExpanded && archivedIsInitialized,
       staleTime: 1000,
       refetchInterval: 15000,
       refetchOnWindowFocus: false,
@@ -222,11 +225,13 @@ export function useWorkspaces(): UseWorkspacesResult {
       .map((ws) => toSidebarWorkspace(ws, archivedSummaries.get(ws.id)));
   }, [archivedData, archivedSummaries]);
 
-  // isLoading is true when we haven't received initial data from either stream
-  const isLoading = !activeIsInitialized || !archivedIsInitialized;
+  // Loading is gated only on the active stream; archived stream may be
+  // intentionally disabled when the user has not expanded the archived section.
+  const isLoading = !activeIsInitialized;
 
   // Combined connection status
-  const isConnected = activeIsConnected && archivedIsConnected;
+  const isConnected =
+    activeIsConnected && (!archiveExpanded || archivedIsConnected);
 
   // Combined error (show first error if any)
   const error = activeError || archivedError;
