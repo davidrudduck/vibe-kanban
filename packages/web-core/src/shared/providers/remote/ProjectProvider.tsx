@@ -1,5 +1,6 @@
 import { useMemo, useCallback, type ReactNode } from 'react';
 import { useShape } from '@/shared/integrations/electric/hooks';
+import { useDeferredMount } from '@/shared/hooks/useDeferredMount';
 import {
   PROJECT_ISSUES_SHAPE,
   PROJECT_PROJECT_STATUSES_SHAPE,
@@ -37,6 +38,10 @@ export function ProjectProvider({ projectId, children }: ProjectProviderProps) {
   const params = useMemo(() => ({ project_id: projectId }), [projectId]);
   const enabled = Boolean(projectId);
 
+  // Non-blocking shapes (only consumed by issue-detail UI). Defer their
+  // initial sync until the browser is idle so the kanban board paints faster.
+  const extendedEnabled = useDeferredMount() && enabled;
+
   // Shape subscriptions (with mutations where needed)
   const issuesResult = useShape(PROJECT_ISSUES_SHAPE, params, {
     enabled,
@@ -55,7 +60,7 @@ export function ProjectProvider({ projectId, children }: ProjectProviderProps) {
     mutation: ISSUE_ASSIGNEE_MUTATION,
   });
   const issueFollowersResult = useShape(PROJECT_ISSUE_FOLLOWERS_SHAPE, params, {
-    enabled,
+    enabled: extendedEnabled,
     mutation: ISSUE_FOLLOWER_MUTATION,
   });
   const issueTagsResult = useShape(PROJECT_ISSUE_TAGS_SHAPE, params, {
@@ -73,10 +78,10 @@ export function ProjectProvider({ projectId, children }: ProjectProviderProps) {
   const pullRequestIssuesResult = useShape(
     PROJECT_PULL_REQUEST_ISSUES_SHAPE,
     params,
-    { enabled, mutation: PULL_REQUEST_ISSUE_MUTATION }
+    { enabled: extendedEnabled, mutation: PULL_REQUEST_ISSUE_MUTATION }
   );
   const workspacesResult = useShape(PROJECT_WORKSPACES_SHAPE, params, {
-    enabled,
+    enabled: extendedEnabled,
   });
 
   // Board readiness depends on core kanban data only.
