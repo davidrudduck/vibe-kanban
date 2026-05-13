@@ -35,6 +35,7 @@ export function useUserSystemController({
     queryFn: load,
     enabled,
     staleTime: 5 * 60 * 1000,
+    retry: 2,
   });
 
   const config = userSystemInfo?.config || null;
