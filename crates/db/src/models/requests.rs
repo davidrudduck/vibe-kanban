@@ -40,6 +40,9 @@ pub struct CreateAndStartWorkspaceRequest {
     pub executor_config: ExecutorConfig,
     pub prompt: String,
     pub attachment_ids: Option<Vec<Uuid>>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub client_workspace_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]

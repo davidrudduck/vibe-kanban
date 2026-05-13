@@ -497,6 +497,7 @@ export function CreateWorkspaceShell({
             }
           : null,
         attachment_ids: getAttachmentIds(),
+        ...(createRequestKey ? { client_workspace_id: createRequestKey } : {}),
       };
 
       let result;
@@ -592,6 +593,10 @@ export function CreateWorkspaceShell({
 
     isSubmitting.current = true;
     let releaseSubmission = true;
+    const repoInputs = repos.map((r) => ({
+      repo_id: r.id,
+      target_branch: targetBranches[r.id]!,
+    }));
     // Clear any stale error from a prior failed retry attempt.
     createWorkspace.reset();
 
@@ -601,10 +606,6 @@ export function CreateWorkspaceShell({
         linkedIssueTitle: orphanedIssue.title,
         message,
       });
-      const repoInputs = repos.map((r) => ({
-        repo_id: r.id,
-        target_branch: targetBranches[r.id]!,
-      }));
       const data = {
         executor_config: executorConfig,
         name: workspaceNameForSubmit,
@@ -615,6 +616,7 @@ export function CreateWorkspaceShell({
           issue_id: orphanedIssue.id,
         },
         attachment_ids: getAttachmentIds(),
+        ...(createRequestKey ? { client_workspace_id: createRequestKey } : {}),
       };
       const result = await createWorkspace.mutateAsync({ data });
       if (!isMountedRef.current) return;

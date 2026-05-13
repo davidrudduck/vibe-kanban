@@ -2,10 +2,11 @@ use std::collections::HashMap;
 
 use axum::{Json, extract::State, response::Json as ResponseJson};
 use db::models::{
+    execution_process::{ExecutionProcess, ExecutionProcessRunReason},
     requests::{
         CreateAndStartWorkspaceRequest, CreateAndStartWorkspaceResponse, CreateWorkspaceApiRequest,
     },
-    workspace::{CreateWorkspace, Workspace},
+    workspace::{CreateWorkspace, Workspace, WorkspaceError},
 };
 use deployment::Deployment;
 use services::services::container::ContainerService;
@@ -26,7 +27,15 @@ pub(crate) async fn create_workspace_record(
     name: Option<String>,
     is_draft: bool,
 ) -> Result<Workspace, ApiError> {
-    let workspace_id = Uuid::new_v4();
+    create_workspace_record_with_id(deployment, name, is_draft, Uuid::new_v4()).await
+}
+
+pub(crate) async fn create_workspace_record_with_id(
+    deployment: &DeploymentImpl,
+    name: Option<String>,
+    is_draft: bool,
+    workspace_id: Uuid,
+) -> Result<Workspace, ApiError> {
     let branch_label = name
         .as_deref()
         .filter(|branch_label| !branch_label.is_empty())
@@ -45,7 +54,15 @@ pub(crate) async fn create_workspace_record(
         },
         workspace_id,
     )
-    .await?;
+    .await
+    .map_err(|error| match error {
+        WorkspaceError::Database(sqlx::Error::Database(db_error))
+            if db_error.is_unique_violation() =>
+        {
+            ApiError::Conflict("Workspace create request is already in progress.".to_string())
+        }
+        other => ApiError::from(other),
+    })?;
 
     Ok(workspace)
 }
@@ -256,6 +273,7 @@ pub async fn create_and_start_workspace(
         executor_config,
         prompt,
         attachment_ids,
+        client_workspace_id,
     } = payload;
 
     let mut workspace_prompt = normalize_prompt(&prompt).ok_or_else(|| {
@@ -270,9 +288,37 @@ pub async fn create_and_start_workspace(
         ));
     }
 
+    if let Some(workspace_id) = client_workspace_id
+        && let Some(existing_workspace) =
+            Workspace::find_by_id(&deployment.db().pool, workspace_id).await?
+    {
+        if let Some(execution_process) = ExecutionProcess::find_latest_by_workspace_and_run_reason(
+            &deployment.db().pool,
+            workspace_id,
+            &ExecutionProcessRunReason::CodingAgent,
+        )
+        .await?
+        {
+            return Ok(ResponseJson(ApiResponse::success(
+                CreateAndStartWorkspaceResponse {
+                    workspace: existing_workspace,
+                    execution_process,
+                    link_warning: None,
+                },
+            )));
+        }
+
+        return Err(ApiError::Conflict(
+            "Workspace create request is already in progress.".to_string(),
+        ));
+    }
+
+    let workspace_id = client_workspace_id.unwrap_or_else(Uuid::new_v4);
     let mut managed_workspace = deployment
         .workspace_manager()
-        .load_managed_workspace(create_workspace_record(&deployment, name, false).await?)
+        .load_managed_workspace(
+            create_workspace_record_with_id(&deployment, name, false, workspace_id).await?,
+        )
         .await?;
     let remote_client = match linked_issue.as_ref() {
         Some(_) => match deployment.remote_client() {
