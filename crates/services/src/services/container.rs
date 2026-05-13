@@ -196,6 +196,9 @@ pub trait ContainerService {
 
     async fn delete(&self, workspace: &Workspace) -> Result<(), ContainerError>;
 
+    async fn cleanup_workspace_worktree(&self, workspace: &Workspace)
+    -> Result<(), ContainerError>;
+
     /// Inject a message into a currently-running executor process.
     /// Returns `Ok(true)` if sent live, `Ok(false)` if no peer exists (caller may queue).
     async fn inject_message(
@@ -486,8 +489,8 @@ pub trait ContainerService {
     }
 
     /// Attempts to run the archive script for a workspace if configured.
-    /// Silently returns Ok if no archive script is configured or if conditions aren't met.
-    async fn try_run_archive_script(&self, workspace_id: Uuid) -> Result<(), ContainerError> {
+    /// Returns false if no archive script is configured or if conditions aren't met.
+    async fn try_run_archive_script(&self, workspace_id: Uuid) -> Result<bool, ContainerError> {
         let pool = &self.db().pool;
         let workspace = Workspace::find_by_id(pool, workspace_id)
             .await?
@@ -496,14 +499,14 @@ pub trait ContainerService {
             .await
             .unwrap_or(true)
         {
-            return Ok(());
+            return Ok(false);
         }
         if self.ensure_container_exists(&workspace).await.is_err() {
-            return Ok(());
+            return Ok(false);
         }
         let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
         let Some(action) = self.archive_actions_for_repos(&repos) else {
-            return Ok(());
+            return Ok(false);
         };
         let session = match Session::find_latest_by_workspace_id(pool, workspace.id).await? {
             Some(s) => s,
@@ -529,14 +532,16 @@ pub trait ContainerService {
         )
         .await?;
 
-        Ok(())
+        Ok(true)
     }
 
-    /// Archive a workspace: set archived flag, stop running dev servers, and run archive script.
+    /// Archive a workspace: set the archived flag, stop running dev servers, run archive script,
+    /// and remove the worktree from disk after the archive script has run.
     async fn archive_workspace(&self, workspace_id: Uuid) -> Result<(), ContainerError> {
         let pool = &self.db().pool;
-
-        Workspace::set_archived(pool, workspace_id, true).await?;
+        let Some(workspace) = Workspace::find_by_id(pool, workspace_id).await? else {
+            return Ok(());
+        };
 
         // Stop running dev servers
         if let Ok(dev_servers) =
@@ -558,12 +563,22 @@ pub trait ContainerService {
         }
 
         // Run archive script (silently skips if not configured)
-        if let Err(e) = self.try_run_archive_script(workspace_id).await {
-            tracing::error!(
-                "Failed to run archive script for workspace {}: {}",
-                workspace_id,
-                e
-            );
+        let archive_script_started = match self.try_run_archive_script(workspace_id).await {
+            Ok(started) => started,
+            Err(e) => {
+                tracing::error!(
+                    "Failed to run archive script for workspace {}: {}",
+                    workspace_id,
+                    e
+                );
+                false
+            }
+        };
+        if archive_script_started {
+            Workspace::set_archived(pool, workspace_id, true).await?;
+        } else {
+            self.cleanup_workspace_worktree(&workspace).await?;
+            Workspace::set_archived(pool, workspace_id, true).await?;
         }
 
         Ok(())

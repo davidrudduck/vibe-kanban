@@ -81,6 +81,7 @@ import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
 import { CreateWorkspaceFromPrDialog } from '@/shared/dialogs/command-bar/CreateWorkspaceFromPrDialog';
 import { buildWorkspaceCreateInitialState } from '@/shared/lib/workspaceCreateState';
 import { setCreateModeSeedState } from '@/features/create-mode/model/createModeSeedStore';
+import { handleDirtyWorkspaceAction } from '@/shared/lib/dirtyWorkspaceActions';
 
 // Configurable feedback URL — set by FeedbackUrlSync component via setFeedbackUrl()
 let _feedbackUrl: string | null = null;
@@ -392,24 +393,22 @@ export const Actions = {
         await workspacesApi.update(workspaceId, { archived: !wasArchived });
       } catch (error) {
         if (!wasArchived && (error as { status?: number }).status === 409) {
-          const result = await ConfirmDialog.show({
-            title: 'Uncommitted Changes Detected',
-            message:
-              'This workspace has uncommitted changes that will remain on disk after archiving. Archive anyway?',
-            confirmText: 'Archive Anyway',
-            variant: 'destructive',
+          const handled = await handleDirtyWorkspaceAction({
+            workspaceId,
+            operation: 'archive',
+            branchName: workspace.branch,
+            queryClient: ctx.queryClient,
+            retry: async (force) => {
+              await workspacesApi.update(workspaceId, {
+                archived: true,
+                force_archive: force,
+              });
+            },
           });
-          if (result === 'confirmed') {
-            await workspacesApi.update(workspaceId, {
-              archived: true,
-              force_archive: true,
-            });
-            // Fall through to invalidate cache and navigate below.
-          } else {
-            return; // User cancelled the force-archive dialog.
-          }
+          if (!handled) return;
+        } else {
+          throw error;
         }
-        throw error; // re-throw other errors
       }
       invalidateWorkspaceQueries(ctx.queryClient, workspaceId);
 
@@ -457,11 +456,29 @@ export const Actions = {
           ? getNextWorkspaceId(ctx.activeWorkspaces, workspaceId)
           : null;
 
-        await workspacesApi.delete(workspaceId, result.deleteBranches);
+        const deleteAfterUnlink = async (force: boolean) => {
+          await workspacesApi.delete(workspaceId, result.deleteBranches, force);
+          if (result.unlinkFromIssue) {
+            await workspacesApi.unlinkFromIssue(workspaceId);
+          }
+        };
 
-        // Unlink from remote issue after successful deletion
-        if (result.unlinkFromIssue) {
-          await workspacesApi.unlinkFromIssue(workspaceId);
+        try {
+          await deleteAfterUnlink(false);
+        } catch (error) {
+          if ((error as { status?: number }).status !== 409) {
+            throw error;
+          }
+
+          const handled = await handleDirtyWorkspaceAction({
+            workspaceId,
+            operation: 'delete',
+            branchName: workspace.branch,
+            issueIdentifier: linkedIssueSimpleId,
+            queryClient: ctx.queryClient,
+            retry: deleteAfterUnlink,
+          });
+          if (!handled) return;
         }
         ctx.queryClient.invalidateQueries({
           queryKey: workspaceSummaryKeys.all,
@@ -1546,6 +1563,29 @@ export const Actions = {
       if (issueIds.length === 1) {
         await ctx.openWorkspaceSelection(projectId, issueIds[0]);
       }
+    },
+  } satisfies IssueActionDefinition,
+
+  ArchiveIssue: {
+    id: 'archive-issue',
+    label: 'Archive / Unarchive Issue',
+    icon: ArchiveIcon,
+    shortcut: 'I H',
+    requiresTarget: ActionTargetType.ISSUE,
+    isVisible: (ctx) =>
+      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanIssue,
+    execute: async (ctx, _projectId, issueIds) => {
+      const shouldUnarchive =
+        issueIds.length > 0 &&
+        issueIds.every(
+          (issueId) => ctx.projectMutations?.getIssue?.(issueId)?.archived
+        );
+      await bulkUpdateIssues(
+        issueIds.map((issueId) => ({
+          id: issueId,
+          changes: { archived: !shouldUnarchive },
+        }))
+      );
     },
   } satisfies IssueActionDefinition,
 

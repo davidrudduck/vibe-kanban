@@ -71,6 +71,8 @@ import {
   QueueStatus,
   PrCommentsResponse,
   MergeWorkspaceRequest,
+  CommitWorkspaceRequest,
+  CommitWorkspaceResponse,
   PushWorkspaceRequest,
   RepoBranchStatus,
   AbortConflictsRequest,
@@ -476,11 +478,15 @@ export const workspacesApi = {
 
   delete: async (
     workspaceId: string,
-    deleteBranches?: boolean
+    deleteBranches?: boolean,
+    forceDelete?: boolean
   ): Promise<void> => {
     const params = new URLSearchParams();
     if (deleteBranches) {
       params.set('delete_branches', 'true');
+    }
+    if (forceDelete) {
+      params.set('force_delete', 'true');
     }
     const queryString = params.toString();
     const url = `/api/workspaces/${workspaceId}${queryString ? `?${queryString}` : ''}`;
@@ -577,6 +583,20 @@ export const workspacesApi = {
       }
     );
     return handleApiResponse<void>(response);
+  },
+
+  commit: async (
+    workspaceId: string,
+    data: CommitWorkspaceRequest
+  ): Promise<CommitWorkspaceResponse> => {
+    const response = await makeRequest(
+      `/api/workspaces/${workspaceId}/git/commit`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<CommitWorkspaceResponse>(response);
   },
 
   push: async (

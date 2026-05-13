@@ -302,6 +302,7 @@ impl McpServer {
             parent_issue_id,
             parent_issue_sort_order: None,
             extension_metadata: serde_json::json!({}),
+            archived: None,
         };
 
         let url = self.url("/api/remote/issues");
@@ -434,6 +435,7 @@ impl McpServer {
                 sort_direction,
                 limit: Some(limit.unwrap_or(50).max(0)),
                 offset: Some(offset.unwrap_or(0).max(0)),
+                archived: Some(false),
             };
             let url = self.url("/api/remote/issues/search");
             match self.send_json(self.client.post(&url).json(&query)).await {
@@ -541,6 +543,7 @@ impl McpServer {
             parent_issue_id,
             parent_issue_sort_order: None,
             extension_metadata: None,
+            archived: None,
         };
 
         let url = self.url(&format!("/api/remote/issues/{}", issue_id));

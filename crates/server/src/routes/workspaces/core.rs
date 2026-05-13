@@ -18,12 +18,92 @@ use workspace_manager::WorkspaceManager;
 
 use crate::{DeploymentImpl, error::ApiError};
 
+fn workspace_repo_dirs(workspace: &Workspace) -> Vec<std::path::PathBuf> {
+    let Some(ref container_ref) = workspace.container_ref else {
+        return Vec::new();
+    };
+    if workspace.worktree_deleted {
+        return Vec::new();
+    }
+
+    let workspace_path = std::path::PathBuf::from(container_ref);
+    if !workspace_path.exists() {
+        return Vec::new();
+    }
+
+    let subdirs: Vec<std::path::PathBuf> = std::fs::read_dir(&workspace_path)
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .map(|e| e.path())
+        .collect();
+
+    if subdirs.is_empty() {
+        vec![workspace_path]
+    } else {
+        subdirs
+    }
+}
+
+fn ensure_workspace_worktrees_clean(
+    deployment: &DeploymentImpl,
+    workspace: &Workspace,
+    force: bool,
+    force_hint: &str,
+) -> Result<(), ApiError> {
+    if force {
+        return Ok(());
+    }
+
+    for dir in workspace_repo_dirs(workspace) {
+        match deployment.git().is_worktree_clean(&dir) {
+            Ok(true) => {}
+            Ok(false) => {
+                return Err(ApiError::Conflict(format!(
+                    "Workspace has uncommitted changes. Pass {force_hint}=true to continue anyway."
+                )));
+            }
+            Err(e) => {
+                tracing::warn!(
+                    workspace_id = %workspace.id,
+                    dir = %dir.display(),
+                    error = ?e,
+                    "Could not determine git dirty status; proceeding"
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[derive(Debug, Deserialize)]
 pub struct DeleteWorkspaceQuery {
     #[serde(default)]
     pub delete_remote: bool,
     #[serde(default)]
     pub delete_branches: bool,
+    #[serde(default)]
+    pub force_delete: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DeleteWorkspaceQuery;
+
+    #[test]
+    fn delete_workspace_query_deserializes_force_delete() {
+        let query: DeleteWorkspaceQuery = serde_json::from_value(serde_json::json!({
+            "delete_branches": true,
+            "force_delete": true
+        }))
+        .unwrap();
+
+        assert!(query.delete_branches);
+        assert!(query.force_delete);
+    }
 }
 
 pub async fn get_workspaces(
@@ -48,60 +128,27 @@ pub async fn update_workspace(
     let pool = &deployment.db().pool;
     let is_archiving = request.archived == Some(true) && !workspace.archived;
 
-    // Guard: refuse to archive if the worktree has uncommitted changes,
-    // unless the client explicitly passes force_archive = true.
-    if is_archiving && !request.force_archive {
-        if let Some(ref container_ref) = workspace.container_ref {
-            if !workspace.worktree_deleted {
-                let workspace_path = std::path::PathBuf::from(container_ref);
-                if workspace_path.exists() {
-                    // container_ref is the PARENT directory; each subdir is a repo.
-                    let subdirs: Vec<std::path::PathBuf> = std::fs::read_dir(&workspace_path)
-                        .ok()
-                        .into_iter()
-                        .flatten()
-                        .flatten()
-                        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
-                        .map(|e| e.path())
-                        .collect();
-
-                    let dirs_to_check = if subdirs.is_empty() {
-                        vec![workspace_path.clone()]
-                    } else {
-                        subdirs
-                    };
-
-                    for dir in &dirs_to_check {
-                        match deployment.git().is_worktree_clean(dir) {
-                            Ok(true) => {}
-                            Ok(false) => {
-                                return Err(ApiError::Conflict(
-                                    "Workspace has uncommitted changes. \
-                                     Pass force_archive=true to archive anyway."
-                                        .to_string(),
-                                ));
-                            }
-                            Err(e) => {
-                                // Cannot determine status (e.g. not a git repo).
-                                // Warn but do not block the archive.
-                                tracing::warn!(
-                                    workspace_id = %workspace.id,
-                                    dir = %dir.display(),
-                                    error = ?e,
-                                    "Could not determine git dirty status; proceeding with archive"
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    if is_archiving {
+        ensure_workspace_worktrees_clean(
+            &deployment,
+            &workspace,
+            request.force_archive,
+            "force_archive",
+        )?;
     }
+
+    let pre_archive_stats = if is_archiving && request.archived.is_some() {
+        Some(diff_stream::compute_diff_stats(pool, deployment.git(), &workspace).await)
+    } else {
+        None
+    };
+
+    let archived_update = if is_archiving { None } else { request.archived };
 
     Workspace::update(
         pool,
         workspace.id,
-        request.archived,
+        archived_update,
         request.pinned,
         request.name.as_deref(),
     )
@@ -110,14 +157,31 @@ pub async fn update_workspace(
         .await?
         .ok_or(WorkspaceError::WorkspaceNotFound)?;
 
+    if is_archiving {
+        deployment
+            .container()
+            .archive_workspace(workspace.id)
+            .await?;
+    }
+
+    let response = if is_archiving {
+        Workspace::find_by_id(pool, workspace.id)
+            .await?
+            .ok_or(WorkspaceError::WorkspaceNotFound)?
+    } else {
+        updated
+    };
+
     if (request.archived.is_some() || request.name.is_some())
         && let Ok(client) = deployment.remote_client()
     {
-        let ws = updated.clone();
+        let ws = response.clone();
         let name = request.name.clone();
         let archived = request.archived;
-        let stats =
-            diff_stream::compute_diff_stats(&deployment.db().pool, deployment.git(), &ws).await;
+        let stats = match pre_archive_stats {
+            Some(stats) => stats,
+            None => diff_stream::compute_diff_stats(pool, deployment.git(), &ws).await,
+        };
         tokio::spawn(async move {
             remote_sync::sync_workspace_to_remote(
                 &client,
@@ -130,11 +194,7 @@ pub async fn update_workspace(
         });
     }
 
-    if is_archiving && let Err(e) = deployment.container().archive_workspace(workspace.id).await {
-        tracing::error!("Failed to archive workspace {}: {}", workspace.id, e);
-    }
-
-    Ok(ResponseJson(ApiResponse::success(updated)))
+    Ok(ResponseJson(ApiResponse::success(response)))
 }
 
 pub async fn get_first_user_message(
@@ -163,6 +223,8 @@ pub async fn delete_workspace(
                 .to_string(),
         ));
     }
+
+    ensure_workspace_worktrees_clean(&deployment, &workspace, query.force_delete, "force_delete")?;
 
     let dev_servers =
         ExecutionProcess::find_running_dev_servers_by_workspace(pool, workspace_id).await?;

@@ -772,9 +772,15 @@ impl RemoteClient {
     pub async fn list_issues(
         &self,
         project_id: Uuid,
+        archived: Option<bool>,
     ) -> Result<ListIssuesResponse, RemoteClientError> {
-        self.get_authed(&format!("/v1/issues?project_id={project_id}"))
-            .await
+        let archived_query = archived
+            .map(|value| format!("&archived={value}"))
+            .unwrap_or_default();
+        self.get_authed(&format!(
+            "/v1/issues?project_id={project_id}{archived_query}"
+        ))
+        .await
     }
 
     /// Searches issues for a project using the canonical JSON request shape.

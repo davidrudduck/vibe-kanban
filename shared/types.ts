@@ -451,6 +451,10 @@ export type MergeWorkspaceRequest = { repo_id: string,
  */
 strategy: MergeStrategy | null, };
 
+export type CommitWorkspaceRequest = { message: string, };
+
+export type CommitWorkspaceResponse = { committed_repo_ids: Array<string>, };
+
 export type PushWorkspaceRequest = { repo_id: string, };
 
 export type RenameBranchRequest = { new_branch_name: string, };
