@@ -185,7 +185,7 @@ pub async fn commit_workspace_changes(
     State(deployment): State<DeploymentImpl>,
     Json(request): Json<CommitWorkspaceRequest>,
 ) -> Result<ResponseJson<ApiResponse<CommitWorkspaceResponse>>, ApiError> {
-    let message = request.message.trim();
+    let message = request.message.trim().to_string();
     if message.is_empty() {
         return Err(ApiError::BadRequest(
             "Commit message cannot be empty".to_string(),
@@ -208,7 +208,17 @@ pub async fn commit_workspace_changes(
             continue;
         }
 
-        if deployment.git().commit(&worktree_path, message)? {
+        let git = deployment.git().clone();
+        let message = message.clone();
+        let committed = tokio::task::spawn_blocking(move || git.commit(&worktree_path, &message))
+            .await
+            .map_err(|error| {
+                ApiError::Io(std::io::Error::other(format!(
+                    "commit task failed: {error}"
+                )))
+            })??;
+
+        if committed {
             committed_repo_ids.push(repo.id);
         }
     }

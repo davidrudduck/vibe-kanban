@@ -1570,7 +1570,7 @@ export const Actions = {
     id: 'archive-issue',
     label: 'Archive / Unarchive Issue',
     icon: ArchiveIcon,
-    shortcut: 'I A',
+    shortcut: 'I H',
     requiresTarget: ActionTargetType.ISSUE,
     isVisible: (ctx) =>
       ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanIssue,

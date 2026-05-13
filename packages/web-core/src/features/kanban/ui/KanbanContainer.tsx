@@ -277,6 +277,9 @@ export function KanbanContainer() {
     () => issues.filter((issue) => issue.archived).length,
     [issues]
   );
+  const archiveToggleLabel = showArchivedIssues
+    ? t('kanban.hideArchivedIssues', 'Hide archived issues')
+    : t('kanban.showArchivedIssues', 'Show archived issues');
   const shouldAnimateCreateButton = visibleIssues.length === 0;
 
   // Compute resolved status IDs for the blocked filter.
@@ -1016,11 +1019,8 @@ export function KanbanContainer() {
                   : 'border-border text-low hover:text-normal hover:bg-secondary'
               )}
               aria-pressed={showArchivedIssues}
-              title={
-                showArchivedIssues
-                  ? 'Hide archived issues'
-                  : 'Show archived issues'
-              }
+              aria-label={`${archiveToggleLabel} (${archivedIssueCount})`}
+              title={archiveToggleLabel}
             >
               <ArchiveIcon className="size-icon-xs" weight="bold" />
               <span>{archivedIssueCount}</span>
