@@ -189,7 +189,8 @@ describe('useJsonPatchWsStream', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     setLocalApiTransport({
       ...defaultTransport,
-      openWebSocket: async (path) => new MockWebSocket(path) as unknown as WebSocket,
+      openWebSocket: async (path) =>
+        new MockWebSocket(path) as unknown as WebSocket,
     });
 
     renderHook(() =>
@@ -213,7 +214,8 @@ describe('useJsonPatchWsStream', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     setLocalApiTransport({
       ...defaultTransport,
-      openWebSocket: async (path) => new MockWebSocket(path) as unknown as WebSocket,
+      openWebSocket: async (path) =>
+        new MockWebSocket(path) as unknown as WebSocket,
     });
 
     renderHook(() =>

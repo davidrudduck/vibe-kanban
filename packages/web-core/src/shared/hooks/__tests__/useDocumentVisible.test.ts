@@ -32,11 +32,15 @@ describe('useDocumentVisible', () => {
     const { result } = renderHook(() => useDocumentVisible(30_000));
 
     act(() => setHidden(true));
-    act(() => { vi.advanceTimersByTime(15_000); });
+    act(() => {
+      vi.advanceTimersByTime(15_000);
+    });
     expect(result.current).toBe(true);
 
     act(() => setHidden(false));
-    act(() => { vi.advanceTimersByTime(30_000); });
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
     expect(result.current).toBe(true);
   });
 
@@ -46,7 +50,9 @@ describe('useDocumentVisible', () => {
     const { result } = renderHook(() => useDocumentVisible(30_000));
 
     act(() => setHidden(true));
-    act(() => { vi.advanceTimersByTime(30_001); });
+    act(() => {
+      vi.advanceTimersByTime(30_001);
+    });
     expect(result.current).toBe(false);
   });
 
@@ -56,7 +62,9 @@ describe('useDocumentVisible', () => {
     const { result } = renderHook(() => useDocumentVisible(30_000));
 
     act(() => setHidden(true));
-    act(() => { vi.advanceTimersByTime(30_001); });
+    act(() => {
+      vi.advanceTimersByTime(30_001);
+    });
     expect(result.current).toBe(false);
 
     act(() => setHidden(false));
