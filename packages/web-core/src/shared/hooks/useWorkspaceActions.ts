@@ -87,7 +87,7 @@ export function useWorkspaceActions({
           const result = await ConfirmDialog.show({
             title: 'Uncommitted Changes Detected',
             message:
-              'This workspace has uncommitted changes that will remain on disk after archiving. Archive anyway?',
+              'This workspace has uncommitted changes. Archiving will remove its worktree from disk. Archive anyway?',
             confirmText: 'Archive Anyway',
             variant: 'destructive',
           });
@@ -157,7 +157,29 @@ export function useWorkspaceActions({
         if (result.unlinkFromIssue) {
           await workspacesApi.unlinkFromIssue(localWorkspaceId);
         }
-        await workspacesApi.delete(localWorkspaceId, result.deleteBranches);
+        try {
+          await workspacesApi.delete(localWorkspaceId, result.deleteBranches);
+        } catch (error) {
+          if ((error as { status?: number }).status !== 409) {
+            throw error;
+          }
+
+          const forceResult = await ConfirmDialog.show({
+            title: 'Uncommitted Changes Detected',
+            message:
+              'This workspace has uncommitted changes. Deleting will remove its worktree from disk. Delete anyway?',
+            confirmText: 'Delete Anyway',
+            variant: 'destructive',
+          });
+          if (forceResult !== 'confirmed') {
+            return;
+          }
+          await workspacesApi.delete(
+            localWorkspaceId,
+            result.deleteBranches,
+            true
+          );
+        }
       } catch (error) {
         ConfirmDialog.show({
           title: t('common:error'),

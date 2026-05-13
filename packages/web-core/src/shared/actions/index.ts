@@ -395,7 +395,7 @@ export const Actions = {
           const result = await ConfirmDialog.show({
             title: 'Uncommitted Changes Detected',
             message:
-              'This workspace has uncommitted changes that will remain on disk after archiving. Archive anyway?',
+              'This workspace has uncommitted changes. Archiving will remove its worktree from disk. Archive anyway?',
             confirmText: 'Archive Anyway',
             variant: 'destructive',
           });
@@ -457,7 +457,26 @@ export const Actions = {
           ? getNextWorkspaceId(ctx.activeWorkspaces, workspaceId)
           : null;
 
-        await workspacesApi.delete(workspaceId, result.deleteBranches);
+        try {
+          await workspacesApi.delete(workspaceId, result.deleteBranches);
+        } catch (error) {
+          if ((error as { status?: number }).status !== 409) {
+            throw error;
+          }
+
+          const forceResult = await ConfirmDialog.show({
+            title: 'Uncommitted Changes Detected',
+            message:
+              'This workspace has uncommitted changes. Deleting will remove its worktree from disk. Delete anyway?',
+            confirmText: 'Delete Anyway',
+            variant: 'destructive',
+          });
+          if (forceResult !== 'confirmed') {
+            return;
+          }
+
+          await workspacesApi.delete(workspaceId, result.deleteBranches, true);
+        }
 
         // Unlink from remote issue after successful deletion
         if (result.unlinkFromIssue) {
@@ -1546,6 +1565,29 @@ export const Actions = {
       if (issueIds.length === 1) {
         await ctx.openWorkspaceSelection(projectId, issueIds[0]);
       }
+    },
+  } satisfies IssueActionDefinition,
+
+  ArchiveIssue: {
+    id: 'archive-issue',
+    label: 'Archive / Unarchive Issue',
+    icon: ArchiveIcon,
+    shortcut: 'I A',
+    requiresTarget: ActionTargetType.ISSUE,
+    isVisible: (ctx) =>
+      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanIssue,
+    execute: async (ctx, _projectId, issueIds) => {
+      const shouldUnarchive =
+        issueIds.length > 0 &&
+        issueIds.every(
+          (issueId) => ctx.projectMutations?.getIssue?.(issueId)?.archived
+        );
+      await bulkUpdateIssues(
+        issueIds.map((issueId) => ({
+          id: issueId,
+          changes: { archived: !shouldUnarchive },
+        }))
+      );
     },
   } satisfies IssueActionDefinition,
 

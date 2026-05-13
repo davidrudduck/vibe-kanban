@@ -28,7 +28,7 @@ async fn list_issues(
     Query(query): Query<ListIssuesQuery>,
 ) -> Result<ResponseJson<ApiResponse<ListIssuesResponse>>, ApiError> {
     let client = deployment.remote_client()?;
-    let response = client.list_issues(query.project_id).await?;
+    let response = client.list_issues(query.project_id, query.archived).await?;
     Ok(ResponseJson(ApiResponse::success(response)))
 }
 

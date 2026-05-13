@@ -35,6 +35,7 @@ pub struct Issue {
     pub parent_issue_sort_order: Option<f64>,
     pub extension_metadata: Value,
     pub creator_user_id: Option<Uuid>,
+    pub archived: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -74,6 +75,9 @@ pub struct CreateIssueRequest {
     pub parent_issue_id: Option<Uuid>,
     pub parent_issue_sort_order: Option<f64>,
     pub extension_metadata: Value,
+    #[ts(optional)]
+    #[serde(default)]
+    pub archived: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -144,11 +148,20 @@ pub struct UpdateIssueRequest {
         skip_serializing_if = "Option::is_none"
     )]
     pub extension_metadata: Option<Value>,
+    #[serde(
+        default,
+        deserialize_with = "some_if_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub archived: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct ListIssuesQuery {
     pub project_id: Uuid,
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archived: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -193,6 +206,9 @@ pub struct SearchIssuesRequest {
     #[ts(optional)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<i32>,
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archived: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -201,4 +217,26 @@ pub struct ListIssuesResponse {
     pub total_count: usize,
     pub limit: usize,
     pub offset: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SearchIssuesRequest, UpdateIssueRequest};
+
+    #[test]
+    fn update_issue_request_deserializes_archived_toggle() {
+        let request: UpdateIssueRequest = serde_json::from_str(r#"{"archived":true}"#).unwrap();
+
+        assert_eq!(request.archived, Some(true));
+    }
+
+    #[test]
+    fn search_issues_request_deserializes_archived_filter() {
+        let request: SearchIssuesRequest = serde_json::from_str(
+            r#"{"project_id":"00000000-0000-0000-0000-000000000001","archived":false}"#,
+        )
+        .unwrap();
+
+        assert_eq!(request.archived, Some(false));
+    }
 }

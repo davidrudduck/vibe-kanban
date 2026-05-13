@@ -82,7 +82,7 @@ impl IssueRepository {
             .map(|value| value.max(0) as i64)
             .unwrap_or(i64::MAX);
 
-        let total_count = sqlx::query_scalar!(
+        let total_count = sqlx::query_scalar::<_, i64>(
             r#"
             SELECT COUNT(*)::BIGINT
             FROM issues i
@@ -121,44 +121,45 @@ impl IssueRepository {
                       WHERE it.issue_id = i.id AND it.tag_id = ANY($10)
                   )
               )
+              AND ($11::boolean IS NULL OR i.archived = $11)
             "#,
-            query.project_id,
-            query.status_id,
-            status_ids,
-            query.priority as Option<IssuePriority>,
-            query.parent_issue_id,
-            search_pattern.as_deref(),
-            simple_id.as_deref(),
-            query.assignee_user_id,
-            query.tag_id,
-            tag_ids,
         )
+        .bind(query.project_id)
+        .bind(query.status_id)
+        .bind(status_ids)
+        .bind(query.priority)
+        .bind(query.parent_issue_id)
+        .bind(search_pattern.as_deref())
+        .bind(simple_id.as_deref())
+        .bind(query.assignee_user_id)
+        .bind(query.tag_id)
+        .bind(tag_ids)
+        .bind(query.archived)
         .fetch_one(pool)
-        .await?
-        .unwrap_or(0) as usize;
+        .await? as usize;
 
-        let issues = sqlx::query_as!(
-            Issue,
+        let issues = sqlx::query_as::<_, Issue>(
             r#"
             SELECT
-                i.id                  AS "id!: Uuid",
-                i.project_id          AS "project_id!: Uuid",
-                i.issue_number        AS "issue_number!",
-                i.simple_id           AS "simple_id!",
-                i.status_id           AS "status_id!: Uuid",
-                i.title               AS "title!",
-                i.description         AS "description?",
-                i.priority            AS "priority: IssuePriority",
-                i.start_date          AS "start_date?: DateTime<Utc>",
-                i.target_date         AS "target_date?: DateTime<Utc>",
-                i.completed_at        AS "completed_at?: DateTime<Utc>",
-                i.sort_order          AS "sort_order!",
-                i.parent_issue_id     AS "parent_issue_id?: Uuid",
-                i.parent_issue_sort_order AS "parent_issue_sort_order?",
-                i.extension_metadata  AS "extension_metadata!: Value",
-                i.creator_user_id     AS "creator_user_id?: Uuid",
-                i.created_at          AS "created_at!: DateTime<Utc>",
-                i.updated_at          AS "updated_at!: DateTime<Utc>"
+                i.id,
+                i.project_id,
+                i.issue_number,
+                i.simple_id,
+                i.status_id,
+                i.title,
+                i.description,
+                i.priority,
+                i.start_date,
+                i.target_date,
+                i.completed_at,
+                i.sort_order,
+                i.parent_issue_id,
+                i.parent_issue_sort_order,
+                i.extension_metadata,
+                i.creator_user_id,
+                i.archived,
+                i.created_at,
+                i.updated_at
             FROM issues i
             LEFT JOIN project_statuses ps ON ps.id = i.status_id
             WHERE i.project_id = $1
@@ -196,62 +197,64 @@ impl IssueRepository {
                       WHERE it.issue_id = i.id AND it.tag_id = ANY($10)
                   )
               )
+              AND ($11::boolean IS NULL OR i.archived = $11)
             ORDER BY
                 CASE
-                    WHEN $11 = 'sort_order' AND $12 = 'asc' THEN ps.sort_order
+                    WHEN $12 = 'sort_order' AND $13 = 'asc' THEN ps.sort_order
                 END ASC NULLS LAST,
                 CASE
-                    WHEN $11 = 'sort_order' AND $12 = 'desc' THEN ps.sort_order
+                    WHEN $12 = 'sort_order' AND $13 = 'desc' THEN ps.sort_order
                 END DESC NULLS LAST,
                 CASE
-                    WHEN $11 = 'sort_order' AND $12 = 'asc' THEN i.sort_order
+                    WHEN $12 = 'sort_order' AND $13 = 'asc' THEN i.sort_order
                 END ASC NULLS LAST,
                 CASE
-                    WHEN $11 = 'sort_order' AND $12 = 'desc' THEN i.sort_order
+                    WHEN $12 = 'sort_order' AND $13 = 'desc' THEN i.sort_order
                 END DESC NULLS LAST,
                 CASE
-                    WHEN $11 = 'priority' AND $12 = 'asc' THEN i.priority
+                    WHEN $12 = 'priority' AND $13 = 'asc' THEN i.priority
                 END ASC NULLS LAST,
                 CASE
-                    WHEN $11 = 'priority' AND $12 = 'desc' THEN i.priority
+                    WHEN $12 = 'priority' AND $13 = 'desc' THEN i.priority
                 END DESC NULLS FIRST,
                 CASE
-                    WHEN $11 = 'created_at' AND $12 = 'asc' THEN i.created_at
+                    WHEN $12 = 'created_at' AND $13 = 'asc' THEN i.created_at
                 END ASC NULLS LAST,
                 CASE
-                    WHEN $11 = 'created_at' AND $12 = 'desc' THEN i.created_at
+                    WHEN $12 = 'created_at' AND $13 = 'desc' THEN i.created_at
                 END DESC NULLS LAST,
                 CASE
-                    WHEN $11 = 'updated_at' AND $12 = 'asc' THEN i.updated_at
+                    WHEN $12 = 'updated_at' AND $13 = 'asc' THEN i.updated_at
                 END ASC NULLS LAST,
                 CASE
-                    WHEN $11 = 'updated_at' AND $12 = 'desc' THEN i.updated_at
+                    WHEN $12 = 'updated_at' AND $13 = 'desc' THEN i.updated_at
                 END DESC NULLS LAST,
                 CASE
-                    WHEN $11 = 'title' AND $12 = 'asc' THEN i.title
+                    WHEN $12 = 'title' AND $13 = 'asc' THEN i.title
                 END ASC NULLS LAST,
                 CASE
-                    WHEN $11 = 'title' AND $12 = 'desc' THEN i.title
+                    WHEN $12 = 'title' AND $13 = 'desc' THEN i.title
                 END DESC NULLS LAST,
                 i.issue_number ASC
-            LIMIT $13
-            OFFSET $14
+            LIMIT $14
+            OFFSET $15
             "#,
-            query.project_id,
-            query.status_id,
-            status_ids,
-            query.priority as Option<IssuePriority>,
-            query.parent_issue_id,
-            search_pattern.as_deref(),
-            simple_id.as_deref(),
-            query.assignee_user_id,
-            query.tag_id,
-            tag_ids,
-            sort_field,
-            sort_direction,
-            query_limit,
-            offset as i64,
         )
+        .bind(query.project_id)
+        .bind(query.status_id)
+        .bind(status_ids)
+        .bind(query.priority)
+        .bind(query.parent_issue_id)
+        .bind(search_pattern.as_deref())
+        .bind(simple_id.as_deref())
+        .bind(query.assignee_user_id)
+        .bind(query.tag_id)
+        .bind(tag_ids)
+        .bind(query.archived)
+        .bind(sort_field)
+        .bind(sort_direction)
+        .bind(query_limit)
+        .bind(offset as i64)
         .fetch_all(pool)
         .await?;
 
@@ -269,33 +272,33 @@ impl IssueRepository {
     where
         E: Executor<'e, Database = Postgres>,
     {
-        let record = sqlx::query_as!(
-            Issue,
+        let record = sqlx::query_as::<_, Issue>(
             r#"
             SELECT
-                id                  AS "id!: Uuid",
-                project_id          AS "project_id!: Uuid",
-                issue_number        AS "issue_number!",
-                simple_id           AS "simple_id!",
-                status_id           AS "status_id!: Uuid",
-                title               AS "title!",
-                description         AS "description?",
-                priority            AS "priority: IssuePriority",
-                start_date          AS "start_date?: DateTime<Utc>",
-                target_date         AS "target_date?: DateTime<Utc>",
-                completed_at        AS "completed_at?: DateTime<Utc>",
-                sort_order          AS "sort_order!",
-                parent_issue_id     AS "parent_issue_id?: Uuid",
-                parent_issue_sort_order AS "parent_issue_sort_order?",
-                extension_metadata  AS "extension_metadata!: Value",
-                creator_user_id     AS "creator_user_id?: Uuid",
-                created_at          AS "created_at!: DateTime<Utc>",
-                updated_at          AS "updated_at!: DateTime<Utc>"
+                id,
+                project_id,
+                issue_number,
+                simple_id,
+                status_id,
+                title,
+                description,
+                priority,
+                start_date,
+                target_date,
+                completed_at,
+                sort_order,
+                parent_issue_id,
+                parent_issue_sort_order,
+                extension_metadata,
+                creator_user_id,
+                archived,
+                created_at,
+                updated_at
             FROM issues
             WHERE id = $1
             "#,
-            id
         )
+        .bind(id)
         .fetch_optional(executor)
         .await?;
 
@@ -337,57 +340,59 @@ impl IssueRepository {
         parent_issue_id: Option<Uuid>,
         parent_issue_sort_order: Option<f64>,
         extension_metadata: Value,
+        archived: bool,
         creator_user_id: Uuid,
     ) -> Result<MutationResponse<Issue>, IssueError> {
         let mut tx = super::begin_tx(pool).await?;
 
         let id = id.unwrap_or_else(Uuid::new_v4);
         // Note: issue_number and simple_id are auto-generated by the DB trigger
-        let data = sqlx::query_as!(
-            Issue,
+        let data = sqlx::query_as::<_, Issue>(
             r#"
             INSERT INTO issues (
                 id, project_id, status_id, title, description, priority,
                 start_date, target_date, completed_at, sort_order,
                 parent_issue_id, parent_issue_sort_order, extension_metadata,
-                creator_user_id
+                archived, creator_user_id
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             RETURNING
-                id                  AS "id!: Uuid",
-                project_id          AS "project_id!: Uuid",
-                issue_number        AS "issue_number!",
-                simple_id           AS "simple_id!",
-                status_id           AS "status_id!: Uuid",
-                title               AS "title!",
-                description         AS "description?",
-                priority            AS "priority: IssuePriority",
-                start_date          AS "start_date?: DateTime<Utc>",
-                target_date         AS "target_date?: DateTime<Utc>",
-                completed_at        AS "completed_at?: DateTime<Utc>",
-                sort_order          AS "sort_order!",
-                parent_issue_id     AS "parent_issue_id?: Uuid",
-                parent_issue_sort_order AS "parent_issue_sort_order?",
-                extension_metadata  AS "extension_metadata!: Value",
-                creator_user_id     AS "creator_user_id?: Uuid",
-                created_at          AS "created_at!: DateTime<Utc>",
-                updated_at          AS "updated_at!: DateTime<Utc>"
+                id,
+                project_id,
+                issue_number,
+                simple_id,
+                status_id,
+                title,
+                description,
+                priority,
+                start_date,
+                target_date,
+                completed_at,
+                sort_order,
+                parent_issue_id,
+                parent_issue_sort_order,
+                extension_metadata,
+                creator_user_id,
+                archived,
+                created_at,
+                updated_at
             "#,
-            id,
-            project_id,
-            status_id,
-            title,
-            description,
-            priority as Option<IssuePriority>,
-            start_date,
-            target_date,
-            completed_at,
-            sort_order,
-            parent_issue_id,
-            parent_issue_sort_order,
-            extension_metadata,
-            creator_user_id
         )
+        .bind(id)
+        .bind(project_id)
+        .bind(status_id)
+        .bind(title)
+        .bind(description)
+        .bind(priority)
+        .bind(start_date)
+        .bind(target_date)
+        .bind(completed_at)
+        .bind(sort_order)
+        .bind(parent_issue_id)
+        .bind(parent_issue_sort_order)
+        .bind(extension_metadata)
+        .bind(archived)
+        .bind(creator_user_id)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -419,6 +424,7 @@ impl IssueRepository {
         parent_issue_id: Option<Option<Uuid>>,
         parent_issue_sort_order: Option<Option<f64>>,
         extension_metadata: Option<Value>,
+        archived: Option<bool>,
     ) -> Result<Issue, IssueError>
     where
         E: Executor<'e, Database = Postgres>,
@@ -440,8 +446,7 @@ impl IssueRepository {
         let update_parent_issue_sort_order = parent_issue_sort_order.is_some();
         let parent_issue_sort_order_value = parent_issue_sort_order.flatten();
 
-        let data = sqlx::query_as!(
-            Issue,
+        let data = sqlx::query_as::<_, Issue>(
             r#"
             UPDATE issues
             SET
@@ -456,48 +461,51 @@ impl IssueRepository {
                 parent_issue_id = CASE WHEN $14 THEN $15 ELSE parent_issue_id END,
                 parent_issue_sort_order = CASE WHEN $16 THEN $17 ELSE parent_issue_sort_order END,
                 extension_metadata = COALESCE($18, extension_metadata),
+                archived = COALESCE($19, archived),
                 updated_at = NOW()
-            WHERE id = $19
+            WHERE id = $20
             RETURNING
-                id                  AS "id!: Uuid",
-                project_id          AS "project_id!: Uuid",
-                issue_number        AS "issue_number!",
-                simple_id           AS "simple_id!",
-                status_id           AS "status_id!: Uuid",
-                title               AS "title!",
-                description         AS "description?",
-                priority            AS "priority: IssuePriority",
-                start_date          AS "start_date?: DateTime<Utc>",
-                target_date         AS "target_date?: DateTime<Utc>",
-                completed_at        AS "completed_at?: DateTime<Utc>",
-                sort_order          AS "sort_order!",
-                parent_issue_id     AS "parent_issue_id?: Uuid",
-                parent_issue_sort_order AS "parent_issue_sort_order?",
-                extension_metadata  AS "extension_metadata!: Value",
-                creator_user_id     AS "creator_user_id?: Uuid",
-                created_at          AS "created_at!: DateTime<Utc>",
-                updated_at          AS "updated_at!: DateTime<Utc>"
+                id,
+                project_id,
+                issue_number,
+                simple_id,
+                status_id,
+                title,
+                description,
+                priority,
+                start_date,
+                target_date,
+                completed_at,
+                sort_order,
+                parent_issue_id,
+                parent_issue_sort_order,
+                extension_metadata,
+                creator_user_id,
+                archived,
+                created_at,
+                updated_at
             "#,
-            status_id,
-            title,
-            update_description,
-            description_value,
-            update_priority,
-            priority_value as Option<IssuePriority>,
-            update_start_date,
-            start_date_value,
-            update_target_date,
-            target_date_value,
-            update_completed_at,
-            completed_at_value,
-            sort_order,
-            update_parent_issue_id,
-            parent_issue_id_value,
-            update_parent_issue_sort_order,
-            parent_issue_sort_order_value,
-            extension_metadata,
-            id
         )
+        .bind(status_id)
+        .bind(title)
+        .bind(update_description)
+        .bind(description_value)
+        .bind(update_priority)
+        .bind(priority_value)
+        .bind(update_start_date)
+        .bind(start_date_value)
+        .bind(update_target_date)
+        .bind(target_date_value)
+        .bind(update_completed_at)
+        .bind(completed_at_value)
+        .bind(sort_order)
+        .bind(update_parent_issue_id)
+        .bind(parent_issue_id_value)
+        .bind(update_parent_issue_sort_order)
+        .bind(parent_issue_sort_order_value)
+        .bind(extension_metadata)
+        .bind(archived)
+        .bind(id)
         .fetch_one(executor)
         .await?;
 
@@ -567,6 +575,7 @@ impl IssueRepository {
             None,
             None,
             None,
+            None,
         )
         .await?;
 
@@ -617,6 +626,7 @@ impl IssueRepository {
                 &mut *conn,
                 issue_id,
                 Some(target_status_id),
+                None,
                 None,
                 None,
                 None,

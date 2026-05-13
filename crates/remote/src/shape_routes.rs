@@ -330,6 +330,7 @@ async fn fallback_list_issues(
             sort_direction: None,
             limit: None,
             offset: None,
+            archived: Some(false),
         },
     )
     .await

@@ -1,8 +1,5 @@
-use api_types::{
-    AttachmentWithBlob, Issue, IssueAssignee, IssuePriority, Project, ProjectStatus, User,
-};
+use api_types::{AttachmentWithBlob, Issue, IssueAssignee, Project, ProjectStatus, User};
 use chrono::{DateTime, Utc};
-use serde_json::Value;
 use sqlx::PgPool;
 use thiserror::Error;
 use uuid::Uuid;
@@ -90,34 +87,34 @@ impl ExportRepository {
         pool: &PgPool,
         project_ids: &[Uuid],
     ) -> Result<Vec<Issue>, ExportError> {
-        let issues = sqlx::query_as!(
-            Issue,
+        let issues = sqlx::query_as::<_, Issue>(
             r#"
             SELECT
-                id                  AS "id!: Uuid",
-                project_id          AS "project_id!: Uuid",
-                issue_number        AS "issue_number!",
-                simple_id           AS "simple_id!",
-                status_id           AS "status_id!: Uuid",
-                title               AS "title!",
-                description         AS "description?",
-                priority            AS "priority: IssuePriority",
-                start_date          AS "start_date?: DateTime<Utc>",
-                target_date         AS "target_date?: DateTime<Utc>",
-                completed_at        AS "completed_at?: DateTime<Utc>",
-                sort_order          AS "sort_order!",
-                parent_issue_id     AS "parent_issue_id?: Uuid",
-                parent_issue_sort_order AS "parent_issue_sort_order?",
-                extension_metadata  AS "extension_metadata!: Value",
-                creator_user_id     AS "creator_user_id?: Uuid",
-                created_at          AS "created_at!: DateTime<Utc>",
-                updated_at          AS "updated_at!: DateTime<Utc>"
+                id,
+                project_id,
+                issue_number,
+                simple_id,
+                status_id,
+                title,
+                description,
+                priority,
+                start_date,
+                target_date,
+                completed_at,
+                sort_order,
+                parent_issue_id,
+                parent_issue_sort_order,
+                extension_metadata,
+                creator_user_id,
+                archived,
+                created_at,
+                updated_at
             FROM issues
             WHERE project_id = ANY($1)
             ORDER BY project_id, issue_number ASC
             "#,
-            project_ids
         )
+        .bind(project_ids)
         .fetch_all(pool)
         .await?;
 

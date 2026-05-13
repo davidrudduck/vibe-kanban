@@ -32,7 +32,7 @@ import {
   bulkUpdateIssues,
   type BulkUpdateIssueItem,
 } from '@/shared/lib/remoteApi';
-import { PlusIcon, DotsThreeIcon } from '@phosphor-icons/react';
+import { ArchiveIcon, PlusIcon, DotsThreeIcon } from '@phosphor-icons/react';
 import { Actions } from '@/shared/actions';
 import {
   buildKanbanIssueComposerKey,
@@ -267,7 +267,17 @@ export function KanbanContainer() {
       defaultHideBlocked,
     ]
   );
-  const shouldAnimateCreateButton = issues.length === 0;
+  const [showArchivedIssues, setShowArchivedIssues] = useState(false);
+  const visibleIssues = useMemo(
+    () =>
+      showArchivedIssues ? issues : issues.filter((issue) => !issue.archived),
+    [issues, showArchivedIssues]
+  );
+  const archivedIssueCount = useMemo(
+    () => issues.filter((issue) => issue.archived).length,
+    [issues]
+  );
+  const shouldAnimateCreateButton = visibleIssues.length === 0;
 
   // Compute resolved status IDs for the blocked filter.
   // A blocking issue is considered resolved when it's in:
@@ -287,7 +297,7 @@ export function KanbanContainer() {
   }, [statuses]);
 
   const { filteredIssues } = useKanbanFilters({
-    issues,
+    issues: visibleIssues,
     issueAssignees,
     issueTags,
     issueRelationships,
@@ -534,11 +544,11 @@ export function KanbanContainer() {
   // Create a lookup map for issue data
   const issueMap = useMemo(() => {
     const map: Record<string, (typeof issues)[0]> = {};
-    for (const issue of issues) {
+    for (const issue of visibleIssues) {
       map[issue.id] = issue;
     }
     return map;
-  }, [issues]);
+  }, [visibleIssues]);
 
   // Create a lookup map for issue assignees (issue_id -> OrganizationMemberWithProfile[])
   const issueAssigneesMap = useMemo(() => {
@@ -595,7 +605,7 @@ export function KanbanContainer() {
 
     const map = new Map<string, WorkspaceWithStats[]>();
 
-    for (const issue of issues) {
+    for (const issue of visibleIssues) {
       const nonArchivedWorkspaces = getWorkspacesForIssue(issue.id)
         .filter(
           (workspace) =>
@@ -637,7 +647,7 @@ export function KanbanContainer() {
     return map;
   }, [
     showWorkspaces,
-    issues,
+    visibleIssues,
     getWorkspacesForIssue,
     localWorkspacesById,
     prsByWorkspaceId,
@@ -995,6 +1005,27 @@ export function KanbanContainer() {
             renderFiltersDialog={(props) => <KanbanFiltersDialog {...props} />}
             isMobile={isMobile}
           />
+          {archivedIssueCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowArchivedIssues((value) => !value)}
+              className={cn(
+                'inline-flex h-8 items-center gap-half rounded-sm border px-base text-sm transition-colors',
+                showArchivedIssues
+                  ? 'border-accent text-normal bg-secondary'
+                  : 'border-border text-low hover:text-normal hover:bg-secondary'
+              )}
+              aria-pressed={showArchivedIssues}
+              title={
+                showArchivedIssues
+                  ? 'Hide archived issues'
+                  : 'Show archived issues'
+              }
+            >
+              <ArchiveIcon className="size-icon-xs" weight="bold" />
+              <span>{archivedIssueCount}</span>
+            </button>
+          )}
         </div>
       </div>
 

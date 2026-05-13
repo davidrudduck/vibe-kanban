@@ -20,7 +20,7 @@ export type ProjectStatus = { id: string, project_id: string, name: string, colo
 
 export type Tag = { id: string, project_id: string, name: string, color: string, };
 
-export type Issue = { id: string, project_id: string, issue_number: number, simple_id: string, status_id: string, title: string, description: string | null, priority: IssuePriority | null, start_date: string | null, target_date: string | null, completed_at: string | null, sort_order: number, parent_issue_id: string | null, parent_issue_sort_order: number | null, extension_metadata: JsonValue, creator_user_id: string | null, created_at: string, updated_at: string, };
+export type Issue = { id: string, project_id: string, issue_number: number, simple_id: string, status_id: string, title: string, description: string | null, priority: IssuePriority | null, start_date: string | null, target_date: string | null, completed_at: string | null, sort_order: number, parent_issue_id: string | null, parent_issue_sort_order: number | null, extension_metadata: JsonValue, creator_user_id: string | null, archived: boolean, created_at: string, updated_at: string, };
 
 export type IssueAssignee = { id: string, issue_id: string, user_id: string, assigned_at: string, };
 
@@ -46,9 +46,9 @@ export type IssuePriority = "urgent" | "high" | "medium" | "low";
 
 export type IssueSortField = "sort_order" | "priority" | "created_at" | "updated_at" | "title";
 
-export type ListIssuesQuery = { project_id: string, };
+export type ListIssuesQuery = { project_id: string, archived?: boolean, };
 
-export type SearchIssuesRequest = { project_id: string, status_id?: string, status_ids?: Array<string>, priority?: IssuePriority, parent_issue_id?: string, search?: string, simple_id?: string, assignee_user_id?: string, tag_id?: string, tag_ids?: Array<string>, sort_field?: IssueSortField, sort_direction?: SortDirection, limit?: number, offset?: number, };
+export type SearchIssuesRequest = { project_id: string, status_id?: string, status_ids?: Array<string>, priority?: IssuePriority, parent_issue_id?: string, search?: string, simple_id?: string, assignee_user_id?: string, tag_id?: string, tag_ids?: Array<string>, sort_field?: IssueSortField, sort_direction?: SortDirection, limit?: number, offset?: number, archived?: boolean, };
 
 export type ListIssuesResponse = { issues: Array<Issue>, total_count: number, limit: number, offset: number, };
 
@@ -76,6 +76,12 @@ export type RelayHost = { id: string, owner_user_id: string, machine_id: string,
 export type ListRelayHostsResponse = { hosts: Array<RelayHost>, };
 
 export type CreateRemoteSessionResponse = { session_id: string, };
+
+export type HostRepo = { path: string, name: string, display_name: string | null, };
+
+export type ListHostReposResponse = { repos: Array<HostRepo>, };
+
+export type ReportHostReposRequest = { machine_id: string, repos: Array<HostRepo>, };
 
 export enum MemberRole { ADMIN = "ADMIN", MEMBER = "MEMBER" }
 
@@ -115,9 +121,9 @@ export type CreateIssueRequest = {
  * Optional client-generated ID. If not provided, server generates one.
  * Using client-generated IDs enables stable optimistic updates.
  */
-id?: string, project_id: string, status_id: string, title: string, description: string | null, priority: IssuePriority | null, start_date: string | null, target_date: string | null, completed_at: string | null, sort_order: number, parent_issue_id: string | null, parent_issue_sort_order: number | null, extension_metadata: JsonValue, };
+id?: string, project_id: string, status_id: string, title: string, description: string | null, priority: IssuePriority | null, start_date: string | null, target_date: string | null, completed_at: string | null, sort_order: number, parent_issue_id: string | null, parent_issue_sort_order: number | null, extension_metadata: JsonValue, archived?: boolean, };
 
-export type UpdateIssueRequest = { status_id?: string | null, title?: string | null, description?: string | null | null, priority?: IssuePriority | null | null, start_date?: string | null | null, target_date?: string | null | null, completed_at?: string | null | null, sort_order?: number | null, parent_issue_id?: string | null | null, parent_issue_sort_order?: number | null | null, extension_metadata?: JsonValue | null, };
+export type UpdateIssueRequest = { status_id?: string | null, title?: string | null, description?: string | null | null, priority?: IssuePriority | null | null, start_date?: string | null | null, target_date?: string | null | null, completed_at?: string | null | null, sort_order?: number | null, parent_issue_id?: string | null | null, parent_issue_sort_order?: number | null | null, extension_metadata?: JsonValue | null, archived?: boolean | null, };
 
 export type CreateIssueAssigneeRequest = { 
 /**
@@ -408,8 +414,3 @@ export const PULL_REQUEST_ISSUE_MUTATION = defineMutation<PullRequestIssue, Crea
 export type MutationRowType<M extends MutationDefinition<unknown>> = M extends MutationDefinition<infer R> ? R : never;
 export type MutationCreateType<M extends MutationDefinition<unknown, unknown>> = M extends MutationDefinition<unknown, infer C> ? C : never;
 export type MutationUpdateType<M extends MutationDefinition<unknown, unknown, unknown>> = M extends MutationDefinition<unknown, unknown, infer U> ? U : never;
-
-// Host repo types
-export type HostRepo = { path: string, name: string, display_name: string | null, };
-export type ListHostReposResponse = { repos: Array<HostRepo>, };
-export type ReportHostReposRequest = { machine_id: string, repos: Array<HostRepo>, };

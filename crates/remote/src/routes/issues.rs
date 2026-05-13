@@ -199,6 +199,7 @@ async fn list_issues(
         sort_direction: None,
         limit: None,
         offset: None,
+        archived: query.archived.or(Some(false)),
     };
 
     let response = IssueRepository::search(state.pool(), &request)
@@ -289,6 +290,7 @@ async fn create_issue(
         payload.parent_issue_id,
         payload.parent_issue_sort_order,
         payload.extension_metadata,
+        payload.archived.unwrap_or(false),
         ctx.user.id,
     )
     .await
@@ -376,6 +378,7 @@ async fn update_issue(
         payload.parent_issue_id,
         payload.parent_issue_sort_order,
         payload.extension_metadata,
+        payload.archived,
     )
     .await
     .map_err(|error| {
@@ -552,6 +555,7 @@ async fn bulk_update_issues(
             item.changes.parent_issue_id,
             item.changes.parent_issue_sort_order,
             item.changes.extension_metadata,
+            item.changes.archived,
         )
         .await
         .map_err(|error| {

@@ -8,6 +8,7 @@ use db::models::{
     coding_agent_turn::CodingAgentTurn,
     execution_process::{ExecutionProcess, ExecutionProcessStatus},
     workspace::{Workspace, WorkspaceError},
+    workspace_repo::WorkspaceRepo,
 };
 use deployment::Deployment;
 use serde::Deserialize;
@@ -18,12 +19,118 @@ use workspace_manager::WorkspaceManager;
 
 use crate::{DeploymentImpl, error::ApiError};
 
+fn workspace_repo_dirs(workspace: &Workspace) -> Vec<std::path::PathBuf> {
+    let Some(ref container_ref) = workspace.container_ref else {
+        return Vec::new();
+    };
+    if workspace.worktree_deleted {
+        return Vec::new();
+    }
+
+    let workspace_path = std::path::PathBuf::from(container_ref);
+    if !workspace_path.exists() {
+        return Vec::new();
+    }
+
+    let subdirs: Vec<std::path::PathBuf> = std::fs::read_dir(&workspace_path)
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .map(|e| e.path())
+        .collect();
+
+    if subdirs.is_empty() {
+        vec![workspace_path]
+    } else {
+        subdirs
+    }
+}
+
+fn ensure_workspace_worktrees_clean(
+    deployment: &DeploymentImpl,
+    workspace: &Workspace,
+    force: bool,
+    force_hint: &str,
+) -> Result<(), ApiError> {
+    if force {
+        return Ok(());
+    }
+
+    for dir in workspace_repo_dirs(workspace) {
+        match deployment.git().is_worktree_clean(&dir) {
+            Ok(true) => {}
+            Ok(false) => {
+                return Err(ApiError::Conflict(format!(
+                    "Workspace has uncommitted changes. Pass {force_hint}=true to continue anyway."
+                )));
+            }
+            Err(e) => {
+                tracing::warn!(
+                    workspace_id = %workspace.id,
+                    dir = %dir.display(),
+                    error = ?e,
+                    "Could not determine git dirty status; proceeding"
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn cleanup_workspace_worktrees(
+    pool: &sqlx::SqlitePool,
+    workspace: &Workspace,
+) -> Result<(), ApiError> {
+    let Some(container_ref) = &workspace.container_ref else {
+        return Ok(());
+    };
+    if workspace.worktree_deleted {
+        return Ok(());
+    }
+
+    let workspace_dir = std::path::PathBuf::from(container_ref);
+    let repositories = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
+
+    if repositories.is_empty() {
+        if workspace_dir.exists() {
+            tokio::fs::remove_dir_all(&workspace_dir).await?;
+        }
+    } else {
+        WorkspaceManager::cleanup_workspace(&workspace_dir, &repositories).await?;
+    }
+
+    Workspace::mark_worktree_deleted(pool, workspace.id).await?;
+    Ok(())
+}
+
 #[derive(Debug, Deserialize)]
 pub struct DeleteWorkspaceQuery {
     #[serde(default)]
     pub delete_remote: bool,
     #[serde(default)]
     pub delete_branches: bool,
+    #[serde(default)]
+    pub force_delete: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DeleteWorkspaceQuery;
+
+    #[test]
+    fn delete_workspace_query_deserializes_force_delete() {
+        let query: DeleteWorkspaceQuery = serde_json::from_value(serde_json::json!({
+            "delete_branches": true,
+            "force_delete": true
+        }))
+        .unwrap();
+
+        assert!(query.delete_branches);
+        assert!(query.force_delete);
+    }
 }
 
 pub async fn get_workspaces(
@@ -48,54 +155,13 @@ pub async fn update_workspace(
     let pool = &deployment.db().pool;
     let is_archiving = request.archived == Some(true) && !workspace.archived;
 
-    // Guard: refuse to archive if the worktree has uncommitted changes,
-    // unless the client explicitly passes force_archive = true.
-    if is_archiving && !request.force_archive {
-        if let Some(ref container_ref) = workspace.container_ref {
-            if !workspace.worktree_deleted {
-                let workspace_path = std::path::PathBuf::from(container_ref);
-                if workspace_path.exists() {
-                    // container_ref is the PARENT directory; each subdir is a repo.
-                    let subdirs: Vec<std::path::PathBuf> = std::fs::read_dir(&workspace_path)
-                        .ok()
-                        .into_iter()
-                        .flatten()
-                        .flatten()
-                        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
-                        .map(|e| e.path())
-                        .collect();
-
-                    let dirs_to_check = if subdirs.is_empty() {
-                        vec![workspace_path.clone()]
-                    } else {
-                        subdirs
-                    };
-
-                    for dir in &dirs_to_check {
-                        match deployment.git().is_worktree_clean(dir) {
-                            Ok(true) => {}
-                            Ok(false) => {
-                                return Err(ApiError::Conflict(
-                                    "Workspace has uncommitted changes. \
-                                     Pass force_archive=true to archive anyway."
-                                        .to_string(),
-                                ));
-                            }
-                            Err(e) => {
-                                // Cannot determine status (e.g. not a git repo).
-                                // Warn but do not block the archive.
-                                tracing::warn!(
-                                    workspace_id = %workspace.id,
-                                    dir = %dir.display(),
-                                    error = ?e,
-                                    "Could not determine git dirty status; proceeding with archive"
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    if is_archiving {
+        ensure_workspace_worktrees_clean(
+            &deployment,
+            &workspace,
+            request.force_archive,
+            "force_archive",
+        )?;
     }
 
     Workspace::update(
@@ -130,8 +196,11 @@ pub async fn update_workspace(
         });
     }
 
-    if is_archiving && let Err(e) = deployment.container().archive_workspace(workspace.id).await {
-        tracing::error!("Failed to archive workspace {}: {}", workspace.id, e);
+    if is_archiving {
+        if let Err(e) = deployment.container().archive_workspace(workspace.id).await {
+            tracing::error!("Failed to archive workspace {}: {}", workspace.id, e);
+        }
+        cleanup_workspace_worktrees(pool, &updated).await?;
     }
 
     Ok(ResponseJson(ApiResponse::success(updated)))
@@ -163,6 +232,8 @@ pub async fn delete_workspace(
                 .to_string(),
         ));
     }
+
+    ensure_workspace_worktrees_clean(&deployment, &workspace, query.force_delete, "force_delete")?;
 
     let dev_servers =
         ExecutionProcess::find_running_dev_servers_by_workspace(pool, workspace_id).await?;
