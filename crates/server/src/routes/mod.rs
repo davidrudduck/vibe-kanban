@@ -17,6 +17,7 @@ pub mod webhooks;
 // pub mod github;
 pub mod attachments;
 pub mod events;
+pub mod execution_log_events;
 pub mod execution_processes;
 pub mod frontend;
 pub mod health;

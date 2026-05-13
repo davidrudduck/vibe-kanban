@@ -322,6 +322,7 @@ pub(super) fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/stop", post(stop_execution_process))
         .route("/inject-message", post(inject_message_into_process))
         .route("/repo-states", get(get_execution_process_repo_states))
+        .merge(super::execution_log_events::router())
         .route("/raw-logs/ws", get(stream_raw_logs_ws))
         .route("/normalized-logs/ws", get(stream_normalized_logs_ws))
         .layer(from_fn_with_state(
