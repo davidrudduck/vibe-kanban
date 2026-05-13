@@ -5,6 +5,10 @@ import {
   getSourceLinkedIssue,
   getWorkspaceNameForSubmit,
   canSaveWorkspaceDraft,
+  completeWorkspaceCreateSubmission,
+  releaseWorkspaceCreateSubmission,
+  reserveWorkspaceCreateSubmission,
+  type WorkspaceCreateSubmissionState,
 } from './createWorkspaceShellModel';
 
 describe('createWorkspaceShellModel', () => {
@@ -86,5 +90,39 @@ describe('createWorkspaceShellModel', () => {
         linkedIssueTitle: undefined,
       })
     ).toBe(false);
+  });
+
+  it('allows only one pending workspace create per draft key', () => {
+    const registry = new Map<string, WorkspaceCreateSubmissionState>();
+
+    expect(reserveWorkspaceCreateSubmission(registry, 'draft-1')).toEqual({
+      status: 'reserved',
+    });
+    expect(reserveWorkspaceCreateSubmission(registry, 'draft-1')).toEqual({
+      status: 'pending',
+    });
+  });
+
+  it('remembers the created workspace for duplicate draft submissions', () => {
+    const registry = new Map<string, WorkspaceCreateSubmissionState>();
+
+    reserveWorkspaceCreateSubmission(registry, 'draft-1');
+    completeWorkspaceCreateSubmission(registry, 'draft-1', 'workspace-1');
+
+    expect(reserveWorkspaceCreateSubmission(registry, 'draft-1')).toEqual({
+      status: 'created',
+      workspaceId: 'workspace-1',
+    });
+  });
+
+  it('releases failed pending draft submissions for retry', () => {
+    const registry = new Map<string, WorkspaceCreateSubmissionState>();
+
+    reserveWorkspaceCreateSubmission(registry, 'draft-1');
+    releaseWorkspaceCreateSubmission(registry, 'draft-1');
+
+    expect(reserveWorkspaceCreateSubmission(registry, 'draft-1')).toEqual({
+      status: 'reserved',
+    });
   });
 });

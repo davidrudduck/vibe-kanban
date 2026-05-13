@@ -86,3 +86,49 @@ export function canSaveWorkspaceDraft({
     message.trim().length > 0
   );
 }
+
+export type WorkspaceCreateSubmissionState =
+  | { status: 'pending' }
+  | { status: 'created'; workspaceId: string };
+
+export type WorkspaceCreateSubmissionReservation =
+  | { status: 'reserved' }
+  | { status: 'pending' }
+  | { status: 'created'; workspaceId: string };
+
+export function reserveWorkspaceCreateSubmission(
+  registry: Map<string, WorkspaceCreateSubmissionState>,
+  key: string | null | undefined
+): WorkspaceCreateSubmissionReservation {
+  if (!key) return { status: 'reserved' };
+
+  const existing = registry.get(key);
+  if (existing?.status === 'created') {
+    return { status: 'created', workspaceId: existing.workspaceId };
+  }
+  if (existing?.status === 'pending') {
+    return { status: 'pending' };
+  }
+
+  registry.set(key, { status: 'pending' });
+  return { status: 'reserved' };
+}
+
+export function completeWorkspaceCreateSubmission(
+  registry: Map<string, WorkspaceCreateSubmissionState>,
+  key: string | null | undefined,
+  workspaceId: string
+) {
+  if (!key) return;
+  registry.set(key, { status: 'created', workspaceId });
+}
+
+export function releaseWorkspaceCreateSubmission(
+  registry: Map<string, WorkspaceCreateSubmissionState>,
+  key: string | null | undefined
+) {
+  if (!key) return;
+  if (registry.get(key)?.status === 'pending') {
+    registry.delete(key);
+  }
+}

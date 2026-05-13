@@ -35,24 +35,34 @@ import { QuickRunRow } from './QuickRunRow';
 import { OrphanIssueModal, type OrphanIssueState } from './OrphanIssueModal';
 import {
   canSaveWorkspaceDraft,
+  completeWorkspaceCreateSubmission,
   getCreateWorkspaceModeState,
   getEffectiveLinkedIssue,
   getSourceLinkedIssue,
   getWorkspaceNameForSubmit,
+  releaseWorkspaceCreateSubmission,
+  reserveWorkspaceCreateSubmission,
+  type WorkspaceCreateSubmissionState,
 } from './createWorkspaceShellModel';
 
 // Stable no-op for required callbacks that have no action in the shell layout.
 // eslint-disable-next-line @typescript-eslint/no-empty-function
 const noop = () => {};
+const workspaceCreateSubmissions = new Map<
+  string,
+  WorkspaceCreateSubmissionState
+>();
 
 interface CreateWorkspaceShellProps {
   onWorkspaceCreated: (workspaceId: string) => void;
   lockedLinkedIssue?: LinkedIssue | null;
+  createRequestKey?: string | null;
 }
 
 export function CreateWorkspaceShell({
   onWorkspaceCreated,
   lockedLinkedIssue = null,
+  createRequestKey = null,
 }: CreateWorkspaceShellProps) {
   const { t } = useTranslation('common');
   const { profiles, config } = useUserSystem();
@@ -365,7 +375,18 @@ export function CreateWorkspaceShell({
     if (isSubmitting.current || createWorkspace.isPending) return;
     // Cmd+Enter must not start a new submission while the orphan modal is open.
     if (orphanedIssue) return;
+    const reservation = reserveWorkspaceCreateSubmission(
+      workspaceCreateSubmissions,
+      createRequestKey
+    );
+    if (reservation.status === 'pending') return;
+    if (reservation.status === 'created') {
+      onWorkspaceCreated(reservation.workspaceId);
+      return;
+    }
+
     isSubmitting.current = true;
+    let releaseSubmission = true;
     setHasAttemptedSubmit(true);
     // Clear any stale errors from previous attempts.
     setIssueCreateError(null);
@@ -373,6 +394,10 @@ export function CreateWorkspaceShell({
 
     if (!canSubmit || !executorConfig) {
       isSubmitting.current = false;
+      releaseWorkspaceCreateSubmission(
+        workspaceCreateSubmissions,
+        createRequestKey
+      );
       return;
     }
 
@@ -503,6 +528,12 @@ export function CreateWorkspaceShell({
       }
 
       if (result.workspace) {
+        releaseSubmission = false;
+        completeWorkspaceCreateSubmission(
+          workspaceCreateSubmissions,
+          createRequestKey,
+          result.workspace.id
+        );
         await handleWorkspaceSuccess(
           result.workspace.id,
           repoInputs,
@@ -510,6 +541,12 @@ export function CreateWorkspaceShell({
         );
       }
     } finally {
+      if (releaseSubmission) {
+        releaseWorkspaceCreateSubmission(
+          workspaceCreateSubmissions,
+          createRequestKey
+        );
+      }
       isSubmitting.current = false;
     }
   }, [
@@ -525,8 +562,10 @@ export function CreateWorkspaceShell({
     projectContext,
     firstNonHiddenStatusId,
     createWorkspace,
+    createRequestKey,
     getAttachmentIds,
     handleWorkspaceSuccess,
+    onWorkspaceCreated,
     t,
   ]);
 
@@ -541,7 +580,18 @@ export function CreateWorkspaceShell({
     // Defensive: ensure repos and branches are still valid before retrying.
     // (UI is locked via isBusy, but this guards against edge cases)
     if (!hasSelectedRepos || !hasSelectedBranchesForAllRepos) return;
+    const reservation = reserveWorkspaceCreateSubmission(
+      workspaceCreateSubmissions,
+      createRequestKey
+    );
+    if (reservation.status === 'pending') return;
+    if (reservation.status === 'created') {
+      onWorkspaceCreated(reservation.workspaceId);
+      return;
+    }
+
     isSubmitting.current = true;
+    let releaseSubmission = true;
     // Clear any stale error from a prior failed retry attempt.
     createWorkspace.reset();
 
@@ -569,6 +619,12 @@ export function CreateWorkspaceShell({
       const result = await createWorkspace.mutateAsync({ data });
       if (!isMountedRef.current) return;
       if (result.workspace) {
+        releaseSubmission = false;
+        completeWorkspaceCreateSubmission(
+          workspaceCreateSubmissions,
+          createRequestKey,
+          result.workspace.id
+        );
         setOrphanedIssue(null);
         const linkedForSave: LinkedIssue = {
           issueId: orphanedIssue.id,
@@ -586,6 +642,12 @@ export function CreateWorkspaceShell({
       console.error('Retry workspace creation failed:', error);
       // Retry failed — orphan modal stays visible for another attempt.
     } finally {
+      if (releaseSubmission) {
+        releaseWorkspaceCreateSubmission(
+          workspaceCreateSubmissions,
+          createRequestKey
+        );
+      }
       isSubmitting.current = false;
     }
   }, [
@@ -598,8 +660,10 @@ export function CreateWorkspaceShell({
     hasSelectedBranchesForAllRepos,
     workspaceName,
     createWorkspace,
+    createRequestKey,
     getAttachmentIds,
     handleWorkspaceSuccess,
+    onWorkspaceCreated,
   ]);
 
   const handleRemoveOrphanIssue = useCallback(() => {

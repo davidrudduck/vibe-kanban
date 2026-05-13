@@ -535,6 +535,7 @@ export function ProjectRightSidebarContainer() {
           <CreateWorkspaceShell
             onWorkspaceCreated={handleWorkspaceCreated}
             lockedLinkedIssue={lockedLinkedIssue}
+            createRequestKey={rightPanelState.draftId}
           />
         </CreateModeProvider>
       </WorkspaceCreatePanel>
