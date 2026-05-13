@@ -15,6 +15,10 @@ import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useCurrentAppDestination } from '@/shared/hooks/useCurrentAppDestination';
 
 import { WorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
+import {
+  useWorkspacePanelState,
+  RIGHT_MAIN_PANEL_MODES,
+} from '@/shared/stores/useUiPreferencesStore';
 
 interface WorkspaceProviderProps {
   children: ReactNode;
@@ -27,6 +31,12 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   const queryClient = useQueryClient();
 
   const isCreateMode = currentDestination?.kind === 'workspaces-create';
+
+  const { rightMainPanelMode } = useWorkspacePanelState(
+    isCreateMode ? undefined : workspaceId
+  );
+  const isChangesPanelOpen =
+    rightMainPanelMode === RIGHT_MAIN_PANEL_MODES.CHANGES;
 
   const {
     workspaces: activeWorkspaces,
@@ -77,7 +87,12 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     enabled: !isCreateMode && hasPrAttached,
   });
 
-  const { diffs } = useDiffStream(workspaceId ?? null, !isCreateMode);
+  // Full diffs only while the CHANGES panel is visible; otherwise stay in
+  // stats-only mode so we still get file counts and +/- totals without
+  // streaming per-file content the user can't see.
+  const { diffs } = useDiffStream(workspaceId ?? null, !isCreateMode, {
+    statsOnly: !isChangesPanelOpen,
+  });
 
   const diffPaths = useMemo(
     () =>
