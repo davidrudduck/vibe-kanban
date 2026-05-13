@@ -5,6 +5,7 @@ pub mod config;
 pub mod container;
 pub mod diff_stream;
 pub mod events;
+pub mod execution_log_event_migration;
 pub mod execution_process;
 pub mod file;
 pub mod file_ranker;
