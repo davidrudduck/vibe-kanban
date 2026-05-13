@@ -10,10 +10,6 @@ import { workspaceSummaryKeys } from '@/shared/hooks/workspaceSummaryKeys';
 
 interface CreateWorkspaceParams {
   data: CreateAndStartWorkspaceRequest;
-  linkToIssue?: {
-    remoteProjectId: string;
-    issueId: string;
-  };
 }
 
 interface CreateWorkspaceResult {
@@ -27,33 +23,11 @@ export function useCreateWorkspace() {
   const createWorkspace = useMutation({
     mutationFn: async ({
       data,
-      linkToIssue,
     }: CreateWorkspaceParams): Promise<CreateWorkspaceResult> => {
-      const { workspace } = await workspacesApi.createAndStart(data);
-      let linkErrorMessage: string | undefined;
+      const { workspace, link_warning } =
+        await workspacesApi.createAndStart(data);
 
-      if (linkToIssue && workspace) {
-        try {
-          await workspacesApi.linkToIssue(
-            workspace.id,
-            linkToIssue.remoteProjectId,
-            linkToIssue.issueId
-          );
-        } catch (linkError) {
-          linkErrorMessage =
-            linkError instanceof Error
-              ? linkError.message
-              : 'Unknown error while linking workspace to issue';
-          console.error('Failed to link workspace to issue:', {
-            workspaceId: workspace.id,
-            projectId: linkToIssue.remoteProjectId,
-            issueId: linkToIssue.issueId,
-            error: linkError,
-          });
-        }
-      }
-
-      return { workspace, linkErrorMessage };
+      return { workspace, linkErrorMessage: link_warning ?? undefined };
     },
     onSuccess: () => {
       // Invalidate workspace summaries so they refresh with the new workspace included
