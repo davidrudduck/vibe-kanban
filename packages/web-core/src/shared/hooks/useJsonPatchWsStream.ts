@@ -113,6 +113,7 @@ export const useJsonPatchWsStream = <T extends object>(
       setError(null);
       dataRef.current = undefined;
       activeEndpointRef.current = undefined;
+      initializedForEndpointRef.current = undefined;
       return;
     }
 
@@ -171,16 +172,7 @@ export const useJsonPatchWsStream = <T extends object>(
         // fresh snapshot applies to a clean slate on reconnect.
         dataRef.current = undefined;
       }
-    }
-
-    // Initialize data
-    if (!dataRef.current) {
-      dataRef.current = initialData();
-
-      // Inject initial entry if provided
-      if (injectInitialEntry) {
-        injectInitialEntry(dataRef.current);
-      }
+      retryAttemptsRef.current = 0;
     }
 
     let cancelled = false;
@@ -220,8 +212,6 @@ export const useJsonPatchWsStream = <T extends object>(
             setError(null);
             setIsConnected(true);
             setIsSyncing(true);
-            // Reset backoff on successful connection
-            retryAttemptsRef.current = 0;
             if (retryTimerRef.current) {
               window.clearTimeout(retryTimerRef.current);
               retryTimerRef.current = null;
@@ -314,6 +304,10 @@ export const useJsonPatchWsStream = <T extends object>(
                   }
                 }
                 snapshotBuffer = null;
+                // Reset backoff only after a confirmed snapshot — prevents
+                // the open→close-before-Ready loop from resetting the counter
+                // on every onopen and suppressing the error display.
+                retryAttemptsRef.current = 0;
                 initializedForEndpointRef.current = endpoint;
                 setIsInitialized(true);
                 setIsSyncing(false);
@@ -383,6 +377,12 @@ export const useJsonPatchWsStream = <T extends object>(
           console.error('Failed to open WebSocket stream:', error);
           setIsSyncing(false);
           retryAttemptsRef.current += 1;
+          if (
+            !initializedForEndpointRef.current &&
+            retryAttemptsRef.current > 6
+          ) {
+            setError('Connection failed');
+          }
           scheduleReconnect();
         }
       })();
