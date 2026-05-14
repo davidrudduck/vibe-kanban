@@ -322,6 +322,11 @@ export const useJsonPatchWsStream = <T extends object>(
                 wsRef.current = null;
                 setIsConnected(false);
                 setIsSyncing(false);
+                // If finished arrived before Ready, the stream never initialized.
+                // Surface an error so consumers don't silently stay blank.
+                if (snapshotBuffer !== null) {
+                  setError('Stream ended before initialization');
+                }
               }
             } catch (err) {
               console.error('Failed to process WebSocket message:', err);
