@@ -25,6 +25,11 @@ interface UseJsonPatchStreamResult<T> {
   data: T | undefined;
   isConnected: boolean;
   isInitialized: boolean;
+  /**
+   * True when the socket is connected but we are still waiting for the
+   * initial snapshot (Ready message) to be applied.
+   */
+  isSyncing: boolean;
   error: string | null;
 }
 
@@ -39,6 +44,7 @@ export const useJsonPatchWsStream = <T extends object>(
 ): UseJsonPatchStreamResult<T> => {
   const [data, setData] = useState<T | undefined>(undefined);
   const [isConnected, setIsConnected] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const initializedForEndpointRef = useRef<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -61,8 +67,11 @@ export const useJsonPatchWsStream = <T extends object>(
   // Reasonable defaults: backend pushes a `Ready` shortly after open and
   // patches whenever state changes. 90s of total silence is well above any
   // legitimate quiet window for an active workspace stream.
-  const WATCHDOG_CHECK_MS = 15000;
+  const WATCHDOG_CHECK_MS = 5000;
   const IDLE_TIMEOUT_MS = 90000;
+  // Maximum time to wait for the initial snapshot (Ready message) before
+  // assuming the connection is stuck and forcing a reconnect.
+  const INITIAL_SYNC_TIMEOUT_MS = 30000;
 
   const injectInitialEntry = options?.injectInitialEntry;
   const deduplicatePatches = options?.deduplicatePatches;
@@ -99,6 +108,7 @@ export const useJsonPatchWsStream = <T extends object>(
       finishedRef.current = false;
       setData(undefined);
       setIsConnected(false);
+      setIsSyncing(false);
       setIsInitialized(false);
       setError(null);
       dataRef.current = undefined;
@@ -128,13 +138,16 @@ export const useJsonPatchWsStream = <T extends object>(
       retryAttemptsRef.current = 0;
       finishedRef.current = false;
       setIsConnected(false);
+      setIsSyncing(false);
       const prevBase = activeEndpointRef.current?.split('?')[0];
       const newBase = endpoint.split('?')[0];
       if (prevBase !== undefined && prevBase !== newBase) {
         setData(undefined);
         setIsInitialized(false);
-        initializedForEndpointRef.current = undefined;
       }
+      // Always reset so the error-suppression guard (!initializedForEndpointRef.current)
+      // works correctly if reconnect fails after the tab returns.
+      initializedForEndpointRef.current = undefined;
       dataRef.current = undefined;
       activeEndpointRef.current = endpoint;
       return;
@@ -188,16 +201,25 @@ export const useJsonPatchWsStream = <T extends object>(
             return;
           }
 
+          // Reset dataRef so the server's fresh snapshot applies to a clean slate
+          // on this connection, while preserving the old React state (data) on
+          // screen until the new Ready message arrives.
+          dataRef.current = initialData();
+          if (injectInitialEntry) {
+            injectInitialEntry(dataRef.current);
+          }
+
           // Patches received before the Ready message are buffered here and
           // flushed atomically when Ready arrives. This prevents the UI from
           // flickering through partial states when the server sends the initial
           // snapshot across multiple messages. Once Ready fires, snapshotBuffer
           // is set to null and subsequent patches are applied live.
           let snapshotBuffer: Operation[] | null = [];
-
+          const connectionOpenTime = Date.now();
           ws.onopen = () => {
             setError(null);
             setIsConnected(true);
+            setIsSyncing(true);
             // Reset backoff on successful connection
             retryAttemptsRef.current = 0;
             if (retryTimerRef.current) {
@@ -212,15 +234,28 @@ export const useJsonPatchWsStream = <T extends object>(
               window.clearInterval(watchdogIntervalRef.current);
             }
             watchdogIntervalRef.current = window.setInterval(() => {
-              const idleMs = Date.now() - lastActivityRef.current;
-              if (idleMs > IDLE_TIMEOUT_MS && wsRef.current === ws) {
+              const now = Date.now();
+              const idleMs = now - lastActivityRef.current;
+              const syncDurationMs = now - connectionOpenTime;
+
+              if (wsRef.current !== ws) return;
+
+              // Force reconnect if:
+              // 1. Total silence for IDLE_TIMEOUT_MS
+              // 2. We are still waiting for the initial snapshot (Ready) after INITIAL_SYNC_TIMEOUT_MS
+              if (
+                idleMs > IDLE_TIMEOUT_MS ||
+                (snapshotBuffer !== null &&
+                  syncDurationMs > INITIAL_SYNC_TIMEOUT_MS)
+              ) {
                 console.warn(
-                  `[useJsonPatchWsStream] no activity for ${idleMs}ms, ` +
-                    'forcing reconnect'
+                  `[useJsonPatchWsStream] ${
+                    snapshotBuffer !== null ? 'sync' : 'idle'
+                  } timeout reached, forcing reconnect`
                 );
                 // Non-1000 close code so the reconnect logic in onclose runs.
                 try {
-                  ws.close(4000, 'idle-timeout');
+                  ws.close(4000, 'timeout');
                 } catch {
                   // ignore
                 }
@@ -265,7 +300,10 @@ export const useJsonPatchWsStream = <T extends object>(
               if ('Ready' in msg) {
                 // Flush buffered snapshot patches atomically so the UI updates
                 // in one render rather than flickering through partial states.
-                if (snapshotBuffer !== null && snapshotBuffer.length > 0) {
+                // Note: we always flush here even if the buffer is empty to ensure
+                // that React state is synced with dataRef.current (which was reset
+                // to initialData on reconnect).
+                if (snapshotBuffer !== null) {
                   const current = dataRef.current;
                   if (current) {
                     const next = produce(current, (draft) => {
@@ -278,6 +316,7 @@ export const useJsonPatchWsStream = <T extends object>(
                 snapshotBuffer = null;
                 initializedForEndpointRef.current = endpoint;
                 setIsInitialized(true);
+                setIsSyncing(false);
                 setError(null);
               }
 
@@ -288,6 +327,7 @@ export const useJsonPatchWsStream = <T extends object>(
                 ws.close(1000, 'finished');
                 wsRef.current = null;
                 setIsConnected(false);
+                setIsSyncing(false);
               }
             } catch (err) {
               console.error('Failed to process WebSocket message:', err);
@@ -303,6 +343,7 @@ export const useJsonPatchWsStream = <T extends object>(
 
           ws.onclose = (evt) => {
             setIsConnected(false);
+            setIsSyncing(false);
             wsRef.current = null;
 
             // Stop the idle watchdog for this connection; the next onopen
@@ -340,6 +381,7 @@ export const useJsonPatchWsStream = <T extends object>(
           }
 
           console.error('Failed to open WebSocket stream:', error);
+          setIsSyncing(false);
           retryAttemptsRef.current += 1;
           scheduleReconnect();
         }
@@ -388,6 +430,7 @@ export const useJsonPatchWsStream = <T extends object>(
     data,
     isConnected,
     isInitialized: isInitializedForCurrentEndpoint,
+    isSyncing,
     error,
   };
 };
