@@ -130,11 +130,23 @@ export const useJsonPatchWsStream = <T extends object>(
     }
 
     if (activeEndpointRef.current !== endpoint) {
+      const prevBase = activeEndpointRef.current?.split('?')[0];
+      const newBase = endpoint.split('?')[0];
+
       activeEndpointRef.current = endpoint;
       initializedForEndpointRef.current = undefined;
-      dataRef.current = undefined;
-      setData(undefined);
-      setIsInitialized(false);
+
+      if (prevBase !== newBase) {
+        // Different stream (e.g. navigated to a different workspace) — full reset
+        dataRef.current = undefined;
+        setData(undefined);
+        setIsInitialized(false);
+      } else {
+        // Same stream, different query params (e.g. stats_only toggle) — keep
+        // React state so UI stays populated, but reset dataRef so the server's
+        // fresh snapshot applies to a clean slate on reconnect.
+        dataRef.current = undefined;
+      }
     }
 
     // Initialize data

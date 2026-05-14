@@ -284,6 +284,78 @@ describe('useJsonPatchWsStream', () => {
     ).toBe('hello');
   });
 
+  it('preserves data when endpoint query params change (stats_only toggle)', async () => {
+    setLocalApiTransport({
+      ...defaultTransport,
+      openWebSocket: async (path) =>
+        new MockWebSocket(path) as unknown as WebSocket,
+    });
+
+    const { result, rerender } = renderHook(
+      ({ endpoint }: { endpoint: string }) =>
+        useJsonPatchWsStream(endpoint, true, () => ({ items: {} })),
+      { initialProps: { endpoint: '/api/diff?stats_only=false' } }
+    );
+
+    await act(async () => { await Promise.resolve(); });
+    const ws1 = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    ws1.open();
+
+    await act(async () => {
+      ws1.emit({
+        JsonPatch: [{ op: 'add', path: '/items/file1', value: 'diff content' }],
+      });
+    });
+    expect(
+      (result.current.data as { items: Record<string, string> })?.items?.file1
+    ).toBe('diff content');
+
+    // Toggle to stats-only (same base path, different param)
+    rerender({ endpoint: '/api/diff?stats_only=true' });
+    await act(async () => { await Promise.resolve(); });
+
+    // Data must be preserved — no blank flash
+    expect(
+      (result.current.data as { items: Record<string, string> })?.items?.file1
+    ).toBe('diff content');
+    // A new WS must have been created for the new endpoint
+    expect(MockWebSocket.instances.length).toBeGreaterThan(1);
+  });
+
+  it('resets data when endpoint base path changes (different workspace)', async () => {
+    setLocalApiTransport({
+      ...defaultTransport,
+      openWebSocket: async (path) =>
+        new MockWebSocket(path) as unknown as WebSocket,
+    });
+
+    const { result, rerender } = renderHook(
+      ({ endpoint }: { endpoint: string }) =>
+        useJsonPatchWsStream(endpoint, true, () => ({ items: {} })),
+      { initialProps: { endpoint: '/api/workspace-1/diff' } }
+    );
+
+    await act(async () => { await Promise.resolve(); });
+    const ws1 = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    ws1.open();
+
+    await act(async () => {
+      ws1.emit({
+        JsonPatch: [{ op: 'add', path: '/items/file1', value: 'diff content' }],
+      });
+    });
+    expect(
+      (result.current.data as { items: Record<string, string> })?.items?.file1
+    ).toBe('diff content');
+
+    // Navigate to a different workspace (base path changes)
+    rerender({ endpoint: '/api/workspace-2/diff' });
+    await act(async () => { await Promise.resolve(); });
+
+    // Data must be wiped — different workspace
+    expect(result.current.data).toBeUndefined();
+  });
+
   it('resets data (full teardown) when enabled becomes false', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     setLocalApiTransport({
