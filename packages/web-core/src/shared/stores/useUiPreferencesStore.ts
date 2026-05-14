@@ -886,6 +886,18 @@ export function usePersistedExpanded(
   return [expanded, set];
 }
 
+/**
+ * Read-only selector that returns whether the "Show archived" accordion in the
+ * workspaces sidebar is currently expanded. Used by useWorkspaces to gate the
+ * archived WebSocket + summary poll so they only run while the user can
+ * actually see archived items.
+ */
+export const useWorkspacesArchiveExpanded = (): boolean => {
+  return useUiPreferencesStore(
+    (s) => s.expanded[PERSIST_KEYS.workspacesSidebarArchived] ?? false
+  );
+};
+
 // Hook for context bar position
 export function useContextBarPosition(): [
   ContextBarPosition,

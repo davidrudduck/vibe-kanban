@@ -3,6 +3,7 @@ import { produce } from 'immer';
 import type { Operation } from 'rfc6902';
 import { applyUpsertPatch } from '@/shared/lib/jsonPatch';
 import { openLocalApiWebSocket } from '@/shared/lib/localApiTransport';
+import { useDocumentVisible } from '@/shared/hooks/useDocumentVisible';
 
 type WsJsonPatchMsg = { JsonPatch: Operation[] };
 type WsReadyMsg = { Ready: true };
@@ -66,6 +67,9 @@ export const useJsonPatchWsStream = <T extends object>(
   const injectInitialEntry = options?.injectInitialEntry;
   const deduplicatePatches = options?.deduplicatePatches;
 
+  const documentVisible = useDocumentVisible();
+  const effectiveEnabled = enabled && documentVisible;
+
   function scheduleReconnect() {
     if (retryTimerRef.current) return; // already scheduled
     // Exponential backoff with cap: 1s, 2s, 4s, 8s (max), then stay at 8s
@@ -78,7 +82,7 @@ export const useJsonPatchWsStream = <T extends object>(
   }
 
   useEffect(() => {
-    if (!enabled || !endpoint) {
+    if (!effectiveEnabled || !endpoint) {
       // Close connection and reset state
       if (wsRef.current) {
         wsRef.current.close();
@@ -293,7 +297,7 @@ export const useJsonPatchWsStream = <T extends object>(
     };
   }, [
     endpoint,
-    enabled,
+    effectiveEnabled,
     initialData,
     injectInitialEntry,
     deduplicatePatches,
