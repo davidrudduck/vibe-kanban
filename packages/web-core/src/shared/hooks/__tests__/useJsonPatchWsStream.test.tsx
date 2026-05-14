@@ -320,6 +320,8 @@ describe('useJsonPatchWsStream', () => {
     ).toBe('diff content');
     // A new WS must have been created for the new endpoint
     expect(MockWebSocket.instances.length).toBeGreaterThan(1);
+    // isInitialized should be false during reconnect (initializedForEndpointRef reset)
+    expect(result.current.isInitialized).toBe(false);
   });
 
   it('resets data when endpoint base path changes (different workspace)', async () => {
