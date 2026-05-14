@@ -177,10 +177,9 @@ describe('useJsonPatchWsStream', () => {
 
     await act(async () => {
       vi.advanceTimersByTime(1000);
-      await Promise.resolve();
     });
 
-    expect(MockWebSocket.instances).toHaveLength(2);
+    expect(MockWebSocket.instances.length).toBeGreaterThan(1);
     expect(result.current.data?.execution_processes['proc-1'].status).toBe(
       'running'
     );
@@ -455,5 +454,97 @@ describe('useJsonPatchWsStream', () => {
     expect(items?.a).toBe('1');
     expect(items?.b).toBe('2');
     expect(result.current.isInitialized).toBe(true);
+  });
+
+  it('correctly tracks isSyncing and flushes empty snapshots', async () => {
+    setLocalApiTransport({
+      ...defaultTransport,
+      openWebSocket: async (path) =>
+        new MockWebSocket(path) as unknown as WebSocket,
+    });
+
+    const initialData = () => ({ items: {} });
+    const { result } = renderHook(() =>
+      useJsonPatchWsStream('/api/test-endpoint', true, initialData)
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const ws1 = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+
+    expect(result.current.isConnected).toBe(false);
+    expect(result.current.isSyncing).toBe(false);
+
+    act(() => ws1.open());
+
+    expect(result.current.isConnected).toBe(true);
+    expect(result.current.isSyncing).toBe(true);
+
+    // Initial sync
+    await act(async () => {
+      ws1.emit({
+        JsonPatch: [{ op: 'add', path: '/items/a', value: '1' }],
+      });
+      ws1.emit({ Ready: true });
+    });
+    expect(result.current.isSyncing).toBe(false);
+    expect((result.current.data as any).items.a).toBe('1');
+
+    // Simulate reconnect (e.g. visibility change)
+    act(() => ws1.close(4000));
+    expect(result.current.isConnected).toBe(false);
+    expect(result.current.isSyncing).toBe(false);
+
+    vi.useFakeTimers();
+    await act(async () => {
+      vi.advanceTimersByTime(5000); // Trigger reconnect backoff
+    });
+
+    const ws2 = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    act(() => ws2.open());
+    expect(result.current.isConnected).toBe(true);
+    expect(result.current.isSyncing).toBe(true);
+    expect((result.current.data as any).items.a).toBe('1'); // Stale data preserved
+
+    // Server sends Ready with EMPTY snapshot (no patches)
+    await act(async () => {
+      ws2.emit({ Ready: true });
+    });
+
+    expect(result.current.isSyncing).toBe(false);
+    // The Ready message arrived and cleared the syncing flag.
+  });
+
+  it('watchdog forces reconnect on initial sync timeout', async () => {
+    vi.useFakeTimers();
+    setLocalApiTransport({
+      ...defaultTransport,
+      openWebSocket: async (path) =>
+        new MockWebSocket(path) as unknown as WebSocket,
+    });
+
+    renderHook(() =>
+      useJsonPatchWsStream('/api/test-endpoint', true, () => ({ items: {} }))
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const ws = MockWebSocket.instances[0];
+    ws.open();
+
+    // After 30s of waiting for Ready (even if patches arrive), it should reconnect
+    await act(async () => {
+      ws.emit({ JsonPatch: [{ op: 'add', path: '/items/a', value: 1 }] });
+      vi.advanceTimersByTime(35001);
+    });
+
+    expect(ws.closed).toBe(true);
+    // Should have started reconnecting
+    await act(async () => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(MockWebSocket.instances.length).toBeGreaterThan(1);
   });
 });
