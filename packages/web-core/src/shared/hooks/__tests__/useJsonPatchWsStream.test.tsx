@@ -240,4 +240,89 @@ describe('useJsonPatchWsStream', () => {
 
     expect(MockWebSocket.aliveUrls).toHaveLength(1);
   });
+
+  it('preserves data when tab is hidden past the grace window', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    setLocalApiTransport({
+      ...defaultTransport,
+      openWebSocket: async (path) =>
+        new MockWebSocket(path) as unknown as WebSocket,
+    });
+
+    const { result } = renderHook(() =>
+      useJsonPatchWsStream('/api/test-endpoint', true, () => ({
+        items: {},
+      }))
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    ws.open();
+
+    // Send a patch so we have data
+    await act(async () => {
+      ws.emit({
+        JsonPatch: [{ op: 'add', path: '/items/x', value: 'hello' }],
+      });
+    });
+    expect(
+      (result.current.data as { items: Record<string, string> })?.items?.x
+    ).toBe('hello');
+
+    // Hide the tab past grace window
+    act(() => {
+      setHidden(true);
+      vi.advanceTimersByTime(30_001);
+    });
+
+    // WS closed — but data must still be present
+    expect(MockWebSocket.aliveUrls).toHaveLength(0);
+    expect(
+      (result.current.data as { items: Record<string, string> })?.items?.x
+    ).toBe('hello');
+  });
+
+  it('resets data (full teardown) when enabled becomes false', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    setLocalApiTransport({
+      ...defaultTransport,
+      openWebSocket: async (path) =>
+        new MockWebSocket(path) as unknown as WebSocket,
+    });
+
+    const { result, rerender } = renderHook(
+      ({ enabled }: { enabled: boolean }) =>
+        useJsonPatchWsStream('/api/test-endpoint', enabled, () => ({
+          items: {},
+        })),
+      { initialProps: { enabled: true } }
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    ws.open();
+
+    await act(async () => {
+      ws.emit({
+        JsonPatch: [{ op: 'add', path: '/items/x', value: 'hello' }],
+      });
+    });
+    expect(
+      (result.current.data as { items: Record<string, string> })?.items?.x
+    ).toBe('hello');
+
+    // Explicitly disable (e.g. archived accordion collapses)
+    rerender({ enabled: false });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Data must be wiped on intentional disable
+    expect(result.current.data).toBeUndefined();
+    expect(result.current.isInitialized).toBe(false);
+  });
 });

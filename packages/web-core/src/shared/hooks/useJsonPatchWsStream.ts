@@ -68,7 +68,6 @@ export const useJsonPatchWsStream = <T extends object>(
   const deduplicatePatches = options?.deduplicatePatches;
 
   const documentVisible = useDocumentVisible();
-  const effectiveEnabled = enabled && documentVisible;
 
   function scheduleReconnect() {
     if (retryTimerRef.current) return; // already scheduled
@@ -82,8 +81,8 @@ export const useJsonPatchWsStream = <T extends object>(
   }
 
   useEffect(() => {
-    if (!effectiveEnabled || !endpoint) {
-      // Close connection and reset state
+    // Case 1: intentionally disabled or no endpoint — full teardown including state
+    if (!enabled || !endpoint) {
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -104,6 +103,29 @@ export const useJsonPatchWsStream = <T extends object>(
       setError(null);
       dataRef.current = undefined;
       activeEndpointRef.current = undefined;
+      return;
+    }
+
+    // Case 2: tab hidden — close WS but preserve React state so the UI stays
+    // populated. Reset dataRef so the server snapshot applies to a clean slate
+    // on reconnect (avoiding stale-delete gaps), without flashing a blank screen.
+    if (!documentVisible) {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      if (retryTimerRef.current) {
+        window.clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+      if (watchdogIntervalRef.current) {
+        window.clearInterval(watchdogIntervalRef.current);
+        watchdogIntervalRef.current = null;
+      }
+      retryAttemptsRef.current = 0;
+      finishedRef.current = false;
+      setIsConnected(false);
+      dataRef.current = undefined;
       return;
     }
 
@@ -297,7 +319,8 @@ export const useJsonPatchWsStream = <T extends object>(
     };
   }, [
     endpoint,
-    effectiveEnabled,
+    enabled,
+    documentVisible,
     initialData,
     injectInitialEntry,
     deduplicatePatches,
