@@ -126,6 +126,7 @@ export const useJsonPatchWsStream = <T extends object>(
       finishedRef.current = false;
       setIsConnected(false);
       dataRef.current = undefined;
+      activeEndpointRef.current = endpoint;
       return;
     }
 
