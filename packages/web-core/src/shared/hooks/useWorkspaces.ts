@@ -186,7 +186,7 @@ export function useWorkspaces(): UseWorkspacesResult {
       queryKey: workspaceSummaryKeys.byArchived(true, hostId),
       queryFn: () => fetchWorkspaceSummariesByArchived(true, hostId),
       enabled: archiveExpanded && archivedIsInitialized,
-      staleTime: 1000,
+      staleTime: 0,
       refetchInterval: 15000,
       refetchOnWindowFocus: false,
       refetchOnMount: 'always',
