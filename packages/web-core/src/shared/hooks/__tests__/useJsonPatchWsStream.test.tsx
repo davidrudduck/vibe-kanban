@@ -167,6 +167,7 @@ describe('useJsonPatchWsStream', () => {
           },
         ],
       });
+      firstSocket.emit({ Ready: true });
       firstSocket.close(4000);
     });
 
@@ -266,6 +267,7 @@ describe('useJsonPatchWsStream', () => {
       ws.emit({
         JsonPatch: [{ op: 'add', path: '/items/x', value: 'hello' }],
       });
+      ws.emit({ Ready: true });
     });
     expect(
       (result.current.data as { items: Record<string, string> })?.items?.x
@@ -297,7 +299,9 @@ describe('useJsonPatchWsStream', () => {
       { initialProps: { endpoint: '/api/diff?stats_only=false' } }
     );
 
-    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      await Promise.resolve();
+    });
     const ws1 = MockWebSocket.instances[MockWebSocket.instances.length - 1];
     ws1.open();
 
@@ -305,6 +309,7 @@ describe('useJsonPatchWsStream', () => {
       ws1.emit({
         JsonPatch: [{ op: 'add', path: '/items/file1', value: 'diff content' }],
       });
+      ws1.emit({ Ready: true });
     });
     expect(
       (result.current.data as { items: Record<string, string> })?.items?.file1
@@ -312,7 +317,9 @@ describe('useJsonPatchWsStream', () => {
 
     // Toggle to stats-only (same base path, different param)
     rerender({ endpoint: '/api/diff?stats_only=true' });
-    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     // Data must be preserved — no blank flash
     expect(
@@ -337,7 +344,9 @@ describe('useJsonPatchWsStream', () => {
       { initialProps: { endpoint: '/api/workspace-1/diff' } }
     );
 
-    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      await Promise.resolve();
+    });
     const ws1 = MockWebSocket.instances[MockWebSocket.instances.length - 1];
     ws1.open();
 
@@ -345,6 +354,7 @@ describe('useJsonPatchWsStream', () => {
       ws1.emit({
         JsonPatch: [{ op: 'add', path: '/items/file1', value: 'diff content' }],
       });
+      ws1.emit({ Ready: true });
     });
     expect(
       (result.current.data as { items: Record<string, string> })?.items?.file1
@@ -352,7 +362,9 @@ describe('useJsonPatchWsStream', () => {
 
     // Navigate to a different workspace (base path changes)
     rerender({ endpoint: '/api/workspace-2/diff' });
-    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     // Data must be wiped — different workspace
     expect(result.current.data).toBeUndefined();
@@ -385,6 +397,7 @@ describe('useJsonPatchWsStream', () => {
       ws.emit({
         JsonPatch: [{ op: 'add', path: '/items/x', value: 'hello' }],
       });
+      ws.emit({ Ready: true });
     });
     expect(
       (result.current.data as { items: Record<string, string> })?.items?.x
@@ -399,5 +412,48 @@ describe('useJsonPatchWsStream', () => {
     // Data must be wiped on intentional disable
     expect(result.current.data).toBeUndefined();
     expect(result.current.isInitialized).toBe(false);
+  });
+
+  it('applies snapshot patches atomically on Ready (no partial-state flicker)', async () => {
+    const initialData = () => ({ items: {} });
+    setLocalApiTransport({
+      ...defaultTransport,
+      openWebSocket: async (path) =>
+        new MockWebSocket(path) as unknown as WebSocket,
+    });
+
+    const { result } = renderHook(() =>
+      useJsonPatchWsStream('/api/test-endpoint', true, initialData)
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    ws.open();
+
+    // Send two separate JsonPatch messages (split snapshot) then Ready — all
+    // in one act so WS isn't replaced by a re-render between emits.
+    // data must stay undefined until Ready fires, then update atomically.
+    let dataAfterFirstPatch: unknown;
+    let dataAfterSecondPatch: unknown;
+    await act(async () => {
+      ws.emit({ JsonPatch: [{ op: 'add', path: '/items/a', value: '1' }] });
+      dataAfterFirstPatch = result.current.data;
+      ws.emit({ JsonPatch: [{ op: 'add', path: '/items/b', value: '2' }] });
+      dataAfterSecondPatch = result.current.data;
+      ws.emit({ Ready: true });
+    });
+
+    // No partial state — data was undefined during snapshot phase
+    expect(dataAfterFirstPatch).toBeUndefined();
+    expect(dataAfterSecondPatch).toBeUndefined();
+
+    // After Ready: all patches applied atomically
+    const items = (result.current.data as { items: Record<string, string> })
+      ?.items;
+    expect(items?.a).toBe('1');
+    expect(items?.b).toBe('2');
+    expect(result.current.isInitialized).toBe(true);
   });
 });

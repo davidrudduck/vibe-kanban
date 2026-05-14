@@ -109,6 +109,9 @@ export const useJsonPatchWsStream = <T extends object>(
     // Case 2: tab hidden — close WS but preserve React state so the UI stays
     // populated. Reset dataRef so the server snapshot applies to a clean slate
     // on reconnect (avoiding stale-delete gaps), without flashing a blank screen.
+    // Exception: if the base path changed while hidden (e.g. programmatic navigation
+    // to a different workspace), clear React state immediately so stale data from
+    // the old stream isn't shown when the tab returns.
     if (!documentVisible) {
       if (wsRef.current) {
         wsRef.current.close();
@@ -125,6 +128,13 @@ export const useJsonPatchWsStream = <T extends object>(
       retryAttemptsRef.current = 0;
       finishedRef.current = false;
       setIsConnected(false);
+      const prevBase = activeEndpointRef.current?.split('?')[0];
+      const newBase = endpoint.split('?')[0];
+      if (prevBase !== undefined && prevBase !== newBase) {
+        setData(undefined);
+        setIsInitialized(false);
+        initializedForEndpointRef.current = undefined;
+      }
       dataRef.current = undefined;
       activeEndpointRef.current = endpoint;
       return;
@@ -178,6 +188,13 @@ export const useJsonPatchWsStream = <T extends object>(
             return;
           }
 
+          // Patches received before the Ready message are buffered here and
+          // flushed atomically when Ready arrives. This prevents the UI from
+          // flickering through partial states when the server sends the initial
+          // snapshot across multiple messages. Once Ready fires, snapshotBuffer
+          // is set to null and subsequent patches are applied live.
+          let snapshotBuffer: Operation[] | null = [];
+
           ws.onopen = () => {
             setError(null);
             setIsConnected(true);
@@ -224,8 +241,16 @@ export const useJsonPatchWsStream = <T extends object>(
                   ? deduplicatePatches(patches)
                   : patches;
 
+                if (!filtered.length) return;
+
+                if (snapshotBuffer !== null) {
+                  // Pre-Ready: accumulate patches, don't touch React state yet
+                  snapshotBuffer.push(...filtered);
+                  return;
+                }
+
                 const current = dataRef.current;
-                if (!filtered.length || !current) return;
+                if (!current) return;
 
                 // Use Immer for structural sharing - only modified parts get new references
                 const next = produce(current, (draft) => {
@@ -238,6 +263,19 @@ export const useJsonPatchWsStream = <T extends object>(
 
               // Handle Ready messages (initial data has been sent)
               if ('Ready' in msg) {
+                // Flush buffered snapshot patches atomically so the UI updates
+                // in one render rather than flickering through partial states.
+                if (snapshotBuffer !== null && snapshotBuffer.length > 0) {
+                  const current = dataRef.current;
+                  if (current) {
+                    const next = produce(current, (draft) => {
+                      applyUpsertPatch(draft, snapshotBuffer!);
+                    });
+                    dataRef.current = next;
+                    setData(next);
+                  }
+                }
+                snapshotBuffer = null;
                 initializedForEndpointRef.current = endpoint;
                 setIsInitialized(true);
                 setError(null);
@@ -285,8 +323,11 @@ export const useJsonPatchWsStream = <T extends object>(
 
             // Otherwise, reconnect on unexpected/error closures
             retryAttemptsRef.current += 1;
-            // Only show error if we haven't received any data yet
-            if (!dataRef.current && retryAttemptsRef.current > 6) {
+            // Only show error if the server never sent a Ready for this endpoint
+            if (
+              !initializedForEndpointRef.current &&
+              retryAttemptsRef.current > 6
+            ) {
               setError('Connection failed');
             }
             scheduleReconnect();
