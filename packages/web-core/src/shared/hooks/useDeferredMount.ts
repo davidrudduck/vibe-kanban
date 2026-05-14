@@ -12,14 +12,20 @@ export function useDeferredMount(fallbackMs = 200): boolean {
   useEffect(() => {
     let cancelled = false;
     const idle = globalThis as unknown as {
-      requestIdleCallback?: (cb: () => void) => number;
+      requestIdleCallback?: (
+        cb: () => void,
+        options?: { timeout?: number }
+      ) => number;
       cancelIdleCallback?: (id: number) => void;
     };
 
     if (typeof idle.requestIdleCallback === 'function') {
-      const id = idle.requestIdleCallback(() => {
-        if (!cancelled) setMounted(true);
-      });
+      const id = idle.requestIdleCallback(
+        () => {
+          if (!cancelled) setMounted(true);
+        },
+        { timeout: 500 }
+      );
       return () => {
         cancelled = true;
         idle.cancelIdleCallback?.(id);
