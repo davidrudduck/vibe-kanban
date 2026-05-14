@@ -354,6 +354,7 @@ describe('useJsonPatchWsStream', () => {
 
     // Data must be wiped — different workspace
     expect(result.current.data).toBeUndefined();
+    expect(result.current.isInitialized).toBe(false);
   });
 
   it('resets data (full teardown) when enabled becomes false', async () => {
