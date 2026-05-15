@@ -2,6 +2,14 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::LocalDeployment;
+use std::collections::HashMap;
+
+use executors::logs::{
+    ActionType, AskUserQuestionItem, AskUserQuestionOption, CommandExitStatus, CommandRunResult,
+    FileChange, NormalizedEntry, NormalizedEntryType, TodoItem, TokenUsageInfo, ToolResult,
+    ToolResultValueType, ToolStatus, utils::shell_command_parsing::CommandCategory,
+};
+use utils::{diff::create_unified_diff, path::make_path_relative};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClaudeHookPayload {
@@ -71,6 +79,794 @@ pub fn event_to_hook_event_name(event: &str) -> String {
         .join("")
 }
 
+pub fn transcript_rows_to_entries(
+    rows: &[String],
+    model_context_window: u64,
+) -> Vec<NormalizedEntry> {
+    transcript_rows_to_entries_in_worktree(rows, model_context_window, "")
+}
+
+pub fn transcript_rows_to_entries_in_worktree(
+    rows: &[String],
+    model_context_window: u64,
+    worktree_path: &str,
+) -> Vec<NormalizedEntry> {
+    let mut state = TranscriptImportState::new(model_context_window, worktree_path);
+    for value in rows
+        .iter()
+        .filter_map(|row| serde_json::from_str::<serde_json::Value>(row).ok())
+    {
+        state.ingest_value(&value);
+    }
+    state.entries
+}
+
+#[derive(Debug)]
+struct TranscriptImportState {
+    entries: Vec<NormalizedEntry>,
+    tool_entries: HashMap<String, usize>,
+    model_context_window: u64,
+    last_assistant_message: Option<String>,
+    main_model_name: Option<String>,
+    worktree_path: String,
+}
+
+impl TranscriptImportState {
+    fn new(model_context_window: u64, worktree_path: &str) -> Self {
+        Self {
+            entries: Vec::new(),
+            tool_entries: HashMap::new(),
+            model_context_window,
+            last_assistant_message: None,
+            main_model_name: None,
+            worktree_path: worktree_path.to_string(),
+        }
+    }
+
+    fn ingest_value(&mut self, value: &serde_json::Value) {
+        let Some(top_type) = value.get("type").and_then(|v| v.as_str()) else {
+            return;
+        };
+        let timestamp = value
+            .get("timestamp")
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned);
+
+        match top_type {
+            "assistant" => self.ingest_assistant(value, timestamp),
+            "user" => self.ingest_user(value),
+            "result" => self.ingest_result(value, timestamp),
+            _ => {}
+        }
+    }
+
+    fn ingest_assistant(&mut self, value: &serde_json::Value, timestamp: Option<String>) {
+        let Some(message) = value.get("message") else {
+            return;
+        };
+        if let Some(model) = message.get("model").and_then(|value| value.as_str()) {
+            self.main_model_name = Some(model.to_string());
+        }
+
+        if let Some(content) = message.get("content") {
+            for item in content.as_array().into_iter().flatten() {
+                match item.get("type").and_then(|v| v.as_str()) {
+                    Some("text") => {
+                        if let Some(text) = item.get("text").and_then(|v| v.as_str())
+                            && !text.is_empty()
+                        {
+                            self.entries.push(NormalizedEntry {
+                                timestamp: timestamp.clone(),
+                                entry_type: NormalizedEntryType::AssistantMessage,
+                                content: text.to_string(),
+                                metadata: Some(item.clone()),
+                            });
+                            self.last_assistant_message = Some(text.to_string());
+                        }
+                    }
+                    Some("thinking") => {
+                        if let Some(thinking) = item.get("thinking").and_then(|v| v.as_str())
+                            && !thinking.is_empty()
+                        {
+                            self.entries.push(NormalizedEntry {
+                                timestamp: timestamp.clone(),
+                                entry_type: NormalizedEntryType::Thinking,
+                                content: thinking.to_string(),
+                                metadata: Some(item.clone()),
+                            });
+                        }
+                    }
+                    Some("tool_use") => self.ingest_tool_use(item, timestamp.clone()),
+                    _ => {}
+                }
+            }
+        }
+
+        if let Some(usage) = message.get("usage") {
+            self.push_token_usage(timestamp, usage, None);
+        }
+    }
+
+    fn ingest_user(&mut self, value: &serde_json::Value) {
+        let Some(content) = value
+            .get("message")
+            .and_then(|message| message.get("content"))
+            .and_then(|content| content.as_array())
+        else {
+            return;
+        };
+
+        for item in content {
+            if matches!(
+                item.get("type").and_then(|value| value.as_str()),
+                Some("tool_result")
+            ) {
+                self.ingest_tool_result(item);
+            }
+        }
+    }
+
+    fn ingest_result(&mut self, value: &serde_json::Value, timestamp: Option<String>) {
+        let usage = value.get("usage");
+        let model_context_window = value
+            .get("modelUsage")
+            .or_else(|| value.get("model_usage"))
+            .and_then(|usage| extract_context_window(usage, self.main_model_name.as_deref()))
+            .unwrap_or(self.model_context_window);
+        let max_output_tokens = value
+            .get("modelUsage")
+            .or_else(|| value.get("model_usage"))
+            .and_then(|usage| extract_max_output_tokens(usage, self.main_model_name.as_deref()));
+
+        if let Some(usage) = usage {
+            self.push_token_usage(
+                timestamp.clone(),
+                usage,
+                Some(TerminalUsageFields {
+                    model_context_window,
+                    cost_microusd: value
+                        .get("total_cost_usd")
+                        .or_else(|| value.get("totalCostUsd"))
+                        .and_then(|v| v.as_f64())
+                        .and_then(cost_usd_to_microusd),
+                    num_turns: value
+                        .get("num_turns")
+                        .or_else(|| value.get("numTurns"))
+                        .and_then(|v| v.as_u64())
+                        .and_then(|v| u32::try_from(v).ok()),
+                    duration_ms: value
+                        .get("duration_ms")
+                        .or_else(|| value.get("durationMs"))
+                        .and_then(|v| v.as_u64()),
+                    max_output_tokens,
+                }),
+            );
+        }
+
+        if matches!(
+            value.get("subtype").and_then(|v| v.as_str()),
+            Some("success")
+        ) && let Some(result) = value.get("result").and_then(|v| v.as_str())
+            && !result.is_empty()
+            && self
+                .last_assistant_message
+                .as_ref()
+                .is_none_or(|message| !message.contains(result))
+        {
+            self.entries.push(NormalizedEntry {
+                timestamp,
+                entry_type: NormalizedEntryType::AssistantMessage,
+                content: result.to_string(),
+                metadata: None,
+            });
+            self.last_assistant_message = Some(result.to_string());
+        }
+    }
+
+    fn ingest_tool_use(&mut self, item: &serde_json::Value, timestamp: Option<String>) {
+        let Some(id) = item.get("id").and_then(|v| v.as_str()) else {
+            return;
+        };
+        let raw_tool_name = item
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+        let tool_name = canonical_tool_name(&raw_tool_name);
+        let input = item
+            .get("input")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        let action_type = action_type_for_tool(&tool_name, &input, None, &self.worktree_path);
+        let content = concise_tool_content(&tool_name, &input, &self.worktree_path);
+
+        let entry = NormalizedEntry {
+            timestamp,
+            entry_type: NormalizedEntryType::ToolUse {
+                tool_name: display_tool_name(&tool_name),
+                action_type,
+                status: ToolStatus::Created,
+            },
+            content,
+            metadata: None,
+        };
+
+        if let Some(index) = self.tool_entries.get(id).copied() {
+            self.entries[index] = entry;
+        } else {
+            self.tool_entries.insert(id.to_string(), self.entries.len());
+            self.entries.push(entry);
+        }
+    }
+
+    fn ingest_tool_result(&mut self, item: &serde_json::Value) {
+        let Some(tool_use_id) = item.get("tool_use_id").and_then(|v| v.as_str()) else {
+            return;
+        };
+        let Some(index) = self.tool_entries.get(tool_use_id).copied() else {
+            return;
+        };
+
+        let result = item.get("content").unwrap_or(&serde_json::Value::Null);
+        let is_error = item
+            .get("is_error")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+
+        let NormalizedEntryType::ToolUse {
+            tool_name,
+            action_type,
+            status,
+        } = &mut self.entries[index].entry_type
+        else {
+            return;
+        };
+
+        let command_result = if matches!(action_type, ActionType::CommandRun { .. }) {
+            Some(command_run_result(result, is_error))
+        } else {
+            None
+        };
+
+        *status = if is_error || command_result.as_ref().is_some_and(command_result_failed) {
+            ToolStatus::Failed
+        } else {
+            ToolStatus::Success
+        };
+        attach_tool_result(tool_name, action_type, result, is_error, command_result);
+    }
+
+    fn push_token_usage(
+        &mut self,
+        timestamp: Option<String>,
+        usage: &serde_json::Value,
+        terminal_fields: Option<TerminalUsageFields>,
+    ) {
+        let model_context_window = terminal_fields
+            .as_ref()
+            .map(|fields| fields.model_context_window)
+            .unwrap_or(self.model_context_window);
+
+        self.entries.push(NormalizedEntry {
+            timestamp,
+            entry_type: NormalizedEntryType::TokenUsageInfo(TokenUsageInfo {
+                total_tokens: sum_usage_tokens(usage),
+                model_context_window,
+                output_tokens: usage.get("output_tokens").and_then(|v| v.as_u64()),
+                cache_creation_tokens: usage
+                    .get("cache_creation_input_tokens")
+                    .and_then(|v| v.as_u64()),
+                cache_read_tokens: usage
+                    .get("cache_read_input_tokens")
+                    .and_then(|v| v.as_u64()),
+                cost_microusd: terminal_fields
+                    .as_ref()
+                    .and_then(|fields| fields.cost_microusd),
+                num_turns: terminal_fields.as_ref().and_then(|fields| fields.num_turns),
+                duration_ms: terminal_fields
+                    .as_ref()
+                    .and_then(|fields| fields.duration_ms),
+                max_output_tokens: terminal_fields
+                    .as_ref()
+                    .and_then(|fields| fields.max_output_tokens),
+            }),
+            content: "Claude terminal token usage".to_string(),
+            metadata: None,
+        });
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TerminalUsageFields {
+    model_context_window: u64,
+    cost_microusd: Option<u64>,
+    num_turns: Option<u32>,
+    duration_ms: Option<u64>,
+    max_output_tokens: Option<u64>,
+}
+
+fn extract_text_content(content: &serde_json::Value) -> String {
+    if let Some(text) = content.as_str() {
+        return text.to_string();
+    }
+
+    content
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item.get("text").and_then(|text| text.as_str()))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn action_type_for_tool(
+    tool_name: &str,
+    input: &serde_json::Value,
+    result: Option<serde_json::Value>,
+    worktree_path: &str,
+) -> ActionType {
+    match canonical_tool_name(tool_name).as_str() {
+        "Bash" => {
+            let command = input
+                .get("command")
+                .or_else(|| input.get("cmd"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            ActionType::CommandRun {
+                category: CommandCategory::from_command(&command),
+                command,
+                result: result.and_then(|value| serde_json::from_value(value).ok()),
+            }
+        }
+        "Read" => ActionType::FileRead {
+            path: relative_input_path(input, worktree_path),
+        },
+        "Edit" => edit_action(input, worktree_path),
+        "MultiEdit" => multi_edit_action(input, worktree_path),
+        "Write" => write_action(input, worktree_path),
+        "Grep" | "Glob" => ActionType::Search {
+            query: input
+                .get("pattern")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+        },
+        "WebFetch" => ActionType::WebFetch {
+            url: input
+                .get("url")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+        },
+        "WebSearch" => ActionType::WebFetch {
+            url: input
+                .get("query")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+        },
+        "Task" => ActionType::TaskCreate {
+            description: input
+                .get("description")
+                .or_else(|| input.get("prompt"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            subagent_type: input
+                .get("subagent_type")
+                .or_else(|| input.get("subagentType"))
+                .and_then(|v| v.as_str())
+                .map(ToOwned::to_owned),
+            result: result.map(|value| normalize_tool_result(&value)),
+        },
+        "ExitPlanMode" => ActionType::PlanPresentation {
+            plan: input
+                .get("plan")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string(),
+        },
+        "TodoWrite" => ActionType::TodoManagement {
+            todos: input
+                .get("todos")
+                .and_then(|value| value.as_array())
+                .into_iter()
+                .flatten()
+                .map(|todo| TodoItem {
+                    content: todo
+                        .get("content")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    status: todo
+                        .get("status")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    priority: todo
+                        .get("priority")
+                        .and_then(|value| value.as_str())
+                        .map(ToOwned::to_owned),
+                })
+                .collect(),
+            operation: "write".to_string(),
+        },
+        "TodoRead" => ActionType::TodoManagement {
+            todos: vec![],
+            operation: "read".to_string(),
+        },
+        "LS" => ActionType::Other {
+            description: "List directory".to_string(),
+        },
+        "AskUserQuestion" => ActionType::AskUserQuestion {
+            questions: input
+                .get("questions")
+                .and_then(|value| value.as_array())
+                .into_iter()
+                .flatten()
+                .map(|question| AskUserQuestionItem {
+                    question: question
+                        .get("question")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    header: question
+                        .get("header")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    options: question
+                        .get("options")
+                        .and_then(|value| value.as_array())
+                        .into_iter()
+                        .flatten()
+                        .map(|option| AskUserQuestionOption {
+                            label: option
+                                .get("label")
+                                .and_then(|value| value.as_str())
+                                .unwrap_or_default()
+                                .to_string(),
+                            description: option
+                                .get("description")
+                                .and_then(|value| value.as_str())
+                                .unwrap_or_default()
+                                .to_string(),
+                        })
+                        .collect(),
+                    multi_select: question
+                        .get("multiSelect")
+                        .or_else(|| question.get("multi_select"))
+                        .and_then(|value| value.as_bool())
+                        .unwrap_or(false),
+                })
+                .collect(),
+        },
+        _ => ActionType::Tool {
+            tool_name: display_tool_name(tool_name),
+            arguments: Some(input.clone()),
+            result: result.map(|value| normalize_tool_result(&value)),
+        },
+    }
+}
+
+fn edit_action(input: &serde_json::Value, worktree_path: &str) -> ActionType {
+    let file_path = input_path(input);
+    let old_string = input
+        .get("old_string")
+        .or_else(|| input.get("old_str"))
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    let new_string = input
+        .get("new_string")
+        .or_else(|| input.get("new_str"))
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    let changes = if !old_string.is_empty() || !new_string.is_empty() {
+        vec![FileChange::Edit {
+            unified_diff: create_unified_diff(file_path, old_string, new_string),
+            has_line_numbers: false,
+        }]
+    } else {
+        vec![]
+    };
+
+    ActionType::FileEdit {
+        path: relative_path(file_path, worktree_path),
+        changes,
+    }
+}
+
+fn multi_edit_action(input: &serde_json::Value, worktree_path: &str) -> ActionType {
+    let file_path = input_path(input);
+    let changes = input
+        .get("edits")
+        .and_then(|value| value.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|edit| {
+            let old_string = edit
+                .get("old_string")
+                .or_else(|| edit.get("old_str"))
+                .and_then(|value| value.as_str())
+                .unwrap_or_default();
+            let new_string = edit
+                .get("new_string")
+                .or_else(|| edit.get("new_str"))
+                .and_then(|value| value.as_str())
+                .unwrap_or_default();
+
+            if old_string.is_empty() && new_string.is_empty() {
+                None
+            } else {
+                Some(FileChange::Edit {
+                    unified_diff: create_unified_diff(file_path, old_string, new_string),
+                    has_line_numbers: false,
+                })
+            }
+        })
+        .collect();
+
+    ActionType::FileEdit {
+        path: relative_path(file_path, worktree_path),
+        changes,
+    }
+}
+
+fn write_action(input: &serde_json::Value, worktree_path: &str) -> ActionType {
+    let file_path = input_path(input);
+    ActionType::FileEdit {
+        path: relative_path(file_path, worktree_path),
+        changes: vec![FileChange::Write {
+            content: input
+                .get("content")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string(),
+        }],
+    }
+}
+
+fn relative_input_path(input: &serde_json::Value, worktree_path: &str) -> String {
+    relative_path(input_path(input), worktree_path)
+}
+
+fn input_path(input: &serde_json::Value) -> &str {
+    input
+        .get("file_path")
+        .or_else(|| input.get("path"))
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+}
+
+fn relative_path(path: &str, worktree_path: &str) -> String {
+    if worktree_path.is_empty() {
+        return path.to_string();
+    }
+    make_path_relative(path, worktree_path)
+}
+
+fn canonical_tool_name(tool_name: &str) -> String {
+    match tool_name {
+        "bash" => "Bash",
+        "read" => "Read",
+        "edit_file" => "Edit",
+        "multi_edit" => "MultiEdit",
+        "create_file" | "write_file" => "Write",
+        "grep" => "Grep",
+        "glob" => "Glob",
+        "list_directory" | "ls" => "LS",
+        "read_web_page" => "WebFetch",
+        "web_search" => "WebSearch",
+        "todo_write" => "TodoWrite",
+        "todo_read" => "TodoRead",
+        "task" | "Agent" => "Task",
+        other => other,
+    }
+    .to_string()
+}
+
+fn attach_tool_result(
+    _tool_name: &str,
+    action_type: &mut ActionType,
+    result: &serde_json::Value,
+    is_error: bool,
+    parsed_command_result: Option<CommandRunResult>,
+) {
+    match action_type {
+        ActionType::CommandRun {
+            command,
+            result: command_result,
+            category,
+        } => {
+            *command_result =
+                parsed_command_result.or_else(|| Some(command_run_result(result, is_error)));
+            *category = CommandCategory::from_command(command);
+        }
+        ActionType::TaskCreate { result: res, .. } => {
+            *res = Some(normalize_tool_result(result));
+        }
+        ActionType::Tool { result: res, .. } => {
+            *res = Some(normalize_tool_result(result));
+        }
+        _ => {}
+    }
+}
+
+fn command_result_failed(result: &CommandRunResult) -> bool {
+    match result.exit_status.as_ref() {
+        Some(CommandExitStatus::ExitCode { code }) => *code != 0,
+        Some(CommandExitStatus::Success { success }) => !success,
+        None => false,
+    }
+}
+
+fn command_run_result(content: &serde_json::Value, is_error: bool) -> CommandRunResult {
+    let content_str = extract_tool_result_content(content);
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content_str) {
+        let output = value
+            .get("output")
+            .and_then(|value| value.as_str())
+            .map(ToOwned::to_owned);
+        let exit_code = value
+            .get("exitCode")
+            .or_else(|| value.get("exit_code"))
+            .and_then(|value| value.as_i64())
+            .and_then(|value| i32::try_from(value).ok());
+
+        if output.is_some() || exit_code.is_some() {
+            return CommandRunResult {
+                exit_status: exit_code
+                    .map(|code| CommandExitStatus::ExitCode { code })
+                    .or(Some(CommandExitStatus::Success { success: !is_error })),
+                output,
+            };
+        }
+    }
+
+    CommandRunResult {
+        exit_status: Some(CommandExitStatus::Success { success: !is_error }),
+        output: Some(content_str),
+    }
+}
+
+fn extract_tool_result_content(content: &serde_json::Value) -> String {
+    if let Some(text) = content.as_str() {
+        return text.to_string();
+    }
+
+    let text = extract_text_content(content);
+    if !text.is_empty() {
+        return text;
+    }
+
+    content.to_string()
+}
+
+fn normalize_tool_result(content: &serde_json::Value) -> ToolResult {
+    if let Some(text) = content.as_str() {
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(text) {
+            return ToolResult::json(parsed);
+        }
+        return ToolResult::markdown(text.to_string());
+    }
+
+    if let Some(items) = content.as_array() {
+        let joined = items
+            .iter()
+            .filter_map(|item| item.get("text").and_then(|value| value.as_str()))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        if !joined.is_empty() {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&joined) {
+                return ToolResult::json(parsed);
+            }
+            return ToolResult {
+                r#type: ToolResultValueType::Markdown,
+                value: serde_json::Value::String(joined),
+            };
+        }
+    }
+
+    ToolResult::json(content.clone())
+}
+
+fn concise_tool_content(tool_name: &str, input: &serde_json::Value, worktree_path: &str) -> String {
+    match tool_name {
+        "Bash" => input
+            .get("command")
+            .or_else(|| input.get("cmd"))
+            .and_then(|value| value.as_str())
+            .unwrap_or("Run command")
+            .to_string(),
+        "Read" => input
+            .get("file_path")
+            .or_else(|| input.get("path"))
+            .and_then(|value| value.as_str())
+            .map(|path| format!("Read {}", relative_path(path, worktree_path)))
+            .unwrap_or_else(|| "Read file".to_string()),
+        _ => display_tool_name(tool_name),
+    }
+}
+
+fn display_tool_name(tool_name: &str) -> String {
+    if tool_name.starts_with("mcp__") {
+        let parts: Vec<&str> = tool_name.split("__").collect();
+        if parts.len() >= 3 {
+            return format!("mcp:{}:{}", parts[1], parts[2]);
+        }
+    }
+    tool_name.to_string()
+}
+
+fn extract_context_window(
+    model_usage: &serde_json::Value,
+    model_name: Option<&str>,
+) -> Option<u64> {
+    extract_model_usage_u64(model_usage, model_name, "context_window", "contextWindow")
+}
+
+fn extract_max_output_tokens(
+    model_usage: &serde_json::Value,
+    model_name: Option<&str>,
+) -> Option<u64> {
+    extract_model_usage_u64(
+        model_usage,
+        model_name,
+        "max_output_tokens",
+        "maxOutputTokens",
+    )
+}
+
+fn extract_model_usage_u64(
+    model_usage: &serde_json::Value,
+    model_name: Option<&str>,
+    snake_key: &str,
+    camel_key: &str,
+) -> Option<u64> {
+    let models = model_usage.as_object()?;
+
+    if let Some(model_name) = model_name
+        && let Some(value) = models
+            .get(model_name)
+            .and_then(|usage| usage_value(usage, snake_key, camel_key))
+    {
+        return Some(value);
+    }
+
+    models
+        .iter()
+        .filter_map(|(_, usage)| usage_value(usage, snake_key, camel_key))
+        .max()
+}
+
+fn usage_value(usage: &serde_json::Value, snake_key: &str, camel_key: &str) -> Option<u64> {
+    usage
+        .get(snake_key)
+        .or_else(|| usage.get(camel_key))
+        .and_then(|value| value.as_u64())
+}
+
+fn cost_usd_to_microusd(cost: f64) -> Option<u64> {
+    if cost >= 0.0 {
+        Some((cost * 1_000_000.0).round() as u64)
+    } else {
+        None
+    }
+}
+
+fn sum_usage_tokens(usage: &serde_json::Value) -> u64 {
+    [
+        "input_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+        "output_tokens",
+    ]
+    .iter()
+    .filter_map(|key| usage.get(*key).and_then(|value| value.as_u64()))
+    .sum()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,5 +914,331 @@ mod tests {
             "PostToolUseFailure"
         );
         assert_eq!(event_to_hook_event_name("session-end"), "SessionEnd");
+    }
+
+    #[test]
+    fn imports_assistant_message_and_token_usage_from_transcript_rows() {
+        let rows = vec![
+            r#"{"type":"assistant","timestamp":"2026-05-15T00:00:00Z","message":{"role":"assistant","content":[{"type":"text","text":"Done."}],"usage":{"input_tokens":10,"cache_creation_input_tokens":2,"cache_read_input_tokens":3,"output_tokens":4}}}"#.to_string()
+        ];
+
+        let entries = transcript_rows_to_entries(&rows, 200000);
+
+        assert!(entries.iter().any(|entry| matches!(
+            entry.entry_type,
+            executors::logs::NormalizedEntryType::AssistantMessage
+        ) && entry.content == "Done."));
+
+        assert!(entries.iter().any(|entry| matches!(
+            entry.entry_type,
+            executors::logs::NormalizedEntryType::TokenUsageInfo(_)
+        )));
+
+        assert!(entries.iter().all(|entry| {
+            entry
+                .metadata
+                .as_ref()
+                .is_none_or(|metadata| metadata.get("message").is_none())
+        }));
+    }
+
+    #[test]
+    fn skips_invalid_json_rows_and_prompt_echoes_without_failing_import() {
+        let rows = vec![
+            "not-json".to_string(),
+            r#"{"type":"user","message":{"role":"user","content":"hello"}}"#.to_string(),
+        ];
+
+        let entries = transcript_rows_to_entries(&rows, 200000);
+
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn imports_tool_use_and_updates_it_from_tool_result() {
+        let rows = vec![
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"cargo test -p local-deployment"}}]}}"#.to_string(),
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"ok","is_error":false}]}}"#.to_string(),
+        ];
+
+        let entries = transcript_rows_to_entries(&rows, 200000);
+
+        assert_eq!(entries.len(), 1);
+        let NormalizedEntryType::ToolUse {
+            tool_name,
+            action_type,
+            status,
+        } = &entries[0].entry_type
+        else {
+            panic!("expected tool use entry");
+        };
+
+        assert_eq!(tool_name, "Bash");
+        assert!(matches!(status, ToolStatus::Success));
+        let ActionType::CommandRun {
+            command, result, ..
+        } = action_type
+        else {
+            panic!("expected command run action");
+        };
+        assert_eq!(command, "cargo test -p local-deployment");
+        assert_eq!(
+            result.as_ref().and_then(|res| res.output.as_deref()),
+            Some("ok")
+        );
+    }
+
+    #[test]
+    fn imports_terminal_result_usage_fields() {
+        let rows = vec![
+            r#"{"type":"result","subtype":"success","total_cost_usd":0.000123,"num_turns":3,"duration_ms":4567,"usage":{"input_tokens":10,"cache_creation_input_tokens":2,"cache_read_input_tokens":3,"output_tokens":4},"modelUsage":{"claude-sonnet-4-5":{"context_window":200000,"max_output_tokens":32000}}}"#.to_string()
+        ];
+
+        let entries = transcript_rows_to_entries(&rows, 100000);
+
+        let Some(NormalizedEntry {
+            entry_type: NormalizedEntryType::TokenUsageInfo(usage),
+            ..
+        }) = entries.first()
+        else {
+            panic!("expected token usage entry");
+        };
+
+        assert_eq!(usage.total_tokens, 19);
+        assert_eq!(usage.model_context_window, 200000);
+        assert_eq!(usage.cost_microusd, Some(123));
+        assert_eq!(usage.num_turns, Some(3));
+        assert_eq!(usage.duration_ms, Some(4567));
+        assert_eq!(usage.max_output_tokens, Some(32000));
+    }
+
+    #[test]
+    fn tool_result_keeps_original_non_bash_action_data() {
+        let rows = vec![
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"/tmp/app.rs"}}]}}"#.to_string(),
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"file contents","is_error":false}]}}"#.to_string(),
+        ];
+
+        let entries = transcript_rows_to_entries_in_worktree(&rows, 200000, "/tmp");
+
+        let NormalizedEntryType::ToolUse {
+            tool_name,
+            action_type,
+            status,
+        } = &entries[0].entry_type
+        else {
+            panic!("expected tool use entry");
+        };
+        assert!(matches!(status, ToolStatus::Success));
+        assert_eq!(tool_name, "Read");
+        assert_eq!(entries[0].content, "Read app.rs");
+        assert!(matches!(
+            action_type,
+            ActionType::FileRead { path } if path == "app.rs"
+        ));
+    }
+
+    #[test]
+    fn result_row_does_not_duplicate_last_assistant_message() {
+        let rows = vec![
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Done."}]}}"#.to_string(),
+            r#"{"type":"result","subtype":"success","result":"Done.","usage":{"input_tokens":1,"output_tokens":1}}"#.to_string(),
+        ];
+
+        let entries = transcript_rows_to_entries(&rows, 200000);
+        let assistant_count = entries
+            .iter()
+            .filter(|entry| matches!(entry.entry_type, NormalizedEntryType::AssistantMessage))
+            .count();
+
+        assert_eq!(assistant_count, 1);
+    }
+
+    #[test]
+    fn bash_tool_result_parses_exit_code_payload() {
+        let rows = vec![
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"false"}}]}}"#.to_string(),
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"{\"output\":\"failed\\n\",\"exitCode\":1}"}]}}"#.to_string(),
+        ];
+
+        let entries = transcript_rows_to_entries(&rows, 200000);
+        let NormalizedEntryType::ToolUse {
+            action_type,
+            status,
+            ..
+        } = &entries[0].entry_type
+        else {
+            panic!("expected tool use entry");
+        };
+        assert!(matches!(status, ToolStatus::Failed));
+        let ActionType::CommandRun { result, .. } = action_type else {
+            panic!("expected command action");
+        };
+        assert!(matches!(
+            result.as_ref().and_then(|res| res.exit_status.as_ref()),
+            Some(CommandExitStatus::ExitCode { code: 1 })
+        ));
+        assert_eq!(
+            result.as_ref().and_then(|res| res.output.as_deref()),
+            Some("failed\n")
+        );
+    }
+
+    #[test]
+    fn imports_camel_case_terminal_result_usage_fields() {
+        let rows = vec![
+            r#"{"type":"result","subtype":"success","totalCostUsd":0.000456,"numTurns":4,"durationMs":7890,"usage":{"input_tokens":10,"output_tokens":5},"modelUsage":{"claude-sonnet-4-5":{"contextWindow":200000,"maxOutputTokens":32000}}}"#.to_string()
+        ];
+
+        let entries = transcript_rows_to_entries(&rows, 100000);
+        let Some(NormalizedEntry {
+            entry_type: NormalizedEntryType::TokenUsageInfo(usage),
+            ..
+        }) = entries.first()
+        else {
+            panic!("expected token usage entry");
+        };
+
+        assert_eq!(usage.cost_microusd, Some(456));
+        assert_eq!(usage.num_turns, Some(4));
+        assert_eq!(usage.duration_ms, Some(7890));
+        assert_eq!(usage.model_context_window, 200000);
+        assert_eq!(usage.max_output_tokens, Some(32000));
+    }
+
+    #[test]
+    fn result_model_usage_prefers_tracked_assistant_model() {
+        let rows = vec![
+            r#"{"type":"assistant","message":{"role":"assistant","model":"claude-main","content":[{"type":"text","text":"Done."}]}}"#.to_string(),
+            r#"{"type":"result","subtype":"success","usage":{"input_tokens":10,"output_tokens":5},"modelUsage":{"claude-subagent":{"contextWindow":100000,"maxOutputTokens":16000},"claude-main":{"contextWindow":200000,"maxOutputTokens":32000}}}"#.to_string(),
+        ];
+
+        let entries = transcript_rows_to_entries(&rows, 50000);
+        let usage = entries
+            .iter()
+            .find_map(|entry| match &entry.entry_type {
+                NormalizedEntryType::TokenUsageInfo(usage) => Some(usage),
+                _ => None,
+            })
+            .expect("expected token usage");
+
+        assert_eq!(usage.model_context_window, 200000);
+        assert_eq!(usage.max_output_tokens, Some(32000));
+    }
+
+    #[test]
+    fn lowercase_alias_tool_names_use_canonical_label_and_content() {
+        let rows = vec![
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"bash","input":{"command":"echo hi"}}]}}"#.to_string(),
+        ];
+
+        let entries = transcript_rows_to_entries(&rows, 200000);
+        let NormalizedEntryType::ToolUse {
+            tool_name,
+            action_type,
+            ..
+        } = &entries[0].entry_type
+        else {
+            panic!("expected tool use entry");
+        };
+
+        assert_eq!(tool_name, "Bash");
+        assert_eq!(entries[0].content, "echo hi");
+        assert!(matches!(
+            action_type,
+            ActionType::CommandRun { command, .. } if command == "echo hi"
+        ));
+    }
+
+    #[test]
+    fn generic_tool_result_preserves_json_payloads() {
+        let rows = vec![
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"mcp__server__lookup","input":{"id":"123"}}]}}"#.to_string(),
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"{\"ok\":true}"}]}}"#.to_string(),
+        ];
+
+        let entries = transcript_rows_to_entries(&rows, 200000);
+        let NormalizedEntryType::ToolUse { action_type, .. } = &entries[0].entry_type else {
+            panic!("expected tool use entry");
+        };
+        let ActionType::Tool { result, .. } = action_type else {
+            panic!("expected generic tool action");
+        };
+        let result = result.as_ref().expect("expected result");
+        assert!(matches!(result.r#type, ToolResultValueType::Json));
+        assert_eq!(result.value, serde_json::json!({"ok": true}));
+    }
+
+    #[test]
+    fn imports_file_edit_and_write_changes() {
+        let rows = vec![
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Edit","input":{"file_path":"/repo/src/lib.rs","old_string":"old","new_string":"new"}},{"type":"tool_use","id":"toolu_2","name":"Write","input":{"file_path":"/repo/src/new.rs","content":"hello"}}]}}"#.to_string(),
+        ];
+
+        let entries = transcript_rows_to_entries_in_worktree(&rows, 200000, "/repo");
+
+        let NormalizedEntryType::ToolUse {
+            action_type: edit_action,
+            ..
+        } = &entries[0].entry_type
+        else {
+            panic!("expected edit tool");
+        };
+        assert!(matches!(
+            edit_action,
+            ActionType::FileEdit { path, changes } if path == "src/lib.rs"
+                && matches!(changes.first(), Some(FileChange::Edit { unified_diff, .. }) if unified_diff.contains("-old") && unified_diff.contains("+new"))
+        ));
+
+        let NormalizedEntryType::ToolUse {
+            action_type: write_action,
+            ..
+        } = &entries[1].entry_type
+        else {
+            panic!("expected write tool");
+        };
+        assert!(matches!(
+            write_action,
+            ActionType::FileEdit { path, changes } if path == "src/new.rs"
+                && matches!(changes.first(), Some(FileChange::Write { content }) if content == "hello")
+        ));
+    }
+
+    #[test]
+    fn imports_todo_plan_question_and_web_search_tool_shapes() {
+        let rows = vec![
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"TodoWrite","input":{"todos":[{"content":"ship it","status":"in_progress","priority":"high"}]}},{"type":"tool_use","id":"toolu_2","name":"ExitPlanMode","input":{"plan":"do it"}},{"type":"tool_use","id":"toolu_3","name":"AskUserQuestion","input":{"questions":[{"question":"Proceed?","header":"Confirm","multiSelect":false,"options":[{"label":"Yes","description":"Continue"}]}]}},{"type":"tool_use","id":"toolu_4","name":"web_search","input":{"query":"Claude hooks"}}]}}"#.to_string(),
+        ];
+
+        let entries = transcript_rows_to_entries(&rows, 200000);
+
+        assert!(matches!(
+            &entries[0].entry_type,
+            NormalizedEntryType::ToolUse {
+                action_type: ActionType::TodoManagement { todos, operation },
+                ..
+            } if operation == "write" && todos.len() == 1 && todos[0].content == "ship it"
+        ));
+        assert!(matches!(
+            &entries[1].entry_type,
+            NormalizedEntryType::ToolUse {
+                action_type: ActionType::PlanPresentation { plan },
+                ..
+            } if plan == "do it"
+        ));
+        assert!(matches!(
+            &entries[2].entry_type,
+            NormalizedEntryType::ToolUse {
+                action_type: ActionType::AskUserQuestion { questions },
+                ..
+            } if questions.len() == 1 && questions[0].question == "Proceed?"
+        ));
+        assert!(matches!(
+            &entries[3].entry_type,
+            NormalizedEntryType::ToolUse {
+                action_type: ActionType::WebFetch { url },
+                ..
+            } if url == "Claude hooks"
+        ));
     }
 }
