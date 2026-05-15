@@ -7,6 +7,11 @@
         }
       }
     },
+    "CLAUDE_TERMINAL": {
+      "DEFAULT": {
+        "CLAUDE_TERMINAL": {}
+      }
+    },
     "AMP": {
       "DEFAULT": {
         "AMP": {

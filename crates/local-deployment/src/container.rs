@@ -12,6 +12,7 @@ use command_group::AsyncGroupChild;
 use db::{
     DBService,
     models::{
+        claude_terminal_session::ClaudeTerminalSession,
         coding_agent_turn::CodingAgentTurn,
         execution_process::{
             ExecutionContext, ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus,
@@ -70,9 +71,10 @@ use uuid::Uuid;
 use workspace_manager::{RepoWorkspaceInput, WorkspaceError, WorkspaceManager};
 
 use crate::{
+    claude_hooks::ClaudeTerminalHookState,
     claude_terminal::{
         ClaudeTerminalStartRequest, kill_tmux_session_if_exists,
-        start_or_resume as start_claude_terminal, tmux_session_exists,
+        start_or_resume as start_claude_terminal, tmux_session_exists, tmux_session_name,
     },
     command, copy,
 };
@@ -1932,9 +1934,47 @@ impl ContainerService for LocalContainerService {
                         ))
                     })?;
             let monitor_env = env.clone().with_profile(&request.executor.cmd);
-            let result = start_claude_terminal(request, &env)
+            let resume_transcript_offset =
+                if let Some(resume_session_id) = request.resume_session_id.as_deref() {
+                    ClaudeTerminalSession::find_latest_for_workspace_session(
+                        &self.db.pool,
+                        workspace.id,
+                        resume_session_id,
+                    )
+                    .await
+                    .map_err(ContainerError::Sqlx)?
+                    .and_then(|session| {
+                        (session.transcript_offset > 0).then_some(session.transcript_offset)
+                    })
+                } else {
+                    None
+                };
+            if let Some(transcript_offset) = resume_transcript_offset {
+                ClaudeTerminalSession::upsert_start_metadata(
+                    &self.db.pool,
+                    execution_process.id,
+                    workspace.id,
+                    &tmux_session_name(execution_process.id),
+                    request.resume_session_id.as_deref(),
+                    transcript_offset,
+                )
                 .await
-                .map_err(map_claude_terminal_start_error)?;
+                .map_err(ContainerError::Sqlx)?;
+                self.claude_terminal_hooks.write().await.insert(
+                    execution_process.id,
+                    ClaudeTerminalHookState::with_transcript_offset(transcript_offset),
+                );
+            }
+            let result = match start_claude_terminal(request, &env).await {
+                Ok(result) => result,
+                Err(err) => {
+                    self.claude_terminal_hooks
+                        .write()
+                        .await
+                        .remove(&execution_process.id);
+                    return Err(map_claude_terminal_start_error(err));
+                }
+            };
             tracing::info!(
                 execution_id = %execution_process.id,
                 tmux_session = %result.session_name,

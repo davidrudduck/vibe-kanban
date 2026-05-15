@@ -18,6 +18,47 @@ pub struct ClaudeTerminalSession {
 }
 
 impl ClaudeTerminalSession {
+    pub async fn upsert_start_metadata(
+        pool: &SqlitePool,
+        execution_process_id: Uuid,
+        workspace_id: Uuid,
+        tmux_session_name: &str,
+        claude_session_id: Option<&str>,
+        transcript_offset: i64,
+    ) -> Result<(), sqlx::Error> {
+        let now = Utc::now();
+        sqlx::query(
+            r#"
+            INSERT INTO claude_terminal_sessions (
+                execution_process_id,
+                workspace_id,
+                tmux_session_name,
+                claude_session_id,
+                transcript_offset,
+                created_at,
+                updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
+            ON CONFLICT(execution_process_id) DO UPDATE SET
+                workspace_id = excluded.workspace_id,
+                tmux_session_name = excluded.tmux_session_name,
+                claude_session_id = COALESCE(excluded.claude_session_id, claude_terminal_sessions.claude_session_id),
+                transcript_offset = excluded.transcript_offset,
+                updated_at = excluded.updated_at
+            "#,
+        )
+        .bind(execution_process_id)
+        .bind(workspace_id)
+        .bind(tmux_session_name)
+        .bind(claude_session_id)
+        .bind(transcript_offset.max(0))
+        .bind(now)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
     pub async fn upsert_from_hook(
         pool: &SqlitePool,
         execution_process_id: Uuid,
@@ -109,6 +150,60 @@ impl ClaudeTerminalSession {
             "#,
             workspace_id
         )
+        .fetch_optional(pool)
+        .await
+    }
+
+    pub async fn find_latest_for_workspace_session(
+        pool: &SqlitePool,
+        workspace_id: Uuid,
+        claude_session_id: &str,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        sqlx::query_as::<_, ClaudeTerminalSession>(
+            r#"
+            SELECT
+                execution_process_id,
+                workspace_id,
+                tmux_session_name,
+                claude_session_id,
+                transcript_path,
+                transcript_offset,
+                cwd,
+                created_at,
+                updated_at
+            FROM claude_terminal_sessions
+            WHERE workspace_id = ?1 AND claude_session_id = ?2
+            ORDER BY updated_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(workspace_id)
+        .bind(claude_session_id)
+        .fetch_optional(pool)
+        .await
+    }
+
+    pub async fn find_by_execution_process(
+        pool: &SqlitePool,
+        execution_process_id: Uuid,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        sqlx::query_as::<_, ClaudeTerminalSession>(
+            r#"
+            SELECT
+                execution_process_id,
+                workspace_id,
+                tmux_session_name,
+                claude_session_id,
+                transcript_path,
+                transcript_offset,
+                cwd,
+                created_at,
+                updated_at
+            FROM claude_terminal_sessions
+            WHERE execution_process_id = ?1
+            "#,
+        )
+        .bind(execution_process_id)
         .fetch_optional(pool)
         .await
     }
@@ -223,5 +318,96 @@ mod tests {
             Some("claude-session-1")
         );
         assert_eq!(session.transcript_offset, 42);
+    }
+
+    #[tokio::test]
+    async fn start_metadata_seeds_resume_transcript_offset() {
+        let pool = setup_pool().await;
+        let execution_id = Uuid::new_v4();
+        let workspace_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO execution_processes (id) VALUES (?)")
+            .bind(execution_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO workspaces (id) VALUES (?)")
+            .bind(workspace_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        ClaudeTerminalSession::upsert_start_metadata(
+            &pool,
+            execution_id,
+            workspace_id,
+            "vk-claude-test",
+            Some("claude-session-1"),
+            123,
+        )
+        .await
+        .unwrap();
+
+        let session = ClaudeTerminalSession::find_by_execution_process(&pool, execution_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(session.transcript_offset, 123);
+        assert_eq!(
+            session.claude_session_id.as_deref(),
+            Some("claude-session-1")
+        );
+    }
+
+    #[tokio::test]
+    async fn find_latest_for_workspace_session_uses_explicit_claude_session_id() {
+        let pool = setup_pool().await;
+        let workspace_id = Uuid::new_v4();
+        let target_execution_id = Uuid::new_v4();
+        let other_execution_id = Uuid::new_v4();
+        for execution_id in [target_execution_id, other_execution_id] {
+            sqlx::query("INSERT INTO execution_processes (id) VALUES (?)")
+                .bind(execution_id)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        sqlx::query("INSERT INTO workspaces (id) VALUES (?)")
+            .bind(workspace_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        ClaudeTerminalSession::upsert_start_metadata(
+            &pool,
+            target_execution_id,
+            workspace_id,
+            "vk-claude-target",
+            Some("claude-session-target"),
+            123,
+        )
+        .await
+        .unwrap();
+        ClaudeTerminalSession::upsert_start_metadata(
+            &pool,
+            other_execution_id,
+            workspace_id,
+            "vk-claude-other",
+            Some("claude-session-other"),
+            456,
+        )
+        .await
+        .unwrap();
+
+        let session = ClaudeTerminalSession::find_latest_for_workspace_session(
+            &pool,
+            workspace_id,
+            "claude-session-target",
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(session.execution_process_id, target_execution_id);
+        assert_eq!(session.transcript_offset, 123);
     }
 }

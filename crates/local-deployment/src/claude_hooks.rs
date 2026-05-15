@@ -24,9 +24,19 @@ pub struct ClaudeTerminalHookState {
     transcript_bytes_read: usize,
     pending_fragment: String,
     entry_count: usize,
+    entry_index_base: usize,
     transcript_import: Option<TranscriptImportState>,
     session_id: Option<String>,
     completed: bool,
+}
+
+impl ClaudeTerminalHookState {
+    pub fn with_transcript_offset(transcript_offset: i64) -> Self {
+        Self {
+            transcript_bytes_read: usize::try_from(transcript_offset.max(0)).unwrap_or(usize::MAX),
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,94 +94,78 @@ impl LocalDeployment {
         };
 
         if let Some(msg_store) = msg_store {
-            let mut state = {
-                let mut states = self.claude_terminal_hooks.write().await;
-                states.remove(&execution_id).unwrap_or_default()
+            let persisted_transcript_offset =
+                ClaudeTerminalSession::find_by_execution_process(&self.db.pool, execution_id)
+                    .await?
+                    .map(|session| session.transcript_offset)
+                    .unwrap_or_default();
+            let mut terminal_completion = None;
+            let terminal_status = terminal_status_from_hook(&payload);
+            let current_status = if terminal_status.is_some() {
+                ExecutionProcess::find_by_id(&self.db.pool, execution_id).await?
+            } else {
+                None
             };
 
-            if state.session_id.as_deref() != Some(payload.session_id.as_str()) {
-                msg_store.push_session_id(payload.session_id.clone());
-                state.session_id = Some(payload.session_id.clone());
-            }
-
-            if let Some(transcript_path) = payload.transcript_path.as_deref() {
-                let transcript_offset = match ingest_transcript_delta(
-                    &msg_store,
-                    &mut state,
-                    &payload,
-                    transcript_path,
-                )
-                .await
-                {
-                    Ok(offset) => offset,
-                    Err(err) => {
-                        self.claude_terminal_hooks
-                            .write()
-                            .await
-                            .insert(execution_id, state);
-                        return Err(err);
-                    }
-                };
-                if let Err(err) = ClaudeTerminalSession::update_transcript_offset(
-                    &self.db.pool,
-                    execution_id,
-                    i64::try_from(transcript_offset).unwrap_or(i64::MAX),
-                )
-                .await
-                {
-                    self.claude_terminal_hooks
-                        .write()
-                        .await
-                        .insert(execution_id, state);
-                    return Err(err.into());
-                }
-            }
-
-            let terminal_status = terminal_status_from_hook(&payload);
-            let mut remove_state = false;
-
-            if let Some(status) = terminal_status
-                && !state.completed
-            {
-                let current_status =
-                    ExecutionProcess::find_by_id(&self.db.pool, execution_id).await?;
-                if !matches!(
+            if terminal_status.is_some()
+                && !matches!(
                     current_status.as_ref().map(|process| &process.status),
                     Some(ExecutionProcessStatus::Running)
-                ) {
+                )
+            {
+                return Ok(());
+            }
+
+            {
+                let mut states = self.claude_terminal_hooks.write().await;
+                let state = states.entry(execution_id).or_insert_with(|| {
+                    ClaudeTerminalHookState::with_transcript_offset(persisted_transcript_offset)
+                });
+
+                if state.session_id.as_deref() != Some(payload.session_id.as_str()) {
+                    msg_store.push_session_id(payload.session_id.clone());
+                    state.session_id = Some(payload.session_id.clone());
+                }
+
+                if let Some(transcript_path) = payload.transcript_path.as_deref() {
+                    let transcript_offset =
+                        ingest_transcript_delta(&msg_store, state, &payload, transcript_path)
+                            .await?;
+                    ClaudeTerminalSession::update_transcript_offset(
+                        &self.db.pool,
+                        execution_id,
+                        i64::try_from(transcript_offset).unwrap_or(i64::MAX),
+                    )
+                    .await?;
+                }
+
+                if let Some(status) = terminal_status
+                    && !state.completed
+                {
                     state.completed = true;
-                    remove_state = true;
-                } else {
-                    state.completed = true;
-                    let exit_code = if status == ExecutionProcessStatus::Completed {
-                        Some(0)
-                    } else {
-                        None
-                    };
-                    self.container.disable_terminal_monitor(execution_id).await;
-                    if let Err(err) = self
-                        .container
-                        .terminate_terminal_execution_session(execution_id)
-                        .await
-                    {
-                        self.claude_terminal_hooks
-                            .write()
-                            .await
-                            .insert(execution_id, state);
-                        return Err(err.into());
+
+                    if matches!(
+                        current_status.as_ref().map(|process| &process.status),
+                        Some(ExecutionProcessStatus::Running)
+                    ) {
+                        let exit_code = if status == ExecutionProcessStatus::Completed {
+                            Some(0)
+                        } else {
+                            None
+                        };
+                        terminal_completion = Some((status, exit_code));
                     }
-                    self.container
-                        .complete_terminal_execution(execution_id, status, exit_code)
-                        .await?;
-                    remove_state = true;
                 }
             }
 
-            if !remove_state {
-                self.claude_terminal_hooks
-                    .write()
-                    .await
-                    .insert(execution_id, state);
+            if let Some((status, exit_code)) = terminal_completion {
+                self.container.disable_terminal_monitor(execution_id).await;
+                self.container
+                    .terminate_terminal_execution_session(execution_id)
+                    .await?;
+                self.container
+                    .complete_terminal_execution(execution_id, status, exit_code)
+                    .await?;
             }
         }
 
@@ -212,6 +206,7 @@ impl LocalDeployment {
 fn terminal_status_from_hook(payload: &ClaudeHookPayload) -> Option<ExecutionProcessStatus> {
     match payload.hook_event_name.as_str() {
         "Stop" => Some(ExecutionProcessStatus::Completed),
+        "SessionEnd" => Some(ExecutionProcessStatus::Completed),
         "StopFailure" => Some(ExecutionProcessStatus::Failed),
         _ => None,
     }
@@ -225,9 +220,9 @@ async fn ingest_transcript_delta(
 ) -> anyhow::Result<usize> {
     let transcript = fs::read_to_string(transcript_path).await?;
     if transcript.len() < state.transcript_bytes_read {
+        state.entry_index_base = state.entry_count;
         state.transcript_bytes_read = 0;
         state.pending_fragment.clear();
-        state.entry_count = 0;
         state.transcript_import = None;
     }
 
@@ -276,15 +271,16 @@ async fn ingest_transcript_delta(
     }
 
     for (index, entry) in import_state.entries.iter().cloned().enumerate() {
+        let patch_index = state.entry_index_base + index;
         if let Some(previous) = previous_entries.get(index) {
             if normalized_entry_json(previous) != normalized_entry_json(&entry) {
-                msg_store.push_patch(ConversationPatch::replace(index, entry));
+                msg_store.push_patch(ConversationPatch::replace(patch_index, entry));
             }
         } else {
-            msg_store.push_patch(ConversationPatch::add_normalized_entry(index, entry));
+            msg_store.push_patch(ConversationPatch::add_normalized_entry(patch_index, entry));
         }
     }
-    state.entry_count = import_state.entries.len();
+    state.entry_count = state.entry_index_base + import_state.entries.len();
 
     Ok(durable_transcript_offset)
 }
@@ -1150,7 +1146,7 @@ mod tests {
     }
 
     #[test]
-    fn session_end_hook_does_not_complete_terminal_execution() {
+    fn session_end_hook_completes_terminal_execution() {
         let payload: ClaudeHookPayload = serde_json::from_value(serde_json::json!({
             "session_id": "claude-session-123",
             "hook_event_name": "SessionEnd",
@@ -1158,7 +1154,10 @@ mod tests {
         }))
         .unwrap();
 
-        assert!(terminal_status_from_hook(&payload).is_none());
+        assert_eq!(
+            terminal_status_from_hook(&payload),
+            Some(ExecutionProcessStatus::Completed)
+        );
     }
 
     #[test]
@@ -1519,6 +1518,123 @@ mod tests {
         assert_eq!(offset, complete_row.len());
         assert_eq!(state.transcript_bytes_read, still_partial.len());
         assert_eq!(state.entry_count, 1);
+    }
+
+    #[tokio::test]
+    async fn transcript_delta_seeded_offset_skips_previous_resume_rows() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let transcript_path = tempdir.path().join("transcript.jsonl");
+        let store = std::sync::Arc::new(utils::msg_store::MsgStore::new());
+        let payload: ClaudeHookPayload = serde_json::from_value(serde_json::json!({
+            "session_id": "claude-session-123",
+            "hook_event_name": "PostToolUse",
+            "cwd": "/tmp"
+        }))
+        .unwrap();
+        let previous_row = concat!(
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"old"}]}}"#,
+            "\n"
+        );
+        let new_row = concat!(
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"new"}]}}"#,
+            "\n"
+        );
+        let mut state = ClaudeTerminalHookState::with_transcript_offset(previous_row.len() as i64);
+
+        tokio::fs::write(&transcript_path, format!("{previous_row}{new_row}"))
+            .await
+            .unwrap();
+        ingest_transcript_delta(
+            &store,
+            &mut state,
+            &payload,
+            transcript_path.to_str().unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let history = store.get_history();
+        assert_eq!(history.len(), 1);
+        assert!(matches!(
+            &history[0],
+            utils::log_msg::LogMsg::JsonPatch(patch)
+                if serde_json::to_value(patch).unwrap()[0]["value"]["content"]["content"] == "new"
+        ));
+    }
+
+    #[tokio::test]
+    async fn transcript_delta_rewind_appends_after_current_execution_entries() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let transcript_path = tempdir.path().join("transcript.jsonl");
+        let store = std::sync::Arc::new(utils::msg_store::MsgStore::new());
+        let payload: ClaudeHookPayload = serde_json::from_value(serde_json::json!({
+            "session_id": "claude-session-123",
+            "hook_event_name": "PostToolUse",
+            "cwd": "/tmp"
+        }))
+        .unwrap();
+        let first_row = concat!(
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"first"}]}}"#,
+            "\n"
+        );
+        let rewound_row = concat!(
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"after rewind"}]}}"#,
+            "\n"
+        );
+        let post_rewind_row = concat!(
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"post rewind"}]}}"#,
+            "\n"
+        );
+        let mut state = ClaudeTerminalHookState::default();
+
+        tokio::fs::write(&transcript_path, first_row).await.unwrap();
+        ingest_transcript_delta(
+            &store,
+            &mut state,
+            &payload,
+            transcript_path.to_str().unwrap(),
+        )
+        .await
+        .unwrap();
+        state.transcript_bytes_read = first_row.len() + 100;
+
+        tokio::fs::write(&transcript_path, rewound_row)
+            .await
+            .unwrap();
+        ingest_transcript_delta(
+            &store,
+            &mut state,
+            &payload,
+            transcript_path.to_str().unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let history = store.get_history();
+        assert!(matches!(
+            &history[1],
+            utils::log_msg::LogMsg::JsonPatch(patch)
+                if serde_json::to_value(patch).unwrap()[0]["path"] == "/entries/1"
+        ));
+
+        tokio::fs::write(&transcript_path, format!("{rewound_row}{post_rewind_row}"))
+            .await
+            .unwrap();
+        ingest_transcript_delta(
+            &store,
+            &mut state,
+            &payload,
+            transcript_path.to_str().unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let history = store.get_history();
+        assert!(matches!(
+            &history[2],
+            utils::log_msg::LogMsg::JsonPatch(patch)
+                if serde_json::to_value(patch).unwrap()[0]["path"] == "/entries/2"
+        ));
     }
 
     #[tokio::test]
