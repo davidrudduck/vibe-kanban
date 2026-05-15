@@ -26,6 +26,8 @@ pub struct ClaudeTerminalHookState {
     entry_count: usize,
     entry_index_base: usize,
     transcript_import: Option<TranscriptImportState>,
+    transcript_path: Option<String>,
+    transcript_states: HashMap<String, TranscriptPathState>,
     session_id: Option<String>,
     completed: bool,
 }
@@ -36,6 +38,48 @@ impl ClaudeTerminalHookState {
             transcript_bytes_read: usize::try_from(transcript_offset.max(0)).unwrap_or(usize::MAX),
             ..Self::default()
         }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct TranscriptPathState {
+    transcript_bytes_read: usize,
+    pending_fragment: String,
+}
+
+impl TranscriptPathState {
+    fn from_active(state: &ClaudeTerminalHookState) -> Self {
+        Self {
+            transcript_bytes_read: state.transcript_bytes_read,
+            pending_fragment: state.pending_fragment.clone(),
+        }
+    }
+}
+
+impl ClaudeTerminalHookState {
+    fn activate_transcript_path(&mut self, transcript_path: &str) {
+        if self.transcript_path.as_deref() == Some(transcript_path) {
+            return;
+        }
+
+        if let Some(previous_path) = self.transcript_path.clone() {
+            self.transcript_states
+                .insert(previous_path, TranscriptPathState::from_active(self));
+        } else {
+            self.transcript_path = Some(transcript_path.to_string());
+            return;
+        }
+
+        let next_state = self
+            .transcript_states
+            .remove(transcript_path)
+            .unwrap_or_default();
+
+        self.transcript_path = Some(transcript_path.to_string());
+        self.transcript_bytes_read = next_state.transcript_bytes_read;
+        self.pending_fragment = next_state.pending_fragment;
+        self.entry_index_base = self.entry_count;
+        self.transcript_import = None;
     }
 }
 
@@ -227,6 +271,8 @@ async fn ingest_transcript_delta(
     payload: &ClaudeHookPayload,
     transcript_path: &str,
 ) -> anyhow::Result<usize> {
+    state.activate_transcript_path(transcript_path);
+
     let transcript = fs::read_to_string(transcript_path).await?;
     if transcript.len() < state.transcript_bytes_read {
         state.entry_index_base = state.entry_count;
@@ -1583,6 +1629,78 @@ mod tests {
             utils::log_msg::LogMsg::JsonPatch(patch)
                 if serde_json::to_value(patch).unwrap()[0]["value"]["content"]["content"] == "new"
         ));
+    }
+
+    #[tokio::test]
+    async fn transcript_delta_resets_offset_when_transcript_path_changes() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let first_path = tempdir.path().join("first.jsonl");
+        let second_path = tempdir.path().join("second.jsonl");
+        let store = std::sync::Arc::new(utils::msg_store::MsgStore::new());
+        let payload: ClaudeHookPayload = serde_json::from_value(serde_json::json!({
+            "session_id": "claude-session-123",
+            "hook_event_name": "PostToolUse",
+            "cwd": "/tmp"
+        }))
+        .unwrap();
+        let first_row = concat!(
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"first"}]}}"#,
+            "\n"
+        );
+        let second_old_row = concat!(
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"second old"}]}}"#,
+            "\n"
+        );
+        let second_new_row = concat!(
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"second new"}]}}"#,
+            "\n"
+        );
+        let first_new_row = concat!(
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"first new"}]}}"#,
+            "\n"
+        );
+        let mut state = ClaudeTerminalHookState::default();
+
+        tokio::fs::write(&first_path, first_row).await.unwrap();
+        ingest_transcript_delta(&store, &mut state, &payload, first_path.to_str().unwrap())
+            .await
+            .unwrap();
+
+        tokio::fs::write(&second_path, format!("{second_old_row}{second_new_row}"))
+            .await
+            .unwrap();
+        ingest_transcript_delta(&store, &mut state, &payload, second_path.to_str().unwrap())
+            .await
+            .unwrap();
+
+        tokio::fs::write(&first_path, format!("{first_row}{first_new_row}"))
+            .await
+            .unwrap();
+        ingest_transcript_delta(&store, &mut state, &payload, first_path.to_str().unwrap())
+            .await
+            .unwrap();
+
+        let contents = store
+            .get_history()
+            .into_iter()
+            .filter_map(|msg| match msg {
+                utils::log_msg::LogMsg::JsonPatch(patch) => {
+                    Some(serde_json::to_value(patch).unwrap())
+                }
+                _ => None,
+            })
+            .map(|value| value[0]["value"]["content"]["content"].clone())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            contents,
+            vec![
+                serde_json::json!("first"),
+                serde_json::json!("second old"),
+                serde_json::json!("second new"),
+                serde_json::json!("first new"),
+            ]
+        );
     }
 
     #[tokio::test]
