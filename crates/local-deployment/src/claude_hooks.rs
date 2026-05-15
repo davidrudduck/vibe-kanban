@@ -206,10 +206,19 @@ impl LocalDeployment {
 fn terminal_status_from_hook(payload: &ClaudeHookPayload) -> Option<ExecutionProcessStatus> {
     match payload.hook_event_name.as_str() {
         "Stop" => Some(ExecutionProcessStatus::Completed),
-        "SessionEnd" => Some(ExecutionProcessStatus::Completed),
+        "SessionEnd" if session_end_finishes_terminal_execution(payload) => {
+            Some(ExecutionProcessStatus::Completed)
+        }
         "StopFailure" => Some(ExecutionProcessStatus::Failed),
         _ => None,
     }
+}
+
+fn session_end_finishes_terminal_execution(payload: &ClaudeHookPayload) -> bool {
+    !matches!(
+        payload.extra.get("reason").and_then(|value| value.as_str()),
+        Some("clear" | "resume")
+    )
 }
 
 async fn ingest_transcript_delta(
@@ -1158,6 +1167,20 @@ mod tests {
             terminal_status_from_hook(&payload),
             Some(ExecutionProcessStatus::Completed)
         );
+    }
+
+    #[test]
+    fn session_end_for_interactive_session_switch_does_not_complete_execution() {
+        for reason in ["clear", "resume"] {
+            let payload: ClaudeHookPayload = serde_json::from_value(serde_json::json!({
+                "session_id": "claude-session-123",
+                "hook_event_name": "SessionEnd",
+                "reason": reason
+            }))
+            .unwrap();
+
+            assert_eq!(terminal_status_from_hook(&payload), None);
+        }
     }
 
     #[test]
