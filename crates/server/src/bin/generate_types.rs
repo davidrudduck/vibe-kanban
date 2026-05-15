@@ -248,6 +248,8 @@ fn generate_types_content() -> String {
         executors::executors::BaseAgentCapability::decl(),
         executors::executors::claude::ClaudeEffort::decl(),
         executors::executors::claude::ClaudeCode::decl(),
+        executors::executors::claude_terminal::ClaudeTerminal::decl(),
+        executors::executors::claude_terminal::ClaudeTerminalSettingsMergeMode::decl(),
         executors::executors::gemini::Gemini::decl(),
         executors::executors::amp::Amp::decl(),
         executors::executors::codex::Codex::decl(),
@@ -359,6 +361,10 @@ fn generate_schemas() -> Result<HashMap<&'static str, String>, serde_json::Error
         (
             "claude_code",
             generate_json_schema::<executors::executors::claude::ClaudeCode>()?,
+        ),
+        (
+            "claude_terminal",
+            generate_json_schema::<executors::executors::claude_terminal::ClaudeTerminal>()?,
         ),
         (
             "gemini",

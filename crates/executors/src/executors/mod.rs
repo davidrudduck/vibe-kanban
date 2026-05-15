@@ -24,6 +24,7 @@ use crate::{
     executors::{
         amp::Amp,
         claude::{ClaudeCode, protocol::ProtocolPeer},
+        claude_terminal::ClaudeTerminal,
         codex::Codex,
         copilot::Copilot,
         cursor::CursorAgent,
@@ -40,6 +41,7 @@ use crate::{
 pub mod acp;
 pub mod amp;
 pub mod claude;
+pub mod claude_terminal;
 pub mod codex;
 pub mod copilot;
 pub mod cursor;
@@ -117,6 +119,7 @@ pub enum ExecutorError {
 )]
 pub enum CodingAgent {
     ClaudeCode,
+    ClaudeTerminal,
     Amp,
     Gemini,
     Codex,
@@ -189,6 +192,7 @@ impl CodingAgent {
                 BaseAgentCapability::SessionFork,
                 BaseAgentCapability::ContextUsage,
             ],
+            Self::ClaudeTerminal(_) => vec![],
             Self::Opencode(_) => vec![
                 BaseAgentCapability::SessionFork,
                 BaseAgentCapability::ContextUsage,
