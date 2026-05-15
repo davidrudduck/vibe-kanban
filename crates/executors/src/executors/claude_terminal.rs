@@ -67,6 +67,13 @@ impl ClaudeTerminal {
             args.extend(["--resume".to_string(), session_id.to_string()]);
         }
 
+        if matches!(
+            self.settings_merge_mode,
+            Some(ClaudeTerminalSettingsMergeMode::VibeOnly)
+        ) {
+            args.extend(["--setting-sources".to_string(), String::new()]);
+        }
+
         ClaudeTerminalCommand {
             program: "claude".to_string(),
             args,
@@ -175,6 +182,22 @@ mod tests {
                 .args
                 .windows(2)
                 .any(|pair| { pair == ["--resume".to_string(), "abc-session".to_string()] })
+        );
+    }
+
+    #[test]
+    fn vibe_only_command_disables_file_based_setting_sources() {
+        let executor = ClaudeTerminal {
+            settings_merge_mode: Some(ClaudeTerminalSettingsMergeMode::VibeOnly),
+            ..ClaudeTerminal::default()
+        };
+        let command = executor.build_cli_args("settings.json", None);
+
+        assert!(
+            command
+                .args
+                .windows(2)
+                .any(|pair| { pair == ["--setting-sources".to_string(), String::new()] })
         );
     }
 }

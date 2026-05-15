@@ -34,13 +34,15 @@ use executors::{
     approvals::{ExecutorApprovalService, NoopExecutorApprovalService},
     env::{ExecutionEnv, RepoContext},
     executors::{
-        BaseCodingAgent, CancellationToken, ExecutorExitResult, ExecutorExitSignal,
+        BaseCodingAgent, CancellationToken, CodingAgent, ExecutorError, ExecutorExitResult,
+        ExecutorExitSignal, StandardCodingAgentExecutor,
         claude::{protocol::ProtocolPeer, session_recovery},
     },
     logs::{
         NormalizedEntry, NormalizedEntryError, NormalizedEntryType,
         utils::patch::{ConversationPatch, extract_normalized_entry_from_patch},
     },
+    profile::{ExecutorConfig, ExecutorConfigs},
 };
 use futures::{FutureExt, TryStreamExt, stream::select};
 use git::GitService;
@@ -67,7 +69,13 @@ use utils::{
 use uuid::Uuid;
 use workspace_manager::{RepoWorkspaceInput, WorkspaceError, WorkspaceManager};
 
-use crate::{command, copy};
+use crate::{
+    claude_terminal::{
+        ClaudeTerminalStartRequest, kill_tmux_session_if_exists,
+        start_or_resume as start_claude_terminal, tmux_session_exists,
+    },
+    command, copy,
+};
 
 const WORKSPACE_TOUCH_DEBOUNCE: Duration = Duration::from_mins(2);
 
@@ -94,6 +102,7 @@ pub struct LocalContainerService {
     /// Holds the live ProtocolPeer for every running Claude Code process so that
     /// messages can be injected while the process is active.
     protocol_peers: Arc<RwLock<HashMap<Uuid, ProtocolPeer>>>,
+    claude_terminal_hooks: Arc<RwLock<HashMap<Uuid, crate::claude_hooks::ClaudeTerminalHookState>>>,
 }
 
 impl LocalContainerService {
@@ -109,6 +118,9 @@ impl LocalContainerService {
         approvals: Approvals,
         queued_message_service: QueuedMessageService,
         remote_client: Option<RemoteClient>,
+        claude_terminal_hooks: Arc<
+            RwLock<HashMap<Uuid, crate::claude_hooks::ClaudeTerminalHookState>>,
+        >,
     ) -> Self {
         let child_store = Arc::new(RwLock::new(HashMap::new()));
         let cancellation_tokens = Arc::new(RwLock::new(HashMap::new()));
@@ -136,6 +148,7 @@ impl LocalContainerService {
             notification_service,
             remote_client,
             protocol_peers,
+            claude_terminal_hooks,
         };
 
         container.spawn_workspace_cleanup();
@@ -217,6 +230,326 @@ impl LocalContainerService {
     async fn remove_child_from_store(&self, id: &Uuid) {
         let mut map = self.child_store.write().await;
         map.remove(id);
+    }
+
+    pub(crate) async fn complete_terminal_execution(
+        &self,
+        execution_id: Uuid,
+        status: ExecutionProcessStatus,
+        exit_code: Option<i64>,
+    ) -> Result<(), ContainerError> {
+        if let Ok(mut ctx) = ExecutionProcess::load_context(&self.db.pool, execution_id).await {
+            ctx.execution_process.status = status.clone();
+            ctx.execution_process.exit_code = exit_code;
+            if let Err(e) = self.update_executor_session_summary(&execution_id).await {
+                tracing::warn!("Failed to update executor session summary: {}", e);
+            }
+            self.finalize_terminal_execution_flow(&ctx).await;
+        }
+
+        self.update_after_head_commits(execution_id).await;
+
+        let db_stream_handle = self.take_db_stream_handle(&execution_id).await;
+        if db_stream_handle.is_some() {
+            if let Some(msg) = self.msg_stores.write().await.remove(&execution_id) {
+                msg.push_finished();
+            }
+            if let Some(handle) = db_stream_handle {
+                let _ = tokio::time::timeout(Duration::from_secs(5), handle).await;
+            }
+        } else {
+            if let Some(msg) = self.msg_stores.read().await.get(&execution_id).cloned() {
+                msg.push_finished();
+            }
+            let msg_stores = self.msg_stores.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                msg_stores.write().await.remove(&execution_id);
+            });
+        }
+
+        if !ExecutionProcess::was_stopped(&self.db.pool, execution_id).await {
+            ExecutionProcess::update_completion(&self.db.pool, execution_id, status, exit_code)
+                .await?;
+        }
+        self.claude_terminal_hooks
+            .write()
+            .await
+            .remove(&execution_id);
+
+        Ok(())
+    }
+
+    pub(crate) async fn disable_terminal_monitor(&self, execution_id: Uuid) {
+        if let Some(handle) = self.take_exit_monitor_handle(&execution_id).await {
+            handle.abort();
+        }
+    }
+
+    pub(crate) async fn terminate_terminal_execution_session(
+        &self,
+        execution_id: Uuid,
+    ) -> Result<bool, ContainerError> {
+        let env = self.claude_terminal_execution_env(execution_id).await?;
+        kill_tmux_session_if_exists(execution_id, &env)
+            .await
+            .map_err(map_claude_terminal_start_error)
+    }
+
+    async fn claude_terminal_execution_env(
+        &self,
+        execution_id: Uuid,
+    ) -> Result<ExecutionEnv, ContainerError> {
+        let ctx = ExecutionProcess::load_context(&self.db.pool, execution_id).await?;
+        let current_dir = ctx
+            .workspace
+            .container_ref
+            .as_ref()
+            .map(PathBuf::from)
+            .ok_or_else(|| ContainerError::Other(anyhow!("Container ref not found")))?;
+        let action = ctx.execution_process.executor_action()?;
+        let request = claude_terminal_start_request(execution_id, action, &current_dir)?
+            .ok_or_else(|| {
+                ContainerError::Other(anyhow!(
+                    "Claude terminal execution requires an agent prompt action"
+                ))
+            })?;
+        Ok(
+            ExecutionEnv::new(RepoContext::default(), false, String::new())
+                .with_profile(&request.executor.cmd),
+        )
+    }
+
+    fn spawn_claude_terminal_monitor(
+        &self,
+        execution_id: Uuid,
+        session_name: String,
+        env: ExecutionEnv,
+    ) -> JoinHandle<()> {
+        let container = self.clone();
+        let db = self.db.clone();
+
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+
+                let current_status =
+                    match ExecutionProcess::find_by_id(&db.pool, execution_id).await {
+                        Ok(Some(process)) => process.status,
+                        Ok(None) => break,
+                        Err(err) => {
+                            tracing::warn!(
+                                "Failed to read terminal execution status for {}: {}",
+                                execution_id,
+                                err
+                            );
+                            continue;
+                        }
+                    };
+
+                if !matches!(current_status, ExecutionProcessStatus::Running) {
+                    break;
+                }
+
+                match tmux_session_exists(&session_name, &env).await {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        let still_running = matches!(
+                            ExecutionProcess::find_by_id(&db.pool, execution_id).await,
+                            Ok(Some(process)) if matches!(process.status, ExecutionProcessStatus::Running)
+                        );
+                        if still_running {
+                            tracing::warn!(
+                                "Claude terminal tmux session {} disappeared while execution {} was still running",
+                                session_name,
+                                execution_id
+                            );
+                            if let Err(err) = container
+                                .complete_terminal_execution(
+                                    execution_id,
+                                    ExecutionProcessStatus::Failed,
+                                    None,
+                                )
+                                .await
+                            {
+                                tracing::error!(
+                                    "Failed to mark terminal execution {} failed after tmux exit: {}",
+                                    execution_id,
+                                    err
+                                );
+                            }
+                        }
+                        break;
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            "Failed to poll Claude terminal tmux session {} for execution {}: {}",
+                            session_name,
+                            execution_id,
+                            err
+                        );
+                    }
+                }
+            }
+        })
+    }
+
+    async fn finalize_terminal_execution_flow(&self, ctx: &ExecutionContext) {
+        let success = matches!(
+            ctx.execution_process.status,
+            ExecutionProcessStatus::Completed
+        ) && ctx.execution_process.exit_code == Some(0);
+
+        let cleanup_done = matches!(
+            ctx.execution_process.run_reason,
+            ExecutionProcessRunReason::CleanupScript
+        ) && !matches!(
+            ctx.execution_process.status,
+            ExecutionProcessStatus::Running
+        );
+
+        let mut already_finalized = false;
+
+        if success || cleanup_done {
+            let changes_committed = match self.try_commit_changes(ctx).await {
+                Ok(committed) => committed,
+                Err(e) => {
+                    tracing::error!("Failed to commit changes after terminal execution: {}", e);
+                    true
+                }
+            };
+
+            let should_start_next = if matches!(
+                ctx.execution_process.run_reason,
+                ExecutionProcessRunReason::CodingAgent
+            ) {
+                changes_committed || self.has_commits_from_execution(ctx).await.unwrap_or(false)
+            } else {
+                true
+            };
+
+            if should_start_next {
+                if let Err(e) = self.try_start_next_action(ctx).await {
+                    tracing::error!(
+                        "Failed to start next action after terminal completion: {}",
+                        e
+                    );
+                }
+            } else {
+                tracing::info!(
+                    "Skipping cleanup script for workspace {} - no changes made by terminal coding agent",
+                    ctx.workspace.id
+                );
+                self.finalize_task(ctx).await;
+                already_finalized = true;
+            }
+        }
+
+        if !already_finalized && self.should_finalize(ctx) {
+            let has_chained_follow_up = ctx
+                .execution_process
+                .executor_action()
+                .ok()
+                .and_then(|action| action.next_action())
+                .is_some();
+            let mut started_queued_follow_up = false;
+            let should_execute_queued = !matches!(
+                ctx.execution_process.status,
+                ExecutionProcessStatus::Failed | ExecutionProcessStatus::Killed
+            );
+
+            if let Some(queued_msg) = self.queued_message_service.take_queued(ctx.session.id) {
+                if should_execute_queued {
+                    if let Err(e) =
+                        Scratch::delete(&self.db.pool, ctx.session.id, &ScratchType::DraftFollowUp)
+                            .await
+                    {
+                        tracing::warn!(
+                            "Failed to delete scratch after consuming queued message: {}",
+                            e
+                        );
+                    }
+
+                    if let Err(e) = self.start_queued_follow_up(ctx, &queued_msg.data).await {
+                        tracing::error!("Failed to start queued terminal follow-up: {}", e);
+                        self.finalize_task(ctx).await;
+                    } else {
+                        started_queued_follow_up = true;
+                    }
+                } else {
+                    self.finalize_task(ctx).await;
+                }
+            } else {
+                self.finalize_task(ctx).await;
+            }
+
+            let should_mark_turn_unseen = matches!(
+                ctx.execution_process.run_reason,
+                ExecutionProcessRunReason::CodingAgent
+            ) && !has_chained_follow_up
+                && !started_queued_follow_up;
+
+            if should_mark_turn_unseen
+                && let Err(e) = CodingAgentTurn::mark_unseen_by_execution_process_id(
+                    &self.db.pool,
+                    ctx.execution_process.id,
+                )
+                .await
+            {
+                tracing::warn!(
+                    "Failed to mark terminal coding agent turn unseen for execution {}: {}",
+                    ctx.execution_process.id,
+                    e
+                );
+            }
+        }
+
+        if self.config.read().await.analytics_enabled
+            && matches!(
+                &ctx.execution_process.run_reason,
+                ExecutionProcessRunReason::CodingAgent
+            )
+            && let Some(analytics) = &self.analytics
+        {
+            analytics.analytics_service.track_event(
+                &analytics.user_id,
+                "task_attempt_finished",
+                Some(json!({
+                    "workspace_id": ctx.workspace.id.to_string(),
+                    "session_id": ctx.session.id.to_string(),
+                    "execution_success": matches!(ctx.execution_process.status, ExecutionProcessStatus::Completed),
+                    "exit_code": ctx.execution_process.exit_code,
+                })),
+            );
+        }
+
+        if matches!(
+            &ctx.execution_process.run_reason,
+            ExecutionProcessRunReason::CodingAgent
+        ) && let Some(client) = &self.remote_client
+        {
+            let stats =
+                diff_stream::compute_diff_stats(&self.db.pool, &self.git, &ctx.workspace).await;
+            let workspace_name = Workspace::find_by_id_with_status(&self.db.pool, ctx.workspace.id)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|ws| ws.workspace.name);
+            let client = client.clone();
+            let workspace_id = ctx.workspace.id;
+            let archived = ctx.workspace.archived;
+            tokio::spawn(async move {
+                remote_sync::sync_workspace_to_remote(
+                    &client,
+                    workspace_id,
+                    workspace_name.map(Some),
+                    Some(archived),
+                    stats.as_ref(),
+                )
+                .await;
+            });
+        }
     }
 
     async fn add_cancellation_token(&self, id: Uuid, token: CancellationToken) {
@@ -1264,6 +1597,87 @@ fn failure_exit_status() -> std::process::ExitStatus {
     }
 }
 
+fn claude_terminal_start_request(
+    execution_id: Uuid,
+    executor_action: &ExecutorAction,
+    current_dir: &Path,
+) -> Result<Option<ClaudeTerminalStartRequest>, ContainerError> {
+    let request = match executor_action.typ() {
+        ExecutorActionType::CodingAgentInitialRequest(request)
+            if request.base_executor() == BaseCodingAgent::ClaudeTerminal =>
+        {
+            ClaudeTerminalStartRequest {
+                execution_id,
+                working_dir: request.effective_dir(current_dir)?,
+                prompt: request.prompt.clone(),
+                resume_session_id: None,
+                executor: claude_terminal_executor(&request.executor_config)?,
+            }
+        }
+        ExecutorActionType::CodingAgentFollowUpRequest(request)
+            if request.base_executor() == BaseCodingAgent::ClaudeTerminal =>
+        {
+            ClaudeTerminalStartRequest {
+                execution_id,
+                working_dir: request.effective_dir(current_dir)?,
+                prompt: request.prompt.clone(),
+                resume_session_id: Some(request.session_id.clone()),
+                executor: claude_terminal_executor(&request.executor_config)?,
+            }
+        }
+        ExecutorActionType::ReviewRequest(request)
+            if request.base_executor() == BaseCodingAgent::ClaudeTerminal =>
+        {
+            ClaudeTerminalStartRequest {
+                execution_id,
+                working_dir: request.effective_dir(current_dir)?,
+                prompt: request.prompt.clone(),
+                resume_session_id: request.session_id.clone(),
+                executor: claude_terminal_executor(&request.executor_config)?,
+            }
+        }
+        _ => return Ok(None),
+    };
+
+    Ok(Some(request))
+}
+
+fn claude_terminal_executor(
+    executor_config: &ExecutorConfig,
+) -> Result<executors::executors::claude_terminal::ClaudeTerminal, ContainerError> {
+    let profile_id = executor_config.profile_id();
+    let mut executor = match ExecutorConfigs::get_cached().get_coding_agent(&profile_id) {
+        Some(CodingAgent::ClaudeTerminal(executor)) => executor,
+        Some(_) | None => executors::executors::claude_terminal::ClaudeTerminal::default(),
+    };
+
+    if executor_config.has_overrides() {
+        executor.apply_overrides(executor_config);
+    }
+
+    Ok(executor)
+}
+
+fn map_claude_terminal_start_error(err: anyhow::Error) -> ContainerError {
+    if let Some(ExecutorError::ExecutableNotFound { program }) = err.downcast_ref::<ExecutorError>()
+    {
+        return ContainerError::ExecutorError(ExecutorError::ExecutableNotFound {
+            program: program.clone(),
+        });
+    }
+
+    if err
+        .downcast_ref::<std::io::Error>()
+        .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound)
+    {
+        return ContainerError::ExecutorError(ExecutorError::ExecutableNotFound {
+            program: "tmux".to_string(),
+        });
+    }
+
+    ContainerError::Other(err)
+}
+
 #[async_trait]
 impl ContainerService for LocalContainerService {
     fn msg_stores(&self) -> &Arc<RwLock<HashMap<Uuid, Arc<MsgStore>>>> {
@@ -1506,6 +1920,38 @@ impl ContainerService for LocalContainerService {
         env.insert("VK_WORKSPACE_ID", workspace.id.to_string());
         env.insert("VK_WORKSPACE_BRANCH", &workspace.branch);
 
+        if matches!(
+            executor_action.base_executor(),
+            Some(BaseCodingAgent::ClaudeTerminal)
+        ) {
+            let request =
+                claude_terminal_start_request(execution_process.id, executor_action, &current_dir)?
+                    .ok_or_else(|| {
+                        ContainerError::Other(anyhow!(
+                            "Claude terminal execution requires an agent prompt action"
+                        ))
+                    })?;
+            let monitor_env = env.clone().with_profile(&request.executor.cmd);
+            let result = start_claude_terminal(request, &env)
+                .await
+                .map_err(map_claude_terminal_start_error)?;
+            tracing::info!(
+                execution_id = %execution_process.id,
+                tmux_session = %result.session_name,
+                settings_path = %result.settings_path.display(),
+                decision = ?result.decision,
+                "started claude terminal execution"
+            );
+            let monitor = self.spawn_claude_terminal_monitor(
+                execution_process.id,
+                result.session_name,
+                monitor_env,
+            );
+            self.add_exit_monitor_handle(execution_process.id, monitor)
+                .await;
+            return Ok(());
+        }
+
         // Create the child and stream, add to execution tracker with timeout
         let mut spawned = tokio::time::timeout(
             Duration::from_secs(30),
@@ -1611,6 +2057,25 @@ impl ContainerService for LocalContainerService {
         execution_process: &ExecutionProcess,
         status: ExecutionProcessStatus,
     ) -> Result<(), ContainerError> {
+        if execution_process
+            .executor_action()
+            .ok()
+            .and_then(|action| action.base_executor())
+            == Some(BaseCodingAgent::ClaudeTerminal)
+        {
+            self.disable_terminal_monitor(execution_process.id).await;
+            self.terminate_terminal_execution_session(execution_process.id)
+                .await?;
+            let exit_code = if status == ExecutionProcessStatus::Completed {
+                Some(0)
+            } else {
+                None
+            };
+            self.complete_terminal_execution(execution_process.id, status, exit_code)
+                .await?;
+            return Ok(());
+        }
+
         let child = self
             .get_child_from_store(&execution_process.id)
             .await

@@ -82,6 +82,7 @@ pub struct LocalDeployment {
     webrtc_host: OnceLock<Arc<WebRtcHost>>,
     ssh_config: Arc<russh::server::Config>,
     pty: PtyService,
+    claude_terminal_hooks: Arc<RwLock<HashMap<Uuid, claude_hooks::ClaudeTerminalHookState>>>,
     pr_sync_notify: Arc<Notify>,
     /// Abort handle for the webhook dispatcher background task. We keep an
     /// `AbortHandle` (which is `Clone`) rather than the `JoinHandle` itself
@@ -241,6 +242,7 @@ impl Deployment for LocalDeployment {
             analytics_service: s.clone(),
         });
         let workspace_manager = WorkspaceManager::new(db.clone());
+        let claude_terminal_hooks = Arc::new(RwLock::new(HashMap::new()));
         let container = LocalContainerService::new(
             db.clone(),
             workspace_manager.clone(),
@@ -252,6 +254,7 @@ impl Deployment for LocalDeployment {
             approvals.clone(),
             queued_message_service.clone(),
             remote_client.clone().ok(),
+            claude_terminal_hooks.clone(),
         )
         .await;
 
@@ -323,6 +326,7 @@ impl Deployment for LocalDeployment {
             webrtc_host: OnceLock::new(),
             ssh_config,
             pty,
+            claude_terminal_hooks,
             pr_sync_notify,
             webhook_dispatcher_abort,
             wal_monitor,

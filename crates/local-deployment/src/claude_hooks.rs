@@ -4,12 +4,26 @@ use uuid::Uuid;
 use crate::LocalDeployment;
 use std::collections::HashMap;
 
+use db::models::execution_process::{ExecutionProcess, ExecutionProcessStatus};
 use executors::logs::{
     ActionType, AskUserQuestionItem, AskUserQuestionOption, CommandExitStatus, CommandRunResult,
     FileChange, NormalizedEntry, NormalizedEntryType, TodoItem, TokenUsageInfo, ToolResult,
-    ToolResultValueType, ToolStatus, utils::shell_command_parsing::CommandCategory,
+    ToolResultValueType, ToolStatus,
+    utils::{patch::ConversationPatch, shell_command_parsing::CommandCategory},
 };
+use services::services::container::ContainerService;
+use tokio::fs;
 use utils::{diff::create_unified_diff, path::make_path_relative};
+
+#[derive(Debug, Clone, Default)]
+pub struct ClaudeTerminalHookState {
+    transcript_bytes_read: usize,
+    pending_fragment: String,
+    entry_count: usize,
+    transcript_import: Option<TranscriptImportState>,
+    session_id: Option<String>,
+    completed: bool,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClaudeHookPayload {
@@ -56,8 +70,167 @@ impl LocalDeployment {
             claude_session_id = %payload.session_id,
             "received claude terminal hook"
         );
+
+        let msg_store = {
+            let stores = self.container.msg_stores().read().await;
+            stores.get(&execution_id).cloned()
+        };
+
+        if let Some(msg_store) = msg_store {
+            let mut state = {
+                let mut states = self.claude_terminal_hooks.write().await;
+                states.remove(&execution_id).unwrap_or_default()
+            };
+
+            if state.session_id.as_deref() != Some(payload.session_id.as_str()) {
+                msg_store.push_session_id(payload.session_id.clone());
+                state.session_id = Some(payload.session_id.clone());
+            }
+
+            if let Some(transcript_path) = payload.transcript_path.as_deref() {
+                if let Err(err) =
+                    ingest_transcript_delta(&msg_store, &mut state, &payload, transcript_path).await
+                {
+                    self.claude_terminal_hooks
+                        .write()
+                        .await
+                        .insert(execution_id, state);
+                    return Err(err);
+                }
+            }
+
+            let terminal_status = terminal_status_from_hook(&payload);
+            let mut remove_state = false;
+
+            if let Some(status) = terminal_status
+                && !state.completed
+            {
+                let current_status =
+                    ExecutionProcess::find_by_id(&self.db.pool, execution_id).await?;
+                if !matches!(
+                    current_status.as_ref().map(|process| &process.status),
+                    Some(ExecutionProcessStatus::Running)
+                ) {
+                    state.completed = true;
+                    remove_state = true;
+                } else {
+                    state.completed = true;
+                    let exit_code = if status == ExecutionProcessStatus::Completed {
+                        Some(0)
+                    } else {
+                        None
+                    };
+                    self.container.disable_terminal_monitor(execution_id).await;
+                    if let Err(err) = self
+                        .container
+                        .terminate_terminal_execution_session(execution_id)
+                        .await
+                    {
+                        self.claude_terminal_hooks
+                            .write()
+                            .await
+                            .insert(execution_id, state);
+                        return Err(err.into());
+                    }
+                    self.container
+                        .complete_terminal_execution(execution_id, status, exit_code)
+                        .await?;
+                    remove_state = true;
+                }
+            }
+
+            if !remove_state {
+                self.claude_terminal_hooks
+                    .write()
+                    .await
+                    .insert(execution_id, state);
+            }
+        }
+
         Ok(())
     }
+}
+
+fn terminal_status_from_hook(payload: &ClaudeHookPayload) -> Option<ExecutionProcessStatus> {
+    match payload.hook_event_name.as_str() {
+        "Stop" => Some(ExecutionProcessStatus::Completed),
+        "StopFailure" => Some(ExecutionProcessStatus::Failed),
+        _ => None,
+    }
+}
+
+async fn ingest_transcript_delta(
+    msg_store: &std::sync::Arc<utils::msg_store::MsgStore>,
+    state: &mut ClaudeTerminalHookState,
+    payload: &ClaudeHookPayload,
+    transcript_path: &str,
+) -> anyhow::Result<()> {
+    let transcript = fs::read_to_string(transcript_path).await?;
+    if transcript.len() < state.transcript_bytes_read {
+        state.transcript_bytes_read = 0;
+        state.pending_fragment.clear();
+        state.entry_count = 0;
+        state.transcript_import = None;
+    }
+
+    let delta = transcript
+        .get(state.transcript_bytes_read..)
+        .unwrap_or_default();
+    let mut delta_with_pending = std::mem::take(&mut state.pending_fragment);
+    delta_with_pending.push_str(delta);
+    state.transcript_bytes_read = transcript.len();
+
+    let mut rows = Vec::new();
+    let mut consumed = 0;
+    for segment in delta_with_pending.split_inclusive('\n') {
+        let row = segment.trim_end_matches('\n');
+        if row.is_empty() {
+            consumed += segment.len();
+            continue;
+        }
+        if serde_json::from_str::<serde_json::Value>(row).is_err() {
+            break;
+        }
+        rows.push(row.to_string());
+        consumed += segment.len();
+    }
+
+    if consumed < delta_with_pending.len() {
+        state.pending_fragment = delta_with_pending[consumed..].to_string();
+    }
+
+    let import_state = state.transcript_import.get_or_insert_with(|| {
+        TranscriptImportState::new(200_000, payload.cwd.as_deref().unwrap_or_default())
+    });
+    if import_state.worktree_path.is_empty()
+        && let Some(cwd) = payload.cwd.as_deref().filter(|cwd| !cwd.is_empty())
+    {
+        import_state.worktree_path = cwd.to_string();
+    }
+
+    let previous_entries = import_state.entries.clone();
+    for row in rows {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&row) {
+            import_state.ingest_value(&value);
+        }
+    }
+
+    for (index, entry) in import_state.entries.iter().cloned().enumerate() {
+        if let Some(previous) = previous_entries.get(index) {
+            if normalized_entry_json(previous) != normalized_entry_json(&entry) {
+                msg_store.push_patch(ConversationPatch::replace(index, entry));
+            }
+        } else {
+            msg_store.push_patch(ConversationPatch::add_normalized_entry(index, entry));
+        }
+    }
+    state.entry_count = import_state.entries.len();
+
+    Ok(())
+}
+
+fn normalized_entry_json(entry: &NormalizedEntry) -> serde_json::Value {
+    serde_json::to_value(entry).unwrap_or(serde_json::Value::Null)
 }
 
 pub fn event_to_hook_event_name(event: &str) -> String {
@@ -101,7 +274,7 @@ pub fn transcript_rows_to_entries_in_worktree(
     state.entries
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct TranscriptImportState {
     entries: Vec<NormalizedEntry>,
     tool_entries: HashMap<String, usize>,
@@ -917,6 +1090,41 @@ mod tests {
     }
 
     #[test]
+    fn session_end_hook_does_not_complete_terminal_execution() {
+        let payload: ClaudeHookPayload = serde_json::from_value(serde_json::json!({
+            "session_id": "claude-session-123",
+            "hook_event_name": "SessionEnd",
+            "reason": "prompt_input_exit"
+        }))
+        .unwrap();
+
+        assert!(terminal_status_from_hook(&payload).is_none());
+    }
+
+    #[test]
+    fn stop_hooks_map_to_terminal_completion_statuses() {
+        let stop: ClaudeHookPayload = serde_json::from_value(serde_json::json!({
+            "session_id": "claude-session-123",
+            "hook_event_name": "Stop"
+        }))
+        .unwrap();
+        let stop_failure: ClaudeHookPayload = serde_json::from_value(serde_json::json!({
+            "session_id": "claude-session-123",
+            "hook_event_name": "StopFailure"
+        }))
+        .unwrap();
+
+        assert_eq!(
+            terminal_status_from_hook(&stop),
+            Some(ExecutionProcessStatus::Completed)
+        );
+        assert_eq!(
+            terminal_status_from_hook(&stop_failure),
+            Some(ExecutionProcessStatus::Failed)
+        );
+    }
+
+    #[test]
     fn imports_assistant_message_and_token_usage_from_transcript_rows() {
         let rows = vec![
             r#"{"type":"assistant","timestamp":"2026-05-15T00:00:00Z","message":{"role":"assistant","content":[{"type":"text","text":"Done."}],"usage":{"input_tokens":10,"cache_creation_input_tokens":2,"cache_read_input_tokens":3,"output_tokens":4}}}"#.to_string()
@@ -1147,6 +1355,113 @@ mod tests {
         assert!(matches!(
             action_type,
             ActionType::CommandRun { command, .. } if command == "echo hi"
+        ));
+    }
+
+    #[tokio::test]
+    async fn transcript_delta_keeps_partial_jsonl_tail_for_next_hook() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let transcript_path = tempdir.path().join("transcript.jsonl");
+        let store = std::sync::Arc::new(utils::msg_store::MsgStore::new());
+        let mut state = ClaudeTerminalHookState::default();
+        let payload: ClaudeHookPayload = serde_json::from_value(serde_json::json!({
+            "session_id": "claude-session-123",
+            "hook_event_name": "PostToolUse",
+            "cwd": "/tmp"
+        }))
+        .unwrap();
+
+        tokio::fs::write(
+            &transcript_path,
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"partial"#,
+        )
+        .await
+        .unwrap();
+        ingest_transcript_delta(
+            &store,
+            &mut state,
+            &payload,
+            transcript_path.to_str().unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(state.entry_count, 0);
+
+        tokio::fs::write(
+            &transcript_path,
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"partial"}]}}"#,
+        )
+        .await
+        .unwrap();
+        ingest_transcript_delta(
+            &store,
+            &mut state,
+            &payload,
+            transcript_path.to_str().unwrap(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(state.entry_count, 1);
+    }
+
+    #[tokio::test]
+    async fn transcript_delta_preserves_tool_state_across_hooks() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let transcript_path = tempdir.path().join("transcript.jsonl");
+        let store = std::sync::Arc::new(utils::msg_store::MsgStore::new());
+        let mut state = ClaudeTerminalHookState::default();
+        let payload: ClaudeHookPayload = serde_json::from_value(serde_json::json!({
+            "session_id": "claude-session-123",
+            "hook_event_name": "PostToolUse",
+            "cwd": "/tmp"
+        }))
+        .unwrap();
+
+        tokio::fs::write(
+            &transcript_path,
+            concat!(
+                r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"false"}}]}}"#,
+                "\n"
+            ),
+        )
+        .await
+        .unwrap();
+        ingest_transcript_delta(
+            &store,
+            &mut state,
+            &payload,
+            transcript_path.to_str().unwrap(),
+        )
+        .await
+        .unwrap();
+
+        tokio::fs::write(
+            &transcript_path,
+            concat!(
+                r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"false"}}]}}"#,
+                "\n",
+                r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"{\"output\":\"failed\",\"exitCode\":1}"}]}}"#,
+                "\n"
+            ),
+        )
+        .await
+        .unwrap();
+        ingest_transcript_delta(
+            &store,
+            &mut state,
+            &payload,
+            transcript_path.to_str().unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let history = store.get_history();
+        assert_eq!(history.len(), 2);
+        assert!(matches!(
+            &history[1],
+            utils::log_msg::LogMsg::JsonPatch(patch)
+                if serde_json::to_value(patch).unwrap()[0]["op"] == "replace"
         ));
     }
 
