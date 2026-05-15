@@ -76,7 +76,7 @@ pub fn build_claude_settings_json(
             "SessionEnd": [
                 {
                     "hooks": [
-                        { "type": "http", "url": hook_url("session-end") }
+                        { "type": "http", "url": hook_url("session-end"), "timeout": 60 }
                     ]
                 }
             ]
@@ -130,6 +130,10 @@ pub fn build_tmux_new_session_command(args: TmuxStartArgs) -> ShellCommand {
         program: "tmux".to_string(),
         args: command_args,
     }
+}
+
+fn combined_initial_prompt(executor: &ClaudeTerminal, prompt: &str) -> String {
+    executor.append_prompt.combine_prompt(prompt)
 }
 
 pub fn build_tmux_kill_session_command(session_name: String) -> ShellCommand {
@@ -211,6 +215,7 @@ pub async fn start_or_resume(
         .executor
         .build_cli_args(settings_path.to_string_lossy(), resume_session_id);
     let claude = build_claude_shell_command(&request.executor, claude.args).await?;
+    let initial_prompt = combined_initial_prompt(&request.executor, &request.prompt);
     let command = build_tmux_new_session_command(TmuxStartArgs {
         session_name: session_name.clone(),
         working_dir: request.working_dir,
@@ -221,7 +226,7 @@ pub async fn start_or_resume(
             .collect(),
         claude_program: claude.program,
         claude_args: claude.args,
-        initial_prompt: Some(request.prompt),
+        initial_prompt: Some(initial_prompt),
     });
     run_shell_command(&command, &command_env).await?;
 
@@ -354,6 +359,7 @@ fn is_tmux_missing_session_error(err: &anyhow::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use executors::executors::AppendPrompt;
     use uuid::Uuid;
 
     #[test]
@@ -387,6 +393,21 @@ mod tests {
             .unwrap();
         assert!(hooks.contains_key("PostToolUse"));
         assert!(hooks.contains_key("PostToolUseFailure"));
+    }
+
+    #[test]
+    fn generated_settings_gives_session_end_hook_time_to_flush() {
+        let execution_id = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
+        let settings = build_claude_settings_json(
+            execution_id,
+            "http://127.0.0.1:9000/api/claude-hooks",
+            SettingsMergeMode::MergeExisting,
+        );
+
+        let timeout = settings["hooks"]["SessionEnd"][0]["hooks"][0]["timeout"]
+            .as_i64()
+            .expect("session-end hook timeout missing");
+        assert_eq!(timeout, 60);
     }
 
     #[test]
@@ -468,6 +489,19 @@ mod tests {
         assert_eq!(
             command.args.get(delimiter_index + 1),
             Some(&"-p".to_string())
+        );
+    }
+
+    #[test]
+    fn initial_prompt_includes_configured_append_prompt() {
+        let executor = ClaudeTerminal {
+            append_prompt: AppendPrompt(Some("\n\nremember the style guide".to_string())),
+            ..ClaudeTerminal::default()
+        };
+
+        assert_eq!(
+            combined_initial_prompt(&executor, "fix the tests"),
+            "fix the tests\n\nremember the style guide"
         );
     }
 

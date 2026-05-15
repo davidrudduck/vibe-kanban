@@ -192,7 +192,7 @@ impl CodingAgent {
                 BaseAgentCapability::SessionFork,
                 BaseAgentCapability::ContextUsage,
             ],
-            Self::ClaudeTerminal(_) => vec![],
+            Self::ClaudeTerminal(_) => vec![BaseAgentCapability::ContextUsage],
             Self::Opencode(_) => vec![
                 BaseAgentCapability::SessionFork,
                 BaseAgentCapability::ContextUsage,
@@ -449,5 +449,15 @@ mod tests {
         let result: Result<BaseCodingAgent, _> = serde_json::from_str(r#""CURSOR""#);
         assert!(result.is_ok(), "CURSOR should deserialize via serde");
         assert_eq!(result.unwrap(), BaseCodingAgent::CursorAgent);
+    }
+
+    #[test]
+    fn claude_terminal_advertises_context_usage_capability() {
+        let executor = CodingAgent::ClaudeTerminal(claude_terminal::ClaudeTerminal::default());
+
+        assert_eq!(
+            executor.capabilities(),
+            vec![BaseAgentCapability::ContextUsage]
+        );
     }
 }
