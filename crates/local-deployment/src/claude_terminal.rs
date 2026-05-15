@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -77,6 +79,46 @@ pub fn build_claude_settings_json(
     settings
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShellCommand {
+    pub program: String,
+    pub args: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TmuxStartArgs {
+    pub session_name: String,
+    pub working_dir: PathBuf,
+    pub claude_program: String,
+    pub claude_args: Vec<String>,
+    pub initial_prompt: Option<String>,
+}
+
+pub fn tmux_session_name(execution_id: Uuid) -> String {
+    format!("vk-claude-{execution_id}")
+}
+
+pub fn build_tmux_new_session_command(args: TmuxStartArgs) -> ShellCommand {
+    let mut command_args = vec![
+        "new-session".to_string(),
+        "-d".to_string(),
+        "-s".to_string(),
+        args.session_name,
+        "-c".to_string(),
+        args.working_dir.to_string_lossy().to_string(),
+        args.claude_program,
+    ];
+    command_args.extend(args.claude_args);
+    if let Some(prompt) = args.initial_prompt {
+        command_args.push("--".to_string());
+        command_args.push(prompt);
+    }
+    ShellCommand {
+        program: "tmux".to_string(),
+        args: command_args,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -127,5 +169,65 @@ mod tests {
         assert!(settings.get("settingSources").is_none());
         assert!(settings.get("setting-sources").is_none());
         assert!(settings.get("disableAllHooks").is_none());
+    }
+
+    #[test]
+    fn tmux_session_name_is_stable_and_prefixed() {
+        let execution_id = Uuid::parse_str("33333333-3333-3333-3333-333333333333").unwrap();
+        assert_eq!(
+            tmux_session_name(execution_id),
+            "vk-claude-33333333-3333-3333-3333-333333333333"
+        );
+    }
+
+    #[test]
+    fn start_command_launches_claude_in_worktree_with_settings() {
+        let command = build_tmux_new_session_command(TmuxStartArgs {
+            session_name: "vk-claude-test".to_string(),
+            working_dir: "/tmp/worktree".into(),
+            claude_program: "claude".to_string(),
+            claude_args: vec!["--settings".to_string(), "/tmp/settings.json".to_string()],
+            initial_prompt: Some("fix the tests".to_string()),
+        });
+
+        assert_eq!(command.program, "tmux");
+        assert_eq!(
+            command.args,
+            vec![
+                "new-session".to_string(),
+                "-d".to_string(),
+                "-s".to_string(),
+                "vk-claude-test".to_string(),
+                "-c".to_string(),
+                "/tmp/worktree".to_string(),
+                "claude".to_string(),
+                "--settings".to_string(),
+                "/tmp/settings.json".to_string(),
+                "--".to_string(),
+                "fix the tests".to_string(),
+            ]
+        );
+        assert!(!command.args.iter().any(|arg| arg == "-p"));
+    }
+
+    #[test]
+    fn start_command_delimits_flag_like_prompt() {
+        let command = build_tmux_new_session_command(TmuxStartArgs {
+            session_name: "vk-claude-test".to_string(),
+            working_dir: "/tmp/worktree".into(),
+            claude_program: "claude".to_string(),
+            claude_args: vec!["--settings".to_string(), "/tmp/settings.json".to_string()],
+            initial_prompt: Some("-p".to_string()),
+        });
+
+        let delimiter_index = command
+            .args
+            .iter()
+            .position(|arg| arg == "--")
+            .expect("prompt delimiter missing");
+        assert_eq!(
+            command.args.get(delimiter_index + 1),
+            Some(&"-p".to_string())
+        );
     }
 }
