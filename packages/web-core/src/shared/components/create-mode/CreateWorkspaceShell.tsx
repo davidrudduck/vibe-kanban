@@ -17,8 +17,11 @@ import { useCreateAttachments } from '@/shared/hooks/useCreateAttachments';
 import { useExecutorConfig } from '@/shared/hooks/useExecutorConfig';
 import { saveProjectRepoDefaults } from '@/shared/hooks/useProjectRepoDefaults';
 import { ProjectContext } from '@/shared/hooks/useProjectContext';
-import { getSortedExecutorVariantKeys } from '@/shared/lib/executor';
-import { toPrettyCase } from '@/shared/lib/string';
+import {
+  getExecutorDisplayName,
+  getExecutorModeDescription,
+  getSortedExecutorVariantKeys,
+} from '@/shared/lib/executor';
 import type { BaseCodingAgent } from 'shared/types';
 import type {
   LinkedIssue,
@@ -842,7 +845,8 @@ export function CreateWorkspaceShell({
                 options: executorOptions,
                 onChange: handleExecutorChange,
               }}
-              formatExecutorLabel={toPrettyCase}
+              formatExecutorLabel={getExecutorDisplayName}
+              formatExecutorDescription={getExecutorModeDescription}
               error={displayError}
               repoIds={repos.map((r) => r.id)}
               repoId={repoId}

@@ -8,6 +8,10 @@ import {
 } from '@vibe/ui/components/DropdownMenu';
 import { Label } from '@vibe/ui/components/Label';
 import type { ExecutorProfileId, BaseCodingAgent } from 'shared/types';
+import {
+  getExecutorDisplayName,
+  getExecutorModeDescription,
+} from '@/shared/lib/executor';
 
 interface AgentSelectorProps {
   profiles: Record<string, Record<string, unknown>> | null;
@@ -30,6 +34,7 @@ export function AgentSelector({
     ? (Object.keys(profiles).sort() as BaseCodingAgent[])
     : [];
   const selectedAgent = selectedExecutorProfile?.executor;
+  const selectedDescription = getExecutorModeDescription(selectedAgent);
 
   if (!profiles) return null;
 
@@ -51,34 +56,53 @@ export function AgentSelector({
           >
             <div className="flex items-center gap-1.5 w-full">
               <Bot className="h-3 w-3" />
-              <span className="truncate">{selectedAgent || 'Agent'}</span>
+              <span className="truncate">
+                {getExecutorDisplayName(selectedAgent)}
+              </span>
             </div>
             <ArrowDown className="h-3 w-3" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent className="w-60">
+        <DropdownMenuContent className="w-96 max-w-[calc(100vw-2rem)]">
           {agents.length === 0 ? (
             <div className="p-2 text-sm text-muted-foreground text-center">
               No agents available
             </div>
           ) : (
-            agents.map((agent) => (
-              <DropdownMenuItem
-                key={agent}
-                onClick={() => {
-                  onChange({
-                    executor: agent,
-                    variant: null,
-                  });
-                }}
-                className={selectedAgent === agent ? 'bg-accent' : ''}
-              >
-                {agent}
-              </DropdownMenuItem>
-            ))
+            agents.map((agent) => {
+              const description = getExecutorModeDescription(agent);
+              return (
+                <DropdownMenuItem
+                  key={agent}
+                  onClick={() => {
+                    onChange({
+                      executor: agent,
+                      variant: null,
+                    });
+                  }}
+                  className={selectedAgent === agent ? 'bg-accent' : ''}
+                >
+                  <div className="min-w-0">
+                    <div className="truncate">
+                      {getExecutorDisplayName(agent)}
+                    </div>
+                    {description && (
+                      <div className="whitespace-normal text-xs leading-snug text-muted-foreground">
+                        {description}
+                      </div>
+                    )}
+                  </div>
+                </DropdownMenuItem>
+              );
+            })
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+      {selectedDescription && (
+        <p className="mt-1 text-xs leading-snug text-muted-foreground">
+          {selectedDescription}
+        </p>
+      )}
     </div>
   );
 }

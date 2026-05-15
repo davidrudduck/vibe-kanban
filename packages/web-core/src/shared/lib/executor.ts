@@ -1,5 +1,5 @@
+import { BaseCodingAgent } from 'shared/types';
 import type {
-  BaseCodingAgent,
   ExecutorConfig,
   ExecutorConfigs,
   ExecutorProfile,
@@ -7,8 +7,52 @@ import type {
   ExecutorProfileId,
   ExecutionProcess,
 } from 'shared/types';
+import { toPrettyCase } from './string';
 
 const RESERVED_KEYS = new Set(['recently_used_models']);
+
+export const CLAUDE_CODE_SDK_WARNING =
+  'Uses Claude Code print/SDK mode. Starting June 15, 2026, Anthropic bills this separately from Claude Pro/Max subscription usage.';
+
+export const CLAUDE_CODE_TERMINAL_NOTE =
+  'Runs native Claude Code in a tmux terminal. Existing Claude settings, plugins, and hooks remain active unless isolated settings are selected.';
+
+export const EXECUTOR_DISPLAY_NAMES: Partial<Record<BaseCodingAgent, string>> =
+  {
+    [BaseCodingAgent.CLAUDE_CODE]: 'Claude Code SDK',
+    [BaseCodingAgent.CLAUDE_TERMINAL]: 'Claude Code Terminal',
+    [BaseCodingAgent.CODEX]: 'Codex',
+    [BaseCodingAgent.OPENCODE]: 'OpenCode',
+    [BaseCodingAgent.CURSOR_AGENT]: 'Cursor Agent',
+    [BaseCodingAgent.QWEN_CODE]: 'Qwen Code',
+    [BaseCodingAgent.GEMINI]: 'Gemini',
+    [BaseCodingAgent.AMP]: 'Amp',
+    [BaseCodingAgent.COPILOT]: 'Copilot',
+    [BaseCodingAgent.DROID]: 'Droid',
+  };
+
+export function getExecutorDisplayName(
+  executor: BaseCodingAgent | string | null | undefined
+): string {
+  if (!executor) return 'Agent';
+  return (
+    EXECUTOR_DISPLAY_NAMES[executor as BaseCodingAgent] ??
+    toPrettyCase(executor)
+  );
+}
+
+export function getExecutorModeDescription(
+  executor: BaseCodingAgent | string | null | undefined
+): string | null {
+  switch (executor) {
+    case BaseCodingAgent.CLAUDE_CODE:
+      return CLAUDE_CODE_SDK_WARNING;
+    case BaseCodingAgent.CLAUDE_TERMINAL:
+      return CLAUDE_CODE_TERMINAL_NOTE;
+    default:
+      return null;
+  }
+}
 
 export function getExecutorVariantKeys(
   executorProfile: ExecutorProfile | Record<string, unknown> | null | undefined

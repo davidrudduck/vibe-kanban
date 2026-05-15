@@ -32,7 +32,11 @@ import {
 import { useSettingsDirty } from './SettingsDirtyContext';
 import { useSettingsMachineClient } from './SettingsHostContext';
 import { AgentIcon } from '@/shared/components/AgentIcon';
-import { getExecutorVariantKeys } from '@/shared/lib/executor';
+import {
+  getExecutorDisplayName,
+  getExecutorModeDescription,
+  getExecutorVariantKeys,
+} from '@/shared/lib/executor';
 
 type ExecutorsMap = Record<string, Record<string, Record<string, unknown>>>;
 
@@ -389,6 +393,8 @@ export function AgentsSettingsSection() {
               {Object.keys(localParsedProfiles.executors).map((executor) => {
                 const isDefault =
                   config?.executor_profile?.executor === executor;
+                const executorDescription =
+                  getExecutorModeDescription(executor);
                 return (
                   <TwoColumnPickerItem
                     key={executor}
@@ -418,7 +424,16 @@ export function AgentsSettingsSection() {
                       )
                     }
                   >
-                    {toPrettyCase(executor)}
+                    <span className="min-w-0">
+                      <span className="block truncate">
+                        {getExecutorDisplayName(executor)}
+                      </span>
+                      {executorDescription && (
+                        <span className="block whitespace-normal text-xs leading-snug text-low">
+                          {executorDescription}
+                        </span>
+                      )}
+                    </span>
                   </TwoColumnPickerItem>
                 );
               })}

@@ -88,14 +88,14 @@ export function TwoColumnPickerItem({
       onClick={onClick}
     >
       {leading}
-      <span
+      <div
         className={cn(
-          'text-sm truncate flex-1',
+          'min-w-0 flex-1 overflow-hidden text-sm',
           selected ? 'text-brand font-medium' : 'text-normal'
         )}
       >
         {children}
-      </span>
+      </div>
       {trailing}
     </div>
   );

@@ -173,6 +173,7 @@ interface DropdownMenuItemProps
   extends React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Item> {
   icon?: Icon;
   badge?: React.ReactNode;
+  description?: React.ReactNode;
   variant?: 'default' | 'destructive';
   /** When true, prevents hover from stealing focus (useful for searchable dropdowns) */
   preventFocusOnHover?: boolean;
@@ -187,6 +188,7 @@ const DropdownMenuItem = React.forwardRef<
       className,
       icon: IconComponent,
       badge,
+      description,
       variant = 'default',
       preventFocusOnHover = false,
       onPointerMove,
@@ -227,7 +229,14 @@ const DropdownMenuItem = React.forwardRef<
       {...props}
     >
       {IconComponent && <IconComponent weight="bold" />}
-      <span className="flex-1 text-sm truncate">{children}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm">{children}</span>
+        {description && (
+          <span className="block whitespace-normal text-xs leading-snug text-low">
+            {description}
+          </span>
+        )}
+      </span>
       {badge && <span className="text-sm text-high text-right">{badge}</span>}
     </DropdownMenuPrimitive.Item>
   )

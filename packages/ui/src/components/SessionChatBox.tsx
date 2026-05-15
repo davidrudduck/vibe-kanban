@@ -175,6 +175,7 @@ interface SessionChatBoxProps<TExecutor extends string = string> {
   agent?: TExecutor | null;
   executor?: ExecutorProps<TExecutor>;
   formatExecutorLabel?: (executor: TExecutor) => string;
+  formatExecutorDescription?: (executor: TExecutor) => string | null;
   emptyExecutorLabel?: string;
   renderAgentIcon?: (
     executor: TExecutor | string | null | undefined,
@@ -254,6 +255,7 @@ export function SessionChatBox<TExecutor extends string = string>({
   agent,
   executor,
   formatExecutorLabel = defaultExecutorLabel,
+  formatExecutorDescription,
   emptyExecutorLabel = 'Select Executor',
   renderAgentIcon,
   formatSessionDate = defaultFormatSessionDate,
@@ -722,6 +724,7 @@ export function SessionChatBox<TExecutor extends string = string>({
                     key={exec}
                     icon={executor.selected === exec ? CheckIcon : undefined}
                     onClick={() => executor.onChange(exec)}
+                    description={formatExecutorDescription?.(exec) ?? undefined}
                   >
                     {formatExecutorLabel(exec)}
                   </DropdownMenuItem>

@@ -23,6 +23,8 @@ import { getModifierKey } from '@/shared/lib/platform';
 import { getLanguageOptions } from '@/i18n/languages';
 import { toPrettyCase } from '@/shared/lib/string';
 import {
+  getExecutorDisplayName,
+  getExecutorModeDescription,
   getExecutorVariantKeys,
   getSortedExecutorVariantKeys,
 } from '@/shared/lib/executor';
@@ -83,11 +85,14 @@ export function GeneralSettingsSection() {
   const executorOptions = profiles
     ? Object.keys(profiles)
         .sort()
-        .map((key) => ({ value: key, label: toPrettyCase(key) }))
+        .map((key) => ({ value: key, label: getExecutorDisplayName(key) }))
     : [];
 
   const selectedAgentProfile =
     profiles?.[draft?.executor_profile?.executor || ''];
+  const selectedExecutorDescription = getExecutorModeDescription(
+    draft?.executor_profile?.executor
+  );
   const variantOptions = selectedAgentProfile
     ? getSortedExecutorVariantKeys(selectedAgentProfile)
     : [];
@@ -448,7 +453,7 @@ export function GeneralSettingsSection() {
                 <DropdownMenuTriggerButton
                   label={
                     draft?.executor_profile?.executor
-                      ? toPrettyCase(draft.executor_profile.executor)
+                      ? getExecutorDisplayName(draft.executor_profile.executor)
                       : t('settings.agents.selectAgent')
                   }
                   className="w-full justify-between"
@@ -477,6 +482,9 @@ export function GeneralSettingsSection() {
                       };
                       updateDraft({ executor_profile: newProfile });
                     }}
+                    description={
+                      getExecutorModeDescription(option.value) ?? undefined
+                    }
                   >
                     {option.label}
                   </DropdownMenuItem>
@@ -527,6 +535,11 @@ export function GeneralSettingsSection() {
               </button>
             ) : null}
           </div>
+          {selectedExecutorDescription && (
+            <p className="mt-half text-xs leading-snug text-low">
+              {selectedExecutorDescription}
+            </p>
+          )}
         </SettingsField>
       </SettingsCard>
 

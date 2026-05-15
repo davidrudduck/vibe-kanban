@@ -61,7 +61,7 @@ describe('sessionSummary display helpers', () => {
 
     it('uses display name map for known executors', () => {
       expect(formatExecutorName(BaseCodingAgent.CLAUDE_CODE)).toBe(
-        'Claude Code'
+        'Claude Code SDK'
       );
       expect(formatExecutorName(BaseCodingAgent.CODEX)).toBe('Codex');
       expect(formatExecutorName(BaseCodingAgent.OPENCODE)).toBe('OpenCode');

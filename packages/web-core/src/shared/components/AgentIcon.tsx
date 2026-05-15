@@ -1,5 +1,6 @@
 import { BaseCodingAgent } from 'shared/types';
 import { useTheme, getResolvedTheme } from '@/shared/hooks/useTheme';
+import { getExecutorDisplayName } from '@/shared/lib/executor';
 
 type AgentIconProps = {
   agent: BaseCodingAgent | null | undefined;
@@ -12,9 +13,8 @@ export function getAgentName(
   if (!agent) return 'Agent';
   switch (agent) {
     case BaseCodingAgent.CLAUDE_CODE:
-      return 'Claude Code';
     case BaseCodingAgent.CLAUDE_TERMINAL:
-      return 'Claude Code Terminal';
+      return getExecutorDisplayName(agent);
     case BaseCodingAgent.AMP:
       return 'AMP';
     case BaseCodingAgent.GEMINI:

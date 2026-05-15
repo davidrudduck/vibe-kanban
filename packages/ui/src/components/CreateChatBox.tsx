@@ -64,6 +64,7 @@ interface CreateChatBoxProps<TExecutor extends string = string> {
   disabled?: boolean;
   executor: ExecutorProps<TExecutor>;
   formatExecutorLabel?: (executor: TExecutor) => string;
+  formatExecutorDescription?: (executor: TExecutor) => string | null;
   emptyExecutorLabel?: string;
   saveAsDefault?: SaveAsDefaultProps;
   error?: string | null;
@@ -108,6 +109,7 @@ export function CreateChatBox<TExecutor extends string = string>({
   disabled = false,
   executor,
   formatExecutorLabel = defaultExecutorLabel,
+  formatExecutorDescription,
   emptyExecutorLabel = 'Select Executor',
   saveAsDefault,
   error,
@@ -195,6 +197,7 @@ export function CreateChatBox<TExecutor extends string = string>({
                 key={exec}
                 icon={executor.selected === exec ? CheckIcon : undefined}
                 onClick={() => executor.onChange(exec)}
+                description={formatExecutorDescription?.(exec) ?? undefined}
               >
                 {formatExecutorLabel(exec)}
               </DropdownMenuItem>

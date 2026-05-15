@@ -1,8 +1,17 @@
 ---
 title: "Claude Code"
-description: "Set up Anthropic's Claude Code agent"
+description: "Set up Anthropic's Claude Code SDK and terminal agents"
 icon: https://www.vibekanban.com/images/logos/claude.svg#"
 ---
+
+Vibe Kanban offers two Claude Code execution modes:
+
+- **Claude Code SDK**: Uses Claude Code print/SDK mode. Starting June 15, 2026, Anthropic bills this separately from Claude Pro/Max subscription usage.
+- **Claude Code Terminal**: Runs native Claude Code in a tmux terminal. Existing Claude settings, plugins, and hooks remain active unless isolated settings are selected.
+
+<Note>
+Terminal mode preserves native Claude Code behavior, but Vibe receives structured data after Claude hook events instead of a live SDK JSON stream. Tool approval happens inside Claude Code. Token usage is parsed from Claude transcript data when available.
+</Note>
 
 <Steps>
 <Step title="Run Claude Code">
@@ -11,8 +20,16 @@ icon: https://www.vibekanban.com/images/logos/claude.svg#"
   ```
 </Step>
 
+<Step title="Install tmux for terminal mode">
+  Claude Code Terminal requires `tmux` so Vibe Kanban can start, attach to, and resume the native terminal session.
+
+  ```bash
+  brew install tmux
+  ```
+</Step>
+
 <Step title="Follow the login instructions">
-  Complete the authentication flow as prompted. For more details, see the [Claude Code documentation](https://docs.claude.com/en/docs/claude-code/quickstart).
+  Complete the authentication flow as prompted. For more details, see the [Claude Code documentation](https://code.claude.com/docs/en/cli-reference).
 </Step>
 
 <Step title="Start Vibe Kanban">
@@ -22,6 +39,8 @@ icon: https://www.vibekanban.com/images/logos/claude.svg#"
   npx vibe-kanban
   ```
 
-  You can now select Claude Code when creating task attempts.
+  You can now select Claude Code SDK or Claude Code Terminal when creating task attempts.
 </Step>
 </Steps>
+
+Claude Code settings and hooks are documented in Anthropic's [settings](https://code.claude.com/docs/en/settings) and [hooks](https://code.claude.com/docs/en/hooks) references. Anthropic documents the Claude Agent SDK and `claude -p` billing change in its [Agent SDK credit article](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan).
