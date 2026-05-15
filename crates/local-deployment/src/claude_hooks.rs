@@ -1,10 +1,14 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::LocalDeployment;
+use crate::{LocalDeployment, claude_terminal::tmux_session_name};
 use std::collections::HashMap;
 
-use db::models::execution_process::{ExecutionProcess, ExecutionProcessStatus};
+use db::models::{
+    claude_terminal_session::ClaudeTerminalSession,
+    coding_agent_turn::CodingAgentTurn,
+    execution_process::{ExecutionProcess, ExecutionProcessStatus},
+};
 use executors::logs::{
     ActionType, AskUserQuestionItem, AskUserQuestionOption, CommandExitStatus, CommandRunResult,
     FileChange, NormalizedEntry, NormalizedEntryType, TodoItem, TokenUsageInfo, ToolResult,
@@ -71,6 +75,9 @@ impl LocalDeployment {
             "received claude terminal hook"
         );
 
+        self.upsert_claude_terminal_session_metadata(execution_id, &payload)
+            .await?;
+
         let msg_store = {
             let stores = self.container.msg_stores().read().await;
             stores.get(&execution_id).cloned()
@@ -88,14 +95,35 @@ impl LocalDeployment {
             }
 
             if let Some(transcript_path) = payload.transcript_path.as_deref() {
-                if let Err(err) =
-                    ingest_transcript_delta(&msg_store, &mut state, &payload, transcript_path).await
+                let transcript_offset = match ingest_transcript_delta(
+                    &msg_store,
+                    &mut state,
+                    &payload,
+                    transcript_path,
+                )
+                .await
+                {
+                    Ok(offset) => offset,
+                    Err(err) => {
+                        self.claude_terminal_hooks
+                            .write()
+                            .await
+                            .insert(execution_id, state);
+                        return Err(err);
+                    }
+                };
+                if let Err(err) = ClaudeTerminalSession::update_transcript_offset(
+                    &self.db.pool,
+                    execution_id,
+                    i64::try_from(transcript_offset).unwrap_or(i64::MAX),
+                )
+                .await
                 {
                     self.claude_terminal_hooks
                         .write()
                         .await
                         .insert(execution_id, state);
-                    return Err(err);
+                    return Err(err.into());
                 }
             }
 
@@ -149,6 +177,36 @@ impl LocalDeployment {
 
         Ok(())
     }
+
+    async fn upsert_claude_terminal_session_metadata(
+        &self,
+        execution_id: Uuid,
+        payload: &ClaudeHookPayload,
+    ) -> anyhow::Result<()> {
+        let process = match ExecutionProcess::find_by_id(&self.db.pool, execution_id).await? {
+            Some(process) => process,
+            None => return Ok(()),
+        };
+        let Some((workspace, _)) = process.parent_workspace_and_session(&self.db.pool).await?
+        else {
+            return Ok(());
+        };
+
+        ClaudeTerminalSession::upsert_from_hook(
+            &self.db.pool,
+            execution_id,
+            workspace.id,
+            &tmux_session_name(execution_id),
+            &payload.session_id,
+            payload.transcript_path.as_deref(),
+            payload.cwd.as_deref(),
+        )
+        .await?;
+        CodingAgentTurn::update_agent_session_id(&self.db.pool, execution_id, &payload.session_id)
+            .await?;
+
+        Ok(())
+    }
 }
 
 fn terminal_status_from_hook(payload: &ClaudeHookPayload) -> Option<ExecutionProcessStatus> {
@@ -164,7 +222,7 @@ async fn ingest_transcript_delta(
     state: &mut ClaudeTerminalHookState,
     payload: &ClaudeHookPayload,
     transcript_path: &str,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<usize> {
     let transcript = fs::read_to_string(transcript_path).await?;
     if transcript.len() < state.transcript_bytes_read {
         state.transcript_bytes_read = 0;
@@ -173,10 +231,11 @@ async fn ingest_transcript_delta(
         state.transcript_import = None;
     }
 
-    let delta = transcript
-        .get(state.transcript_bytes_read..)
-        .unwrap_or_default();
+    let previous_bytes_read = state.transcript_bytes_read;
+    let delta = transcript.get(previous_bytes_read..).unwrap_or_default();
     let mut delta_with_pending = std::mem::take(&mut state.pending_fragment);
+    let pending_len = delta_with_pending.len();
+    let durable_offset_base = previous_bytes_read.saturating_sub(pending_len);
     delta_with_pending.push_str(delta);
     state.transcript_bytes_read = transcript.len();
 
@@ -198,6 +257,7 @@ async fn ingest_transcript_delta(
     if consumed < delta_with_pending.len() {
         state.pending_fragment = delta_with_pending[consumed..].to_string();
     }
+    let durable_transcript_offset = durable_offset_base + consumed;
 
     let import_state = state.transcript_import.get_or_insert_with(|| {
         TranscriptImportState::new(200_000, payload.cwd.as_deref().unwrap_or_default())
@@ -226,7 +286,7 @@ async fn ingest_transcript_delta(
     }
     state.entry_count = import_state.entries.len();
 
-    Ok(())
+    Ok(durable_transcript_offset)
 }
 
 fn normalized_entry_json(entry: &NormalizedEntry) -> serde_json::Value {
@@ -1402,6 +1462,62 @@ mod tests {
         .await
         .unwrap();
 
+        assert_eq!(state.entry_count, 1);
+    }
+
+    #[tokio::test]
+    async fn transcript_delta_returns_only_consumed_offset_for_partial_tail() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let transcript_path = tempdir.path().join("transcript.jsonl");
+        let store = std::sync::Arc::new(utils::msg_store::MsgStore::new());
+        let mut state = ClaudeTerminalHookState::default();
+        let payload: ClaudeHookPayload = serde_json::from_value(serde_json::json!({
+            "session_id": "claude-session-123",
+            "hook_event_name": "PostToolUse",
+            "cwd": "/tmp"
+        }))
+        .unwrap();
+        let complete_row = concat!(
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}"#,
+            "\n"
+        );
+        let partial_row =
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text""#;
+
+        tokio::fs::write(&transcript_path, format!("{complete_row}{partial_row}"))
+            .await
+            .unwrap();
+        let offset = ingest_transcript_delta(
+            &store,
+            &mut state,
+            &payload,
+            transcript_path.to_str().unwrap(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(offset, complete_row.len());
+        assert_eq!(
+            state.transcript_bytes_read,
+            complete_row.len() + partial_row.len()
+        );
+        assert_eq!(state.entry_count, 1);
+
+        let still_partial = format!("{complete_row}{partial_row}still-partial");
+        tokio::fs::write(&transcript_path, &still_partial)
+            .await
+            .unwrap();
+        let offset = ingest_transcript_delta(
+            &store,
+            &mut state,
+            &payload,
+            transcript_path.to_str().unwrap(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(offset, complete_row.len());
+        assert_eq!(state.transcript_bytes_read, still_partial.len());
         assert_eq!(state.entry_count, 1);
     }
 

@@ -1,3 +1,4 @@
+pub mod claude_terminal_session;
 pub mod coding_agent_turn;
 pub mod execution_log_event;
 pub mod execution_process;

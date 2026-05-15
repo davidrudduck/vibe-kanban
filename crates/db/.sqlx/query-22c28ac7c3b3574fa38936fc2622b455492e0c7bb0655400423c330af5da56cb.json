@@ -1,0 +1,68 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT\n                execution_process_id as \"execution_process_id!: Uuid\",\n                workspace_id as \"workspace_id!: Uuid\",\n                tmux_session_name,\n                claude_session_id,\n                transcript_path,\n                transcript_offset as \"transcript_offset!: i64\",\n                cwd,\n                created_at as \"created_at!: DateTime<Utc>\",\n                updated_at as \"updated_at!: DateTime<Utc>\"\n            FROM claude_terminal_sessions\n            WHERE workspace_id = $1\n            ORDER BY updated_at DESC\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "execution_process_id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "workspace_id!: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "tmux_session_name",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "claude_session_id",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "transcript_path",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "transcript_offset!: i64",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "cwd",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: DateTime<Utc>",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: DateTime<Utc>",
+        "ordinal": 8,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "22c28ac7c3b3574fa38936fc2622b455492e0c7bb0655400423c330af5da56cb"
+}

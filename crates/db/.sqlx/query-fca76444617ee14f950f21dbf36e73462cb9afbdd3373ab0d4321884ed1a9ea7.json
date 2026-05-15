@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            UPDATE claude_terminal_sessions\n            SET transcript_offset = $1, updated_at = $2\n            WHERE execution_process_id = $3\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "fca76444617ee14f950f21dbf36e73462cb9afbdd3373ab0d4321884ed1a9ea7"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO claude_terminal_sessions (\n                execution_process_id,\n                workspace_id,\n                tmux_session_name,\n                claude_session_id,\n                transcript_path,\n                cwd,\n                created_at,\n                updated_at\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $7)\n            ON CONFLICT(execution_process_id) DO UPDATE SET\n                workspace_id = excluded.workspace_id,\n                tmux_session_name = excluded.tmux_session_name,\n                claude_session_id = excluded.claude_session_id,\n                transcript_path = COALESCE(excluded.transcript_path, claude_terminal_sessions.transcript_path),\n                cwd = COALESCE(excluded.cwd, claude_terminal_sessions.cwd),\n                updated_at = excluded.updated_at\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "48619303a47e6c830fa03f6827d6b72eaebd3b7e1041812fb1535ab308e03ac0"
+}
