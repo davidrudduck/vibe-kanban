@@ -16,6 +16,7 @@ pub mod filesystem;
 pub mod webhooks;
 // pub mod github;
 pub mod attachments;
+pub mod claude_hooks;
 pub mod events;
 pub mod execution_log_events;
 pub mod execution_processes;
@@ -54,6 +55,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(repo::router())
         .merge(events::router(&deployment))
         .merge(approvals::router())
+        .merge(claude_hooks::router())
         .merge(scratch::router(&deployment))
         .merge(search::router(&deployment))
         .merge(preview::api_router())

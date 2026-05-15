@@ -45,6 +45,7 @@ use workspace_manager::WorkspaceManager;
 use worktree_manager::WorktreeManager;
 
 use crate::{container::LocalContainerService, pty::PtyService};
+pub mod claude_hooks;
 pub mod claude_terminal;
 mod command;
 pub mod container;
