@@ -40,6 +40,7 @@ import { cn, playSound } from '@/shared/lib/utils';
 import { isTauriApp } from '@/shared/lib/platform';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { PrimaryButton } from '@vibe/ui/components/PrimaryButton';
+import { sortExecutorsByDisplayName } from '@/shared/lib/executor';
 
 type SoundOption = {
   value: SoundFile;
@@ -83,13 +84,6 @@ const SOUND_OPTIONS: SoundOption[] = [
     label: 'Rooster',
     icon: BirdIcon,
   },
-];
-
-const AGENT_PRIORITY: BaseCodingAgent[] = [
-  BaseCodingAgent.CLAUDE_CODE,
-  BaseCodingAgent.CODEX,
-  BaseCodingAgent.OPENCODE,
-  BaseCodingAgent.GEMINI,
 ];
 
 const DiscordIcon: Icon = forwardRef<SVGSVGElement, IconProps>(
@@ -211,25 +205,12 @@ export function LandingPage() {
   }, [appNavigation, config?.remote_onboarding_acknowledged]);
 
   const executorOptions = useMemo(() => {
-    const compareAgents = (a: BaseCodingAgent, b: BaseCodingAgent) => {
-      const priorityA = AGENT_PRIORITY.indexOf(a);
-      const priorityB = AGENT_PRIORITY.indexOf(b);
-      const hasPriorityA = priorityA !== -1;
-      const hasPriorityB = priorityB !== -1;
-
-      if (hasPriorityA && hasPriorityB) {
-        return priorityA - priorityB;
-      }
-      if (hasPriorityA) return -1;
-      if (hasPriorityB) return 1;
-
-      return getAgentName(a).localeCompare(getAgentName(b));
-    };
-
     if (profiles) {
-      return (Object.keys(profiles) as BaseCodingAgent[]).sort(compareAgents);
+      return sortExecutorsByDisplayName(
+        Object.keys(profiles) as BaseCodingAgent[]
+      );
     }
-    return [...Object.values(BaseCodingAgent)].sort(compareAgents);
+    return sortExecutorsByDisplayName(Object.values(BaseCodingAgent));
   }, [profiles]);
 
   const editorOptions = useMemo(() => Object.values(EditorType), []);

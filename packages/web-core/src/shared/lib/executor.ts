@@ -41,6 +41,24 @@ export function getExecutorDisplayName(
   );
 }
 
+export function compareExecutorsByDisplayName(
+  a: BaseCodingAgent | string,
+  b: BaseCodingAgent | string
+): number {
+  const displayCompare = getExecutorDisplayName(a).localeCompare(
+    getExecutorDisplayName(b),
+    undefined,
+    { sensitivity: 'base' }
+  );
+  return displayCompare || String(a).localeCompare(String(b));
+}
+
+export function sortExecutorsByDisplayName<T extends BaseCodingAgent | string>(
+  executors: readonly T[]
+): T[] {
+  return [...executors].sort(compareExecutorsByDisplayName);
+}
+
 export function getExecutorModeDescription(
   executor: BaseCodingAgent | string | null | undefined
 ): string | null {

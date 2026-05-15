@@ -1,6 +1,7 @@
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
+    process::Stdio,
 };
 
 use executors::{
@@ -9,7 +10,7 @@ use executors::{
     executors::claude_terminal::{ClaudeTerminal, ClaudeTerminalSettingsMergeMode},
 };
 use serde_json::{Value, json};
-use tokio::{fs, process::Command};
+use tokio::{fs, io::AsyncWriteExt, process::Command};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,6 +141,50 @@ pub fn build_tmux_kill_session_command(session_name: String) -> ShellCommand {
     ShellCommand {
         program: "tmux".to_string(),
         args: vec!["kill-session".to_string(), "-t".to_string(), session_name],
+    }
+}
+
+pub fn build_tmux_load_buffer_command(buffer_name: String) -> ShellCommand {
+    ShellCommand {
+        program: "tmux".to_string(),
+        args: vec![
+            "load-buffer".to_string(),
+            "-b".to_string(),
+            buffer_name,
+            "-".to_string(),
+        ],
+    }
+}
+
+pub fn build_tmux_paste_buffer_command(session_name: String, buffer_name: String) -> ShellCommand {
+    ShellCommand {
+        program: "tmux".to_string(),
+        args: vec![
+            "paste-buffer".to_string(),
+            "-t".to_string(),
+            session_name,
+            "-b".to_string(),
+            buffer_name,
+        ],
+    }
+}
+
+pub fn build_tmux_send_enter_command(session_name: String) -> ShellCommand {
+    ShellCommand {
+        program: "tmux".to_string(),
+        args: vec![
+            "send-keys".to_string(),
+            "-t".to_string(),
+            session_name,
+            "Enter".to_string(),
+        ],
+    }
+}
+
+pub fn build_tmux_delete_buffer_command(buffer_name: String) -> ShellCommand {
+    ShellCommand {
+        program: "tmux".to_string(),
+        args: vec!["delete-buffer".to_string(), "-b".to_string(), buffer_name],
     }
 }
 
@@ -333,6 +378,62 @@ async fn run_shell_command(command: &ShellCommand, env: &ExecutionEnv) -> anyhow
     );
 }
 
+async fn run_shell_command_with_stdin(
+    command: &ShellCommand,
+    stdin: &[u8],
+    env: &ExecutionEnv,
+) -> anyhow::Result<()> {
+    let mut process = Command::new(&command.program);
+    process.args(&command.args);
+    process.stdin(Stdio::piped());
+    env.apply_to_command(&mut process);
+    let mut child = process.spawn()?;
+    if let Some(mut child_stdin) = child.stdin.take() {
+        child_stdin.write_all(stdin).await?;
+    }
+    let output = child.wait_with_output().await?;
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    anyhow::bail!(
+        "{} exited with status {:?}: {}",
+        command.program,
+        output.status.code(),
+        stderr.trim()
+    );
+}
+
+pub async fn send_prompt_to_tmux_session(
+    execution_id: Uuid,
+    prompt: &str,
+    env: &ExecutionEnv,
+) -> anyhow::Result<()> {
+    let session_name = tmux_session_name(execution_id);
+    let buffer_name = format!("vk-claude-inject-{execution_id}");
+
+    run_shell_command_with_stdin(
+        &build_tmux_load_buffer_command(buffer_name.clone()),
+        prompt.as_bytes(),
+        env,
+    )
+    .await?;
+
+    let paste_result = async {
+        run_shell_command(
+            &build_tmux_paste_buffer_command(session_name.clone(), buffer_name.clone()),
+            env,
+        )
+        .await?;
+        run_shell_command(&build_tmux_send_enter_command(session_name), env).await
+    }
+    .await;
+
+    let _ = run_shell_command(&build_tmux_delete_buffer_command(buffer_name), env).await;
+    paste_result
+}
+
 pub async fn kill_tmux_session(execution_id: Uuid, env: &ExecutionEnv) -> anyhow::Result<()> {
     let command = build_tmux_kill_session_command(tmux_session_name(execution_id));
     run_shell_command(&command, env).await
@@ -517,6 +618,50 @@ mod tests {
                 "kill-session".to_string(),
                 "-t".to_string(),
                 "vk-claude-44444444-4444-4444-4444-444444444444".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn prompt_injection_commands_target_tmux_session_and_buffer() {
+        let execution_id = Uuid::parse_str("44444444-4444-4444-4444-444444444444").unwrap();
+        let session_name = tmux_session_name(execution_id);
+        let buffer_name = format!("vk-claude-inject-{execution_id}");
+
+        assert_eq!(
+            build_tmux_load_buffer_command(buffer_name.clone()).args,
+            vec![
+                "load-buffer".to_string(),
+                "-b".to_string(),
+                buffer_name.clone(),
+                "-".to_string(),
+            ]
+        );
+        assert_eq!(
+            build_tmux_paste_buffer_command(session_name.clone(), buffer_name.clone()).args,
+            vec![
+                "paste-buffer".to_string(),
+                "-t".to_string(),
+                session_name.clone(),
+                "-b".to_string(),
+                buffer_name.clone(),
+            ]
+        );
+        assert_eq!(
+            build_tmux_send_enter_command(session_name).args,
+            vec![
+                "send-keys".to_string(),
+                "-t".to_string(),
+                "vk-claude-44444444-4444-4444-4444-444444444444".to_string(),
+                "Enter".to_string(),
+            ]
+        );
+        assert_eq!(
+            build_tmux_delete_buffer_command(buffer_name).args,
+            vec![
+                "delete-buffer".to_string(),
+                "-b".to_string(),
+                "vk-claude-inject-44444444-4444-4444-4444-444444444444".to_string(),
             ]
         );
     }

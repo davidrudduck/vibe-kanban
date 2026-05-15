@@ -29,7 +29,7 @@ struct StartWorkspaceRequest {
     )]
     prompt: Option<String>,
     #[schemars(
-        description = "The coding agent executor to run ('CLAUDE_CODE', 'AMP', 'GEMINI', 'CODEX', 'OPENCODE', 'CURSOR_AGENT', 'QWEN_CODE', 'COPILOT', 'DROID')"
+        description = "The coding agent executor to run ('AMP', 'CLAUDE_CODE', 'CLAUDE_TERMINAL', 'CODEX', 'COPILOT', 'CURSOR_AGENT', 'DROID', 'GEMINI', 'OPENCODE', 'QWEN_CODE')"
     )]
     executor: String,
     #[schemars(description = "Optional executor variant, if needed")]

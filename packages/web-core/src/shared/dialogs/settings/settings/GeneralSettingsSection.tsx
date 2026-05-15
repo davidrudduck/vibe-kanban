@@ -27,6 +27,7 @@ import {
   getExecutorModeDescription,
   getExecutorVariantKeys,
   getSortedExecutorVariantKeys,
+  sortExecutorsByDisplayName,
 } from '@/shared/lib/executor';
 import { useTheme } from '@/shared/hooks/useTheme';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
@@ -83,9 +84,9 @@ export function GeneralSettingsSection() {
 
   // Executor options for the default coding agent dropdown
   const executorOptions = profiles
-    ? Object.keys(profiles)
-        .sort()
-        .map((key) => ({ value: key, label: getExecutorDisplayName(key) }))
+    ? sortExecutorsByDisplayName(
+        Object.keys(profiles) as BaseCodingAgent[]
+      ).map((key) => ({ value: key, label: getExecutorDisplayName(key) }))
     : [];
 
   const selectedAgentProfile =

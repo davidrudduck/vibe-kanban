@@ -9,7 +9,12 @@ import {
   SlidersHorizontalIcon,
   type Icon,
 } from '@phosphor-icons/react';
-import type { BaseCodingAgent, ExecutorConfig, ModelInfo } from 'shared/types';
+import type {
+  AgentInfo,
+  BaseCodingAgent,
+  ExecutorConfig,
+  ModelInfo,
+} from 'shared/types';
 import { PermissionPolicy } from 'shared/types';
 import { toPrettyCase } from '@/shared/lib/string';
 import {
@@ -218,8 +223,17 @@ export function ModelSelectorContainer({
     recentReasoningId ??
     resolveDefaultReasoningId(selectedModel?.reasoning_options ?? []);
 
+  const sortedAgentOptions = useMemo<AgentInfo[]>(() => {
+    return [...(config?.agents ?? [])].sort((a, b) => {
+      const labelCompare = a.label.localeCompare(b.label, undefined, {
+        sensitivity: 'base',
+      });
+      return labelCompare || a.id.localeCompare(b.id);
+    });
+  }, [config?.agents]);
+
   const defaultAgentId =
-    config?.agents.find((entry) => entry.is_default)?.id ?? null;
+    sortedAgentOptions.find((entry) => entry.is_default)?.id ?? null;
 
   const selectedAgentId =
     executorConfig?.agent_id !== undefined
@@ -522,7 +536,7 @@ export function ModelSelectorContainer({
         </DropdownMenu>
       )}
 
-      {config.agents.length > 0 && (
+      {sortedAgentOptions.length > 0 && (
         <DropdownMenu>
           <DropdownMenuTriggerButton size="sm" label={agentLabel} />
           <DropdownMenuContent align="start">
@@ -534,7 +548,7 @@ export function ModelSelectorContainer({
               {t('modelSelector.default')}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            {config.agents.map((agentOption) => (
+            {sortedAgentOptions.map((agentOption) => (
               <DropdownMenuItem
                 key={agentOption.id}
                 icon={

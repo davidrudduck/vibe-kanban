@@ -1,5 +1,12 @@
 {
   "executors": {
+    "AMP": {
+      "DEFAULT": {
+        "AMP": {
+          "dangerously_allow_all": true
+        }
+      }
+    },
     "CLAUDE_CODE": {
       "DEFAULT": {
         "CLAUDE_CODE": {
@@ -12,10 +19,32 @@
         "CLAUDE_TERMINAL": {}
       }
     },
-    "AMP": {
+    "CODEX": {
       "DEFAULT": {
-        "AMP": {
-          "dangerously_allow_all": true
+        "CODEX": {
+          "sandbox": "danger-full-access"
+        }
+      }
+    },
+    "COPILOT": {
+      "DEFAULT": {
+        "COPILOT": {
+          "allow_all_tools": true
+        }
+      }
+    },
+    "CURSOR_AGENT": {
+      "DEFAULT": {
+        "CURSOR_AGENT": {
+          "force": true,
+          "model": "auto"
+        }
+      }
+    },
+    "DROID": {
+      "DEFAULT": {
+        "DROID": {
+          "autonomy": "skip-permissions-unsafe"
         }
       }
     },
@@ -23,13 +52,6 @@
       "DEFAULT": {
         "GEMINI": {
           "yolo": true
-        }
-      }
-    },
-    "CODEX": {
-      "DEFAULT": {
-        "CODEX": {
-          "sandbox": "danger-full-access"
         }
       }
     },
@@ -44,28 +66,6 @@
       "DEFAULT": {
         "QWEN_CODE": {
           "yolo": true
-        }
-      }
-    },
-    "CURSOR_AGENT": {
-      "DEFAULT": {
-        "CURSOR_AGENT": {
-          "force": true,
-          "model": "auto"
-        }
-      }
-    },
-    "COPILOT": {
-      "DEFAULT": {
-        "COPILOT": {
-          "allow_all_tools": true
-        }
-      }
-    },
-    "DROID": {
-      "DEFAULT": {
-        "DROID": {
-          "autonomy": "skip-permissions-unsafe"
         }
       }
     }

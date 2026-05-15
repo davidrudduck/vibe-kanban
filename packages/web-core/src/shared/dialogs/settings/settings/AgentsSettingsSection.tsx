@@ -36,6 +36,7 @@ import {
   getExecutorDisplayName,
   getExecutorModeDescription,
   getExecutorVariantKeys,
+  sortExecutorsByDisplayName,
 } from '@/shared/lib/executor';
 
 type ExecutorsMap = Record<string, Record<string, Record<string, unknown>>>;
@@ -390,7 +391,9 @@ export function AgentsSettingsSection() {
               label={t('settings.agents.editor.agentLabel')}
               isFirst
             >
-              {Object.keys(localParsedProfiles.executors).map((executor) => {
+              {sortExecutorsByDisplayName(
+                Object.keys(localParsedProfiles.executors) as BaseCodingAgent[]
+              ).map((executor) => {
                 const isDefault =
                   config?.executor_profile?.executor === executor;
                 const executorDescription =
@@ -400,11 +403,9 @@ export function AgentsSettingsSection() {
                     key={executor}
                     selected={selectedExecutorType === executor}
                     onClick={() => {
-                      setSelectedExecutorType(executor as BaseCodingAgent);
+                      setSelectedExecutorType(executor);
                       const configs = getExecutorVariantKeys(
-                        localParsedProfiles.executors[
-                          executor as BaseCodingAgent
-                        ]
+                        localParsedProfiles.executors[executor]
                       );
                       if (configs.length > 0) {
                         setSelectedConfiguration(configs[0]);
@@ -412,7 +413,7 @@ export function AgentsSettingsSection() {
                     }}
                     leading={
                       <AgentIcon
-                        agent={executor as BaseCodingAgent}
+                        agent={executor}
                         className="size-icon-sm shrink-0"
                       />
                     }

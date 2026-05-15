@@ -339,7 +339,7 @@ impl ClaudeCode {
     fn map_discovered_agents(agents: Vec<String>) -> Vec<AgentInfo> {
         let mut seen = HashSet::new();
 
-        agents
+        let mut options: Vec<AgentInfo> = agents
             .into_iter()
             .filter(|name| name != "statusline-setup")
             .filter_map(|name| {
@@ -355,7 +355,14 @@ impl ClaudeCode {
                 }
                 Some(option)
             })
-            .collect()
+            .collect();
+        options.sort_by(|a, b| {
+            a.label
+                .to_lowercase()
+                .cmp(&b.label.to_lowercase())
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        options
     }
 
     fn format_agent_label(raw: &str) -> String {

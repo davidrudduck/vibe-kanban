@@ -787,7 +787,7 @@ export type ClaudeEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 export type ClaudeCode = { append_prompt: AppendPrompt, claude_code_router?: boolean | null, plan?: boolean | null, approvals?: boolean | null, model?: string | null, effort?: ClaudeEffort | null, agent?: string | null, dangerously_skip_permissions?: boolean | null, disable_api_key?: boolean | null, base_command_override?: string | null, additional_params?: Array<string> | null, env?: { [key in string]?: string } | null, };
 
-export type ClaudeTerminal = { append_prompt: AppendPrompt, model?: string | null, settings_merge_mode?: ClaudeTerminalSettingsMergeMode | null, base_command_override?: string | null, additional_params?: Array<string> | null, env?: { [key in string]?: string } | null, };
+export type ClaudeTerminal = { append_prompt: AppendPrompt, plan?: boolean | null, approvals?: boolean | null, model?: string | null, effort?: ClaudeEffort | null, agent?: string | null, dangerously_skip_permissions?: boolean | null, settings_merge_mode?: ClaudeTerminalSettingsMergeMode | null, base_command_override?: string | null, additional_params?: Array<string> | null, env?: { [key in string]?: string } | null, };
 
 export type ClaudeTerminalSettingsMergeMode = "merge_existing" | "vibe_only";
 

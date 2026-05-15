@@ -73,7 +73,7 @@ use workspace_manager::{RepoWorkspaceInput, WorkspaceError, WorkspaceManager};
 use crate::{
     claude_hooks::ClaudeTerminalHookState,
     claude_terminal::{
-        ClaudeTerminalStartRequest, kill_tmux_session_if_exists,
+        ClaudeTerminalStartRequest, kill_tmux_session_if_exists, send_prompt_to_tmux_session,
         start_or_resume as start_claude_terminal, tmux_session_exists, tmux_session_name,
     },
     command, copy,
@@ -2353,6 +2353,24 @@ impl ContainerService for LocalContainerService {
         execution_process_id: Uuid,
         content: String,
     ) -> Result<bool, ContainerError> {
+        if let Some(process) =
+            ExecutionProcess::find_by_id(&self.db.pool, execution_process_id).await?
+            && process.status == ExecutionProcessStatus::Running
+            && process
+                .executor_action()
+                .ok()
+                .and_then(|action| action.base_executor())
+                == Some(BaseCodingAgent::ClaudeTerminal)
+        {
+            let env = self
+                .claude_terminal_execution_env(execution_process_id)
+                .await?;
+            send_prompt_to_tmux_session(execution_process_id, &content, &env)
+                .await
+                .map_err(map_claude_terminal_start_error)?;
+            return Ok(true);
+        }
+
         let peer = {
             let peers = self.protocol_peers.read().await;
             peers.get(&execution_process_id).cloned()

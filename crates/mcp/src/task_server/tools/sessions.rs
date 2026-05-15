@@ -85,7 +85,7 @@ struct CreateAndRunSessionRequest {
     )]
     workspace_id: Option<Uuid>,
     #[schemars(
-        description = "The coding agent executor to run (e.g. 'CLAUDE_CODE', 'GEMINI', 'CODEX')"
+        description = "The coding agent executor to run (e.g. 'AMP', 'CLAUDE_CODE', 'CLAUDE_TERMINAL', 'CODEX', 'COPILOT', 'CURSOR_AGENT', 'DROID', 'GEMINI', 'OPENCODE', 'QWEN_CODE')"
     )]
     executor: String,
     #[schemars(description = "Prompt for the coding agent")]

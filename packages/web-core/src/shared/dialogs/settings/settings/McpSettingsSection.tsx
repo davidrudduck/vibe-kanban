@@ -6,7 +6,10 @@ import { McpConfig } from 'shared/types';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
 import { McpConfigStrategyGeneral } from '@/shared/lib/mcpStrategies';
 import { cn } from '@/shared/lib/utils';
-import { toPrettyCase } from '@/shared/lib/string';
+import {
+  getExecutorDisplayName,
+  sortExecutorsByDisplayName,
+} from '@/shared/lib/executor';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,7 +57,10 @@ export function McpSettingsSection() {
       if (currentProfile) {
         setSelectedProfile(currentProfile);
       } else if (Object.keys(profiles).length > 0) {
-        setSelectedProfile(Object.values(profiles)[0]);
+        const [firstExecutor] = sortExecutorsByDisplayName(
+          Object.keys(profiles) as BaseCodingAgent[]
+        );
+        setSelectedProfile(profiles[firstExecutor]);
       }
     }
   }, [config?.executor_profile, profiles, selectedProfile]);
@@ -232,9 +238,9 @@ export function McpSettingsSection() {
   const getMetaFor = (key: string) => meta[key] || {};
 
   const profileOptions = profiles
-    ? Object.keys(profiles)
-        .sort()
-        .map((key) => ({ value: key, label: toPrettyCase(key) }))
+    ? sortExecutorsByDisplayName(
+        Object.keys(profiles) as BaseCodingAgent[]
+      ).map((key) => ({ value: key, label: getExecutorDisplayName(key) }))
     : [];
 
   const selectedProfileKey = selectedProfile
@@ -282,7 +288,7 @@ export function McpSettingsSection() {
               <DropdownMenuTriggerButton
                 label={
                   selectedProfileKey
-                    ? toPrettyCase(selectedProfileKey)
+                    ? getExecutorDisplayName(selectedProfileKey)
                     : t('settings.mcp.labels.agentPlaceholder')
                 }
                 className="w-full justify-between"

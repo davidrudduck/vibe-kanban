@@ -249,11 +249,9 @@ impl LocalDeployment {
 
 fn terminal_status_from_hook(payload: &ClaudeHookPayload) -> Option<ExecutionProcessStatus> {
     match payload.hook_event_name.as_str() {
-        "Stop" => Some(ExecutionProcessStatus::Completed),
         "SessionEnd" if session_end_finishes_terminal_execution(payload) => {
             Some(ExecutionProcessStatus::Completed)
         }
-        "StopFailure" => Some(ExecutionProcessStatus::Failed),
         _ => None,
     }
 }
@@ -1230,7 +1228,7 @@ mod tests {
     }
 
     #[test]
-    fn stop_hooks_map_to_terminal_completion_statuses() {
+    fn turn_end_hooks_do_not_complete_terminal_execution() {
         let stop: ClaudeHookPayload = serde_json::from_value(serde_json::json!({
             "session_id": "claude-session-123",
             "hook_event_name": "Stop"
@@ -1242,14 +1240,8 @@ mod tests {
         }))
         .unwrap();
 
-        assert_eq!(
-            terminal_status_from_hook(&stop),
-            Some(ExecutionProcessStatus::Completed)
-        );
-        assert_eq!(
-            terminal_status_from_hook(&stop_failure),
-            Some(ExecutionProcessStatus::Failed)
-        );
+        assert_eq!(terminal_status_from_hook(&stop), None);
+        assert_eq!(terminal_status_from_hook(&stop_failure), None);
     }
 
     #[test]

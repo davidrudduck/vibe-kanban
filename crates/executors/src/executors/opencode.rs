@@ -296,7 +296,7 @@ fn map_opencode_agents(agents: &[SDKAgentInfo]) -> Vec<AgentInfo> {
         "build"
     };
 
-    agents
+    let mut mapped_agents: Vec<AgentInfo> = agents
         .iter()
         .map(|agent| AgentInfo {
             id: agent.name.clone(),
@@ -304,7 +304,14 @@ fn map_opencode_agents(agents: &[SDKAgentInfo]) -> Vec<AgentInfo> {
             description: agent.description.clone(),
             is_default: agent.name.eq_ignore_ascii_case(default_agent_name),
         })
-        .collect()
+        .collect();
+    mapped_agents.sort_by(|a, b| {
+        a.label
+            .to_lowercase()
+            .cmp(&b.label.to_lowercase())
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    mapped_agents
 }
 
 fn format_tail(captured: Vec<String>) -> String {

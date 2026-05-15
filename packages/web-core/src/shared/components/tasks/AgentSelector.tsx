@@ -11,6 +11,7 @@ import type { ExecutorProfileId, BaseCodingAgent } from 'shared/types';
 import {
   getExecutorDisplayName,
   getExecutorModeDescription,
+  sortExecutorsByDisplayName,
 } from '@/shared/lib/executor';
 
 interface AgentSelectorProps {
@@ -31,7 +32,7 @@ export function AgentSelector({
   showLabel = false,
 }: AgentSelectorProps) {
   const agents = profiles
-    ? (Object.keys(profiles).sort() as BaseCodingAgent[])
+    ? sortExecutorsByDisplayName(Object.keys(profiles) as BaseCodingAgent[])
     : [];
   const selectedAgent = selectedExecutorProfile?.executor;
   const selectedDescription = getExecutorModeDescription(selectedAgent);

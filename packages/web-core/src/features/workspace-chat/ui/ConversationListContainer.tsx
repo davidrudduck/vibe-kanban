@@ -43,8 +43,15 @@ import {
   isAggregatedThinkingGroup,
 } from '@/shared/hooks/useConversationHistory/types';
 import { useConversationHistory } from '../model/hooks/useConversationHistory';
+import { useExecutionProcessesContext } from '@/shared/hooks/useExecutionProcessesContext';
+import { executorConfigFromAction } from '@/shared/lib/executor';
 import type { WorkspaceWithSession } from '@/shared/types/attempt';
-import type { RepoWithTargetBranch, TokenUsageInfo } from 'shared/types';
+import {
+  BaseCodingAgent,
+  ExecutionProcessStatus,
+  type RepoWithTargetBranch,
+  type TokenUsageInfo,
+} from 'shared/types';
 
 /** Shallow-structural equality for TokenUsageInfo (all fields are primitives or bigints). */
 function tokenUsageInfoEqual(a: TokenUsageInfo, b: TokenUsageInfo): boolean {
@@ -79,6 +86,7 @@ function tokenUsageMapsEqual(
 import { ChatEmptyState } from '@vibe/ui/components/ChatEmptyState';
 import { ChatScriptPlaceholder } from '@vibe/ui/components/ChatScriptPlaceholder';
 import { ScriptFixerDialog } from '@/shared/dialogs/scripts/ScriptFixerDialog';
+import { ClaudeTerminalInlinePanel } from './ClaudeTerminalInlinePanel';
 
 interface ConversationListProps {
   attempt: WorkspaceWithSession;
@@ -208,6 +216,7 @@ export const ConversationList = forwardRef<
   const { t } = useTranslation('common');
   const repos = reposProp;
   const resetAction = useResetProcess(attempt.id, attempt.session?.id);
+  const { executionProcessesVisible } = useExecutionProcessesContext();
   const conversationScopeKey = `${attempt.id}:${sessionScopeId ?? attempt.session?.id ?? 'new'}`;
   const [filteredEntries, setFilteredEntries] = useState<DisplayEntry[]>([]);
   const [dataVersion, setDataVersion] = useState(0);
@@ -910,7 +919,21 @@ export const ConversationList = forwardRef<
   );
 
   const showLoader = loading && conversationRows.length === 0;
-  const showEmptyState = !loading && conversationRows.length === 0;
+  const runningClaudeTerminalProcess = useMemo(
+    () =>
+      executionProcessesVisible.find((process) => {
+        const executorConfig = executorConfigFromAction(
+          process.executor_action
+        );
+        return (
+          process.status === ExecutionProcessStatus.running &&
+          executorConfig?.executor === BaseCodingAgent.CLAUDE_TERMINAL
+        );
+      }),
+    [executionProcessesVisible]
+  );
+  const showEmptyState =
+    !loading && conversationRows.length === 0 && !runningClaudeTerminalProcess;
 
   const { virtualItems, totalSize, measureElement } = conversationVirtualizer;
 
@@ -1028,6 +1051,13 @@ export const ConversationList = forwardRef<
               </div>
             );
           })}
+
+          {runningClaudeTerminalProcess && (
+            <ClaudeTerminalInlinePanel
+              process={runningClaudeTerminalProcess}
+              workspaceId={attempt.id}
+            />
+          )}
 
           {/* Plan-reveal spacer: provides extra scroll room so plan-reveal
               can align the plan entry to the top of the viewport. Height is set

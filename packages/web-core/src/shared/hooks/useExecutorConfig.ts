@@ -5,7 +5,10 @@ import type {
   ExecutorProfile,
   ExecutorProfileId,
 } from 'shared/types';
-import { getVariantOptions } from '@/shared/lib/executor';
+import {
+  getVariantOptions,
+  sortExecutorsByDisplayName,
+} from '@/shared/lib/executor';
 import { usePresetOptions } from '@/shared/hooks/usePresetOptions';
 
 function getProfileKey(
@@ -35,7 +38,10 @@ function useEffectiveExecutor(
   configExecutorProfile: ExecutorProfileId | null | undefined
 ) {
   const options = useMemo(
-    () => Object.keys(profiles ?? {}) as BaseCodingAgent[],
+    () =>
+      sortExecutorsByDisplayName(
+        Object.keys(profiles ?? {}) as BaseCodingAgent[]
+      ),
     [profiles]
   );
 
