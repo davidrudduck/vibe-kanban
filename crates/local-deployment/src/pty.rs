@@ -12,6 +12,23 @@ use tokio::sync::mpsc;
 use utils::shell::get_interactive_shell;
 use uuid::Uuid;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PtyCommandSpec {
+    pub program: String,
+    pub args: Vec<String>,
+}
+
+pub fn build_tmux_attach_command(session_name: &str) -> PtyCommandSpec {
+    PtyCommandSpec {
+        program: "tmux".to_string(),
+        args: vec![
+            "attach-session".to_string(),
+            "-t".to_string(),
+            session_name.to_string(),
+        ],
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum PtyError {
     #[error("Failed to create PTY: {0}")]
@@ -51,9 +68,41 @@ impl PtyService {
         cols: u16,
         rows: u16,
     ) -> Result<(Uuid, mpsc::UnboundedReceiver<Vec<u8>>), PtyError> {
+        let shell = get_interactive_shell().await;
+        let shell_name = shell.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        let mut command_spec = PtyCommandSpec {
+            program: shell.to_string_lossy().to_string(),
+            args: Vec::new(),
+        };
+        if shell_name == "powershell.exe" || shell_name == "pwsh.exe" {
+            command_spec.args.push("-NoLogo".to_string());
+        }
+
+        self.create_session_with_command(working_dir, cols, rows, command_spec, true)
+            .await
+    }
+
+    pub async fn create_command_session(
+        &self,
+        working_dir: PathBuf,
+        cols: u16,
+        rows: u16,
+        command_spec: PtyCommandSpec,
+    ) -> Result<(Uuid, mpsc::UnboundedReceiver<Vec<u8>>), PtyError> {
+        self.create_session_with_command(working_dir, cols, rows, command_spec, false)
+            .await
+    }
+
+    async fn create_session_with_command(
+        &self,
+        working_dir: PathBuf,
+        cols: u16,
+        rows: u16,
+        command_spec: PtyCommandSpec,
+        configure_shell_prompt: bool,
+    ) -> Result<(Uuid, mpsc::UnboundedReceiver<Vec<u8>>), PtyError> {
         let session_id = Uuid::new_v4();
         let (output_tx, output_rx) = mpsc::unbounded_channel();
-        let shell = get_interactive_shell().await;
 
         let result = tokio::task::spawn_blocking(move || {
             let pty_system = NativePtySystem::default();
@@ -67,24 +116,27 @@ impl PtyService {
                 })
                 .map_err(|e| PtyError::CreateFailed(e.to_string()))?;
 
-            let mut cmd = CommandBuilder::new(&shell);
+            let mut cmd = CommandBuilder::new(&command_spec.program);
+            for arg in &command_spec.args {
+                cmd.arg(arg);
+            }
             cmd.cwd(&working_dir);
 
-            // Configure shell-specific options
-            let shell_name = shell.file_name().and_then(|n| n.to_str()).unwrap_or("");
-
-            if shell_name == "powershell.exe" || shell_name == "pwsh.exe" {
-                // PowerShell: use -NoLogo for cleaner startup
-                cmd.arg("-NoLogo");
-            } else if shell_name == "cmd.exe" {
-                // cmd.exe: no special args needed
-            } else {
+            let command_name = std::path::Path::new(&command_spec.program)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            if configure_shell_prompt
+                && command_name != "powershell.exe"
+                && command_name != "pwsh.exe"
+                && command_name != "cmd.exe"
+            {
                 // Unix shells
                 cmd.env("VIBE_KANBAN_TERMINAL", "1");
 
-                if shell_name == "bash" {
+                if command_name == "bash" {
                     cmd.env("PROMPT_COMMAND", r#"PS1='$ '; unset PROMPT_COMMAND"#);
-                } else if shell_name == "zsh" {
+                } else if command_name == "zsh" {
                     // PROMPT is set after spawning
                 } else {
                     cmd.env("PS1", "$ ");
@@ -104,7 +156,7 @@ impl PtyService {
                 .take_writer()
                 .map_err(|e| PtyError::CreateFailed(e.to_string()))?;
 
-            if shell_name == "zsh" {
+            if configure_shell_prompt && command_name == "zsh" {
                 let _ = writer.write_all(b" PROMPT='$ '; RPROMPT=''\n");
                 let _ = writer.flush();
                 let _ = writer.write_all(b"\x0c");
@@ -222,5 +274,24 @@ impl PtyService {
 impl Default for PtyService {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attach_tmux_command_targets_named_session() {
+        let command = build_tmux_attach_command("vk-claude-test");
+        assert_eq!(command.program, "tmux");
+        assert_eq!(
+            command.args,
+            vec![
+                "attach-session".to_string(),
+                "-t".to_string(),
+                "vk-claude-test".to_string(),
+            ]
+        );
     }
 }

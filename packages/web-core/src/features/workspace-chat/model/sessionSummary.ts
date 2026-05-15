@@ -8,17 +8,19 @@ import { BaseCodingAgent } from 'shared/types';
 /**
  * Executors known to emit TokenUsageInfo today. Source of truth:
  *   - CLAUDE_CODE: crates/executors/src/executors/claude.rs
+ *   - CLAUDE_TERMINAL: crates/local-deployment/src/claude_hooks.rs
  *   - CODEX:       crates/executors/src/executors/codex/normalize_logs.rs
  *   - OPENCODE:    crates/executors/src/executors/opencode/normalize_logs.rs
- * Other executors (AMP, GEMINI, CURSOR_AGENT, QWEN_CODE, COPILOT, DROID) do not
- * emit telemetry as of this revision. If they begin to, the panel will infer
- * support from observed entries automatically (entries.length > 0).
+ * Other executors (AMP, GEMINI, CURSOR_AGENT, QWEN_CODE, COPILOT, DROID) do
+ * not emit telemetry as of this revision. If they begin to, the panel will
+ * infer support from observed entries automatically (entries.length > 0).
  *
  * See ADR: docs/adr/0001-rust-token-capability-flag.md for the planned migration
  * to a Rust-sourced BaseAgentCapability::TOKEN_USAGE flag.
  */
 export const KNOWN_TOKEN_EMITTERS: ReadonlySet<BaseCodingAgent> = new Set([
   BaseCodingAgent.CLAUDE_CODE,
+  BaseCodingAgent.CLAUDE_TERMINAL,
   BaseCodingAgent.CODEX,
   BaseCodingAgent.OPENCODE,
 ]);
@@ -46,6 +48,7 @@ export function formatMsDuration(ms: number | null): string {
 /** Display names for executors. Maps enum values to human-readable brand names. */
 const EXECUTOR_DISPLAY_NAMES: Record<BaseCodingAgent, string> = {
   [BaseCodingAgent.CLAUDE_CODE]: 'Claude Code',
+  [BaseCodingAgent.CLAUDE_TERMINAL]: 'Claude Code Terminal',
   [BaseCodingAgent.CODEX]: 'Codex',
   [BaseCodingAgent.OPENCODE]: 'OpenCode',
   [BaseCodingAgent.CURSOR_AGENT]: 'Cursor Agent',

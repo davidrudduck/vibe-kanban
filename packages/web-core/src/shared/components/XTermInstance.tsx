@@ -12,6 +12,7 @@ import { useFonts } from '@/shared/components/FontProvider';
 interface XTermInstanceProps {
   tabId: string;
   workspaceId: string;
+  tmuxSession?: string;
   isActive: boolean;
   onClose?: () => void;
 }
@@ -19,6 +20,7 @@ interface XTermInstanceProps {
 export function XTermInstance({
   tabId,
   workspaceId,
+  tmuxSession,
   isActive,
   onClose,
 }: XTermInstanceProps) {
@@ -39,8 +41,16 @@ export function XTermInstance({
   const endpoint = useMemo(() => {
     const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
     const host = window.location.host;
-    return `${protocol}//${host}/api/terminal/ws?workspace_id=${workspaceId}&cols=${initialSizeRef.current.cols}&rows=${initialSizeRef.current.rows}`;
-  }, [workspaceId]);
+    const params = new URLSearchParams({
+      workspace_id: workspaceId,
+      cols: String(initialSizeRef.current.cols),
+      rows: String(initialSizeRef.current.rows),
+    });
+    if (tmuxSession) {
+      params.set('tmux_session', tmuxSession);
+    }
+    return `${protocol}//${host}/api/terminal/ws?${params.toString()}`;
+  }, [workspaceId, tmuxSession]);
 
   const fitTerminal = useCallback(() => {
     fitAddonRef.current?.fit();

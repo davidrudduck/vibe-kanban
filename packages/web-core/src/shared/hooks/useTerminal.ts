@@ -13,6 +13,12 @@ export interface TerminalTab {
   title: string;
   workspaceId: string;
   cwd: string;
+  tmuxSession?: string;
+}
+
+export interface CreateTerminalTabOptions {
+  title?: string;
+  tmuxSession?: string;
 }
 
 interface TerminalConnection {
@@ -24,7 +30,11 @@ interface TerminalConnection {
 export interface TerminalContextType {
   getTabsForWorkspace: (workspaceId: string) => TerminalTab[];
   getActiveTab: (workspaceId: string) => TerminalTab | null;
-  createTab: (workspaceId: string, cwd: string) => void;
+  createTab: (
+    workspaceId: string,
+    cwd: string,
+    options?: CreateTerminalTabOptions
+  ) => void;
   closeTab: (workspaceId: string, tabId: string) => void;
   setActiveTab: (workspaceId: string, tabId: string) => void;
   updateTabTitle: (workspaceId: string, tabId: string, title: string) => void;

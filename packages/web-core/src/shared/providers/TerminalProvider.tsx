@@ -5,6 +5,7 @@ import {
   TerminalContext,
   type TerminalTab,
   type TerminalInstance,
+  type CreateTerminalTabOptions,
 } from '@/shared/hooks/useTerminal';
 import { openLocalApiWebSocket } from '@/shared/lib/localApiTransport';
 
@@ -20,7 +21,12 @@ interface TerminalState {
 }
 
 type TerminalAction =
-  | { type: 'CREATE_TAB'; workspaceId: string; cwd: string }
+  | {
+      type: 'CREATE_TAB';
+      workspaceId: string;
+      cwd: string;
+      options?: CreateTerminalTabOptions;
+    }
   | { type: 'CLOSE_TAB'; workspaceId: string; tabId: string }
   | { type: 'SET_ACTIVE_TAB'; workspaceId: string; tabId: string }
   | {
@@ -53,13 +59,14 @@ function terminalReducer(
 ): TerminalState {
   switch (action.type) {
     case 'CREATE_TAB': {
-      const { workspaceId, cwd } = action;
+      const { workspaceId, cwd, options } = action;
       const existingTabs = state.tabsByWorkspace[workspaceId] || [];
       const newTab: TerminalTab = {
         id: generateTabId(),
-        title: `Terminal ${existingTabs.length + 1}`,
+        title: options?.title ?? `Terminal ${existingTabs.length + 1}`,
         workspaceId,
         cwd,
+        tmuxSession: options?.tmuxSession,
       };
       return {
         ...state,
@@ -203,9 +210,12 @@ export function TerminalProvider({ children }: TerminalProviderProps) {
     [state.tabsByWorkspace, state.activeTabByWorkspace]
   );
 
-  const createTab = useCallback((workspaceId: string, cwd: string) => {
-    dispatch({ type: 'CREATE_TAB', workspaceId, cwd });
-  }, []);
+  const createTab = useCallback(
+    (workspaceId: string, cwd: string, options?: CreateTerminalTabOptions) => {
+      dispatch({ type: 'CREATE_TAB', workspaceId, cwd, options });
+    },
+    []
+  );
 
   const closeTerminalConnection = useCallback((tabId: string) => {
     // Mark as intentionally closed to prevent reconnection

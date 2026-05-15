@@ -7,8 +7,14 @@ use axum::{
     routing::get,
 };
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
-use db::models::{workspace::Workspace, workspace_repo::WorkspaceRepo};
+use db::models::{
+    execution_process::{ExecutionProcess, ExecutionProcessStatus},
+    workspace::Workspace,
+    workspace_repo::WorkspaceRepo,
+};
 use deployment::Deployment;
+use executors::executors::BaseCodingAgent;
+use local_deployment::pty::build_tmux_attach_command;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -21,6 +27,8 @@ use crate::{
 #[derive(Debug, Deserialize)]
 struct TerminalQuery {
     pub workspace_id: Uuid,
+    #[serde(default)]
+    pub tmux_session: Option<String>,
     #[serde(default = "default_cols")]
     pub cols: u16,
     #[serde(default = "default_rows")]
@@ -69,6 +77,10 @@ async fn terminal_ws(
         ));
     }
 
+    if let Some(tmux_session) = query.tmux_session.as_deref() {
+        validate_tmux_session_for_workspace(&deployment, attempt.id, tmux_session).await?;
+    }
+
     let mut working_dir = base_dir.clone();
     match WorkspaceRepo::find_repos_for_workspace(&deployment.db().pool, query.workspace_id).await {
         Ok(repos) if repos.len() == 1 => {
@@ -88,8 +100,60 @@ async fn terminal_ws(
     }
 
     Ok(ws.on_upgrade(move |socket| {
-        handle_terminal_ws(socket, deployment, working_dir, query.cols, query.rows)
+        handle_terminal_ws(
+            socket,
+            deployment,
+            working_dir,
+            query.cols,
+            query.rows,
+            query.tmux_session,
+        )
     }))
+}
+
+async fn validate_tmux_session_for_workspace(
+    deployment: &DeploymentImpl,
+    workspace_id: Uuid,
+    tmux_session: &str,
+) -> Result<(), ApiError> {
+    let execution_id = tmux_session
+        .strip_prefix("vk-claude-")
+        .and_then(|id| Uuid::parse_str(id).ok())
+        .ok_or_else(|| ApiError::BadRequest("Unsupported tmux session".to_string()))?;
+
+    let process = ExecutionProcess::find_by_id(&deployment.db().pool, execution_id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Tmux session execution not found".to_string()))?;
+    if process.status != ExecutionProcessStatus::Running {
+        return Err(ApiError::BadRequest(
+            "Tmux session execution is not running".to_string(),
+        ));
+    }
+    let executor = process
+        .executor_action()
+        .map_err(|err| ApiError::BadRequest(err.to_string()))?
+        .base_executor();
+    if executor != Some(BaseCodingAgent::ClaudeTerminal) {
+        return Err(ApiError::BadRequest(
+            "Tmux session is not a Claude terminal execution".to_string(),
+        ));
+    }
+    let Some((workspace, _)) = process
+        .parent_workspace_and_session(&deployment.db().pool)
+        .await?
+    else {
+        return Err(ApiError::BadRequest(
+            "Tmux session workspace not found".to_string(),
+        ));
+    };
+
+    if workspace.id != workspace_id {
+        return Err(ApiError::BadRequest(
+            "Tmux session does not belong to workspace".to_string(),
+        ));
+    }
+
+    Ok(())
 }
 
 async fn handle_terminal_ws(
@@ -98,12 +162,30 @@ async fn handle_terminal_ws(
     working_dir: PathBuf,
     cols: u16,
     rows: u16,
+    tmux_session: Option<String>,
 ) {
-    let (session_id, mut output_rx) = match deployment
-        .pty()
-        .create_session(working_dir, cols, rows)
-        .await
-    {
+    let create_result = if let Some(tmux_session) = tmux_session {
+        if !tmux_session.starts_with("vk-claude-") {
+            let _ = send_error(&mut socket, "Unsupported tmux session").await;
+            return;
+        }
+        deployment
+            .pty()
+            .create_command_session(
+                working_dir,
+                cols,
+                rows,
+                build_tmux_attach_command(&tmux_session),
+            )
+            .await
+    } else {
+        deployment
+            .pty()
+            .create_session(working_dir, cols, rows)
+            .await
+    };
+
+    let (session_id, mut output_rx) = match create_result {
         Ok(result) => result,
         Err(e) => {
             tracing::error!("Failed to create PTY session: {}", e);
