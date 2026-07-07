@@ -1,6 +1,11 @@
 packages:
   - packages/*
 
+overrides:
+  "preact@<10.27.3": "^10.27.3"
+  "devalue@<5.6.4": "^5.6.4"
+  "fast-uri@<3.1.2": "^3.1.2"
+
 onlyBuiltDependencies:
   - '@sentry/cli'
   - core-js

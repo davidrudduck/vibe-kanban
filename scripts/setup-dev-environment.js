@@ -110,7 +110,12 @@ async function allocatePorts() {
   // Try to load existing ports first
   const existingPorts = loadPorts();
 
-  if (existingPorts) {
+  const portsValid = existingPorts &&
+    Number.isInteger(existingPorts.frontend) &&
+    Number.isInteger(existingPorts.backend) &&
+    Number.isInteger(existingPorts.preview_proxy);
+
+  if (portsValid) {
     // Verify existing ports are still available
     if (await verifyPorts(existingPorts)) {
       if (process.argv[2] === "get") {
@@ -126,6 +131,10 @@ async function allocatePorts() {
           "Existing ports are no longer available, finding new ones..."
         );
       }
+    }
+  } else if (existingPorts && !portsValid) {
+    if (process.argv[2] === "get") {
+      console.log("Saved ports are incomplete, reallocating...");
     }
   }
 
